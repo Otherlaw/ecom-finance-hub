@@ -3,7 +3,18 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
+import Dashboard from "./pages/Dashboard";
+import Fechamento from "./pages/Fechamento";
+import FluxoCaixa from "./pages/FluxoCaixa";
+import DRE from "./pages/DRE";
+import Balanco from "./pages/Balanco";
+import KPIs from "./pages/KPIs";
+import Projecoes from "./pages/Projecoes";
+import ICMS from "./pages/ICMS";
+import Conciliacao from "./pages/Conciliacao";
+import Empresas from "./pages/Empresas";
+import Usuarios from "./pages/Usuarios";
+import Configuracoes from "./pages/Configuracoes";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -15,8 +26,18 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/fechamento" element={<Fechamento />} />
+          <Route path="/fluxo-caixa" element={<FluxoCaixa />} />
+          <Route path="/dre" element={<DRE />} />
+          <Route path="/balanco" element={<Balanco />} />
+          <Route path="/kpis" element={<KPIs />} />
+          <Route path="/projecoes" element={<Projecoes />} />
+          <Route path="/icms" element={<ICMS />} />
+          <Route path="/conciliacao" element={<Conciliacao />} />
+          <Route path="/empresas" element={<Empresas />} />
+          <Route path="/usuarios" element={<Usuarios />} />
+          <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
