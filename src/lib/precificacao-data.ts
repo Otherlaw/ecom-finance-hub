@@ -59,7 +59,12 @@ export interface DadosTributacao {
   simplesAliquota: number;
   // Imposto estimado com alíquota média
   usarImpostoEstimado: boolean;
-  impostoEstimadoAliquota: number; // % alíquota média estipulada
+  icmsEstimado: number; // % ICMS médio estimado
+  pisCofinsEstimado: number; // % PIS/COFINS médio estimado
+  // Reforma Tributária 2026+ (IVA Dual)
+  simularReformaTributaria: boolean;
+  cbsAliquota: number; // % CBS (IVA Federal) - previsão ~8.8%
+  ibsAliquota: number; // % IBS (IVA Estadual/Municipal) - previsão ~17.7%
 }
 
 export interface NotaBaixaConfig {
@@ -154,6 +159,7 @@ export interface SimulacaoPrecificacao {
 export interface ResultadoPrecificacao {
   custoBase: number;
   tributosTotal: number;
+  tributosPercent: number; // % de tributos usado no cálculo
   comissaoTotal: number;
   tarifasTotal: number;
   freteTotal: number;
@@ -180,6 +186,16 @@ export interface ResultadoPrecificacao {
     descontoPercent: number;  // % desconto exibido
     descontoValor: number;    // Valor do desconto em R$
     precoFinalCliente: number; // Preço após desconto (= preço base)
+  };
+  // Comparação Reforma Tributária 2026+ (IVA Dual)
+  comparacaoReforma?: {
+    tributosAtualPercent: number;
+    tributosReformaPercent: number;
+    precoSugeridoReforma: number;
+    margemReforma: number;
+    margemReformaPercent: number;
+    diferencaMargemReais: number;
+    diferencaMargemPercent: number;
   };
 }
 
@@ -392,8 +408,13 @@ export const estimarPrecoMinimo = (simulacao: SimulacaoPrecificacao): number => 
   
   // Calcular percentuais de tributos
   let tributosPercent = 0;
-  if (tributacao.usarImpostoEstimado && tributacao.impostoEstimadoAliquota > 0) {
-    tributosPercent = tributacao.impostoEstimadoAliquota;
+  if (tributacao.usarImpostoEstimado) {
+    // Usar alíquotas médias estipuladas ou CBS/IBS da reforma
+    if (tributacao.simularReformaTributaria) {
+      tributosPercent = tributacao.cbsAliquota + tributacao.ibsAliquota;
+    } else {
+      tributosPercent = tributacao.icmsEstimado + tributacao.pisCofinsEstimado;
+    }
   } else if (regimeTributario === 'simples_nacional') {
     tributosPercent = tributacao.simplesAliquota;
   } else {
@@ -455,15 +476,21 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     falsoDesconto, marketplace
   } = simulacao;
   
-  // Calcular percentuais de tributos
+  // Calcular percentuais de tributos (regime atual ou estimado)
   let tributosPercent = 0;
-  if (tributacao.usarImpostoEstimado && tributacao.impostoEstimadoAliquota > 0) {
-    // Usar alíquota média estipulada pelo usuário
-    tributosPercent = tributacao.impostoEstimadoAliquota;
+  let tributosPercentReforma = 0;
+  
+  if (tributacao.usarImpostoEstimado) {
+    // Usar alíquotas médias estipuladas
+    tributosPercent = tributacao.icmsEstimado + tributacao.pisCofinsEstimado;
+    // Calcular também com reforma para comparação
+    tributosPercentReforma = tributacao.cbsAliquota + tributacao.ibsAliquota;
   } else if (regimeTributario === 'simples_nacional') {
     tributosPercent = tributacao.simplesAliquota;
+    tributosPercentReforma = tributacao.cbsAliquota + tributacao.ibsAliquota;
   } else {
     tributosPercent = tributacao.icmsAliquota + tributacao.pisAliquota + tributacao.cofinsAliquota;
+    tributosPercentReforma = tributacao.cbsAliquota + tributacao.ibsAliquota;
   }
   
   // Calcular gastos extras
@@ -552,9 +579,44 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     };
   }
   
+  // Calcular comparação com Reforma Tributária 2026+ se houver alíquotas configuradas
+  let comparacaoReforma: ResultadoPrecificacao['comparacaoReforma'];
+  if (tributosPercentReforma > 0 && tributosPercent !== tributosPercentReforma) {
+    const precoSugeridoReforma = calcularPrecoSugerido(
+      custoBase,
+      margemDesejada,
+      comissaoTotal,
+      tarifaTotal,
+      tributosPercentReforma,
+      freteVenda,
+      gastosExtrasFixos,
+      gastosExtrasPercent,
+      difalTotal
+    );
+    
+    const tributosReforma = (precoSugeridoReforma * tributosPercentReforma) / 100;
+    const comissaoReforma = (precoSugeridoReforma * comissaoTotal) / 100;
+    const gastosExtrasReforma = gastosExtrasFixos + (precoSugeridoReforma * gastosExtrasPercent) / 100;
+    const custoTotalReforma = custoBase + tributosReforma + comissaoReforma + tarifaTotal + freteVenda + gastosExtrasReforma + difalTotal;
+    
+    const margemReforma = precoSugeridoReforma - custoTotalReforma;
+    const margemReformaPercent = precoSugeridoReforma > 0 ? (margemReforma / precoSugeridoReforma) * 100 : 0;
+    
+    comparacaoReforma = {
+      tributosAtualPercent: tributosPercent,
+      tributosReformaPercent: tributosPercentReforma,
+      precoSugeridoReforma,
+      margemReforma,
+      margemReformaPercent,
+      diferencaMargemReais: margemReforma - margemComDifal,
+      diferencaMargemPercent: margemReformaPercent - margemComDifalPercent,
+    };
+  }
+  
   return {
     custoBase,
     tributosTotal,
+    tributosPercent,
     comissaoTotal: comissaoValor,
     tarifasTotal: tarifaTotal,
     freteTotal: freteVenda,
@@ -573,6 +635,7 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     margemManualSemDifal,
     margemManualSemDifalPercent,
     falsoDesconto: falsoDescontoResult,
+    comparacaoReforma,
   };
 };
 
@@ -635,7 +698,11 @@ export const criarSimulacaoInicial = (
       cofinsAliquota: aliquotas.cofins,
       simplesAliquota: aliquotas.simples,
       usarImpostoEstimado: false,
-      impostoEstimadoAliquota: 0,
+      icmsEstimado: 18,
+      pisCofinsEstimado: 9.25,
+      simularReformaTributaria: false,
+      cbsAliquota: 8.8, // Previsão CBS (IVA Federal)
+      ibsAliquota: 17.7, // Previsão IBS (IVA Estadual/Municipal)
     },
     comissao: config.comissaoPadrao,
     tarifaFixa: config.tarifaFixaPadrao,

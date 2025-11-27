@@ -915,7 +915,7 @@ export default function Precificacao() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Percent className="h-4 w-4 text-primary" />
-                          <Label className="font-semibold">Usar alíquota média estipulada</Label>
+                          <Label className="font-semibold">Usar imposto estimado (alíquota média)</Label>
                         </div>
                         <Switch
                           checked={simulacao?.tributacao.usarImpostoEstimado || false}
@@ -924,24 +924,99 @@ export default function Precificacao() {
                       </div>
                       
                       {simulacao?.tributacao.usarImpostoEstimado && (
-                        <div className="space-y-2">
+                        <div className="space-y-4">
                           <p className="text-xs text-muted-foreground">
-                            Use uma alíquota média estimada quando não tiver dados detalhados de cada imposto.
+                            Defina alíquotas médias estimadas quando não tiver dados detalhados de cada imposto.
                           </p>
-                          <div className="max-w-xs">
-                            <Label className="text-sm">Alíquota Média de Imposto (%)</Label>
-                            <Input
-                              type="number"
-                              step="0.1"
-                              placeholder="Ex: 18"
-                              value={simulacao?.tributacao.impostoEstimadoAliquota || ''}
-                              onChange={(e) => handleTributacaoChange('impostoEstimadoAliquota', parseFloat(e.target.value) || 0)}
-                              className="bg-background"
-                            />
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Este valor substitui ICMS + PIS + COFINS no cálculo
-                            </p>
+                          
+                          {/* Alíquotas do regime atual */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <Label className="text-sm">ICMS Médio (%)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                placeholder="Ex: 18"
+                                value={simulacao?.tributacao.icmsEstimado || ''}
+                                onChange={(e) => handleTributacaoChange('icmsEstimado', parseFloat(e.target.value) || 0)}
+                                className="bg-background"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-sm">PIS/COFINS Médio (%)</Label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                placeholder="Ex: 9.25"
+                                value={simulacao?.tributacao.pisCofinsEstimado || ''}
+                                onChange={(e) => handleTributacaoChange('pisCofinsEstimado', parseFloat(e.target.value) || 0)}
+                                className="bg-background"
+                              />
+                            </div>
                           </div>
+                          
+                          {/* Simulação Reforma Tributária 2026+ */}
+                          <Separator />
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <TrendingUp className="h-4 w-4 text-blue-600" />
+                                <Label className="font-semibold text-blue-800">Simular Reforma Tributária (2026+)</Label>
+                              </div>
+                              <Switch
+                                checked={simulacao?.tributacao.simularReformaTributaria || false}
+                                onCheckedChange={(checked) => handleTributacaoChange('simularReformaTributaria', checked)}
+                              />
+                            </div>
+                            
+                            <p className="text-xs text-muted-foreground">
+                              Compare a margem com o novo IVA Dual (CBS + IBS) previsto na Reforma Tributária.
+                            </p>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label className="text-sm">CBS - IVA Federal (%)</Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="8.8"
+                                  value={simulacao?.tributacao.cbsAliquota || ''}
+                                  onChange={(e) => handleTributacaoChange('cbsAliquota', parseFloat(e.target.value) || 0)}
+                                  className="bg-background"
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">Previsão: ~8.8%</p>
+                              </div>
+                              <div>
+                                <Label className="text-sm">IBS - IVA Estadual/Municipal (%)</Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="17.7"
+                                  value={simulacao?.tributacao.ibsAliquota || ''}
+                                  onChange={(e) => handleTributacaoChange('ibsAliquota', parseFloat(e.target.value) || 0)}
+                                  className="bg-background"
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">Previsão: ~17.7%</p>
+                              </div>
+                            </div>
+                            
+                            {simulacao?.tributacao.simularReformaTributaria && (
+                              <Alert className="bg-blue-50 border-blue-200">
+                                <Info className="h-4 w-4 text-blue-600" />
+                                <AlertDescription className="text-blue-700 text-xs">
+                                  Total IVA Dual: {formatPercent((simulacao?.tributacao.cbsAliquota || 0) + (simulacao?.tributacao.ibsAliquota || 0))} 
+                                  {' '}vs Regime Atual: {formatPercent((simulacao?.tributacao.icmsEstimado || 0) + (simulacao?.tributacao.pisCofinsEstimado || 0))}
+                                </AlertDescription>
+                              </Alert>
+                            )}
+                          </div>
+                          
+                          <Alert className="bg-amber-50 border-amber-200">
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
+                            <AlertDescription className="text-amber-700 text-xs">
+                              IPI e ST continuam sendo calculados normalmente (não são substituídos pelo imposto estimado).
+                            </AlertDescription>
+                          </Alert>
                         </div>
                       )}
                     </div>
@@ -980,11 +1055,11 @@ export default function Precificacao() {
                           </div>
                           <div>
                             <Label>ST (R$)</Label>
-                            <Input type="number" step="0.01" value={simulacao?.tributacao.stValor || ''} onChange={(e) => handleTributacaoChange('stValor', parseFloat(e.target.value) || 0)} disabled={simulacao?.tributacao.usarImpostoEstimado} />
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.stValor || ''} onChange={(e) => handleTributacaoChange('stValor', parseFloat(e.target.value) || 0)} />
                           </div>
                           <div>
                             <Label>IPI (R$)</Label>
-                            <Input type="number" step="0.01" value={simulacao?.tributacao.ipiValor || ''} onChange={(e) => handleTributacaoChange('ipiValor', parseFloat(e.target.value) || 0)} disabled={simulacao?.tributacao.usarImpostoEstimado} />
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.ipiValor || ''} onChange={(e) => handleTributacaoChange('ipiValor', parseFloat(e.target.value) || 0)} />
                           </div>
                         </div>
                         
@@ -1326,6 +1401,63 @@ export default function Precificacao() {
                                 {formatCurrency(resultado.margemSemDifal)} ({resultado.margemSemDifalPercent.toFixed(1)}%)
                               </span>
                             </div>
+                          </div>
+                        )}
+                        
+                        {/* Comparação Reforma Tributária 2026+ */}
+                        {resultado.comparacaoReforma && (
+                          <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <TrendingUp className="h-5 w-5 text-indigo-600" />
+                              <span className="font-semibold text-indigo-800">Impacto da Reforma Tributária (2026+)</span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div className="p-2 rounded bg-white border">
+                                <p className="text-muted-foreground text-xs">Tributos Atuais (ICMS + PIS/COFINS)</p>
+                                <p className="font-semibold">{formatPercent(resultado.comparacaoReforma.tributosAtualPercent)}</p>
+                              </div>
+                              <div className="p-2 rounded bg-white border">
+                                <p className="text-muted-foreground text-xs">IVA Dual (CBS + IBS)</p>
+                                <p className="font-semibold text-indigo-700">{formatPercent(resultado.comparacaoReforma.tributosReformaPercent)}</p>
+                              </div>
+                            </div>
+                            
+                            <Separator />
+                            
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div className="p-2 rounded bg-blue-50 border border-blue-200">
+                                <p className="text-blue-700 text-xs">💠 Margem com ICMS + PIS/COFINS</p>
+                                <p className="font-bold text-blue-800">
+                                  {formatCurrency(resultado.margemComDifal)} ({formatPercent(resultado.margemComDifalPercent)})
+                                </p>
+                              </div>
+                              <div className="p-2 rounded bg-indigo-50 border border-indigo-200">
+                                <p className="text-indigo-700 text-xs">💠 Margem com CBS + IBS</p>
+                                <p className="font-bold text-indigo-800">
+                                  {formatCurrency(resultado.comparacaoReforma.margemReforma)} ({formatPercent(resultado.comparacaoReforma.margemReformaPercent)})
+                                </p>
+                              </div>
+                            </div>
+                            
+                            <div className={`p-2 rounded text-center ${resultado.comparacaoReforma.diferencaMargemReais >= 0 ? 'bg-emerald-100 border border-emerald-300' : 'bg-red-100 border border-red-300'}`}>
+                              <p className={`text-xs ${resultado.comparacaoReforma.diferencaMargemReais >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                Diferença na Margem
+                              </p>
+                              <p className={`font-bold ${resultado.comparacaoReforma.diferencaMargemReais >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                                {resultado.comparacaoReforma.diferencaMargemReais >= 0 ? '+' : ''}{formatCurrency(resultado.comparacaoReforma.diferencaMargemReais)}
+                                {' '}({resultado.comparacaoReforma.diferencaMargemPercent >= 0 ? '+' : ''}{resultado.comparacaoReforma.diferencaMargemPercent.toFixed(1)}%)
+                              </p>
+                            </div>
+                            
+                            <div className="p-2 rounded bg-white border">
+                              <p className="text-muted-foreground text-xs">Preço Recomendado com IVA Dual</p>
+                              <p className="font-semibold text-indigo-700">{formatCurrency(resultado.comparacaoReforma.precoSugeridoReforma)}</p>
+                            </div>
+                            
+                            <p className="text-xs text-indigo-600">
+                              Projeção baseada nas alíquotas estimadas da Reforma Tributária. Use para planejamento estratégico de longo prazo.
+                            </p>
                           </div>
                         )}
                         
