@@ -51,6 +51,7 @@ import {
   TrendingDown,
   Receipt,
   Repeat,
+  FileBarChart,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -72,6 +73,7 @@ export default function ContasPagar() {
   const [pagamentoModalOpen, setPagamentoModalOpen] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [relatoriosOpen, setRelatoriosOpen] = useState(false);
   const [selectedConta, setSelectedConta] = useState<ContaPagar | null>(null);
   
   // Filters
@@ -261,30 +263,31 @@ export default function ContasPagar() {
   };
 
   return (
-    <MainLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Contas a Pagar</h1>
-            <p className="text-muted-foreground">Gerencie todas as despesas e pagamentos</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setImportModalOpen(true)}>
-              <Upload className="h-4 w-4 mr-2" />
-              Importar
-            </Button>
-            <Button variant="outline" onClick={handleExport}>
-              <Download className="h-4 w-4 mr-2" />
-              Exportar
-            </Button>
-            <Button onClick={handleNewConta}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Conta
-            </Button>
-          </div>
+    <MainLayout
+      title="Contas a Pagar"
+      subtitle="Gerencie todas as despesas e pagamentos"
+      actions={
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setImportModalOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Importar
+          </Button>
+          <Button variant="outline" onClick={handleExport}>
+            <Download className="h-4 w-4 mr-2" />
+            Exportar
+          </Button>
+          <Button variant="outline" onClick={() => setActiveTab('relatorios')}>
+            <FileBarChart className="h-4 w-4 mr-2" />
+            Relatórios
+          </Button>
+          <Button onClick={() => { setSelectedConta(null); setFormModalOpen(true); }}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nova Conta
+          </Button>
         </div>
-
+      }
+    >
+      <div className="space-y-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-5 gap-4">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200">
