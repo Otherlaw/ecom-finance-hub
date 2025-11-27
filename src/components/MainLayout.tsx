@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
+import { AssistantCharacter } from "@/components/assistant/AssistantCharacter";
 import { Bell, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,9 @@ export function MainLayout({ children, title, subtitle, actions }: MainLayoutPro
           {children}
         </main>
       </div>
+
+      {/* Intelligent Assistant */}
+      <AssistantCharacter />
     </div>
   );
 }
