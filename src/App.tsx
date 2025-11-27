@@ -16,7 +16,9 @@ import ChecklistFechamento from "./pages/ChecklistFechamento";
 import Empresas from "./pages/Empresas";
 import Usuarios from "./pages/Usuarios";
 import Configuracoes from "./pages/Configuracoes";
+import AssistantCenter from "./pages/AssistantCenter";
 import NotFound from "./pages/NotFound";
+import { AssistantWidget } from "./components/assistant/AssistantWidget";
 
 const queryClient = new QueryClient();
 
@@ -37,11 +39,13 @@ const App = () => (
           <Route path="/icms" element={<ICMS />} />
           <Route path="/conciliacao" element={<Conciliacao />} />
           <Route path="/checklist-fechamento" element={<ChecklistFechamento />} />
+          <Route path="/assistant" element={<AssistantCenter />} />
           <Route path="/empresas" element={<Empresas />} />
           <Route path="/usuarios" element={<Usuarios />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
+        <AssistantWidget />
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
