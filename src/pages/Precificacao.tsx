@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,56 +9,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 import {
-  Calculator,
-  FileText,
-  Upload,
-  Building2,
-  Package,
-  Store,
-  Truck,
-  Receipt,
-  PlusCircle,
-  Trash2,
-  Info,
-  TrendingUp,
-  AlertTriangle,
-  CheckCircle,
-  DollarSign,
-  Percent,
-  Target,
-  Lightbulb,
-  ChevronRight,
-  Search,
+  Calculator, FileText, Upload, Building2, Package, Store, Truck, Receipt,
+  PlusCircle, Trash2, Info, TrendingUp, AlertTriangle, CheckCircle, DollarSign,
+  Percent, Target, Lightbulb, ChevronRight, Search, ChevronDown, Eye, FileCode,
 } from 'lucide-react';
 import {
-  SimulacaoPrecificacao,
-  ResultadoPrecificacao,
-  GastoExtra,
-  TaxaMarketplace,
-  DadosCustoNF,
-  MARKETPLACE_CONFIG,
-  MARKETPLACES_LIST,
-  ALIQUOTAS_REGIME,
-  GASTOS_EXTRAS_SUGESTOES,
-  formatCurrency,
-  formatPercent,
-  calcularResultadoPrecificacao,
-  criarSimulacaoInicial,
-  isFreteGratisML,
-  MarketplaceId,
-  TipoGastoExtra,
-  BaseCalculo,
+  SimulacaoPrecificacao, ResultadoPrecificacao, GastoExtra, DadosCustoNF,
+  MARKETPLACE_CONFIG, MARKETPLACES_LIST, GASTOS_EXTRAS_SUGESTOES,
+  formatCurrency, formatPercent, calcularResultadoPrecificacao, criarSimulacaoInicial,
+  isFreteGratisML, MarketplaceId, TipoGastoExtra, BaseCalculo, calcularCustoEfetivoNF,
 } from '@/lib/precificacao-data';
 import { mockEmpresas, REGIME_TRIBUTARIO_CONFIG, Empresa } from '@/lib/empresas-data';
 import { mockProducts, Product } from '@/lib/products-data';
 import { mockPurchases, Purchase, formatDate as formatPurchaseDate } from '@/lib/purchases-data';
+import { parseNFeXML, NotaFiscalXML, NotaFiscalItem } from '@/lib/icms-data';
 
 export default function Precificacao() {
   const { toast } = useToast();
@@ -71,25 +41,35 @@ export default function Precificacao() {
   // Estado da simulação completa
   const [simulacao, setSimulacao] = useState<SimulacaoPrecificacao | null>(null);
   
-  // Modal de seleção de NF
+  // Modal de seleção de NF da base
   const [nfModalOpen, setNfModalOpen] = useState(false);
   const [nfSearchTerm, setNfSearchTerm] = useState('');
   const [selectedNFItem, setSelectedNFItem] = useState<{ purchase: Purchase; itemIndex: number } | null>(null);
   
+  // Modal de upload XML
+  const [xmlUploadModalOpen, setXmlUploadModalOpen] = useState(false);
+  const [xmlParsed, setXmlParsed] = useState<NotaFiscalXML | null>(null);
+  const [selectedXmlItemIndex, setSelectedXmlItemIndex] = useState<number | null>(null);
+  
   // Modal de gastos extras
   const [gastoExtraModalOpen, setGastoExtraModalOpen] = useState(false);
   const [novoGastoExtra, setNovoGastoExtra] = useState<Partial<GastoExtra>>({
-    descricao: '',
-    tipo: 'percentual',
-    valor: 0,
-    baseCalculo: 'preco_venda',
+    descricao: '', tipo: 'percentual', valor: 0, baseCalculo: 'preco_venda',
   });
+  
+  // Detalhes do custo expandido
+  const [custoDetalhesOpen, setCustoDetalhesOpen] = useState(false);
   
   // Resultado calculado
   const resultado = useMemo<ResultadoPrecificacao | null>(() => {
-    if (!simulacao || simulacao.precoVenda <= 0) return null;
+    if (!simulacao || simulacao.custoBase <= 0) return null;
     return calcularResultadoPrecificacao(simulacao);
   }, [simulacao]);
+  
+  // Verificar frete grátis ML
+  const precoParaFrete = resultado?.precoSugerido || simulacao?.precoVendaManual || 0;
+  const isML = marketplaceSelecionado === 'mercadolivre';
+  const isFreteGratis = isML && isFreteGratisML(precoParaFrete);
   
   // Inicializar simulação quando selecionar empresa e marketplace
   useEffect(() => {
@@ -101,7 +81,6 @@ export default function Precificacao() {
         marketplaceSelecionado
       );
       
-      // Se tinha produto selecionado, manter custo base
       if (produtoSelecionado && simulacao?.custoBase) {
         novaSimulacao.custoBase = simulacao.custoBase;
         novaSimulacao.produtoId = produtoSelecionado.id;
@@ -111,16 +90,6 @@ export default function Precificacao() {
       setSimulacao(novaSimulacao);
     }
   }, [empresaSelecionada, marketplaceSelecionado]);
-  
-  // Atualizar frete grátis ML automaticamente
-  useEffect(() => {
-    if (simulacao && simulacao.marketplace === 'mercadolivre') {
-      const freteGratis = isFreteGratisML(simulacao.precoVenda);
-      if (freteGratis !== simulacao.freteGratisML) {
-        setSimulacao(prev => prev ? { ...prev, freteGratisML: freteGratis } : null);
-      }
-    }
-  }, [simulacao?.precoVenda, simulacao?.marketplace]);
   
   // Handlers
   const handleEmpresaChange = (empresaId: string) => {
@@ -136,13 +105,9 @@ export default function Precificacao() {
     const produto = mockProducts.find(p => p.id === produtoId);
     setProdutoSelecionado(produto || null);
     
-    // Preencher custo base com custo médio do produto
     if (produto && simulacao) {
       setSimulacao(prev => prev ? {
-        ...prev,
-        custoBase: produto.custoMedio,
-        produtoId: produto.id,
-        produtoNome: produto.nome,
+        ...prev, custoBase: produto.custoMedio, produtoId: produto.id, produtoNome: produto.nome,
       } : null);
     }
   };
@@ -157,8 +122,7 @@ export default function Precificacao() {
   
   const handleTributacaoChange = (field: string, value: number) => {
     setSimulacao(prev => prev ? {
-      ...prev,
-      tributacao: { ...prev.tributacao, [field]: value },
+      ...prev, tributacao: { ...prev.tributacao, [field]: value },
     } : null);
   };
   
@@ -186,11 +150,7 @@ export default function Precificacao() {
       baseCalculo: novoGastoExtra.baseCalculo as BaseCalculo,
     };
     
-    setSimulacao(prev => prev ? {
-      ...prev,
-      gastosExtras: [...prev.gastosExtras, gasto],
-    } : null);
-    
+    setSimulacao(prev => prev ? { ...prev, gastosExtras: [...prev.gastosExtras, gasto] } : null);
     setNovoGastoExtra({ descricao: '', tipo: 'percentual', valor: 0, baseCalculo: 'preco_venda' });
     setGastoExtraModalOpen(false);
     toast({ title: 'Gasto adicionado', description: gasto.descricao });
@@ -198,31 +158,34 @@ export default function Precificacao() {
   
   const handleRemoverGastoExtra = (gastoId: string) => {
     setSimulacao(prev => prev ? {
-      ...prev,
-      gastosExtras: prev.gastosExtras.filter(g => g.id !== gastoId),
+      ...prev, gastosExtras: prev.gastosExtras.filter(g => g.id !== gastoId),
     } : null);
   };
   
   const handleSelecionarSugestaoGasto = (sugestao: typeof GASTOS_EXTRAS_SUGESTOES[0]) => {
     setNovoGastoExtra({
-      descricao: sugestao.descricao,
-      tipo: sugestao.tipo,
-      valor: sugestao.valor,
-      baseCalculo: sugestao.baseCalculo,
+      descricao: sugestao.descricao, tipo: sugestao.tipo, valor: sugestao.valor, baseCalculo: sugestao.baseCalculo,
     });
   };
   
-  // Selecionar NF e item para custo
+  // Selecionar NF da base
   const handleSelecionarNFItem = () => {
     if (!selectedNFItem) return;
     
     const { purchase, itemIndex } = selectedNFItem;
     const item = purchase.itens[itemIndex];
     
-    // Calcular rateio de frete (simplificado)
-    const proporcao = item.valorTotal / purchase.valorTotal;
+    const custoCalculado = calcularCustoEfetivoNF({
+      valorTotalItem: item.valorTotal,
+      quantidade: item.quantidade,
+      freteNF: 0,
+      despesasAcessorias: 0,
+      descontos: 0,
+      valorTotalNF: purchase.valorTotal,
+    });
     
     const dadosCusto: DadosCustoNF = {
+      ...custoCalculado,
       nfNumero: purchase.numeroNF || '',
       nfChave: purchase.chaveAcesso,
       fornecedor: purchase.fornecedor,
@@ -231,19 +194,11 @@ export default function Precificacao() {
       quantidade: item.quantidade,
       valorUnitario: item.valorUnitario,
       valorTotalItem: item.valorTotal,
-      freteRateado: 0, // Simplificado - pode ser expandido
-      despesasAcessorias: 0,
-      descontos: 0,
-      custoEfetivo: item.valorTotal,
-      custoEfetivoPorUnidade: item.valorUnitario,
+      valorTotalNF: purchase.valorTotal,
       icmsDestacado: item.valorIcms || 0,
       icmsAliquota: item.aliquotaIcms || 0,
-      stDestacado: 0,
-      ipiDestacado: 0,
-      ipiAliquota: 0,
     };
     
-    // Atualizar simulação
     setSimulacao(prev => {
       if (!prev) return null;
       return {
@@ -260,10 +215,96 @@ export default function Precificacao() {
     
     setNfModalOpen(false);
     setSelectedNFItem(null);
-    toast({ title: 'Custo atualizado', description: `Custo por unidade: ${formatCurrency(dadosCusto.custoEfetivoPorUnidade)}` });
+    setCustoDetalhesOpen(true);
+    toast({ title: 'Custo calculado via NF', description: `Custo efetivo: ${formatCurrency(dadosCusto.custoEfetivoPorUnidade)}/un` });
   };
   
-  // Filtrar compras para seleção
+  // Upload de XML
+  const handleXmlUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.name.toLowerCase().endsWith('.xml')) {
+      toast({ title: 'Erro', description: 'Envie apenas arquivos XML de NF-e', variant: 'destructive' });
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      const nfe = parseNFeXML(content);
+      
+      if (!nfe) {
+        toast({ title: 'Erro', description: 'Não foi possível ler o XML. Verifique se é uma NF-e válida.', variant: 'destructive' });
+        return;
+      }
+      
+      setXmlParsed(nfe);
+      setSelectedXmlItemIndex(null);
+      toast({ title: 'XML carregado', description: `NF ${nfe.numero} - ${nfe.itens.length} itens encontrados` });
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  }, [toast]);
+  
+  const handleConfirmarItemXml = () => {
+    if (!xmlParsed || selectedXmlItemIndex === null) return;
+    
+    const item = xmlParsed.itens[selectedXmlItemIndex];
+    
+    const custoCalculado = calcularCustoEfetivoNF({
+      valorTotalItem: item.valorTotal,
+      quantidade: item.quantidade,
+      freteNF: xmlParsed.freteTotal || 0,
+      despesasAcessorias: xmlParsed.outrasDepesas || 0,
+      descontos: xmlParsed.descontoTotal || 0,
+      valorTotalNF: xmlParsed.valorTotal,
+    });
+    
+    const dadosCusto: DadosCustoNF = {
+      ...custoCalculado,
+      nfNumero: xmlParsed.numero,
+      nfChave: xmlParsed.chaveAcesso,
+      fornecedor: xmlParsed.emitente.razaoSocial,
+      dataEmissao: xmlParsed.dataEmissao,
+      itemDescricao: item.descricao,
+      quantidade: item.quantidade,
+      valorUnitario: item.valorUnitario,
+      valorTotalItem: item.valorTotal,
+      valorTotalNF: xmlParsed.valorTotal,
+      freteNF: xmlParsed.freteTotal || 0,
+      despesasAcessorias: xmlParsed.outrasDepesas || 0,
+      descontosNF: xmlParsed.descontoTotal || 0,
+      icmsDestacado: item.valorIcms,
+      icmsAliquota: item.aliquotaIcms,
+      stDestacado: item.icmsST || 0,
+      ipiDestacado: 0,
+      ipiAliquota: 0,
+    };
+    
+    setSimulacao(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        custoBase: dadosCusto.custoEfetivoPorUnidade,
+        custoNF: dadosCusto,
+        tributacao: {
+          ...prev.tributacao,
+          icmsAliquota: dadosCusto.icmsAliquota || prev.tributacao.icmsAliquota,
+          icmsCredito: dadosCusto.icmsDestacado,
+          stValor: dadosCusto.stDestacado,
+        },
+      };
+    });
+    
+    setXmlUploadModalOpen(false);
+    setXmlParsed(null);
+    setSelectedXmlItemIndex(null);
+    setCustoDetalhesOpen(true);
+    toast({ title: 'Custo calculado via XML', description: `Custo efetivo: ${formatCurrency(dadosCusto.custoEfetivoPorUnidade)}/un` });
+  };
+  
+  // Filtrar compras
   const comprasFiltradas = useMemo(() => {
     if (!empresaSelecionada) return [];
     return mockPurchases.filter(p => {
@@ -280,8 +321,6 @@ export default function Precificacao() {
   
   const marketplaceConfig = MARKETPLACE_CONFIG[marketplaceSelecionado];
   const regimeConfig = empresaSelecionada ? REGIME_TRIBUTARIO_CONFIG[empresaSelecionada.regimeTributario] : null;
-  const isML = marketplaceSelecionado === 'mercadolivre';
-  const isFreteGratis = simulacao && isML && isFreteGratisML(simulacao.precoVenda);
 
   return (
     <div className="flex min-h-screen w-full bg-background">
@@ -296,7 +335,7 @@ export default function Precificacao() {
                 Precificação
               </h1>
               <p className="text-muted-foreground">
-                Simulador completo de formação de preço por marketplace
+                Calcule o preço de venda ideal com base no custo efetivo e margem desejada
               </p>
             </div>
           </div>
@@ -313,10 +352,7 @@ export default function Precificacao() {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label>Empresa *</Label>
-                  <Select
-                    value={empresaSelecionada?.id || ''}
-                    onValueChange={handleEmpresaChange}
-                  >
+                  <Select value={empresaSelecionada?.id || ''} onValueChange={handleEmpresaChange}>
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione a empresa" />
                     </SelectTrigger>
@@ -333,44 +369,27 @@ export default function Precificacao() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {regimeConfig && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Regime: {regimeConfig.label}
-                    </p>
-                  )}
+                  {regimeConfig && <p className="text-xs text-muted-foreground mt-1">Regime: {regimeConfig.label}</p>}
                 </div>
                 
                 <div>
                   <Label>Produto (opcional)</Label>
-                  <Select
-                    value={produtoSelecionado?.id || 'none'}
-                    onValueChange={handleProdutoChange}
-                  >
+                  <Select value={produtoSelecionado?.id || 'none'} onValueChange={handleProdutoChange}>
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione o produto" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Nenhum produto</SelectItem>
                       {mockProducts.map(prod => (
-                        <SelectItem key={prod.id} value={prod.id}>
-                          {prod.nome}
-                        </SelectItem>
+                        <SelectItem key={prod.id} value={prod.id}>{prod.nome}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {produtoSelecionado && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Custo médio: {formatCurrency(produtoSelecionado.custoMedio)}
-                    </p>
-                  )}
                 </div>
                 
                 <div>
                   <Label>Marketplace *</Label>
-                  <Select
-                    value={marketplaceSelecionado}
-                    onValueChange={(v) => handleMarketplaceChange(v as MarketplaceId)}
-                  >
+                  <Select value={marketplaceSelecionado} onValueChange={(v) => handleMarketplaceChange(v as MarketplaceId)}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -385,9 +404,7 @@ export default function Precificacao() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Comissão padrão: {marketplaceConfig.comissaoPadrao}%
-                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">Comissão: {marketplaceConfig.comissaoPadrao}%</p>
                 </div>
               </div>
             </CardContent>
@@ -397,9 +414,7 @@ export default function Precificacao() {
             <Alert>
               <Info className="h-4 w-4" />
               <AlertTitle>Selecione uma empresa</AlertTitle>
-              <AlertDescription>
-                Para iniciar a simulação de precificação, selecione uma empresa acima.
-              </AlertDescription>
+              <AlertDescription>Para iniciar a simulação, selecione uma empresa acima.</AlertDescription>
             </Alert>
           ) : (
             <div className="grid grid-cols-3 gap-6">
@@ -410,10 +425,10 @@ export default function Precificacao() {
                   <CardHeader className="pb-3">
                     <CardTitle className="text-lg flex items-center gap-2">
                       <FileText className="h-5 w-5" />
-                      Custo Efetivo do Produto
+                      Custo Efetivo via NF (XML)
                     </CardTitle>
                     <CardDescription>
-                      Calcule o custo por unidade a partir de uma NF ou informe manualmente
+                      Calcule o custo por unidade a partir de uma Nota Fiscal XML
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -422,25 +437,95 @@ export default function Precificacao() {
                         <FileText className="h-4 w-4 mr-2" />
                         Selecionar NF da Base
                       </Button>
-                      <Button variant="outline" disabled>
-                        <Upload className="h-4 w-4 mr-2" />
-                        Upload XML/PDF
+                      <Button variant="outline" onClick={() => setXmlUploadModalOpen(true)}>
+                        <FileCode className="h-4 w-4 mr-2" />
+                        Upload XML de NF-e
                       </Button>
                     </div>
                     
                     {simulacao?.custoNF && (
-                      <Alert className="bg-emerald-50 border-emerald-200">
-                        <CheckCircle className="h-4 w-4 text-emerald-600" />
-                        <AlertTitle className="text-emerald-800">Custo calculado via NF</AlertTitle>
-                        <AlertDescription className="text-emerald-700">
-                          <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
-                            <div>NF: {simulacao.custoNF.nfNumero}</div>
-                            <div>Fornecedor: {simulacao.custoNF.fornecedor}</div>
-                            <div>Item: {simulacao.custoNF.itemDescricao}</div>
-                            <div>Quantidade: {simulacao.custoNF.quantidade}</div>
-                          </div>
-                        </AlertDescription>
-                      </Alert>
+                      <div className="space-y-2">
+                        <Alert className="bg-emerald-50 border-emerald-200">
+                          <CheckCircle className="h-4 w-4 text-emerald-600" />
+                          <AlertTitle className="text-emerald-800">Custo Efetivo Calculado</AlertTitle>
+                          <AlertDescription className="text-emerald-700">
+                            <div className="flex items-center justify-between mt-2">
+                              <span className="text-lg font-bold">{formatCurrency(simulacao.custoNF.custoEfetivoPorUnidade)} / unidade</span>
+                              <Button variant="ghost" size="sm" onClick={() => setCustoDetalhesOpen(!custoDetalhesOpen)}>
+                                <Eye className="h-4 w-4 mr-1" />
+                                {custoDetalhesOpen ? 'Ocultar' : 'Ver'} Detalhes
+                              </Button>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                        
+                        <Collapsible open={custoDetalhesOpen} onOpenChange={setCustoDetalhesOpen}>
+                          <CollapsibleContent>
+                            <div className="p-4 rounded-lg bg-secondary/30 border space-y-3 text-sm">
+                              <h4 className="font-semibold flex items-center gap-2">
+                                <Info className="h-4 w-4" />
+                                Memória de Cálculo do Custo Efetivo
+                              </h4>
+                              <Separator />
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="text-muted-foreground">NF:</div>
+                                <div className="font-medium">{simulacao.custoNF.nfNumero}</div>
+                                <div className="text-muted-foreground">Fornecedor:</div>
+                                <div className="font-medium">{simulacao.custoNF.fornecedor}</div>
+                                <div className="text-muted-foreground">Item:</div>
+                                <div className="font-medium">{simulacao.custoNF.itemDescricao}</div>
+                                <div className="text-muted-foreground">Quantidade:</div>
+                                <div className="font-medium">{simulacao.custoNF.quantidade} un</div>
+                              </div>
+                              <Separator />
+                              <div className="space-y-1">
+                                <div className="flex justify-between">
+                                  <span>Valor do item na NF:</span>
+                                  <span className="font-medium">{formatCurrency(simulacao.custoNF.valorTotalItem)}</span>
+                                </div>
+                                {simulacao.custoNF.freteRateado > 0 && (
+                                  <div className="flex justify-between">
+                                    <span>+ Frete rateado ({simulacao.custoNF.proporcaoItem}%):</span>
+                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.freteRateado)}</span>
+                                  </div>
+                                )}
+                                {simulacao.custoNF.despesasRateadas > 0 && (
+                                  <div className="flex justify-between">
+                                    <span>+ Despesas acessórias rateadas:</span>
+                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.despesasRateadas)}</span>
+                                  </div>
+                                )}
+                                {simulacao.custoNF.descontosRateados > 0 && (
+                                  <div className="flex justify-between">
+                                    <span>- Descontos rateados:</span>
+                                    <span className="font-medium text-emerald-600">-{formatCurrency(simulacao.custoNF.descontosRateados)}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <Separator />
+                              <div className="flex justify-between text-base font-semibold">
+                                <span>Custo Total Atribuído:</span>
+                                <span>{formatCurrency(simulacao.custoNF.custoEfetivo)}</span>
+                              </div>
+                              <div className="flex justify-between text-base font-semibold text-emerald-700">
+                                <span>Custo Efetivo por Unidade:</span>
+                                <span>{formatCurrency(simulacao.custoNF.custoEfetivo)} ÷ {simulacao.custoNF.quantidade} = {formatCurrency(simulacao.custoNF.custoEfetivoPorUnidade)}</span>
+                              </div>
+                              {simulacao.custoNF.icmsDestacado > 0 && (
+                                <>
+                                  <Separator />
+                                  <div className="text-muted-foreground">
+                                    <div className="flex justify-between">
+                                      <span>ICMS destacado na NF:</span>
+                                      <span>{formatCurrency(simulacao.custoNF.icmsDestacado)} ({simulacao.custoNF.icmsAliquota}%)</span>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </div>
                     )}
                     
                     <div className="grid grid-cols-2 gap-4">
@@ -453,17 +538,9 @@ export default function Precificacao() {
                           onChange={(e) => handleSimulacaoChange('custoBase', parseFloat(e.target.value) || 0)}
                           placeholder="0,00"
                         />
-                      </div>
-                      <div>
-                        <Label>Preço de Venda (R$)</Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={simulacao?.precoVenda || ''}
-                          onChange={(e) => handleSimulacaoChange('precoVenda', parseFloat(e.target.value) || 0)}
-                          placeholder="0,00"
-                          className="text-lg font-semibold"
-                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {simulacao?.custoNF ? 'Preenchido via NF - editável' : 'Preencha via NF ou manualmente'}
+                        </p>
                       </div>
                     </div>
                   </CardContent>
@@ -476,13 +553,11 @@ export default function Precificacao() {
                       <Receipt className="h-5 w-5" />
                       Tributação
                       {simulacao?.custoNF && (
-                        <Badge variant="outline" className="ml-2 text-xs">
-                          Dados preenchidos via NF
-                        </Badge>
+                        <Badge variant="outline" className="ml-2 text-xs">Dados preenchidos via NF</Badge>
                       )}
                     </CardTitle>
                     <CardDescription>
-                      Tributos incidentes conforme regime {regimeConfig?.label}. Valores editáveis.
+                      Tributos conforme regime {regimeConfig?.label}. Todos os campos são editáveis.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -510,75 +585,35 @@ export default function Precificacao() {
                       <div className="grid grid-cols-4 gap-4">
                         <div>
                           <Label>ICMS (%)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={simulacao?.tributacao.icmsAliquota || ''}
-                            onChange={(e) => handleTributacaoChange('icmsAliquota', parseFloat(e.target.value) || 0)}
-                          />
+                          <Input type="number" step="0.01" value={simulacao?.tributacao.icmsAliquota || ''} onChange={(e) => handleTributacaoChange('icmsAliquota', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
                           <Label>Crédito ICMS (R$)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={simulacao?.tributacao.icmsCredito || ''}
-                            onChange={(e) => handleTributacaoChange('icmsCredito', parseFloat(e.target.value) || 0)}
-                          />
+                          <Input type="number" step="0.01" value={simulacao?.tributacao.icmsCredito || ''} onChange={(e) => handleTributacaoChange('icmsCredito', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
                           <Label>ST (R$)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={simulacao?.tributacao.stValor || ''}
-                            onChange={(e) => handleTributacaoChange('stValor', parseFloat(e.target.value) || 0)}
-                          />
+                          <Input type="number" step="0.01" value={simulacao?.tributacao.stValor || ''} onChange={(e) => handleTributacaoChange('stValor', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
                           <Label>IPI (%)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={simulacao?.tributacao.ipiAliquota || ''}
-                            onChange={(e) => handleTributacaoChange('ipiAliquota', parseFloat(e.target.value) || 0)}
-                          />
+                          <Input type="number" step="0.01" value={simulacao?.tributacao.ipiAliquota || ''} onChange={(e) => handleTributacaoChange('ipiAliquota', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
                           <Label>DIFAL (%)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={simulacao?.tributacao.difalAliquota || ''}
-                            onChange={(e) => handleTributacaoChange('difalAliquota', parseFloat(e.target.value) || 0)}
-                          />
+                          <Input type="number" step="0.01" value={simulacao?.tributacao.difalAliquota || ''} onChange={(e) => handleTributacaoChange('difalAliquota', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
                           <Label>Fundo Fiscal DIFAL (R$)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={simulacao?.tributacao.fundoFiscalDifal || ''}
-                            onChange={(e) => handleTributacaoChange('fundoFiscalDifal', parseFloat(e.target.value) || 0)}
-                          />
+                          <Input type="number" step="0.01" value={simulacao?.tributacao.fundoFiscalDifal || ''} onChange={(e) => handleTributacaoChange('fundoFiscalDifal', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
                           <Label>PIS (%)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={simulacao?.tributacao.pisAliquota || ''}
-                            onChange={(e) => handleTributacaoChange('pisAliquota', parseFloat(e.target.value) || 0)}
-                          />
+                          <Input type="number" step="0.01" value={simulacao?.tributacao.pisAliquota || ''} onChange={(e) => handleTributacaoChange('pisAliquota', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
                           <Label>COFINS (%)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={simulacao?.tributacao.cofinsAliquota || ''}
-                            onChange={(e) => handleTributacaoChange('cofinsAliquota', parseFloat(e.target.value) || 0)}
-                          />
+                          <Input type="number" step="0.01" value={simulacao?.tributacao.cofinsAliquota || ''} onChange={(e) => handleTributacaoChange('cofinsAliquota', parseFloat(e.target.value) || 0)} />
                         </div>
                       </div>
                     )}
@@ -599,35 +634,22 @@ export default function Precificacao() {
                     <div className="grid grid-cols-3 gap-4">
                       <div>
                         <Label>Comissão (%)</Label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          value={simulacao?.comissao || ''}
-                          onChange={(e) => handleSimulacaoChange('comissao', parseFloat(e.target.value) || 0)}
-                        />
+                        <Input type="number" step="0.1" value={simulacao?.comissao || ''} onChange={(e) => handleSimulacaoChange('comissao', parseFloat(e.target.value) || 0)} />
                       </div>
                       <div>
                         <Label>Tarifa Fixa (R$)</Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={simulacao?.tarifaFixa || ''}
-                          onChange={(e) => handleSimulacaoChange('tarifaFixa', parseFloat(e.target.value) || 0)}
-                        />
+                        <Input type="number" step="0.01" value={simulacao?.tarifaFixa || ''} onChange={(e) => handleSimulacaoChange('tarifaFixa', parseFloat(e.target.value) || 0)} />
                       </div>
                     </div>
                     
                     {simulacao && simulacao.taxasExtras.length > 0 && (
                       <div>
-                        <Label className="text-sm text-muted-foreground">Taxas Extras (ativar se aplicável)</Label>
+                        <Label className="text-sm text-muted-foreground">Taxas Extras</Label>
                         <div className="space-y-2 mt-2">
                           {simulacao.taxasExtras.map(taxa => (
                             <div key={taxa.id} className="flex items-center justify-between p-2 border rounded-lg">
                               <div className="flex items-center gap-3">
-                                <Switch
-                                  checked={taxa.ativo}
-                                  onCheckedChange={() => handleTaxaExtraToggle(taxa.id)}
-                                />
+                                <Switch checked={taxa.ativo} onCheckedChange={() => handleTaxaExtraToggle(taxa.id)} />
                                 <span className="text-sm">{taxa.descricao}</span>
                               </div>
                               <Badge variant="outline">
@@ -657,7 +679,7 @@ export default function Precificacao() {
                             <CheckCircle className="h-4 w-4 text-emerald-600" />
                             <AlertTitle className="text-emerald-800">Frete Grátis para o Comprador</AlertTitle>
                             <AlertDescription className="text-emerald-700">
-                              Para anúncios até R$ 79,00, o frete é grátis para o comprador conforme as regras do Mercado Livre.
+                              Para anúncios até R$ 79,00, o frete é grátis conforme regras do Mercado Livre.
                             </AlertDescription>
                           </>
                         ) : (
@@ -665,7 +687,7 @@ export default function Precificacao() {
                             <Info className="h-4 w-4 text-amber-600" />
                             <AlertTitle className="text-amber-800">Preço acima de R$ 79,00</AlertTitle>
                             <AlertDescription className="text-amber-700">
-                              Configure o custo de frete esperado para este anúncio.
+                              Configure o custo de frete previsto para este anúncio.
                             </AlertDescription>
                           </>
                         )}
@@ -684,9 +706,7 @@ export default function Precificacao() {
                           disabled={isML && isFreteGratis}
                         />
                         {isML && isFreteGratis && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Frete não configurável para produtos até R$ 79,00
-                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">Frete não configurável para produtos até R$ 79,00</p>
                         )}
                       </div>
                     </div>
@@ -703,7 +723,7 @@ export default function Precificacao() {
                           Gastos Extras / Ajustes Variáveis
                         </CardTitle>
                         <CardDescription>
-                          Custos adicionais por venda: campanhas, cupons, taxas especiais, etc.
+                          Campanhas, cupons, taxas especiais, custo de notas compradas (se aplicável)
                         </CardDescription>
                       </div>
                       <Button variant="outline" size="sm" onClick={() => setGastoExtraModalOpen(true)}>
@@ -727,12 +747,7 @@ export default function Precificacao() {
                               <Badge variant="secondary">
                                 {gasto.tipo === 'fixo' ? formatCurrency(gasto.valor) : `${gasto.valor}%`}
                               </Badge>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-destructive"
-                                onClick={() => handleRemoverGastoExtra(gasto.id)}
-                              >
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleRemoverGastoExtra(gasto.id)}>
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
@@ -741,7 +756,7 @@ export default function Precificacao() {
                       </div>
                     ) : (
                       <p className="text-sm text-muted-foreground text-center py-4">
-                        Nenhum gasto extra adicionado. Clique em "Adicionar" para incluir custos como cupons, campanhas ou taxas especiais.
+                        Nenhum gasto extra. Clique em "Adicionar" para incluir custos como cupons ou taxas de campanha.
                       </p>
                     )}
                   </CardContent>
@@ -754,25 +769,42 @@ export default function Precificacao() {
                   <CardHeader className="pb-3">
                     <CardTitle className="text-lg flex items-center gap-2">
                       <Target className="h-5 w-5" />
-                      Resultado da Simulação
+                      Resultado da Precificação
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div>
-                      <Label>Margem Desejada (%)</Label>
+                    {/* Margem Desejada - Campo Principal */}
+                    <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+                      <Label className="text-primary font-semibold">Margem Desejada (%)</Label>
                       <Input
                         type="number"
                         step="1"
                         value={simulacao?.margemDesejada || ''}
                         onChange={(e) => handleSimulacaoChange('margemDesejada', parseFloat(e.target.value) || 0)}
-                        className="text-center font-semibold"
+                        className="text-center text-xl font-bold mt-2"
+                        placeholder="20"
                       />
                     </div>
                     
                     <Separator />
                     
-                    {resultado ? (
-                      <div className="space-y-3">
+                    {resultado && resultado.precoSugerido > 0 ? (
+                      <div className="space-y-4">
+                        {/* Preço Sugerido - Destaque */}
+                        <div className="p-4 rounded-xl bg-emerald-50 border-2 border-emerald-200">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Lightbulb className="h-5 w-5 text-emerald-600" />
+                            <span className="font-semibold text-emerald-800">Preço de Venda Sugerido</span>
+                          </div>
+                          <p className="text-3xl font-bold text-emerald-700">
+                            {formatCurrency(resultado.precoSugerido)}
+                          </p>
+                          <p className="text-sm text-emerald-600 mt-1">
+                            Para atingir margem de {simulacao?.margemDesejada}%
+                          </p>
+                        </div>
+                        
+                        {/* Detalhamento de custos */}
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Custo Base:</span>
@@ -798,63 +830,46 @@ export default function Precificacao() {
                             <span className="text-muted-foreground">Gastos Extras:</span>
                             <span className="text-destructive">-{formatCurrency(resultado.gastosExtrasTotal)}</span>
                           </div>
+                          <Separator />
+                          <div className="flex justify-between font-semibold">
+                            <span>Custo Total Variável:</span>
+                            <span>{formatCurrency(resultado.custoTotalVariavel)}</span>
+                          </div>
                         </div>
                         
                         <Separator />
                         
-                        <div className="flex justify-between font-medium">
-                          <span>Custo Total Variável:</span>
-                          <span>{formatCurrency(resultado.custoTotalVariavel)}</span>
+                        {/* Simulação Manual (Opcional) */}
+                        <div className="p-3 rounded-lg bg-secondary/30 space-y-3">
+                          <Label className="text-sm text-muted-foreground">
+                            Simular outro preço (opcional)
+                          </Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={simulacao?.precoVendaManual || ''}
+                            onChange={(e) => handleSimulacaoChange('precoVendaManual', parseFloat(e.target.value) || undefined)}
+                            placeholder="Digite um preço para ver a margem"
+                            className="text-center"
+                          />
+                          {resultado.margemManual !== undefined && resultado.margemManualPercent !== undefined && (
+                            <div className="p-2 rounded bg-background border">
+                              <div className="flex justify-between text-sm">
+                                <span>Margem com R$ {simulacao?.precoVendaManual?.toFixed(2)}:</span>
+                                <span className={resultado.margemManualPercent >= 0 ? 'text-emerald-600 font-semibold' : 'text-destructive font-semibold'}>
+                                  {formatCurrency(resultado.margemManual)} ({resultado.margemManualPercent.toFixed(1)}%)
+                                </span>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        
-                        <Separator />
-                        
-                        <div className="p-4 rounded-lg bg-secondary/50 space-y-3">
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Preço de Venda:</span>
-                            <span className="text-xl font-bold">{formatCurrency(resultado.receitaBruta)}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Margem (R$):</span>
-                            <span className={`text-lg font-bold ${resultado.margemContribuicao >= 0 ? 'text-success' : 'text-destructive'}`}>
-                              {formatCurrency(resultado.margemContribuicao)}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Margem (%):</span>
-                            <span className={`text-lg font-bold ${resultado.margemContribuicaoPercent >= 0 ? 'text-success' : 'text-destructive'}`}>
-                              {formatPercent(resultado.margemContribuicaoPercent)}
-                            </span>
-                          </div>
-                        </div>
-                        
-                        <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Lightbulb className="h-4 w-4 text-primary" />
-                            <span className="text-sm font-medium">Preço Mínimo Recomendado</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground mb-2">
-                            Para atingir margem de {simulacao?.margemDesejada}%:
-                          </p>
-                          <span className="text-2xl font-bold text-primary">
-                            {formatCurrency(resultado.precoMinimoRecomendado)}
-                          </span>
-                        </div>
-                        
-                        {resultado.margemContribuicaoPercent < (simulacao?.margemDesejada || 0) && (
-                          <Alert className="bg-amber-50 border-amber-200">
-                            <AlertTriangle className="h-4 w-4 text-amber-600" />
-                            <AlertDescription className="text-amber-700 text-xs">
-                              A margem atual ({formatPercent(resultado.margemContribuicaoPercent)}) está abaixo da desejada ({simulacao?.margemDesejada}%).
-                              Considere aumentar o preço para {formatCurrency(resultado.precoMinimoRecomendado)}.
-                            </AlertDescription>
-                          </Alert>
-                        )}
                       </div>
                     ) : (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Calculator className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                        <p>Informe o custo base e o preço de venda para ver o resultado.</p>
+                      <div className="text-center py-8">
+                        <Calculator className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                        <p className="text-muted-foreground">
+                          Preencha o <strong>custo base</strong> e a <strong>margem desejada</strong> para calcular o preço sugerido.
+                        </p>
                       </div>
                     )}
                   </CardContent>
@@ -865,138 +880,193 @@ export default function Precificacao() {
         </div>
       </main>
 
-      {/* Modal de Seleção de NF */}
+      {/* Modal Seleção NF da Base */}
       <Dialog open={nfModalOpen} onOpenChange={setNfModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh]">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Selecionar NF e Item para Custo</DialogTitle>
+            <DialogTitle>Selecionar NF da Base</DialogTitle>
+            <DialogDescription>Escolha uma NF e um item para calcular o custo efetivo</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar por fornecedor, número da NF ou item..."
+                placeholder="Buscar por fornecedor, número ou descrição..."
                 value={nfSearchTerm}
                 onChange={(e) => setNfSearchTerm(e.target.value)}
-                className="pl-9"
+                className="pl-10"
               />
             </div>
-            
-            <ScrollArea className="h-[400px]">
+            <ScrollArea className="h-[400px] border rounded-lg">
               {comprasFiltradas.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">
-                  Nenhuma NF encontrada para a empresa selecionada.
-                </p>
+                <p className="text-center text-muted-foreground py-8">Nenhuma NF encontrada para esta empresa.</p>
               ) : (
-                <div className="space-y-4">
-                  {comprasFiltradas.map(purchase => (
-                    <Card key={purchase.id}>
-                      <CardHeader className="py-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <CardTitle className="text-sm">NF {purchase.numeroNF || 'S/N'}</CardTitle>
-                            <CardDescription>{purchase.fornecedor}</CardDescription>
-                          </div>
-                          <div className="text-right text-sm">
-                            <div>{formatPurchaseDate(purchase.dataCompra)}</div>
-                            <div className="font-medium">{formatCurrency(purchase.valorTotal)}</div>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="py-0 pb-3">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Item</TableHead>
-                              <TableHead className="text-center">Qtd</TableHead>
-                              <TableHead className="text-right">Vl. Unit.</TableHead>
-                              <TableHead className="text-right">Total</TableHead>
-                              <TableHead className="w-20"></TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {purchase.itens.map((item, index) => (
-                              <TableRow 
-                                key={item.id}
-                                className={selectedNFItem?.purchase.id === purchase.id && selectedNFItem.itemIndex === index ? 'bg-primary/10' : ''}
-                              >
-                                <TableCell className="max-w-48 truncate text-sm">{item.descricaoNF}</TableCell>
-                                <TableCell className="text-center">{item.quantidade}</TableCell>
-                                <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
-                                <TableCell className="text-right font-medium">{formatCurrency(item.valorTotal)}</TableCell>
-                                <TableCell>
-                                  <Button
-                                    variant={selectedNFItem?.purchase.id === purchase.id && selectedNFItem.itemIndex === index ? 'default' : 'outline'}
-                                    size="sm"
-                                    onClick={() => setSelectedNFItem({ purchase, itemIndex: index })}
-                                  >
-                                    {selectedNFItem?.purchase.id === purchase.id && selectedNFItem.itemIndex === index ? 'Selecionado' : 'Selecionar'}
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>NF</TableHead>
+                      <TableHead>Fornecedor</TableHead>
+                      <TableHead>Item</TableHead>
+                      <TableHead className="text-right">Qtd</TableHead>
+                      <TableHead className="text-right">Valor</TableHead>
+                      <TableHead></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {comprasFiltradas.flatMap((purchase) =>
+                      purchase.itens.map((item, idx) => (
+                        <TableRow
+                          key={`${purchase.id}-${idx}`}
+                          className={selectedNFItem?.purchase.id === purchase.id && selectedNFItem?.itemIndex === idx ? 'bg-primary/10' : ''}
+                        >
+                          <TableCell className="font-medium">{purchase.numeroNF || '-'}</TableCell>
+                          <TableCell>{purchase.fornecedor}</TableCell>
+                          <TableCell className="max-w-[200px] truncate">{item.descricaoNF}</TableCell>
+                          <TableCell className="text-right">{item.quantidade}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.valorTotal)}</TableCell>
+                          <TableCell>
+                            <Button
+                              variant={selectedNFItem?.purchase.id === purchase.id && selectedNFItem?.itemIndex === idx ? 'default' : 'outline'}
+                              size="sm"
+                              onClick={() => setSelectedNFItem({ purchase, itemIndex: idx })}
+                            >
+                              Selecionar
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
               )}
             </ScrollArea>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNfModalOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSelecionarNFItem} disabled={!selectedNFItem}>
-              Usar Este Item
-            </Button>
+            <Button onClick={handleSelecionarNFItem} disabled={!selectedNFItem}>Usar Custo desta NF</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Modal de Gasto Extra */}
+      {/* Modal Upload XML */}
+      <Dialog open={xmlUploadModalOpen} onOpenChange={setXmlUploadModalOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileCode className="h-5 w-5" />
+              Upload de XML de NF-e
+            </DialogTitle>
+            <DialogDescription>Envie um arquivo XML de NF-e para calcular o custo efetivo</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {!xmlParsed ? (
+              <div className="border-2 border-dashed rounded-xl p-8 text-center">
+                <input type="file" accept=".xml" onChange={handleXmlUpload} className="hidden" id="xml-upload" />
+                <label htmlFor="xml-upload" className="cursor-pointer">
+                  <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-lg font-medium">Clique para selecionar arquivo XML</p>
+                  <p className="text-sm text-muted-foreground mt-2">Apenas arquivos XML de NF-e são aceitos</p>
+                </label>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <Alert className="bg-emerald-50 border-emerald-200">
+                  <CheckCircle className="h-4 w-4 text-emerald-600" />
+                  <AlertTitle className="text-emerald-800">XML Carregado</AlertTitle>
+                  <AlertDescription className="text-emerald-700">
+                    NF {xmlParsed.numero} - {xmlParsed.emitente.razaoSocial}
+                  </AlertDescription>
+                </Alert>
+                
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium">Dados da NF:</span> Frete: {formatCurrency(xmlParsed.freteTotal || 0)} | 
+                  Despesas: {formatCurrency(xmlParsed.outrasDepesas || 0)} | 
+                  Descontos: {formatCurrency(xmlParsed.descontoTotal || 0)}
+                </div>
+                
+                <Label>Selecione o item do produto:</Label>
+                <ScrollArea className="h-[300px] border rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead>NCM</TableHead>
+                        <TableHead className="text-right">Qtd</TableHead>
+                        <TableHead className="text-right">Valor Unit.</TableHead>
+                        <TableHead className="text-right">Valor Total</TableHead>
+                        <TableHead></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {xmlParsed.itens.map((item, idx) => (
+                        <TableRow key={idx} className={selectedXmlItemIndex === idx ? 'bg-primary/10' : ''}>
+                          <TableCell className="max-w-[200px] truncate">{item.descricao}</TableCell>
+                          <TableCell className="font-mono text-xs">{item.ncm}</TableCell>
+                          <TableCell className="text-right">{item.quantidade}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.valorTotal)}</TableCell>
+                          <TableCell>
+                            <Button
+                              variant={selectedXmlItemIndex === idx ? 'default' : 'outline'}
+                              size="sm"
+                              onClick={() => setSelectedXmlItemIndex(idx)}
+                            >
+                              Selecionar
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setXmlUploadModalOpen(false); setXmlParsed(null); setSelectedXmlItemIndex(null); }}>
+              Cancelar
+            </Button>
+            {xmlParsed && (
+              <Button onClick={handleConfirmarItemXml} disabled={selectedXmlItemIndex === null}>
+                Calcular Custo Efetivo
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Gastos Extras */}
       <Dialog open={gastoExtraModalOpen} onOpenChange={setGastoExtraModalOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Adicionar Gasto Extra</DialogTitle>
+            <DialogDescription>Custos adicionais por venda como campanhas, cupons ou taxas especiais</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <Label>Sugestões</Label>
               <div className="flex flex-wrap gap-2 mt-2">
-                {GASTOS_EXTRAS_SUGESTOES.map((sugestao, index) => (
-                  <Badge
-                    key={index}
-                    variant="outline"
-                    className="cursor-pointer hover:bg-secondary"
-                    onClick={() => handleSelecionarSugestaoGasto(sugestao)}
-                  >
+                {GASTOS_EXTRAS_SUGESTOES.map((sugestao, idx) => (
+                  <Button key={idx} variant="outline" size="sm" onClick={() => handleSelecionarSugestaoGasto(sugestao)}>
                     {sugestao.descricao}
-                  </Badge>
+                  </Button>
                 ))}
               </div>
             </div>
-            
             <Separator />
-            
             <div>
               <Label>Descrição</Label>
               <Input
                 value={novoGastoExtra.descricao || ''}
                 onChange={(e) => setNovoGastoExtra(prev => ({ ...prev, descricao: e.target.value }))}
-                placeholder="Ex: Cupom de desconto, Taxa campanha..."
+                placeholder="Ex.: Cupom de desconto"
               />
             </div>
-            
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Tipo</Label>
-                <Select
-                  value={novoGastoExtra.tipo}
-                  onValueChange={(v) => setNovoGastoExtra(prev => ({ ...prev, tipo: v as TipoGastoExtra }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select value={novoGastoExtra.tipo} onValueChange={(v) => setNovoGastoExtra(prev => ({ ...prev, tipo: v as TipoGastoExtra }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="fixo">Valor Fixo (R$)</SelectItem>
                     <SelectItem value="percentual">Percentual (%)</SelectItem>
@@ -1010,24 +1080,19 @@ export default function Precificacao() {
                   step="0.01"
                   value={novoGastoExtra.valor || ''}
                   onChange={(e) => setNovoGastoExtra(prev => ({ ...prev, valor: parseFloat(e.target.value) || 0 }))}
+                  placeholder="0"
                 />
               </div>
             </div>
-            
             {novoGastoExtra.tipo === 'percentual' && (
               <div>
                 <Label>Base de Cálculo</Label>
-                <Select
-                  value={novoGastoExtra.baseCalculo}
-                  onValueChange={(v) => setNovoGastoExtra(prev => ({ ...prev, baseCalculo: v as BaseCalculo }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select value={novoGastoExtra.baseCalculo} onValueChange={(v) => setNovoGastoExtra(prev => ({ ...prev, baseCalculo: v as BaseCalculo }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="preco_venda">Sobre o Preço de Venda</SelectItem>
-                    <SelectItem value="receita_liquida">Sobre a Receita Líquida</SelectItem>
-                    <SelectItem value="comissao">Sobre a Comissão</SelectItem>
+                    <SelectItem value="preco_venda">Preço de Venda</SelectItem>
+                    <SelectItem value="receita_liquida">Receita Líquida</SelectItem>
+                    <SelectItem value="comissao">Comissão</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
