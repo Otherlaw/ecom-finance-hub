@@ -18,6 +18,7 @@ import {
   Building2,
   Users,
   LogOut,
+  Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -42,6 +43,7 @@ const mainNavItems: NavItem[] = [
   { title: "Projeções", href: "/projecoes", icon: LineChart },
   { title: "Crédito ICMS", href: "/icms", icon: Receipt, badge: "!" },
   { title: "Conciliação Tiny", href: "/conciliacao", icon: RefreshCw },
+  { title: "Assis.Fin", href: "/assistant", icon: Bot, badge: "IA" },
 ];
 
 const settingsNavItems: NavItem[] = [
