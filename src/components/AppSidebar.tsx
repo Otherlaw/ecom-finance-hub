@@ -11,6 +11,7 @@ import {
   LineChart,
   Receipt,
   RefreshCw,
+  ClipboardCheck,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -33,6 +34,7 @@ interface NavItem {
 const mainNavItems: NavItem[] = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Fechamento Mensal", href: "/fechamento", icon: CalendarCheck },
+  { title: "Checklist por Canal", href: "/checklist-fechamento", icon: ClipboardCheck },
   { title: "Fluxo de Caixa", href: "/fluxo-caixa", icon: Wallet },
   { title: "DRE", href: "/dre", icon: FileText },
   { title: "Balanço Patrimonial", href: "/balanco", icon: Scale },

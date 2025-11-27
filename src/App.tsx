@@ -12,6 +12,7 @@ import KPIs from "./pages/KPIs";
 import Projecoes from "./pages/Projecoes";
 import ICMS from "./pages/ICMS";
 import Conciliacao from "./pages/Conciliacao";
+import ChecklistFechamento from "./pages/ChecklistFechamento";
 import Empresas from "./pages/Empresas";
 import Usuarios from "./pages/Usuarios";
 import Configuracoes from "./pages/Configuracoes";
@@ -35,6 +36,7 @@ const App = () => (
           <Route path="/projecoes" element={<Projecoes />} />
           <Route path="/icms" element={<ICMS />} />
           <Route path="/conciliacao" element={<Conciliacao />} />
+          <Route path="/checklist-fechamento" element={<ChecklistFechamento />} />
           <Route path="/empresas" element={<Empresas />} />
           <Route path="/usuarios" element={<Usuarios />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
