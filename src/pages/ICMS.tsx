@@ -16,6 +16,8 @@ import { XMLImportModal } from "@/components/icms/XMLImportModal";
 import { ICMSCalculatorModal } from "@/components/icms/ICMSCalculatorModal";
 import { ICMSRecommendationModal } from "@/components/icms/ICMSRecommendationModal";
 import { CreditoAdquiridoModal } from "@/components/icms/CreditoAdquiridoModal";
+import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
+import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import { 
   Receipt, Download, AlertTriangle, TrendingUp, TrendingDown, Calculator, 
   FileText, Upload, Plus, Lightbulb, Trash2, Edit2, Info, Building2, 
@@ -28,6 +30,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from "sonner";
 
 export default function ICMS() {
+  const { openChat } = useAssistantChatContext();
   const [xmlImportOpen, setXmlImportOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [recommendationOpen, setRecommendationOpen] = useState(false);
@@ -136,6 +139,20 @@ export default function ICMS() {
     setCalculatorOpen(true); 
   };
 
+  const handleAskAssistant = () => {
+    openChat('Explique a situação dos créditos de ICMS', {
+      telaAtual: 'Créditos de ICMS',
+      empresa: selectedEmpresa ? { nome: selectedEmpresa.nome, regime: selectedEmpresa.regimeTributario } : undefined,
+      dadosAdicionais: {
+        creditosCompensaveis: formatCurrency(totalCompensaveis),
+        creditosNaoCompensaveis: formatCurrency(totalNaoCompensaveis),
+        icmsDevido: formatCurrency(icmsData.icmsDevido),
+        saldoProjetado: formatCurrency(saldoProjetado),
+        empresaSimples: isSimples,
+      },
+    });
+  };
+
   const getEmpresaRegimeInfo = (empresaNome: string) => {
     const emp = getEmpresaByName(empresas, empresaNome);
     if (!emp) return null;
@@ -148,6 +165,7 @@ export default function ICMS() {
       subtitle="Gestão de créditos compensáveis e não compensáveis" 
       actions={
         <div className="flex items-center gap-2">
+          <AskAssistantButton onClick={handleAskAssistant} label="Perguntar" />
           <Button variant="outline" className="gap-2" onClick={() => setXmlImportOpen(true)}>
             <Upload className="h-4 w-4" />Importar XML
           </Button>

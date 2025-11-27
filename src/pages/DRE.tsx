@@ -3,6 +3,8 @@ import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { dreData, monthlyHistory, formatCurrency } from "@/lib/mock-data";
+import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
+import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import { FileText, Download, TrendingUp, TrendingDown, Minus, ChevronRight } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -44,12 +46,31 @@ function DRELine({ label, value, indent = 0, isTotal = false, isSubtotal = false
 }
 
 export default function DRE() {
+  const { openChat } = useAssistantChatContext();
+
+  const handleAskAssistant = () => {
+    openChat('Analise a DRE e explique os principais indicadores', {
+      telaAtual: 'DRE',
+      dadosAdicionais: {
+        receitaBruta: dreData.receitaBruta,
+        receitaLiquida: dreData.receitaLiquida,
+        lucroBruto: dreData.lucroBruto,
+        lucroLiquido: dreData.lucroLiquido,
+        custos: dreData.custos,
+        despesas: dreData.despesas,
+        margemBruta: ((dreData.lucroBruto / dreData.receitaBruta) * 100).toFixed(1) + '%',
+        margemLiquida: ((dreData.lucroLiquido / dreData.receitaBruta) * 100).toFixed(1) + '%',
+      },
+    });
+  };
+
   return (
     <MainLayout
       title="DRE - Demonstração do Resultado"
       subtitle="Demonstrativo de resultados do exercício"
       actions={
         <div className="flex items-center gap-2">
+          <AskAssistantButton onClick={handleAskAssistant} label="Perguntar" />
           <Select defaultValue="outubro">
             <SelectTrigger className="w-[160px]">
               <SelectValue />

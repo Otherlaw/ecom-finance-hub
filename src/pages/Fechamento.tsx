@@ -4,6 +4,8 @@ import { KPICard } from "@/components/KPICard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { operationData, channelData, dreData, formatCurrency } from "@/lib/mock-data";
+import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
+import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import {
   CalendarCheck,
   Download,
@@ -23,12 +25,27 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function Fechamento() {
+  const { openChat } = useAssistantChatContext();
+
+  const handleAskAssistant = () => {
+    openChat('Explique os números deste fechamento mensal', {
+      telaAtual: 'Fechamento Mensal',
+      dadosAdicionais: {
+        receitaBruta: dreData.receitaBruta,
+        receitaLiquida: dreData.receitaLiquida,
+        lucroBruto: dreData.lucroBruto,
+        lucroLiquido: dreData.lucroLiquido,
+      },
+    });
+  };
+
   return (
     <MainLayout
       title="Fechamento Mensal"
       subtitle="Consolidação dos resultados por operação"
       actions={
         <div className="flex items-center gap-2">
+          <AskAssistantButton onClick={handleAskAssistant} label="Perguntar" />
           <Select defaultValue="outubro">
             <SelectTrigger className="w-[160px]">
               <SelectValue />

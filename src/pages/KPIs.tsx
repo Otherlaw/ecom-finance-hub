@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PeriodFilter } from "@/components/PeriodFilter";
 import { useKPIData } from "@/hooks/useKPIData";
+import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
+import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import {
   TrendingUp,
   DollarSign,
@@ -28,6 +30,7 @@ const categoryIcons = {
 };
 
 export default function KPIs() {
+  const { openChat } = useAssistantChatContext();
   const {
     selectedPeriod,
     isLoading,
@@ -43,15 +46,34 @@ export default function KPIs() {
     formatPercentage,
   } = useKPIData();
 
+  const handleAskAssistant = () => {
+    openChat('Analise os KPIs e sugira ações de melhoria', {
+      telaAtual: 'KPIs',
+      periodo: selectedPeriod,
+      dadosAdicionais: {
+        faturamento: kpiData.faturamentoMensal,
+        lucroLiquido: kpiData.lucroLiquido,
+        margemBruta: kpiData.margemBruta + '%',
+        pedidos: kpiData.pedidos,
+        ticketMedio: kpiData.ticketMedio,
+        metaFaturamento: metaFaturamento.percentual + '% da meta',
+        metaLucro: metaLucro.percentual + '% da meta',
+      },
+    });
+  };
+
   return (
     <MainLayout
       title="KPIs Estratégicos"
       subtitle="Indicadores chave de performance"
       actions={
-        <Button className="gap-2">
-          <Download className="h-4 w-4" />
-          Exportar Relatório
-        </Button>
+        <div className="flex items-center gap-2">
+          <AskAssistantButton onClick={handleAskAssistant} label="Perguntar" />
+          <Button className="gap-2">
+            <Download className="h-4 w-4" />
+            Exportar Relatório
+          </Button>
+        </div>
       }
     >
       {/* Period Filter */}
