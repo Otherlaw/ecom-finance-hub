@@ -29,6 +29,8 @@ export interface NotaFiscalXML {
   itens: NotaFiscalItem[];
   valorTotal: number;
   icmsTotal: number;
+  ipiTotal: number;
+  stTotal: number;
   freteTotal?: number;
   descontoTotal?: number;
   outrasDepesas?: number;
@@ -47,6 +49,9 @@ export interface NotaFiscalItem {
   aliquotaIcms: number;
   valorIcms: number;
   icmsST?: number;
+  baseCalculoST?: number;
+  aliquotaIPI?: number;
+  valorIPI?: number;
   pis?: number;
   cofins?: number;
 }
@@ -257,6 +262,19 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
       const imposto = det.querySelector("imposto");
       const icms = imposto?.querySelector("ICMS");
       const icmsGroup = icms?.querySelector("[class^='ICMS']") || icms?.firstElementChild;
+      
+      // Extract IPI data
+      const ipi = imposto?.querySelector("IPI");
+      const ipiTrib = ipi?.querySelector("IPITrib");
+      const ipiNT = ipi?.querySelector("IPINT");
+      
+      // IPI values - IPITrib contains taxable IPI, IPINT is non-taxable
+      const aliquotaIPI = parseFloat(ipiTrib?.querySelector("pIPI")?.textContent || "0");
+      const valorIPI = parseFloat(ipiTrib?.querySelector("vIPI")?.textContent || "0");
+      
+      // ICMS ST values
+      const baseCalculoST = parseFloat(icmsGroup?.querySelector("vBCST")?.textContent || "0");
+      const icmsST = parseFloat(icmsGroup?.querySelector("vICMSST")?.textContent || "0");
 
       const item: NotaFiscalItem = {
         codigo: prod?.querySelector("cProd")?.textContent || "",
@@ -271,7 +289,10 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
         baseCalculoIcms: parseFloat(icmsGroup?.querySelector("vBC")?.textContent || "0"),
         aliquotaIcms: parseFloat(icmsGroup?.querySelector("pICMS")?.textContent || "0"),
         valorIcms: parseFloat(icmsGroup?.querySelector("vICMS")?.textContent || "0"),
-        icmsST: parseFloat(icmsGroup?.querySelector("vICMSST")?.textContent || "0"),
+        icmsST: icmsST,
+        baseCalculoST: baseCalculoST,
+        aliquotaIPI: aliquotaIPI,
+        valorIPI: valorIPI,
         pis: parseFloat(imposto?.querySelector("PIS")?.querySelector("vPIS")?.textContent || "0"),
         cofins: parseFloat(imposto?.querySelector("COFINS")?.querySelector("vCOFINS")?.textContent || "0"),
       };
@@ -282,6 +303,8 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
     const total = infNFe.querySelector("total ICMSTot");
     const valorTotal = parseFloat(total?.querySelector("vNF")?.textContent || "0");
     const icmsTotal = parseFloat(total?.querySelector("vICMS")?.textContent || "0");
+    const ipiTotal = parseFloat(total?.querySelector("vIPI")?.textContent || "0");
+    const stTotal = parseFloat(total?.querySelector("vST")?.textContent || "0");
     const freteTotal = parseFloat(total?.querySelector("vFrete")?.textContent || "0");
     const descontoTotal = parseFloat(total?.querySelector("vDesc")?.textContent || "0");
     const outrasDepesas = parseFloat(total?.querySelector("vOutro")?.textContent || "0");
@@ -303,6 +326,8 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
       itens,
       valorTotal,
       icmsTotal,
+      ipiTotal,
+      stTotal,
       freteTotal,
       descontoTotal,
       outrasDepesas,

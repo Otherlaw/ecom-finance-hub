@@ -312,6 +312,10 @@ export default function Precificacao() {
     
     const item = xmlParsed.itens[selectedXmlItemIndex];
     
+    // IPI do item extraído do XML
+    const ipiDoItem = item.valorIPI || 0;
+    const ipiAliquotaItem = item.aliquotaIPI || 0;
+    
     const custoCalculado = calcularCustoEfetivoNF({
       valorTotalItem: item.valorTotal,
       quantidade: item.quantidade,
@@ -320,7 +324,7 @@ export default function Precificacao() {
       descontos: xmlParsed.descontoTotal || 0,
       valorTotalNF: xmlParsed.valorTotal,
       stItem: item.icmsST || 0,
-      ipiItem: 0, // Extrair do XML se disponível
+      ipiItem: ipiDoItem,
     }, simulacao?.notaBaixa);
     
     const dadosCusto: DadosCustoNF = {
@@ -341,9 +345,9 @@ export default function Precificacao() {
       icmsAliquota: item.aliquotaIcms,
       stDestacado: item.icmsST || 0,
       stRateado: item.icmsST || 0,
-      ipiDestacado: 0,
-      ipiRateado: 0,
-      ipiAliquota: 0,
+      ipiDestacado: ipiDoItem,
+      ipiRateado: ipiDoItem,
+      ipiAliquota: ipiAliquotaItem,
     };
     
     const fator = simulacao?.notaBaixa ? getFatorNotaBaixa(simulacao.notaBaixa) : 1;
@@ -370,6 +374,7 @@ export default function Precificacao() {
           icmsCredito: dadosCusto.icmsDestacado * fator,
           stValor: stReal,
           ipiValor: ipiReal,
+          ipiAliquota: ipiAliquotaItem || prev.tributacao.ipiAliquota,
         },
       };
     });
@@ -1272,6 +1277,7 @@ export default function Precificacao() {
                         <TableHead className="text-right">Qtd</TableHead>
                         <TableHead className="text-right">Valor Unit.</TableHead>
                         <TableHead className="text-right">ST</TableHead>
+                        <TableHead className="text-right">IPI</TableHead>
                         <TableHead className="text-right">Total</TableHead>
                         <TableHead></TableHead>
                       </TableRow>
@@ -1284,6 +1290,7 @@ export default function Precificacao() {
                           <TableCell className="text-right">{item.quantidade}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.icmsST || 0)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.valorIPI || 0)}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.valorTotal)}</TableCell>
                           <TableCell>
                             <Button
