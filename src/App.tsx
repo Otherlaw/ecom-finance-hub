@@ -15,6 +15,7 @@ import Conciliacao from "./pages/Conciliacao";
 import ChecklistFechamento from "./pages/ChecklistFechamento";
 import Produtos from "./pages/Produtos";
 import Compras from "./pages/Compras";
+import ContasPagar from "./pages/ContasPagar";
 import Empresas from "./pages/Empresas";
 import Usuarios from "./pages/Usuarios";
 import Configuracoes from "./pages/Configuracoes";
@@ -43,6 +44,7 @@ const App = () => (
           <Route path="/checklist-fechamento" element={<ChecklistFechamento />} />
           <Route path="/produtos" element={<Produtos />} />
           <Route path="/compras" element={<Compras />} />
+          <Route path="/contas-pagar" element={<ContasPagar />} />
           <Route path="/assistant" element={<AssistantCenter />} />
           <Route path="/empresas" element={<Empresas />} />
           <Route path="/usuarios" element={<Usuarios />} />
