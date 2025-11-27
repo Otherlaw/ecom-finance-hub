@@ -64,9 +64,15 @@ export interface DadosCustoNF {
   quantidade: number;
   valorUnitario: number;
   valorTotalItem: number;
+  // Detalhes do cálculo
+  freteNF: number;
   freteRateado: number;
   despesasAcessorias: number;
-  descontos: number;
+  despesasRateadas: number;
+  descontosNF: number;
+  descontosRateados: number;
+  valorTotalNF: number;
+  proporcaoItem: number;
   custoEfetivo: number;
   custoEfetivoPorUnidade: number;
   // Dados fiscais da NF
@@ -105,9 +111,9 @@ export interface SimulacaoPrecificacao {
   // Gastos extras
   gastosExtras: GastoExtra[];
   
-  // Preço e resultado
-  precoVenda: number;
+  // Margem e preço
   margemDesejada: number;
+  precoVendaManual?: number; // OPCIONAL - para simulação
 }
 
 export interface ResultadoPrecificacao {
@@ -118,11 +124,11 @@ export interface ResultadoPrecificacao {
   freteTotal: number;
   gastosExtrasTotal: number;
   custoTotalVariavel: number;
-  receitaBruta: number;
-  receitaLiquida: number;
-  margemContribuicao: number;
-  margemContribuicaoPercent: number;
-  precoMinimoRecomendado: number;
+  precoSugerido: number;
+  // Se preço manual informado
+  precoManual?: number;
+  margemManual?: number;
+  margemManualPercent?: number;
 }
 
 // ============= Configurações de Marketplaces =============
@@ -195,13 +201,13 @@ export const MARKETPLACES_LIST = Object.values(MARKETPLACE_CONFIG);
 
 export const ALIQUOTAS_REGIME: Record<RegimeTributario, { icms: number; pis: number; cofins: number; simples: number }> = {
   simples_nacional: {
-    icms: 0, // Simples Nacional tem alíquota única
+    icms: 0,
     pis: 0,
     cofins: 0,
-    simples: 6.0, // Alíquota média para comércio - faixa inicial
+    simples: 6.0,
   },
   lucro_presumido: {
-    icms: 18, // ICMS interno SP (pode variar)
+    icms: 18,
     pis: 0.65,
     cofins: 3.0,
     simples: 0,
@@ -234,152 +240,151 @@ export const calcularCustoEfetivoNF = (dados: {
   freteNF: number;
   despesasAcessorias: number;
   descontos: number;
-  totalItensNF: number;
   valorTotalNF: number;
-}): { custoTotal: number; custoPorUnidade: number } => {
-  const { valorTotalItem, quantidade, freteNF, despesasAcessorias, descontos, totalItensNF, valorTotalNF } = dados;
+}): DadosCustoNF => {
+  const { valorTotalItem, quantidade, freteNF, despesasAcessorias, descontos, valorTotalNF } = dados;
   
   // Proporção do item no total da NF
-  const proporcao = valorTotalItem / valorTotalNF;
+  const proporcaoItem = valorTotalNF > 0 ? valorTotalItem / valorTotalNF : 1;
   
   // Rateio proporcional
-  const freteRateado = freteNF * proporcao;
-  const despesasRateadas = despesasAcessorias * proporcao;
-  const descontosRateados = descontos * proporcao;
+  const freteRateado = freteNF * proporcaoItem;
+  const despesasRateadas = despesasAcessorias * proporcaoItem;
+  const descontosRateados = descontos * proporcaoItem;
   
   // Custo total do item
-  const custoTotal = valorTotalItem + freteRateado + despesasRateadas - descontosRateados;
+  const custoEfetivo = valorTotalItem + freteRateado + despesasRateadas - descontosRateados;
   
   // Custo por unidade
-  const custoPorUnidade = custoTotal / quantidade;
+  const custoEfetivoPorUnidade = quantidade > 0 ? custoEfetivo / quantidade : 0;
   
-  return { custoTotal, custoPorUnidade };
-};
-
-// Calcular tributação com base no regime
-export const calcularTributacao = (
-  precoVenda: number,
-  custoBase: number,
-  regime: RegimeTributario,
-  tributacaoManual?: Partial<DadosTributacao>
-): DadosTributacao => {
-  const aliquotas = ALIQUOTAS_REGIME[regime];
-  
-  // Valores padrão baseados no regime
-  const tributacaoPadrao: DadosTributacao = {
-    icmsAliquota: aliquotas.icms,
-    icmsValor: regime !== 'simples_nacional' ? (precoVenda * aliquotas.icms) / 100 : 0,
-    icmsCredito: 0,
-    stValor: 0,
-    ipiAliquota: 0,
-    ipiValor: 0,
-    difalAliquota: 0,
-    difalValor: 0,
-    fundoFiscalDifal: 0,
-    pisAliquota: aliquotas.pis,
-    cofinsAliquota: aliquotas.cofins,
-    simplesAliquota: aliquotas.simples,
-  };
-  
-  // Merge com valores manuais se fornecidos
   return {
-    ...tributacaoPadrao,
-    ...tributacaoManual,
+    nfNumero: '',
+    fornecedor: '',
+    dataEmissao: '',
+    itemDescricao: '',
+    quantidade,
+    valorUnitario: valorTotalItem / quantidade,
+    valorTotalItem,
+    freteNF,
+    freteRateado: Math.round(freteRateado * 100) / 100,
+    despesasAcessorias,
+    despesasRateadas: Math.round(despesasRateadas * 100) / 100,
+    descontosNF: descontos,
+    descontosRateados: Math.round(descontosRateados * 100) / 100,
+    valorTotalNF,
+    proporcaoItem: Math.round(proporcaoItem * 10000) / 100,
+    custoEfetivo: Math.round(custoEfetivo * 100) / 100,
+    custoEfetivoPorUnidade: Math.round(custoEfetivoPorUnidade * 100) / 100,
+    icmsDestacado: 0,
+    icmsAliquota: 0,
+    stDestacado: 0,
+    ipiDestacado: 0,
+    ipiAliquota: 0,
   };
 };
 
-// Calcular resultado completo da precificação
-export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao): ResultadoPrecificacao => {
-  const { custoBase, tributacao, comissao, tarifaFixa, taxasExtras, freteVenda, gastosExtras, precoVenda, margemDesejada, regimeTributario } = simulacao;
+// Calcular preço sugerido baseado na margem desejada
+export const calcularPrecoSugerido = (
+  custoBase: number,
+  margemDesejada: number,
+  comissaoPercent: number,
+  tarifaFixa: number,
+  tributosPercent: number,
+  freteVenda: number,
+  gastosExtrasFixos: number,
+  gastosExtrasPercent: number
+): number => {
+  // Fórmula: Preço = (CustoBase + Gastos Fixos) / (1 - Margem% - Comissão% - Tributos% - GastosExtras%)
+  const totalPercentual = (margemDesejada + comissaoPercent + tributosPercent + gastosExtrasPercent) / 100;
+  const totalFixo = custoBase + tarifaFixa + freteVenda + gastosExtrasFixos;
   
-  // 1. Tributos totais
-  let tributosTotal = 0;
-  if (regimeTributario === 'simples_nacional') {
-    // Simples Nacional - alíquota única sobre faturamento
-    tributosTotal = (precoVenda * tributacao.simplesAliquota) / 100;
-  } else {
-    // ICMS (débito - crédito)
-    const icmsDebito = (precoVenda * tributacao.icmsAliquota) / 100;
-    const icmsLiquido = Math.max(0, icmsDebito - tributacao.icmsCredito);
-    
-    // PIS e COFINS
-    const pis = (precoVenda * tributacao.pisAliquota) / 100;
-    const cofins = (precoVenda * tributacao.cofinsAliquota) / 100;
-    
-    // ST, IPI, DIFAL
-    tributosTotal = icmsLiquido + pis + cofins + tributacao.stValor + tributacao.ipiValor + tributacao.difalValor + tributacao.fundoFiscalDifal;
+  const denominador = 1 - totalPercentual;
+  
+  if (denominador <= 0) {
+    return 0; // Margem impossível
   }
   
-  // 2. Comissão do marketplace
-  const comissaoTotal = (precoVenda * comissao) / 100;
+  return Math.round((totalFixo / denominador) * 100) / 100;
+};
+
+// Calcular resultado completo da precificação (focado em preço sugerido)
+export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao): ResultadoPrecificacao => {
+  const { 
+    custoBase, tributacao, comissao, tarifaFixa, taxasExtras, 
+    freteVenda, gastosExtras, margemDesejada, regimeTributario, precoVendaManual 
+  } = simulacao;
   
-  // 3. Tarifas fixas + extras
-  let tarifasTotal = tarifaFixa;
-  taxasExtras.filter(t => t.ativo).forEach(taxa => {
-    if (taxa.tipo === 'fixo') {
-      tarifasTotal += taxa.valor;
-    } else {
-      const base = taxa.baseCalculo === 'preco_venda' ? precoVenda : 
-                   taxa.baseCalculo === 'comissao' ? comissaoTotal : precoVenda;
-      tarifasTotal += (base * taxa.valor) / 100;
-    }
-  });
+  // Calcular percentuais de tributos
+  let tributosPercent = 0;
+  if (regimeTributario === 'simples_nacional') {
+    tributosPercent = tributacao.simplesAliquota;
+  } else {
+    tributosPercent = tributacao.icmsAliquota + tributacao.pisAliquota + tributacao.cofinsAliquota;
+  }
   
-  // 4. Frete
-  const freteTotal = freteVenda;
+  // Calcular gastos extras
+  const gastosExtrasFixos = gastosExtras.filter(g => g.tipo === 'fixo').reduce((sum, g) => sum + g.valor, 0);
+  const gastosExtrasPercent = gastosExtras.filter(g => g.tipo === 'percentual').reduce((sum, g) => sum + g.valor, 0);
   
-  // 5. Gastos extras
-  let gastosExtrasTotal = 0;
-  gastosExtras.forEach(gasto => {
-    if (gasto.tipo === 'fixo') {
-      gastosExtrasTotal += gasto.valor;
-    } else {
-      const base = gasto.baseCalculo === 'preco_venda' ? precoVenda :
-                   gasto.baseCalculo === 'receita_liquida' ? (precoVenda - comissaoTotal - tarifasTotal) :
-                   gasto.baseCalculo === 'comissao' ? comissaoTotal : precoVenda;
-      gastosExtrasTotal += (base * gasto.valor) / 100;
-    }
-  });
+  // Taxas extras ativas (percentuais)
+  const taxasExtrasPercent = taxasExtras.filter(t => t.ativo && t.tipo === 'percentual').reduce((sum, t) => sum + t.valor, 0);
+  const taxasExtrasFixas = taxasExtras.filter(t => t.ativo && t.tipo === 'fixo').reduce((sum, t) => sum + t.valor, 0);
   
-  // 6. Custo total variável
-  const custoTotalVariavel = custoBase + tributosTotal + comissaoTotal + tarifasTotal + freteTotal + gastosExtrasTotal;
+  const comissaoTotal = comissao + taxasExtrasPercent;
+  const tarifaTotal = tarifaFixa + taxasExtrasFixas;
   
-  // 7. Receitas
-  const receitaBruta = precoVenda;
-  const receitaLiquida = precoVenda - comissaoTotal - tarifasTotal;
+  // Calcular preço sugerido
+  const precoSugerido = calcularPrecoSugerido(
+    custoBase,
+    margemDesejada,
+    comissaoTotal,
+    tarifaTotal,
+    tributosPercent,
+    freteVenda,
+    gastosExtrasFixos,
+    gastosExtrasPercent
+  );
   
-  // 8. Margem de contribuição
-  const margemContribuicao = precoVenda - custoTotalVariavel;
-  const margemContribuicaoPercent = precoVenda > 0 ? (margemContribuicao / precoVenda) * 100 : 0;
+  // Calcular custos com base no preço sugerido
+  const tributosTotal = (precoSugerido * tributosPercent) / 100;
+  const comissaoValor = (precoSugerido * comissaoTotal) / 100;
+  const gastosExtrasTotal = gastosExtrasFixos + (precoSugerido * gastosExtrasPercent) / 100;
   
-  // 9. Preço mínimo recomendado para atingir margem desejada
-  // Fórmula: Preço = (CustoBase + Gastos Fixos) / (1 - Margem% - Comissão% - Tributos%)
-  const percentuaisTotais = (comissao + tributacao.simplesAliquota + (regimeTributario !== 'simples_nacional' ? tributacao.icmsAliquota + tributacao.pisAliquota + tributacao.cofinsAliquota : 0)) / 100;
-  const gastosFixosTotais = custoBase + tarifaFixa + freteTotal + gastosExtras.filter(g => g.tipo === 'fixo').reduce((sum, g) => sum + g.valor, 0);
-  const gastosPercentuaisTotais = gastosExtras.filter(g => g.tipo === 'percentual').reduce((sum, g) => sum + g.valor, 0) / 100;
+  const custoTotalVariavel = custoBase + tributosTotal + comissaoValor + tarifaTotal + freteVenda + gastosExtrasTotal;
   
-  const denominador = 1 - (margemDesejada / 100) - percentuaisTotais - gastosPercentuaisTotais;
-  const precoMinimoRecomendado = denominador > 0 ? gastosFixosTotais / denominador : 0;
+  // Se tem preço manual, calcular margem real
+  let margemManual: number | undefined;
+  let margemManualPercent: number | undefined;
+  
+  if (precoVendaManual && precoVendaManual > 0) {
+    const tributosManual = (precoVendaManual * tributosPercent) / 100;
+    const comissaoManual = (precoVendaManual * comissaoTotal) / 100;
+    const gastosExtrasManual = gastosExtrasFixos + (precoVendaManual * gastosExtrasPercent) / 100;
+    const custoTotalManual = custoBase + tributosManual + comissaoManual + tarifaTotal + freteVenda + gastosExtrasManual;
+    
+    margemManual = precoVendaManual - custoTotalManual;
+    margemManualPercent = (margemManual / precoVendaManual) * 100;
+  }
   
   return {
     custoBase,
     tributosTotal,
-    comissaoTotal,
-    tarifasTotal,
-    freteTotal,
+    comissaoTotal: comissaoValor,
+    tarifasTotal: tarifaTotal,
+    freteTotal: freteVenda,
     gastosExtrasTotal,
     custoTotalVariavel,
-    receitaBruta,
-    receitaLiquida,
-    margemContribuicao,
-    margemContribuicaoPercent,
-    precoMinimoRecomendado: Math.max(precoMinimoRecomendado, custoTotalVariavel),
+    precoSugerido,
+    precoManual: precoVendaManual,
+    margemManual,
+    margemManualPercent,
   };
 };
 
 // Verificar se é frete grátis ML (até R$ 79)
 export const isFreteGratisML = (precoVenda: number): boolean => {
-  return precoVenda <= 79;
+  return precoVenda > 0 && precoVenda <= 79;
 };
 
 // Criar simulação inicial
@@ -418,12 +423,11 @@ export const criarSimulacaoInicial = (
     freteVenda: 0,
     freteGratisML: false,
     gastosExtras: [],
-    precoVenda: 0,
     margemDesejada: 20,
   };
 };
 
-// Exemplo de gastos extras comuns
+// Sugestões de gastos extras
 export const GASTOS_EXTRAS_SUGESTOES: Array<{ descricao: string; tipo: TipoGastoExtra; valor: number; baseCalculo: BaseCalculo }> = [
   { descricao: 'Cupom de desconto vendedor', tipo: 'percentual', valor: 10, baseCalculo: 'preco_venda' },
   { descricao: 'Taxa campanha data dupla', tipo: 'percentual', valor: 5, baseCalculo: 'preco_venda' },
