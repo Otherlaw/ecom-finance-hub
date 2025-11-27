@@ -196,6 +196,11 @@ export interface ResultadoPrecificacao {
     margemReformaPercent: number;
     diferencaMargemReais: number;
     diferencaMargemPercent: number;
+    // Novos campos para suportar comparação bidirecional
+    usandoReforma?: boolean; // Se está usando CBS/IBS como imposto principal
+    precoSugeridoRegimeAtual?: number;
+    margemRegimeAtual?: number;
+    margemRegimeAtualPercent?: number;
   };
 }
 
@@ -476,21 +481,29 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     falsoDesconto, marketplace
   } = simulacao;
   
-  // Calcular percentuais de tributos (regime atual ou estimado)
+  // Calcular percentuais de tributos (regime atual ou reforma tributária)
   let tributosPercent = 0;
+  let tributosPercentRegimeAtual = 0;
   let tributosPercentReforma = 0;
+  const usandoReforma = tributacao.simularReformaTributaria;
   
+  // Calcular alíquota do regime atual (para comparação)
   if (tributacao.usarImpostoEstimado) {
-    // Usar alíquotas médias estipuladas
-    tributosPercent = tributacao.icmsEstimado + tributacao.pisCofinsEstimado;
-    // Calcular também com reforma para comparação
-    tributosPercentReforma = tributacao.cbsAliquota + tributacao.ibsAliquota;
+    tributosPercentRegimeAtual = tributacao.icmsEstimado + tributacao.pisCofinsEstimado;
   } else if (regimeTributario === 'simples_nacional') {
-    tributosPercent = tributacao.simplesAliquota;
-    tributosPercentReforma = tributacao.cbsAliquota + tributacao.ibsAliquota;
+    tributosPercentRegimeAtual = tributacao.simplesAliquota;
   } else {
-    tributosPercent = tributacao.icmsAliquota + tributacao.pisAliquota + tributacao.cofinsAliquota;
-    tributosPercentReforma = tributacao.cbsAliquota + tributacao.ibsAliquota;
+    tributosPercentRegimeAtual = tributacao.icmsAliquota + tributacao.pisAliquota + tributacao.cofinsAliquota;
+  }
+  
+  // Calcular alíquota da reforma (CBS + IBS)
+  tributosPercentReforma = tributacao.cbsAliquota + tributacao.ibsAliquota;
+  
+  // DECISÃO: Se simularReformaTributaria está ativo, CBS/IBS são o imposto REAL da precificação
+  if (usandoReforma) {
+    tributosPercent = tributosPercentReforma;
+  } else {
+    tributosPercent = tributosPercentRegimeAtual;
   }
   
   // Calcular gastos extras
@@ -579,37 +592,46 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     };
   }
   
-  // Calcular comparação com Reforma Tributária 2026+ se houver alíquotas configuradas
+  // Calcular comparação entre Regime Atual e Reforma Tributária 2026+
+  // Sempre mostra comparação se a outra opção tiver alíquotas válidas
   let comparacaoReforma: ResultadoPrecificacao['comparacaoReforma'];
-  if (tributosPercentReforma > 0 && tributosPercent !== tributosPercentReforma) {
-    const precoSugeridoReforma = calcularPrecoSugerido(
+  const tributosOutroCenario = usandoReforma ? tributosPercentRegimeAtual : tributosPercentReforma;
+  
+  if (tributosOutroCenario > 0 && tributosPercent !== tributosOutroCenario) {
+    const precoSugeridoOutro = calcularPrecoSugerido(
       custoBase,
       margemDesejada,
       comissaoTotal,
       tarifaTotal,
-      tributosPercentReforma,
+      tributosOutroCenario,
       freteVenda,
       gastosExtrasFixos,
       gastosExtrasPercent,
       difalTotal
     );
     
-    const tributosReforma = (precoSugeridoReforma * tributosPercentReforma) / 100;
-    const comissaoReforma = (precoSugeridoReforma * comissaoTotal) / 100;
-    const gastosExtrasReforma = gastosExtrasFixos + (precoSugeridoReforma * gastosExtrasPercent) / 100;
-    const custoTotalReforma = custoBase + tributosReforma + comissaoReforma + tarifaTotal + freteVenda + gastosExtrasReforma + difalTotal;
+    const tributosOutro = (precoSugeridoOutro * tributosOutroCenario) / 100;
+    const comissaoOutro = (precoSugeridoOutro * comissaoTotal) / 100;
+    const gastosExtrasOutro = gastosExtrasFixos + (precoSugeridoOutro * gastosExtrasPercent) / 100;
+    const custoTotalOutro = custoBase + tributosOutro + comissaoOutro + tarifaTotal + freteVenda + gastosExtrasOutro + difalTotal;
     
-    const margemReforma = precoSugeridoReforma - custoTotalReforma;
-    const margemReformaPercent = precoSugeridoReforma > 0 ? (margemReforma / precoSugeridoReforma) * 100 : 0;
+    const margemOutro = precoSugeridoOutro - custoTotalOutro;
+    const margemOutroPercent = precoSugeridoOutro > 0 ? (margemOutro / precoSugeridoOutro) * 100 : 0;
     
+    // Se está usando reforma, comparação mostra regime atual como alternativa
+    // Se está usando regime atual, comparação mostra reforma como alternativa
     comparacaoReforma = {
-      tributosAtualPercent: tributosPercent,
-      tributosReformaPercent: tributosPercentReforma,
-      precoSugeridoReforma,
-      margemReforma,
-      margemReformaPercent,
-      diferencaMargemReais: margemReforma - margemComDifal,
-      diferencaMargemPercent: margemReformaPercent - margemComDifalPercent,
+      tributosAtualPercent: usandoReforma ? tributosOutroCenario : tributosPercent,
+      tributosReformaPercent: usandoReforma ? tributosPercent : tributosOutroCenario,
+      precoSugeridoReforma: usandoReforma ? precoSugerido : precoSugeridoOutro,
+      margemReforma: usandoReforma ? margemComDifal : margemOutro,
+      margemReformaPercent: usandoReforma ? margemComDifalPercent : margemOutroPercent,
+      diferencaMargemReais: usandoReforma ? (margemComDifal - margemOutro) : (margemOutro - margemComDifal),
+      diferencaMargemPercent: usandoReforma ? (margemComDifalPercent - margemOutroPercent) : (margemOutroPercent - margemComDifalPercent),
+      usandoReforma,
+      precoSugeridoRegimeAtual: usandoReforma ? precoSugeridoOutro : precoSugerido,
+      margemRegimeAtual: usandoReforma ? margemOutro : margemComDifal,
+      margemRegimeAtualPercent: usandoReforma ? margemOutroPercent : margemComDifalPercent,
     };
   }
   

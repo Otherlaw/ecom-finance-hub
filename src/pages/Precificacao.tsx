@@ -36,6 +36,42 @@ import { parseNFeXML, NotaFiscalXML, NotaFiscalItem } from '@/lib/icms-data';
 export default function Precificacao() {
   const { toast } = useToast();
   
+  // Constantes para localStorage
+  const TRIBUTACAO_STORAGE_KEY = 'ecom-finance-tributacao-config';
+  
+  // Função para carregar configurações de tributação salvas
+  const loadSavedTributacaoConfig = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(TRIBUTACAO_STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Erro ao carregar configurações de tributação:', e);
+    }
+    return null;
+  }, []);
+  
+  // Função para salvar configurações de tributação
+  const saveTributacaoConfig = useCallback((tributacao: SimulacaoPrecificacao['tributacao']) => {
+    try {
+      // Salvar apenas campos configuráveis (não valores calculados da NF)
+      const configToSave = {
+        usarImpostoEstimado: tributacao.usarImpostoEstimado,
+        icmsEstimado: tributacao.icmsEstimado,
+        pisCofinsEstimado: tributacao.pisCofinsEstimado,
+        simularReformaTributaria: tributacao.simularReformaTributaria,
+        cbsAliquota: tributacao.cbsAliquota,
+        ibsAliquota: tributacao.ibsAliquota,
+        difalAtivo: tributacao.difalAtivo,
+        difalAliquota: tributacao.difalAliquota,
+      };
+      localStorage.setItem(TRIBUTACAO_STORAGE_KEY, JSON.stringify(configToSave));
+    } catch (e) {
+      console.error('Erro ao salvar configurações de tributação:', e);
+    }
+  }, []);
+  
   // Estado da simulação
   const [empresaSelecionada, setEmpresaSelecionada] = useState<Empresa | null>(null);
   const [produtoSelecionado, setProdutoSelecionado] = useState<Product | null>(null);
@@ -100,9 +136,32 @@ export default function Precificacao() {
         novaSimulacao.produtoNome = produtoSelecionado.nome;
       }
       
+      // Carregar configurações de tributação salvas do localStorage
+      const savedTributacao = loadSavedTributacaoConfig();
+      if (savedTributacao) {
+        novaSimulacao.tributacao = {
+          ...novaSimulacao.tributacao,
+          usarImpostoEstimado: savedTributacao.usarImpostoEstimado ?? novaSimulacao.tributacao.usarImpostoEstimado,
+          icmsEstimado: savedTributacao.icmsEstimado ?? novaSimulacao.tributacao.icmsEstimado,
+          pisCofinsEstimado: savedTributacao.pisCofinsEstimado ?? novaSimulacao.tributacao.pisCofinsEstimado,
+          simularReformaTributaria: savedTributacao.simularReformaTributaria ?? novaSimulacao.tributacao.simularReformaTributaria,
+          cbsAliquota: savedTributacao.cbsAliquota ?? novaSimulacao.tributacao.cbsAliquota,
+          ibsAliquota: savedTributacao.ibsAliquota ?? novaSimulacao.tributacao.ibsAliquota,
+          difalAtivo: savedTributacao.difalAtivo ?? novaSimulacao.tributacao.difalAtivo,
+          difalAliquota: savedTributacao.difalAliquota ?? novaSimulacao.tributacao.difalAliquota,
+        };
+      }
+      
       setSimulacao(novaSimulacao);
     }
-  }, [empresaSelecionada, marketplaceSelecionado]);
+  }, [empresaSelecionada, marketplaceSelecionado, loadSavedTributacaoConfig]);
+  
+  // Salvar configurações de tributação quando mudarem
+  useEffect(() => {
+    if (simulacao?.tributacao) {
+      saveTributacaoConfig(simulacao.tributacao);
+    }
+  }, [simulacao?.tributacao, saveTributacaoConfig]);
   
   // Handlers
   const handleEmpresaChange = (empresaId: string) => {
@@ -904,9 +963,13 @@ export default function Precificacao() {
                       {simulacao?.custoNF && (
                         <Badge variant="outline" className="ml-2 text-xs">Dados preenchidos via NF</Badge>
                       )}
+                      <Badge variant="secondary" className="ml-auto text-xs bg-emerald-100 text-emerald-700 border-emerald-300">
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        Configurações salvas
+                      </Badge>
                     </CardTitle>
                     <CardDescription>
-                      Tributos conforme regime {regimeConfig?.label}. Todos os campos são editáveis.
+                      Tributos conforme regime {regimeConfig?.label}. Configurações de alíquotas estimadas e Reforma Tributária são salvas automaticamente.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -1409,16 +1472,33 @@ export default function Precificacao() {
                           <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 space-y-3">
                             <div className="flex items-center gap-2">
                               <TrendingUp className="h-5 w-5 text-indigo-600" />
-                              <span className="font-semibold text-indigo-800">Impacto da Reforma Tributária (2026+)</span>
+                              <span className="font-semibold text-indigo-800">
+                                {resultado.comparacaoReforma.usandoReforma 
+                                  ? 'Comparativo: Reforma Tributária (Ativo) vs Regime Atual'
+                                  : 'Impacto da Reforma Tributária (2026+)'}
+                              </span>
                             </div>
                             
+                            {resultado.comparacaoReforma.usandoReforma && (
+                              <Alert className="bg-indigo-100 border-indigo-300">
+                                <AlertCircle className="h-4 w-4 text-indigo-700" />
+                                <AlertDescription className="text-indigo-700 text-sm">
+                                  <strong>CBS/IBS estão ativos como imposto principal.</strong> Os valores abaixo já consideram a Reforma Tributária no cálculo de preço e margem.
+                                </AlertDescription>
+                              </Alert>
+                            )}
+                            
                             <div className="grid grid-cols-2 gap-3 text-sm">
-                              <div className="p-2 rounded bg-white border">
-                                <p className="text-muted-foreground text-xs">Tributos Atuais (ICMS + PIS/COFINS)</p>
+                              <div className={`p-2 rounded border ${!resultado.comparacaoReforma.usandoReforma ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-400' : 'bg-white'}`}>
+                                <p className="text-muted-foreground text-xs">
+                                  {!resultado.comparacaoReforma.usandoReforma && '✓ '} Regime Atual (ICMS + PIS/COFINS)
+                                </p>
                                 <p className="font-semibold">{formatPercent(resultado.comparacaoReforma.tributosAtualPercent)}</p>
                               </div>
-                              <div className="p-2 rounded bg-white border">
-                                <p className="text-muted-foreground text-xs">IVA Dual (CBS + IBS)</p>
+                              <div className={`p-2 rounded border ${resultado.comparacaoReforma.usandoReforma ? 'bg-indigo-100 border-indigo-300 ring-2 ring-indigo-400' : 'bg-white'}`}>
+                                <p className="text-muted-foreground text-xs">
+                                  {resultado.comparacaoReforma.usandoReforma && '✓ '} IVA Dual (CBS + IBS)
+                                </p>
                                 <p className="font-semibold text-indigo-700">{formatPercent(resultado.comparacaoReforma.tributosReformaPercent)}</p>
                               </div>
                             </div>
@@ -1426,23 +1506,29 @@ export default function Precificacao() {
                             <Separator />
                             
                             <div className="grid grid-cols-2 gap-3 text-sm">
-                              <div className="p-2 rounded bg-blue-50 border border-blue-200">
+                              <div className={`p-2 rounded border ${!resultado.comparacaoReforma.usandoReforma ? 'bg-blue-100 border-blue-300' : 'bg-blue-50 border-blue-200'}`}>
                                 <p className="text-blue-700 text-xs">💠 Margem com ICMS + PIS/COFINS</p>
                                 <p className="font-bold text-blue-800">
-                                  {formatCurrency(resultado.margemComDifal)} ({formatPercent(resultado.margemComDifalPercent)})
+                                  {formatCurrency(resultado.comparacaoReforma.margemRegimeAtual || resultado.margemComDifal)} ({formatPercent(resultado.comparacaoReforma.margemRegimeAtualPercent || resultado.margemComDifalPercent)})
                                 </p>
+                                {!resultado.comparacaoReforma.usandoReforma && (
+                                  <p className="text-xs text-blue-600 mt-1">Preço: {formatCurrency(resultado.comparacaoReforma.precoSugeridoRegimeAtual || resultado.precoSugerido)}</p>
+                                )}
                               </div>
-                              <div className="p-2 rounded bg-indigo-50 border border-indigo-200">
+                              <div className={`p-2 rounded border ${resultado.comparacaoReforma.usandoReforma ? 'bg-indigo-100 border-indigo-300' : 'bg-indigo-50 border-indigo-200'}`}>
                                 <p className="text-indigo-700 text-xs">💠 Margem com CBS + IBS</p>
                                 <p className="font-bold text-indigo-800">
                                   {formatCurrency(resultado.comparacaoReforma.margemReforma)} ({formatPercent(resultado.comparacaoReforma.margemReformaPercent)})
                                 </p>
+                                {resultado.comparacaoReforma.usandoReforma && (
+                                  <p className="text-xs text-indigo-600 mt-1">Preço: {formatCurrency(resultado.comparacaoReforma.precoSugeridoReforma)}</p>
+                                )}
                               </div>
                             </div>
                             
                             <div className={`p-2 rounded text-center ${resultado.comparacaoReforma.diferencaMargemReais >= 0 ? 'bg-emerald-100 border border-emerald-300' : 'bg-red-100 border border-red-300'}`}>
                               <p className={`text-xs ${resultado.comparacaoReforma.diferencaMargemReais >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                                Diferença na Margem
+                                {resultado.comparacaoReforma.usandoReforma ? 'Diferença vs Regime Atual' : 'Diferença com Reforma'}
                               </p>
                               <p className={`font-bold ${resultado.comparacaoReforma.diferencaMargemReais >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
                                 {resultado.comparacaoReforma.diferencaMargemReais >= 0 ? '+' : ''}{formatCurrency(resultado.comparacaoReforma.diferencaMargemReais)}
@@ -1450,13 +1536,31 @@ export default function Precificacao() {
                               </p>
                             </div>
                             
-                            <div className="p-2 rounded bg-white border">
-                              <p className="text-muted-foreground text-xs">Preço Recomendado com IVA Dual</p>
-                              <p className="font-semibold text-indigo-700">{formatCurrency(resultado.comparacaoReforma.precoSugeridoReforma)}</p>
+                            <div className="grid grid-cols-2 gap-3">
+                              {!resultado.comparacaoReforma.usandoReforma && (
+                                <div className="p-2 rounded bg-white border">
+                                  <p className="text-muted-foreground text-xs">Preço com Regime Atual</p>
+                                  <p className="font-semibold">{formatCurrency(resultado.precoSugerido)}</p>
+                                </div>
+                              )}
+                              <div className={`p-2 rounded border ${resultado.comparacaoReforma.usandoReforma ? 'bg-indigo-50' : 'bg-white'}`}>
+                                <p className="text-muted-foreground text-xs">
+                                  {resultado.comparacaoReforma.usandoReforma ? 'Preço com IVA Dual (Ativo)' : 'Preço com IVA Dual'}
+                                </p>
+                                <p className="font-semibold text-indigo-700">{formatCurrency(resultado.comparacaoReforma.precoSugeridoReforma)}</p>
+                              </div>
+                              {resultado.comparacaoReforma.usandoReforma && (
+                                <div className="p-2 rounded bg-white border">
+                                  <p className="text-muted-foreground text-xs">Preço com Regime Atual</p>
+                                  <p className="font-semibold">{formatCurrency(resultado.comparacaoReforma.precoSugeridoRegimeAtual || 0)}</p>
+                                </div>
+                              )}
                             </div>
                             
                             <p className="text-xs text-indigo-600">
-                              Projeção baseada nas alíquotas estimadas da Reforma Tributária. Use para planejamento estratégico de longo prazo.
+                              {resultado.comparacaoReforma.usandoReforma 
+                                ? 'A precificação atual usa CBS/IBS como tributos reais. Compare com o regime atual para ver o impacto.'
+                                : 'Projeção baseada nas alíquotas estimadas da Reforma Tributária. Use para planejamento estratégico de longo prazo.'}
                             </p>
                           </div>
                         )}
