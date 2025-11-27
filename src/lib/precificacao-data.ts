@@ -102,6 +102,14 @@ export interface DadosCustoNF {
   ipiReal?: number;
 }
 
+// Configuração de Falso Desconto (Shopee)
+export interface FalsoDescontoConfig {
+  ativo: boolean;
+  acrescimoPercent: number; // % de acréscimo sobre preço base (default 30)
+  descontoPercent: number;  // % de desconto exibido ao cliente (default 30)
+  comissaoSobrePrecoListado: boolean; // Se comissão incide sobre preço listado ou final
+}
+
 export interface SimulacaoPrecificacao {
   // Contexto
   empresaId: string;
@@ -124,6 +132,9 @@ export interface SimulacaoPrecificacao {
   tarifaFixa: number;
   taxasExtras: TaxaMarketplace[];
   taxasExtrasAtivas: boolean;
+  
+  // Falso Desconto (Shopee)
+  falsoDesconto: FalsoDescontoConfig;
   
   // Frete
   freteVenda: number;
@@ -159,6 +170,14 @@ export interface ResultadoPrecificacao {
   margemManualComDifalPercent?: number;
   margemManualSemDifal?: number;
   margemManualSemDifalPercent?: number;
+  // Falso Desconto (Shopee)
+  falsoDesconto?: {
+    precoBase: number;        // Preço técnico para margem desejada
+    precoListado: number;     // Preço exibido antes do desconto
+    descontoPercent: number;  // % desconto exibido
+    descontoValor: number;    // Valor do desconto em R$
+    precoFinalCliente: number; // Preço após desconto (= preço base)
+  };
 }
 
 // ============= Configurações de Marketplaces =============
@@ -427,7 +446,8 @@ export const calcularPrecoSugerido = (
 export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao): ResultadoPrecificacao => {
   const { 
     custoBase, tributacao, comissao, tarifaFixa, taxasExtras, taxasExtrasAtivas,
-    freteVenda, gastosExtras, margemDesejada, regimeTributario, precoVendaManual 
+    freteVenda, gastosExtras, margemDesejada, regimeTributario, precoVendaManual,
+    falsoDesconto, marketplace
   } = simulacao;
   
   // Calcular percentuais de tributos
@@ -452,7 +472,7 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   // DIFAL (valor fixo quando ativo)
   const difalTotal = tributacao.difalAtivo ? (tributacao.difalValor + tributacao.fundoFiscalDifal) : 0;
   
-  // Calcular preço sugerido COM DIFAL
+  // Calcular preço sugerido COM DIFAL (preço base / preço final ao cliente)
   const precoSugerido = calcularPrecoSugerido(
     custoBase,
     margemDesejada,
@@ -465,7 +485,7 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     difalTotal
   );
   
-  // Calcular custos com base no preço sugerido
+  // Calcular custos com base no preço sugerido (preço final ao cliente)
   const tributosTotal = (precoSugerido * tributosPercent) / 100;
   const comissaoValor = (precoSugerido * comissaoTotal) / 100;
   const gastosExtrasTotal = gastosExtrasFixos + (precoSugerido * gastosExtrasPercent) / 100;
@@ -473,7 +493,7 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   const custoTotalVariavel = custoBase + tributosTotal + comissaoValor + tarifaTotal + freteVenda + gastosExtrasTotal + difalTotal;
   const custoTotalVariavelSemDifal = custoBase + tributosTotal + comissaoValor + tarifaTotal + freteVenda + gastosExtrasTotal;
   
-  // Margens
+  // Margens calculadas sobre o preço final ao cliente
   const margemComDifal = precoSugerido - custoTotalVariavel;
   const margemComDifalPercent = precoSugerido > 0 ? (margemComDifal / precoSugerido) * 100 : 0;
   const margemSemDifal = precoSugerido - custoTotalVariavelSemDifal;
@@ -499,6 +519,31 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     margemManualSemDifalPercent = (margemManualSemDifal / precoVendaManual) * 100;
   }
   
+  // Calcular Falso Desconto para Shopee
+  let falsoDescontoResult: ResultadoPrecificacao['falsoDesconto'];
+  if (marketplace === 'shopee' && falsoDesconto?.ativo && precoSugerido > 0) {
+    const precoBase = precoSugerido; // Preço técnico para margem desejada
+    const acrescimo = falsoDesconto.acrescimoPercent / 100;
+    const desconto = falsoDesconto.descontoPercent / 100;
+    
+    // Preço listado = preço base × (1 + acréscimo%)
+    const precoListado = Math.round(precoBase * (1 + acrescimo) * 100) / 100;
+    
+    // Desconto em R$
+    const descontoValor = Math.round(precoListado * desconto * 100) / 100;
+    
+    // Preço final ao cliente
+    const precoFinalCliente = Math.round((precoListado - descontoValor) * 100) / 100;
+    
+    falsoDescontoResult = {
+      precoBase,
+      precoListado,
+      descontoPercent: falsoDesconto.descontoPercent,
+      descontoValor,
+      precoFinalCliente,
+    };
+  }
+  
   return {
     custoBase,
     tributosTotal,
@@ -519,6 +564,7 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     margemManualComDifalPercent,
     margemManualSemDifal,
     margemManualSemDifalPercent,
+    falsoDesconto: falsoDescontoResult,
   };
 };
 
@@ -585,6 +631,12 @@ export const criarSimulacaoInicial = (
     tarifaFixa: config.tarifaFixaPadrao,
     taxasExtras: config.taxasExtras.map(t => ({ ...t })),
     taxasExtrasAtivas: false,
+    falsoDesconto: {
+      ativo: false,
+      acrescimoPercent: 30,
+      descontoPercent: 30,
+      comissaoSobrePrecoListado: false, // Shopee cobra sobre preço final
+    },
     freteVenda: 0,
     freteGratisML: false,
     gastosExtras: [],
