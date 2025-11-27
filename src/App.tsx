@@ -13,6 +13,8 @@ import Projecoes from "./pages/Projecoes";
 import ICMS from "./pages/ICMS";
 import Conciliacao from "./pages/Conciliacao";
 import ChecklistFechamento from "./pages/ChecklistFechamento";
+import Produtos from "./pages/Produtos";
+import Compras from "./pages/Compras";
 import Empresas from "./pages/Empresas";
 import Usuarios from "./pages/Usuarios";
 import Configuracoes from "./pages/Configuracoes";
@@ -39,6 +41,8 @@ const App = () => (
           <Route path="/icms" element={<ICMS />} />
           <Route path="/conciliacao" element={<Conciliacao />} />
           <Route path="/checklist-fechamento" element={<ChecklistFechamento />} />
+          <Route path="/produtos" element={<Produtos />} />
+          <Route path="/compras" element={<Compras />} />
           <Route path="/assistant" element={<AssistantCenter />} />
           <Route path="/empresas" element={<Empresas />} />
           <Route path="/usuarios" element={<Usuarios />} />

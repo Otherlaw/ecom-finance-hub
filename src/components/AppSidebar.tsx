@@ -12,6 +12,8 @@ import {
   Receipt,
   RefreshCw,
   ClipboardCheck,
+  Package,
+  ShoppingCart,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -43,6 +45,8 @@ const mainNavItems: NavItem[] = [
   { title: "Projeções", href: "/projecoes", icon: LineChart },
   { title: "Crédito ICMS", href: "/icms", icon: Receipt, badge: "!" },
   { title: "Conciliação Tiny", href: "/conciliacao", icon: RefreshCw },
+  { title: "Produtos", href: "/produtos", icon: Package },
+  { title: "Compras", href: "/compras", icon: ShoppingCart },
   { title: "Assis.Fin", href: "/assistant", icon: Bot, badge: "IA" },
 ];
 
