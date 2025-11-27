@@ -1265,6 +1265,9 @@ export default function Precificacao() {
                   <span><strong>Frete:</strong> {formatCurrency(xmlParsed.freteTotal || 0)}</span>
                   <span><strong>Despesas:</strong> {formatCurrency(xmlParsed.outrasDepesas || 0)}</span>
                   <span><strong>Descontos:</strong> {formatCurrency(xmlParsed.descontoTotal || 0)}</span>
+                  <span><strong>ICMS ST Total:</strong> {formatCurrency(xmlParsed.stTotal || 0)}</span>
+                  <span><strong>IPI Total:</strong> {formatCurrency(xmlParsed.ipiTotal || 0)}</span>
+                  <span><strong>Valor NF:</strong> {formatCurrency(xmlParsed.valorTotal || 0)}</span>
                 </div>
                 
                 <Label>Selecione o item do produto:</Label>
