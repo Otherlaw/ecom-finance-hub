@@ -26,7 +26,7 @@ import {
   MARKETPLACE_CONFIG, MARKETPLACES_LIST, GASTOS_EXTRAS_SUGESTOES, NOTA_BAIXA_OPCOES,
   formatCurrency, formatPercent, calcularResultadoPrecificacao, criarSimulacaoInicial,
   isFreteGratisML, deveHabilitarFreteML, MarketplaceId, TipoGastoExtra, BaseCalculo, 
-  calcularCustoEfetivoNF, NotaBaixaOpcao, getFatorNotaBaixa,
+  calcularCustoEfetivoNF, NotaBaixaOpcao, getFatorNotaBaixa, FalsoDescontoConfig,
 } from '@/lib/precificacao-data';
 import { mockEmpresas, REGIME_TRIBUTARIO_CONFIG, Empresa } from '@/lib/empresas-data';
 import { mockProducts, Product } from '@/lib/products-data';
@@ -174,6 +174,12 @@ export default function Precificacao() {
       
       return { ...prev, notaBaixa: novaNotaBaixa };
     });
+  };
+  
+  const handleFalsoDescontoChange = (field: keyof FalsoDescontoConfig, value: any) => {
+    setSimulacao(prev => prev ? {
+      ...prev, falsoDesconto: { ...prev.falsoDesconto, [field]: value },
+    } : null);
   };
   
   const handleTaxaExtraToggle = (taxaId: string) => {
@@ -759,6 +765,136 @@ export default function Precificacao() {
                   </CardContent>
                 </Card>
 
+                {/* Card Proeminente - Custo Efetivo Calculado */}
+                {simulacao?.custoNF && (
+                  <Card className="border-2 border-emerald-300 bg-gradient-to-r from-emerald-50 to-white">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg flex items-center gap-2 text-emerald-800">
+                        <DollarSign className="h-5 w-5" />
+                        Custo Efetivo Unitário
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-3xl font-bold text-emerald-700">
+                            {formatCurrency(simulacao.notaBaixa.ativa && simulacao.custoNF.custoEfetivoPorUnidadeReal 
+                              ? simulacao.custoNF.custoEfetivoPorUnidadeReal 
+                              : simulacao.custoNF.custoEfetivoPorUnidade)}
+                            <span className="text-lg font-normal text-emerald-600 ml-1">/ unidade</span>
+                          </p>
+                          {simulacao.notaBaixa.ativa && (
+                            <Badge variant="outline" className="mt-1 border-amber-300 bg-amber-50 text-amber-700">
+                              Ajustado para valor real (×{simulacao.custoNF.fatorMultiplicador?.toFixed(2)})
+                            </Badge>
+                          )}
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => setCustoDetalhesOpen(!custoDetalhesOpen)}>
+                          <Eye className="h-4 w-4 mr-1" />
+                          {custoDetalhesOpen ? 'Ocultar' : 'Ver'} Detalhes
+                        </Button>
+                      </div>
+                      
+                      <Collapsible open={custoDetalhesOpen} onOpenChange={setCustoDetalhesOpen}>
+                        <CollapsibleContent>
+                          <div className="mt-4 p-4 rounded-lg bg-white border space-y-3 text-sm">
+                            <h4 className="font-semibold flex items-center gap-2">
+                              <Info className="h-4 w-4" />
+                              Memória de Cálculo do Custo Efetivo
+                            </h4>
+                            <Separator />
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="text-muted-foreground">NF:</div>
+                              <div className="font-medium">{simulacao.custoNF.nfNumero}</div>
+                              <div className="text-muted-foreground">Fornecedor:</div>
+                              <div className="font-medium">{simulacao.custoNF.fornecedor}</div>
+                              <div className="text-muted-foreground">Item:</div>
+                              <div className="font-medium">{simulacao.custoNF.itemDescricao}</div>
+                              <div className="text-muted-foreground">Quantidade:</div>
+                              <div className="font-medium">{simulacao.custoNF.quantidade} un</div>
+                            </div>
+                            <Separator />
+                            <div className="space-y-1">
+                              <div className="flex justify-between">
+                                <span>Valor do item na NF:</span>
+                                <span className="font-medium">{formatCurrency(simulacao.custoNF.valorTotalItem)}</span>
+                              </div>
+                              {simulacao.custoNF.freteRateado > 0 && (
+                                <div className="flex justify-between">
+                                  <span>+ Frete rateado ({simulacao.custoNF.proporcaoItem}%):</span>
+                                  <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.freteRateado)}</span>
+                                </div>
+                              )}
+                              {simulacao.custoNF.despesasRateadas > 0 && (
+                                <div className="flex justify-between">
+                                  <span>+ Despesas acessórias rateadas:</span>
+                                  <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.despesasRateadas)}</span>
+                                </div>
+                              )}
+                              {(simulacao.custoNF.stRateado || 0) > 0 && (
+                                <div className="flex justify-between">
+                                  <span>+ ICMS ST (compõe custo):</span>
+                                  <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.stRateado || 0)}</span>
+                                </div>
+                              )}
+                              {(simulacao.custoNF.ipiRateado || 0) > 0 && (
+                                <div className="flex justify-between">
+                                  <span>+ IPI (compõe custo):</span>
+                                  <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.ipiRateado || 0)}</span>
+                                </div>
+                              )}
+                              {simulacao.custoNF.descontosRateados > 0 && (
+                                <div className="flex justify-between">
+                                  <span>- Descontos rateados:</span>
+                                  <span className="font-medium text-emerald-600">-{formatCurrency(simulacao.custoNF.descontosRateados)}</span>
+                                </div>
+                              )}
+                            </div>
+                            <Separator />
+                            <div className="flex justify-between text-base font-semibold">
+                              <span>Custo Total Atribuído (NF):</span>
+                              <span>{formatCurrency(simulacao.custoNF.custoEfetivo)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>÷ Quantidade ({simulacao.custoNF.quantidade} un):</span>
+                              <span className="font-medium">{formatCurrency(simulacao.custoNF.custoEfetivoPorUnidade)}/un</span>
+                            </div>
+                            
+                            {simulacao.notaBaixa.ativa && simulacao.custoNF.fatorMultiplicador && simulacao.custoNF.fatorMultiplicador > 1 && (
+                              <>
+                                <Separator />
+                                <div className="p-2 rounded bg-amber-100 border border-amber-200">
+                                  <p className="text-amber-800 font-semibold mb-2">
+                                    Ajuste para Valor Real (×{simulacao.custoNF.fatorMultiplicador.toFixed(2)})
+                                  </p>
+                                  <div className="flex justify-between">
+                                    <span>Custo Efetivo Real por Unidade:</span>
+                                    <span className="font-bold text-amber-900">
+                                      {formatCurrency(simulacao.custoNF.custoEfetivoPorUnidadeReal || 0)}
+                                    </span>
+                                  </div>
+                                  {(simulacao.custoNF.stReal || 0) > 0 && (
+                                    <div className="flex justify-between text-sm">
+                                      <span>ST ajustado:</span>
+                                      <span>{formatCurrency(simulacao.custoNF.stReal || 0)}</span>
+                                    </div>
+                                  )}
+                                  {(simulacao.custoNF.ipiReal || 0) > 0 && (
+                                    <div className="flex justify-between text-sm">
+                                      <span>IPI ajustado:</span>
+                                      <span>{formatCurrency(simulacao.custoNF.ipiReal || 0)}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Bloco 3 - Tributação */}
                 <Card>
                   <CardHeader className="pb-3">
@@ -910,6 +1046,54 @@ export default function Precificacao() {
                         )}
                       </div>
                     )}
+                    
+                    {/* Falso Desconto - Apenas Shopee */}
+                    {marketplaceSelecionado === 'shopee' && (
+                      <div className="p-3 rounded-lg border border-orange-200 bg-orange-50 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Percent className="h-4 w-4 text-orange-600" />
+                            <Label className="font-semibold text-orange-800">Falso Desconto (Shopee)</Label>
+                          </div>
+                          <Switch
+                            checked={simulacao?.falsoDesconto?.ativo || false}
+                            onCheckedChange={(checked) => handleFalsoDescontoChange('ativo', checked)}
+                          />
+                        </div>
+                        
+                        {simulacao?.falsoDesconto?.ativo && (
+                          <div className="space-y-3">
+                            <p className="text-xs text-orange-700">
+                              Estratégia visual: aumenta o preço e aplica desconto para manter a margem real.
+                            </p>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label className="text-sm">Acréscimo sobre preço (%)</Label>
+                                <Input
+                                  type="number"
+                                  step="1"
+                                  value={simulacao.falsoDesconto.acrescimoPercent}
+                                  onChange={(e) => handleFalsoDescontoChange('acrescimoPercent', parseFloat(e.target.value) || 30)}
+                                  className="bg-white"
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">Padrão: 30%</p>
+                              </div>
+                              <div>
+                                <Label className="text-sm">Desconto exibido (%)</Label>
+                                <Input
+                                  type="number"
+                                  step="1"
+                                  value={simulacao.falsoDesconto.descontoPercent}
+                                  onChange={(e) => handleFalsoDescontoChange('descontoPercent', parseFloat(e.target.value) || 30)}
+                                  className="bg-white"
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">Padrão: 30%</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -1044,7 +1228,9 @@ export default function Precificacao() {
                         <div className="p-4 rounded-xl bg-emerald-50 border-2 border-emerald-200">
                           <div className="flex items-center gap-2 mb-2">
                             <Lightbulb className="h-5 w-5 text-emerald-600" />
-                            <span className="font-semibold text-emerald-800">Preço de Venda Sugerido</span>
+                            <span className="font-semibold text-emerald-800">
+                              {resultado.falsoDesconto ? 'Preço Final ao Cliente' : 'Preço de Venda Sugerido'}
+                            </span>
                           </div>
                           <p className="text-3xl font-bold text-emerald-700">
                             {formatCurrency(resultado.precoSugerido)}
@@ -1053,6 +1239,39 @@ export default function Precificacao() {
                             Para atingir margem de {simulacao?.margemDesejada}%
                           </p>
                         </div>
+                        
+                        {/* Falso Desconto - Shopee */}
+                        {resultado.falsoDesconto && (
+                          <div className="p-4 rounded-xl bg-orange-50 border-2 border-orange-200 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <Percent className="h-5 w-5 text-orange-600" />
+                              <span className="font-semibold text-orange-800">Falso Desconto (Shopee)</span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div className="p-2 rounded bg-white border">
+                                <p className="text-muted-foreground text-xs">Preço Base (técnico)</p>
+                                <p className="font-semibold">{formatCurrency(resultado.falsoDesconto.precoBase)}</p>
+                              </div>
+                              <div className="p-2 rounded bg-white border">
+                                <p className="text-muted-foreground text-xs">Preço Listado (antes desconto)</p>
+                                <p className="font-semibold text-orange-700">{formatCurrency(resultado.falsoDesconto.precoListado)}</p>
+                              </div>
+                              <div className="p-2 rounded bg-white border">
+                                <p className="text-muted-foreground text-xs">Desconto Exibido</p>
+                                <p className="font-semibold text-red-600">-{resultado.falsoDesconto.descontoPercent}% ({formatCurrency(resultado.falsoDesconto.descontoValor)})</p>
+                              </div>
+                              <div className="p-2 rounded bg-emerald-100 border border-emerald-300">
+                                <p className="text-emerald-700 text-xs font-medium">Preço Final ao Cliente</p>
+                                <p className="font-bold text-emerald-700">{formatCurrency(resultado.falsoDesconto.precoFinalCliente)}</p>
+                              </div>
+                            </div>
+                            
+                            <p className="text-xs text-orange-700">
+                              A margem é calculada sobre o preço final ({formatCurrency(resultado.precoSugerido)}), não sobre o preço listado.
+                            </p>
+                          </div>
+                        )}
                         
                         {/* Margens com e sem DIFAL */}
                         {simulacao?.tributacao.difalAtivo && (
