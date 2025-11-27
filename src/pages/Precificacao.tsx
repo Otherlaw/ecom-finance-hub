@@ -910,6 +910,42 @@ export default function Precificacao() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
+                    {/* Opção de usar alíquota média estipulada */}
+                    <div className="p-3 rounded-lg border border-primary/30 bg-primary/5 space-y-3 mb-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Percent className="h-4 w-4 text-primary" />
+                          <Label className="font-semibold">Usar alíquota média estipulada</Label>
+                        </div>
+                        <Switch
+                          checked={simulacao?.tributacao.usarImpostoEstimado || false}
+                          onCheckedChange={(checked) => handleTributacaoChange('usarImpostoEstimado', checked)}
+                        />
+                      </div>
+                      
+                      {simulacao?.tributacao.usarImpostoEstimado && (
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground">
+                            Use uma alíquota média estimada quando não tiver dados detalhados de cada imposto.
+                          </p>
+                          <div className="max-w-xs">
+                            <Label className="text-sm">Alíquota Média de Imposto (%)</Label>
+                            <Input
+                              type="number"
+                              step="0.1"
+                              placeholder="Ex: 18"
+                              value={simulacao?.tributacao.impostoEstimadoAliquota || ''}
+                              onChange={(e) => handleTributacaoChange('impostoEstimadoAliquota', parseFloat(e.target.value) || 0)}
+                              className="bg-background"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Este valor substitui ICMS + PIS + COFINS no cálculo
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    
                     {empresaSelecionada?.regimeTributario === 'simples_nacional' ? (
                       <div className="space-y-4">
                         <Alert className="bg-blue-50 border-blue-200">
@@ -926,28 +962,29 @@ export default function Precificacao() {
                               step="0.01"
                               value={simulacao?.tributacao.simplesAliquota || ''}
                               onChange={(e) => handleTributacaoChange('simplesAliquota', parseFloat(e.target.value) || 0)}
+                              disabled={simulacao?.tributacao.usarImpostoEstimado}
                             />
                           </div>
                         </div>
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        <div className="grid grid-cols-4 gap-4">
+                        <div className={`grid grid-cols-4 gap-4 ${simulacao?.tributacao.usarImpostoEstimado ? 'opacity-50' : ''}`}>
                           <div>
                             <Label>ICMS (%)</Label>
-                            <Input type="number" step="0.01" value={simulacao?.tributacao.icmsAliquota || ''} onChange={(e) => handleTributacaoChange('icmsAliquota', parseFloat(e.target.value) || 0)} />
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.icmsAliquota || ''} onChange={(e) => handleTributacaoChange('icmsAliquota', parseFloat(e.target.value) || 0)} disabled={simulacao?.tributacao.usarImpostoEstimado} />
                           </div>
                           <div>
                             <Label>Crédito ICMS (R$)</Label>
-                            <Input type="number" step="0.01" value={simulacao?.tributacao.icmsCredito || ''} onChange={(e) => handleTributacaoChange('icmsCredito', parseFloat(e.target.value) || 0)} />
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.icmsCredito || ''} onChange={(e) => handleTributacaoChange('icmsCredito', parseFloat(e.target.value) || 0)} disabled={simulacao?.tributacao.usarImpostoEstimado} />
                           </div>
                           <div>
                             <Label>ST (R$)</Label>
-                            <Input type="number" step="0.01" value={simulacao?.tributacao.stValor || ''} onChange={(e) => handleTributacaoChange('stValor', parseFloat(e.target.value) || 0)} />
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.stValor || ''} onChange={(e) => handleTributacaoChange('stValor', parseFloat(e.target.value) || 0)} disabled={simulacao?.tributacao.usarImpostoEstimado} />
                           </div>
                           <div>
                             <Label>IPI (R$)</Label>
-                            <Input type="number" step="0.01" value={simulacao?.tributacao.ipiValor || ''} onChange={(e) => handleTributacaoChange('ipiValor', parseFloat(e.target.value) || 0)} />
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.ipiValor || ''} onChange={(e) => handleTributacaoChange('ipiValor', parseFloat(e.target.value) || 0)} disabled={simulacao?.tributacao.usarImpostoEstimado} />
                           </div>
                         </div>
                         
@@ -981,14 +1018,14 @@ export default function Precificacao() {
                           )}
                         </div>
                         
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className={`grid grid-cols-2 gap-4 ${simulacao?.tributacao.usarImpostoEstimado ? 'opacity-50' : ''}`}>
                           <div>
                             <Label>PIS (%)</Label>
-                            <Input type="number" step="0.01" value={simulacao?.tributacao.pisAliquota || ''} onChange={(e) => handleTributacaoChange('pisAliquota', parseFloat(e.target.value) || 0)} />
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.pisAliquota || ''} onChange={(e) => handleTributacaoChange('pisAliquota', parseFloat(e.target.value) || 0)} disabled={simulacao?.tributacao.usarImpostoEstimado} />
                           </div>
                           <div>
                             <Label>COFINS (%)</Label>
-                            <Input type="number" step="0.01" value={simulacao?.tributacao.cofinsAliquota || ''} onChange={(e) => handleTributacaoChange('cofinsAliquota', parseFloat(e.target.value) || 0)} />
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.cofinsAliquota || ''} onChange={(e) => handleTributacaoChange('cofinsAliquota', parseFloat(e.target.value) || 0)} disabled={simulacao?.tributacao.usarImpostoEstimado} />
                           </div>
                         </div>
                       </div>

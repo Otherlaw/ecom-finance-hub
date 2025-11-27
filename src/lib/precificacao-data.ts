@@ -57,6 +57,9 @@ export interface DadosTributacao {
   pisAliquota: number;
   cofinsAliquota: number;
   simplesAliquota: number;
+  // Imposto estimado com alíquota média
+  usarImpostoEstimado: boolean;
+  impostoEstimadoAliquota: number; // % alíquota média estipulada
 }
 
 export interface NotaBaixaConfig {
@@ -389,7 +392,9 @@ export const estimarPrecoMinimo = (simulacao: SimulacaoPrecificacao): number => 
   
   // Calcular percentuais de tributos
   let tributosPercent = 0;
-  if (regimeTributario === 'simples_nacional') {
+  if (tributacao.usarImpostoEstimado && tributacao.impostoEstimadoAliquota > 0) {
+    tributosPercent = tributacao.impostoEstimadoAliquota;
+  } else if (regimeTributario === 'simples_nacional') {
     tributosPercent = tributacao.simplesAliquota;
   } else {
     tributosPercent = tributacao.icmsAliquota + tributacao.pisAliquota + tributacao.cofinsAliquota;
@@ -452,7 +457,10 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   
   // Calcular percentuais de tributos
   let tributosPercent = 0;
-  if (regimeTributario === 'simples_nacional') {
+  if (tributacao.usarImpostoEstimado && tributacao.impostoEstimadoAliquota > 0) {
+    // Usar alíquota média estipulada pelo usuário
+    tributosPercent = tributacao.impostoEstimadoAliquota;
+  } else if (regimeTributario === 'simples_nacional') {
     tributosPercent = tributacao.simplesAliquota;
   } else {
     tributosPercent = tributacao.icmsAliquota + tributacao.pisAliquota + tributacao.cofinsAliquota;
@@ -626,6 +634,8 @@ export const criarSimulacaoInicial = (
       pisAliquota: aliquotas.pis,
       cofinsAliquota: aliquotas.cofins,
       simplesAliquota: aliquotas.simples,
+      usarImpostoEstimado: false,
+      impostoEstimadoAliquota: 0,
     },
     comissao: config.comissaoPadrao,
     tarifaFixa: config.tarifaFixaPadrao,
