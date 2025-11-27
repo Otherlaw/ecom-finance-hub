@@ -1,5 +1,7 @@
 // Assis.Fin - Intelligent Financial Assistant Data Types and Engine
 
+import { mockEmpresas, canUseICMSCredit, getEmpresaByName } from "@/lib/empresas-data";
+
 export type AlertSeverity = 'critico' | 'alto' | 'medio' | 'baixo' | 'informativo';
 
 export type AlertCategory = 
@@ -98,9 +100,12 @@ export const ASSISTANT_PHRASES: Record<AlertSeverity, string[]> = {
 };
 
 // Mock de alertas para demonstração
+// Filtra alertas de ICMS para empresas no Simples Nacional
 export const generateMockAlerts = (): AssistantAlert[] => {
   const now = new Date();
-  const alerts: AssistantAlert[] = [
+  const empresas = mockEmpresas;
+
+  const allAlerts: AssistantAlert[] = [
     {
       id: 'alert-1',
       titulo: 'Crédito de ICMS Insuficiente',
@@ -239,7 +244,28 @@ export const generateMockAlerts = (): AssistantAlert[] => {
     },
   ];
 
-  return alerts;
+  // Filter alerts: ICMS-related alerts should not appear for Simples Nacional companies
+  const filteredAlerts = allAlerts.filter((alert) => {
+    if (!alert.empresa) return true;
+    
+    const emp = getEmpresaByName(empresas, alert.empresa);
+    if (!emp) return true;
+
+    const isIcmsRelatedAlert = 
+      alert.categoria === 'tributario' && 
+      (alert.titulo.toLowerCase().includes('icms') || 
+       alert.descricao.toLowerCase().includes('icms') ||
+       alert.id === 'alert-1');
+
+    // If it's an ICMS-related alert for a Simples Nacional company, filter it out
+    if (isIcmsRelatedAlert && !canUseICMSCredit(emp.regimeTributario)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return filteredAlerts;
 };
 
 // Função para gerar ID único

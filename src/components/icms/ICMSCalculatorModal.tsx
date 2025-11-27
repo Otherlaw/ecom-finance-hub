@@ -18,16 +18,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Calculator, Save, AlertCircle } from "lucide-react";
+import { Calculator, Save, AlertCircle, Info } from "lucide-react";
 import { toast } from "sonner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import {
   calcularICMS,
   validateCreditoICMS,
   formatCurrency,
   CreditoICMS,
-  EMPRESAS,
   UF_LIST,
 } from "@/lib/icms-data";
+import {
+  mockEmpresas,
+  REGIME_TRIBUTARIO_CONFIG,
+  canUseICMSCredit,
+} from "@/lib/empresas-data";
 
 interface ICMSCalculatorModalProps {
   open: boolean;
@@ -61,6 +67,10 @@ export function ICMSCalculatorModal({
   const [formData, setFormData] = useState(initialFormData);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isCalculated, setIsCalculated] = useState(false);
+
+  const empresas = mockEmpresas;
+  const selectedEmpresa = empresas.find(e => e.nome.toUpperCase().includes(formData.empresa.toUpperCase()));
+  const isSimples = selectedEmpresa?.regimeTributario === 'simples_nacional';
 
   useEffect(() => {
     if (editingCredit) {
@@ -285,11 +295,19 @@ export function ICMSCalculatorModal({
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  {EMPRESAS.map((emp) => (
-                    <SelectItem key={emp} value={emp}>
-                      {emp}
-                    </SelectItem>
-                  ))}
+                  {empresas.map((emp) => {
+                    const regime = REGIME_TRIBUTARIO_CONFIG[emp.regimeTributario];
+                    return (
+                      <SelectItem key={emp.id} value={emp.nome.split(' ')[0].toUpperCase()}>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className={`${regime.bgColor} ${regime.color} border text-xs`}>
+                            {regime.shortLabel}
+                          </Badge>
+                          {emp.nome}
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
               {errors.empresa && (
@@ -306,6 +324,15 @@ export function ICMSCalculatorModal({
               placeholder="Ex: 12345"
             />
           </div>
+
+          {isSimples && (
+            <Alert className="bg-blue-50 border-blue-200">
+              <Info className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-blue-700 text-sm">
+                <strong>Empresa em Simples Nacional.</strong> Este crédito de ICMS NÃO será considerado para compensação em relatórios de recomendação e planejamento tributário.
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* NCM e Descrição */}
           <div className="grid grid-cols-3 gap-4">

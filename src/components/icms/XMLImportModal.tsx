@@ -27,16 +27,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Upload, FileX, FileCheck, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Upload, FileX, FileCheck, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import { toast } from "sonner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   parseNFeXML,
   generateCreditsFromNFe,
   formatCurrency,
   NotaFiscalXML,
   CreditoICMS,
-  EMPRESAS,
 } from "@/lib/icms-data";
+import {
+  mockEmpresas,
+  REGIME_TRIBUTARIO_CONFIG,
+  canUseICMSCredit,
+  SIMPLES_NACIONAL_ICMS_WARNING,
+} from "@/lib/empresas-data";
 
 interface XMLImportModalProps {
   open: boolean;
@@ -63,6 +69,11 @@ export function XMLImportModal({
   const [previewCredits, setPreviewCredits] = useState<CreditoICMS[]>([]);
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [isProcessing, setIsProcessing] = useState(false);
+
+  const empresas = mockEmpresas;
+  const selectedEmpresa = empresas.find(e => e.nome.toUpperCase().includes(empresa.toUpperCase()));
+  const isSimples = selectedEmpresa?.regimeTributario === 'simples_nacional';
+  const canUseCredits = selectedEmpresa ? canUseICMSCredit(selectedEmpresa.regimeTributario) : true;
 
   const handleFileSelect = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -194,14 +205,31 @@ export function XMLImportModal({
                   <SelectValue placeholder="Selecione a empresa" />
                 </SelectTrigger>
                 <SelectContent>
-                  {EMPRESAS.map((emp) => (
-                    <SelectItem key={emp} value={emp}>
-                      {emp}
-                    </SelectItem>
-                  ))}
+                  {empresas.map((emp) => {
+                    const regime = REGIME_TRIBUTARIO_CONFIG[emp.regimeTributario];
+                    return (
+                      <SelectItem key={emp.id} value={emp.nome.split(' ')[0].toUpperCase()}>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className={`${regime.bgColor} ${regime.color} border text-xs`}>
+                            {regime.shortLabel}
+                          </Badge>
+                          {emp.nome}
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
+
+            {isSimples && (
+              <Alert className="bg-blue-50 border-blue-200">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-700 text-sm">
+                  <strong>Simples Nacional:</strong> Este crédito será apenas para controle interno, NÃO será considerado para compensação tributária ou recomendações de compra de notas.
+                </AlertDescription>
+              </Alert>
+            )}
 
             <div
               className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${

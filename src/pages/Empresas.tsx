@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,8 @@ import {
   Store,
   MoreVertical,
   Check,
-  ExternalLink,
+  Edit,
+  AlertTriangle,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -19,33 +21,52 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-const empresas = [
-  {
-    id: 1,
-    nome: "Exchange Comercial",
-    cnpj: "12.345.678/0001-90",
-    marketplaces: ["Mercado Livre", "Shopee", "Shein"],
-    usuarios: 3,
-    status: "ativo",
-  },
-  {
-    id: 2,
-    nome: "Inpari Distribuição",
-    cnpj: "98.765.432/0001-10",
-    marketplaces: ["Mercado Livre"],
-    usuarios: 2,
-    status: "ativo",
-  },
-];
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { EmpresaFormModal } from "@/components/empresas/EmpresaFormModal";
+import {
+  Empresa,
+  mockEmpresas,
+  REGIME_TRIBUTARIO_CONFIG,
+  canUseICMSCredit,
+} from "@/lib/empresas-data";
 
 export default function Empresas() {
+  const [empresas, setEmpresas] = useState<Empresa[]>(mockEmpresas);
+  const [formModalOpen, setFormModalOpen] = useState(false);
+  const [editingEmpresa, setEditingEmpresa] = useState<Empresa | null>(null);
+
+  const handleSaveEmpresa = (empresa: Empresa) => {
+    setEmpresas((prev) => {
+      const index = prev.findIndex((e) => e.id === empresa.id);
+      if (index >= 0) {
+        const updated = [...prev];
+        updated[index] = empresa;
+        return updated;
+      }
+      return [...prev, empresa];
+    });
+  };
+
+  const handleEdit = (empresa: Empresa) => {
+    setEditingEmpresa(empresa);
+    setFormModalOpen(true);
+  };
+
+  const handleNew = () => {
+    setEditingEmpresa(null);
+    setFormModalOpen(true);
+  };
+
   return (
     <MainLayout
       title="Empresas"
       subtitle="Gerenciamento de empresas e operações"
       actions={
-        <Button className="gap-2">
+        <Button className="gap-2" onClick={handleNew}>
           <Plus className="h-4 w-4" />
           Nova Empresa
         </Button>
@@ -62,6 +83,7 @@ export default function Empresas() {
             <TableRow className="bg-secondary/30">
               <TableHead>Empresa</TableHead>
               <TableHead>CNPJ</TableHead>
+              <TableHead>Regime Tributário</TableHead>
               <TableHead>Marketplaces</TableHead>
               <TableHead className="text-center">Usuários</TableHead>
               <TableHead className="text-center">Status</TableHead>
@@ -69,67 +91,99 @@ export default function Empresas() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {empresas.map((empresa) => (
-              <TableRow key={empresa.id}>
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <Building2 className="h-5 w-5 text-primary" />
+            {empresas.map((empresa) => {
+              const regimeConfig = REGIME_TRIBUTARIO_CONFIG[empresa.regimeTributario];
+              const usesICMS = canUseICMSCredit(empresa.regimeTributario);
+
+              return (
+                <TableRow key={empresa.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <Building2 className="h-5 w-5 text-primary" />
+                      </div>
+                      <span className="font-medium">{empresa.nome}</span>
                     </div>
-                    <span className="font-medium">{empresa.nome}</span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-muted-foreground">{empresa.cnpj}</TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1">
-                    {empresa.marketplaces.map((mp) => (
-                      <Badge key={mp} variant="outline" className="text-xs">
-                        {mp}
-                      </Badge>
-                    ))}
-                  </div>
-                </TableCell>
-                <TableCell className="text-center">
-                  <div className="flex items-center justify-center gap-1">
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                    {empresa.usuarios}
-                  </div>
-                </TableCell>
-                <TableCell className="text-center">
-                  <Badge className="bg-success/10 text-success border-success/20">
-                    <Check className="h-3 w-3 mr-1" />
-                    Ativo
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-center">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem>
-                        <Settings className="h-4 w-4 mr-2" />
-                        Configurações
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Store className="h-4 w-4 mr-2" />
-                        Marketplaces
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Users className="h-4 w-4 mr-2" />
-                        Usuários
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <ExternalLink className="h-4 w-4 mr-2" />
-                        Acessar
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground font-mono text-sm">
+                    {empresa.cnpj}
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center gap-2">
+                          <Badge 
+                            variant="outline" 
+                            className={`${regimeConfig.bgColor} ${regimeConfig.color} border`}
+                          >
+                            {regimeConfig.shortLabel}
+                          </Badge>
+                          <span className="text-sm">{regimeConfig.label}</span>
+                          {!usesICMS && (
+                            <AlertTriangle className="h-4 w-4 text-amber-500" />
+                          )}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        {usesICMS ? (
+                          <p>Esta empresa pode utilizar créditos de ICMS para compensação tributária.</p>
+                        ) : (
+                          <p>Simples Nacional: créditos de ICMS são apenas para controle interno, não para compensação.</p>
+                        )}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {empresa.marketplaces.map((mp) => (
+                        <Badge key={mp} variant="outline" className="text-xs">
+                          {mp}
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <Users className="h-4 w-4 text-muted-foreground" />
+                      {empresa.usuarios}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Badge className="bg-success/10 text-success border-success/20">
+                      <Check className="h-3 w-3 mr-1" />
+                      Ativo
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleEdit(empresa)}>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <Settings className="h-4 w-4 mr-2" />
+                          Configurações
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <Store className="h-4 w-4 mr-2" />
+                          Marketplaces
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <Users className="h-4 w-4 mr-2" />
+                          Usuários
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </ModuleCard>
@@ -173,6 +227,13 @@ export default function Empresas() {
           </div>
         </ModuleCard>
       </div>
+
+      <EmpresaFormModal
+        open={formModalOpen}
+        onOpenChange={setFormModalOpen}
+        empresa={editingEmpresa}
+        onSave={handleSaveEmpresa}
+      />
     </MainLayout>
   );
 }
