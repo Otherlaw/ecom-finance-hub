@@ -24,6 +24,7 @@ import Configuracoes from "./pages/Configuracoes";
 import AssistantCenter from "./pages/AssistantCenter";
 import NotFound from "./pages/NotFound";
 import { AssistantWidget } from "./components/assistant/AssistantWidget";
+import { AssistantChatProvider } from "./contexts/AssistantChatContext";
 
 const queryClient = new QueryClient();
 
@@ -33,29 +34,31 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/fechamento" element={<Fechamento />} />
-          <Route path="/fluxo-caixa" element={<FluxoCaixa />} />
-          <Route path="/dre" element={<DRE />} />
-          <Route path="/balanco" element={<Balanco />} />
-          <Route path="/kpis" element={<KPIs />} />
-          <Route path="/projecoes" element={<Projecoes />} />
-          <Route path="/icms" element={<ICMS />} />
-          <Route path="/conciliacao" element={<Conciliacao />} />
-          <Route path="/checklist-fechamento" element={<ChecklistFechamento />} />
-          <Route path="/produtos" element={<Produtos />} />
-          <Route path="/compras" element={<Compras />} />
-          <Route path="/contas-pagar" element={<ContasPagar />} />
-          <Route path="/fornecedores" element={<Fornecedores />} />
-          <Route path="/precificacao" element={<Precificacao />} />
-          <Route path="/assistant" element={<AssistantCenter />} />
-          <Route path="/empresas" element={<Empresas />} />
-          <Route path="/usuarios" element={<Usuarios />} />
-          <Route path="/configuracoes" element={<Configuracoes />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-        <AssistantWidget />
+        <AssistantChatProvider>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/fechamento" element={<Fechamento />} />
+            <Route path="/fluxo-caixa" element={<FluxoCaixa />} />
+            <Route path="/dre" element={<DRE />} />
+            <Route path="/balanco" element={<Balanco />} />
+            <Route path="/kpis" element={<KPIs />} />
+            <Route path="/projecoes" element={<Projecoes />} />
+            <Route path="/icms" element={<ICMS />} />
+            <Route path="/conciliacao" element={<Conciliacao />} />
+            <Route path="/checklist-fechamento" element={<ChecklistFechamento />} />
+            <Route path="/produtos" element={<Produtos />} />
+            <Route path="/compras" element={<Compras />} />
+            <Route path="/contas-pagar" element={<ContasPagar />} />
+            <Route path="/fornecedores" element={<Fornecedores />} />
+            <Route path="/precificacao" element={<Precificacao />} />
+            <Route path="/assistant" element={<AssistantCenter />} />
+            <Route path="/empresas" element={<Empresas />} />
+            <Route path="/usuarios" element={<Usuarios />} />
+            <Route path="/configuracoes" element={<Configuracoes />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+          <AssistantWidget />
+        </AssistantChatProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

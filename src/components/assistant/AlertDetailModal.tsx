@@ -24,6 +24,7 @@ import {
   Clock, 
   ExternalLink,
   FileText,
+  MessageCircleQuestion,
   TrendingDown,
   XCircle
 } from 'lucide-react';
@@ -36,6 +37,7 @@ interface AlertDetailModalProps {
   onResolve: (alertId: string) => void;
   onIgnore: (alertId: string) => void;
   onAnalyze: (alertId: string) => void;
+  onAskAssistant?: (alert: AssistantAlert) => void;
 }
 
 export function AlertDetailModal({
@@ -45,6 +47,7 @@ export function AlertDetailModal({
   onResolve,
   onIgnore,
   onAnalyze,
+  onAskAssistant,
 }: AlertDetailModalProps) {
   const navigate = useNavigate();
 
@@ -170,6 +173,18 @@ export function AlertDetailModal({
 
           {/* Ações */}
           <div className="flex flex-wrap gap-3">
+            {/* Perguntar ao Assis.Fin */}
+            {onAskAssistant && (
+              <Button 
+                variant="secondary"
+                className="gap-2"
+                onClick={() => onAskAssistant(alert)}
+              >
+                <MessageCircleQuestion className="w-4 h-4" />
+                Perguntar ao Assis.Fin
+              </Button>
+            )}
+
             {alert.linkDestino && (
               <Button onClick={handleNavigate} className="gap-2">
                 <ExternalLink className="w-4 h-4" />

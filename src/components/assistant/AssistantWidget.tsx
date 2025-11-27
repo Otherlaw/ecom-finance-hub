@@ -1,13 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, BellOff, Settings, ChevronUp, Volume2, VolumeX } from 'lucide-react';
+import { Bell, BellOff, Settings, ChevronUp, Volume2, VolumeX, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,9 +13,12 @@ import {
 import { AssistantCharacter } from './AssistantCharacter';
 import { AlertPopup } from './AlertPopup';
 import { AlertDetailModal } from './AlertDetailModal';
+import { AssistantChatPanel } from './AssistantChatPanel';
 import { useAssistantEngine } from '@/hooks/useAssistantEngine';
+import { useAssistantChatContext } from '@/contexts/AssistantChatContext';
 import { AssistantAlert, SEVERITY_CONFIG, formatRelativeTime } from '@/lib/assistant-data';
 import { cn } from '@/lib/utils';
+import { ChatContext } from '@/hooks/useAssistantChat';
 
 export function AssistantWidget() {
   const navigate = useNavigate();
@@ -38,6 +36,8 @@ export function AssistantWidget() {
     runAnalysis,
   } = useAssistantEngine();
 
+  const { isChatOpen, openChat, closeChat, initialMessage, initialContext } = useAssistantChatContext();
+
   const [currentPopupAlert, setCurrentPopupAlert] = useState<AssistantAlert | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<AssistantAlert | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -49,7 +49,6 @@ export function AssistantWidget() {
   // Mostrar popup para novos alertas
   useEffect(() => {
     if (newAlerts.length > 0 && !currentPopupAlert && !isSilenced) {
-      // Pegar o alerta mais crítico
       const sortedAlerts = [...newAlerts].sort((a, b) => {
         const severityOrder = ['critico', 'alto', 'medio', 'baixo', 'informativo'];
         return severityOrder.indexOf(a.severidade) - severityOrder.indexOf(b.severidade);
@@ -57,6 +56,13 @@ export function AssistantWidget() {
       setCurrentPopupAlert(sortedAlerts[0]);
     }
   }, [newAlerts, currentPopupAlert, isSilenced]);
+
+  // Fechar expanded quando chat abre
+  useEffect(() => {
+    if (isChatOpen) {
+      setIsExpanded(false);
+    }
+  }, [isChatOpen]);
 
   const handleDismissPopup = () => {
     if (currentPopupAlert) {
@@ -91,6 +97,19 @@ export function AssistantWidget() {
     navigate('/assistant');
   };
 
+  const handleAskAboutAlert = (alert: AssistantAlert) => {
+    const alertContext: Partial<ChatContext> = {
+      alertas: [{
+        titulo: alert.titulo,
+        descricao: alert.descricao,
+        severidade: alert.severidade,
+      }],
+      dadosAdicionais: alert.dadosContexto,
+    };
+    openChat(`Me explique mais sobre este alerta: "${alert.titulo}"`, alertContext);
+    setDetailModalOpen(false);
+  };
+
   const recentAlerts = alerts
     .filter(a => a.status === 'novo' || a.status === 'em_analise')
     .slice(0, 5);
@@ -100,7 +119,7 @@ export function AssistantWidget() {
       {/* Widget principal */}
       <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2">
         {/* Mini lista de alertas recentes */}
-        {isExpanded && (
+        {isExpanded && !isChatOpen && (
           <div className="bg-card border rounded-xl shadow-xl w-80 max-h-96 overflow-hidden animate-in slide-in-from-bottom-2">
             <div className="p-3 border-b bg-muted/50 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -117,7 +136,20 @@ export function AssistantWidget() {
               </Button>
             </div>
 
-            <div className="divide-y max-h-64 overflow-y-auto">
+            {/* Botão de chat */}
+            <div className="p-2 border-b bg-primary/5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-2"
+                onClick={() => openChat()}
+              >
+                <MessageCircle className="w-4 h-4" />
+                Conversar com o Assis.Fin
+              </Button>
+            </div>
+
+            <div className="divide-y max-h-48 overflow-y-auto">
               {recentAlerts.length === 0 ? (
                 <div className="p-4 text-center text-sm text-muted-foreground">
                   Nenhum alerta pendente no momento.
@@ -160,87 +192,108 @@ export function AssistantWidget() {
           </div>
         )}
 
-        {/* Botão principal do widget */}
-        <div className="flex items-center gap-2">
-          {/* Menu de configurações */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="h-10 w-10 rounded-full shadow-lg">
-                <Settings className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={runAnalysis} disabled={isAnalyzing}>
-                <Bell className="w-4 h-4 mr-2" />
-                Executar análise
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {isSilenced ? (
-                <DropdownMenuItem onClick={unsilence}>
-                  <Volume2 className="w-4 h-4 mr-2" />
-                  Reativar alertas
+        {/* Botões principais do widget */}
+        {!isChatOpen && (
+          <div className="flex items-center gap-2">
+            {/* Botão de chat rápido */}
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 rounded-full shadow-lg bg-card"
+              onClick={() => openChat()}
+              title="Conversar com o Assis.Fin"
+            >
+              <MessageCircle className="w-4 h-4" />
+            </Button>
+
+            {/* Menu de configurações */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="h-10 w-10 rounded-full shadow-lg bg-card">
+                  <Settings className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={runAnalysis} disabled={isAnalyzing}>
+                  <Bell className="w-4 h-4 mr-2" />
+                  Executar análise
                 </DropdownMenuItem>
-              ) : (
-                <>
-                  <DropdownMenuItem onClick={() => silenceFor(60)}>
-                    <VolumeX className="w-4 h-4 mr-2" />
-                    Silenciar por 1 hora
+                <DropdownMenuSeparator />
+                {isSilenced ? (
+                  <DropdownMenuItem onClick={unsilence}>
+                    <Volume2 className="w-4 h-4 mr-2" />
+                    Reativar alertas
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => silenceFor(240)}>
-                    <VolumeX className="w-4 h-4 mr-2" />
-                    Silenciar por 4 horas
-                  </DropdownMenuItem>
-                </>
+                ) : (
+                  <>
+                    <DropdownMenuItem onClick={() => silenceFor(60)}>
+                      <VolumeX className="w-4 h-4 mr-2" />
+                      Silenciar por 1 hora
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => silenceFor(240)}>
+                      <VolumeX className="w-4 h-4 mr-2" />
+                      Silenciar por 4 horas
+                    </DropdownMenuItem>
+                  </>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleGoToCenter}>
+                  <Bell className="w-4 h-4 mr-2" />
+                  Central de Alertas
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Botão do personagem */}
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className={cn(
+                'relative h-14 w-14 rounded-full shadow-xl transition-all hover:scale-105',
+                'bg-gradient-to-br from-primary to-primary/80',
+                'flex items-center justify-center',
+                isAnalyzing && 'animate-pulse'
               )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleGoToCenter}>
-                <Bell className="w-4 h-4 mr-2" />
-                Central de Alertas
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            >
+              <AssistantCharacter 
+                size="md" 
+                mood={isSilenced ? 'neutral' : isAnalyzing ? 'thinking' : unreadCount > 0 ? 'alto' : 'neutral'} 
+              />
+              
+              {/* Badge de contagem */}
+              {unreadCount > 0 && !isSilenced && (
+                <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-destructive text-destructive-foreground text-xs font-bold flex items-center justify-center animate-bounce">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
 
-          {/* Botão do personagem */}
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className={cn(
-              'relative h-14 w-14 rounded-full shadow-xl transition-all hover:scale-105',
-              'bg-gradient-to-br from-primary to-primary/80',
-              'flex items-center justify-center',
-              isAnalyzing && 'animate-pulse'
-            )}
-          >
-            <AssistantCharacter 
-              size="md" 
-              mood={isSilenced ? 'neutral' : isAnalyzing ? 'thinking' : unreadCount > 0 ? 'alto' : 'neutral'} 
-            />
-            
-            {/* Badge de contagem */}
-            {unreadCount > 0 && !isSilenced && (
-              <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-destructive text-destructive-foreground text-xs font-bold flex items-center justify-center animate-bounce">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-
-            {/* Indicador de silenciado */}
-            {isSilenced && (
-              <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-muted text-muted-foreground flex items-center justify-center">
-                <BellOff className="w-3 h-3" />
-              </span>
-            )}
-          </button>
-        </div>
+              {/* Indicador de silenciado */}
+              {isSilenced && (
+                <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-muted text-muted-foreground flex items-center justify-center">
+                  <BellOff className="w-3 h-3" />
+                </span>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Última análise */}
-        {lastAnalysis && (
+        {lastAnalysis && !isChatOpen && (
           <p className="text-[10px] text-muted-foreground">
             Última análise: {formatRelativeTime(lastAnalysis)}
           </p>
         )}
       </div>
 
+      {/* Chat Panel */}
+      <AssistantChatPanel
+        isOpen={isChatOpen}
+        onClose={closeChat}
+        initialMessage={initialMessage}
+        initialContext={initialContext}
+      />
+
       {/* Popup de alerta */}
-      {currentPopupAlert && !isSilenced && (
+      {currentPopupAlert && !isSilenced && !isChatOpen && (
         <AlertPopup
           alert={currentPopupAlert}
           onDismiss={handleDismissPopup}
@@ -248,7 +301,7 @@ export function AssistantWidget() {
         />
       )}
 
-      {/* Modal de detalhes */}
+      {/* Modal de detalhes com botão de perguntar */}
       <AlertDetailModal
         alert={selectedAlert}
         open={detailModalOpen}
@@ -256,6 +309,7 @@ export function AssistantWidget() {
         onResolve={handleResolve}
         onIgnore={handleIgnore}
         onAnalyze={handleAnalyze}
+        onAskAssistant={handleAskAboutAlert}
       />
     </>
   );
