@@ -19,13 +19,14 @@ import { useAssistantChatContext } from '@/contexts/AssistantChatContext';
 import {
   Calculator, FileText, Upload, Building2, Package, Store, Truck, Receipt,
   PlusCircle, Trash2, Info, TrendingUp, AlertTriangle, CheckCircle, DollarSign,
-  Percent, Target, Lightbulb, ChevronRight, Search, ChevronDown, Eye, FileCode,
+  Percent, Target, Lightbulb, ChevronRight, Search, ChevronDown, Eye, FileCode, AlertCircle,
 } from 'lucide-react';
 import {
-  SimulacaoPrecificacao, ResultadoPrecificacao, GastoExtra, DadosCustoNF,
-  MARKETPLACE_CONFIG, MARKETPLACES_LIST, GASTOS_EXTRAS_SUGESTOES,
+  SimulacaoPrecificacao, ResultadoPrecificacao, GastoExtra, DadosCustoNF, NotaBaixaConfig,
+  MARKETPLACE_CONFIG, MARKETPLACES_LIST, GASTOS_EXTRAS_SUGESTOES, NOTA_BAIXA_OPCOES,
   formatCurrency, formatPercent, calcularResultadoPrecificacao, criarSimulacaoInicial,
-  isFreteGratisML, MarketplaceId, TipoGastoExtra, BaseCalculo, calcularCustoEfetivoNF,
+  isFreteGratisML, deveHabilitarFreteML, MarketplaceId, TipoGastoExtra, BaseCalculo, 
+  calcularCustoEfetivoNF, NotaBaixaOpcao, getFatorNotaBaixa,
 } from '@/lib/precificacao-data';
 import { mockEmpresas, REGIME_TRIBUTARIO_CONFIG, Empresa } from '@/lib/empresas-data';
 import { mockProducts, Product } from '@/lib/products-data';
@@ -68,10 +69,20 @@ export default function Precificacao() {
     return calcularResultadoPrecificacao(simulacao);
   }, [simulacao]);
   
-  // Verificar frete grátis ML
-  const precoParaFrete = resultado?.precoSugerido || simulacao?.precoVendaManual || 0;
+  // Verificar se deve habilitar frete ML em tempo real
   const isML = marketplaceSelecionado === 'mercadolivre';
-  const isFreteGratis = isML && isFreteGratisML(precoParaFrete);
+  const habilitarFreteML = useMemo(() => {
+    if (!isML || !simulacao) return false;
+    // Verificar se preço manual > 79
+    if (simulacao.precoVendaManual && simulacao.precoVendaManual > 79) return true;
+    // Verificar se preço sugerido > 79
+    if (resultado?.precoSugerido && resultado.precoSugerido > 79) return true;
+    // Verificar baseado nos dados já preenchidos
+    return deveHabilitarFreteML(simulacao);
+  }, [isML, simulacao, resultado]);
+  
+  const precoParaFrete = resultado?.precoSugerido || simulacao?.precoVendaManual || 0;
+  const isFreteGratis = isML && isFreteGratisML(precoParaFrete) && !habilitarFreteML;
   
   // Inicializar simulação quando selecionar empresa e marketplace
   useEffect(() => {
@@ -122,10 +133,47 @@ export default function Precificacao() {
     setSimulacao(prev => prev ? { ...prev, [field]: value } : null);
   };
   
-  const handleTributacaoChange = (field: string, value: number) => {
+  const handleTributacaoChange = (field: string, value: number | boolean) => {
     setSimulacao(prev => prev ? {
       ...prev, tributacao: { ...prev.tributacao, [field]: value },
     } : null);
+  };
+  
+  const handleNotaBaixaChange = (field: keyof NotaBaixaConfig, value: any) => {
+    setSimulacao(prev => {
+      if (!prev) return null;
+      const novaNotaBaixa = { ...prev.notaBaixa, [field]: value };
+      
+      // Recalcular custo se houver NF
+      if (prev.custoNF) {
+        const fator = getFatorNotaBaixa(novaNotaBaixa);
+        const custoBaseReal = prev.custoNF.custoEfetivoPorUnidade * fator;
+        const stReal = (prev.custoNF.stRateado || 0) * fator;
+        const ipiReal = (prev.custoNF.ipiRateado || 0) * fator;
+        
+        return {
+          ...prev,
+          notaBaixa: novaNotaBaixa,
+          custoBase: custoBaseReal,
+          custoNF: {
+            ...prev.custoNF,
+            notaBaixa: novaNotaBaixa,
+            fatorMultiplicador: fator,
+            custoEfetivoReal: prev.custoNF.custoEfetivo * fator,
+            custoEfetivoPorUnidadeReal: custoBaseReal,
+            stReal,
+            ipiReal,
+          },
+          tributacao: {
+            ...prev.tributacao,
+            stValor: stReal,
+            ipiValor: ipiReal,
+          },
+        };
+      }
+      
+      return { ...prev, notaBaixa: novaNotaBaixa };
+    });
   };
   
   const handleTaxaExtraToggle = (taxaId: string) => {
@@ -184,7 +232,9 @@ export default function Precificacao() {
       despesasAcessorias: 0,
       descontos: 0,
       valorTotalNF: purchase.valorTotal,
-    });
+      stItem: item.valorIcms || 0, // placeholder
+      ipiItem: 0,
+    }, simulacao?.notaBaixa);
     
     const dadosCusto: DadosCustoNF = {
       ...custoCalculado,
@@ -201,16 +251,24 @@ export default function Precificacao() {
       icmsAliquota: item.aliquotaIcms || 0,
     };
     
+    const fator = simulacao?.notaBaixa ? getFatorNotaBaixa(simulacao.notaBaixa) : 1;
+    const custoBaseReal = dadosCusto.custoEfetivoPorUnidade * fator;
+    
     setSimulacao(prev => {
       if (!prev) return null;
       return {
         ...prev,
-        custoBase: dadosCusto.custoEfetivoPorUnidade,
-        custoNF: dadosCusto,
+        custoBase: custoBaseReal,
+        custoNF: {
+          ...dadosCusto,
+          custoEfetivoPorUnidadeReal: custoBaseReal,
+          custoEfetivoReal: dadosCusto.custoEfetivo * fator,
+          fatorMultiplicador: fator,
+        },
         tributacao: {
           ...prev.tributacao,
           icmsAliquota: dadosCusto.icmsAliquota || prev.tributacao.icmsAliquota,
-          icmsCredito: dadosCusto.icmsDestacado,
+          icmsCredito: dadosCusto.icmsDestacado * fator,
         },
       };
     });
@@ -218,7 +276,7 @@ export default function Precificacao() {
     setNfModalOpen(false);
     setSelectedNFItem(null);
     setCustoDetalhesOpen(true);
-    toast({ title: 'Custo calculado via NF', description: `Custo efetivo: ${formatCurrency(dadosCusto.custoEfetivoPorUnidade)}/un` });
+    toast({ title: 'Custo calculado via NF', description: `Custo efetivo: ${formatCurrency(custoBaseReal)}/un` });
   };
   
   // Upload de XML
@@ -261,7 +319,9 @@ export default function Precificacao() {
       despesasAcessorias: xmlParsed.outrasDepesas || 0,
       descontos: xmlParsed.descontoTotal || 0,
       valorTotalNF: xmlParsed.valorTotal,
-    });
+      stItem: item.icmsST || 0,
+      ipiItem: 0, // Extrair do XML se disponível
+    }, simulacao?.notaBaixa);
     
     const dadosCusto: DadosCustoNF = {
       ...custoCalculado,
@@ -280,21 +340,36 @@ export default function Precificacao() {
       icmsDestacado: item.valorIcms,
       icmsAliquota: item.aliquotaIcms,
       stDestacado: item.icmsST || 0,
+      stRateado: item.icmsST || 0,
       ipiDestacado: 0,
+      ipiRateado: 0,
       ipiAliquota: 0,
     };
+    
+    const fator = simulacao?.notaBaixa ? getFatorNotaBaixa(simulacao.notaBaixa) : 1;
+    const custoBaseReal = dadosCusto.custoEfetivoPorUnidade * fator;
+    const stReal = (dadosCusto.stRateado || 0) * fator;
+    const ipiReal = (dadosCusto.ipiRateado || 0) * fator;
     
     setSimulacao(prev => {
       if (!prev) return null;
       return {
         ...prev,
-        custoBase: dadosCusto.custoEfetivoPorUnidade,
-        custoNF: dadosCusto,
+        custoBase: custoBaseReal,
+        custoNF: {
+          ...dadosCusto,
+          custoEfetivoPorUnidadeReal: custoBaseReal,
+          custoEfetivoReal: dadosCusto.custoEfetivo * fator,
+          fatorMultiplicador: fator,
+          stReal,
+          ipiReal,
+        },
         tributacao: {
           ...prev.tributacao,
           icmsAliquota: dadosCusto.icmsAliquota || prev.tributacao.icmsAliquota,
-          icmsCredito: dadosCusto.icmsDestacado,
-          stValor: dadosCusto.stDestacado,
+          icmsCredito: dadosCusto.icmsDestacado * fator,
+          stValor: stReal,
+          ipiValor: ipiReal,
         },
       };
     });
@@ -303,7 +378,7 @@ export default function Precificacao() {
     setXmlParsed(null);
     setSelectedXmlItemIndex(null);
     setCustoDetalhesOpen(true);
-    toast({ title: 'Custo calculado via XML', description: `Custo efetivo: ${formatCurrency(dadosCusto.custoEfetivoPorUnidade)}/un` });
+    toast({ title: 'Custo calculado via XML', description: `Custo efetivo: ${formatCurrency(custoBaseReal)}/un` });
   };
   
   // Filtrar compras
@@ -462,6 +537,61 @@ export default function Precificacao() {
                       </Button>
                     </div>
                     
+                    {/* Nota Baixa */}
+                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4 text-amber-600" />
+                          <Label className="font-semibold text-amber-800">Nota Baixa / Valor Parcial</Label>
+                        </div>
+                        <Switch
+                          checked={simulacao?.notaBaixa.ativa || false}
+                          onCheckedChange={(checked) => handleNotaBaixaChange('ativa', checked)}
+                        />
+                      </div>
+                      
+                      {simulacao?.notaBaixa.ativa && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <Label className="text-sm">A NF representa:</Label>
+                            <Select
+                              value={simulacao.notaBaixa.opcao}
+                              onValueChange={(v) => handleNotaBaixaChange('opcao', v as NotaBaixaOpcao)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {NOTA_BAIXA_OPCOES.map(op => (
+                                  <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {simulacao.notaBaixa.opcao === 'personalizado' && (
+                            <div>
+                              <Label className="text-sm">% do valor real:</Label>
+                              <Input
+                                type="number"
+                                step="1"
+                                min="1"
+                                max="100"
+                                value={simulacao.notaBaixa.percentualPersonalizado}
+                                onChange={(e) => handleNotaBaixaChange('percentualPersonalizado', parseFloat(e.target.value) || 50)}
+                                placeholder="50"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {simulacao?.notaBaixa.ativa && (
+                        <p className="text-xs text-amber-700">
+                          O sistema ajustará o custo efetivo, ST, IPI e DIFAL proporcionalmente ao valor real da operação.
+                        </p>
+                      )}
+                    </div>
+                    
                     {simulacao?.custoNF && (
                       <div className="space-y-2">
                         <Alert className="bg-emerald-50 border-emerald-200">
@@ -469,7 +599,18 @@ export default function Precificacao() {
                           <AlertTitle className="text-emerald-800">Custo Efetivo Calculado</AlertTitle>
                           <AlertDescription className="text-emerald-700">
                             <div className="flex items-center justify-between mt-2">
-                              <span className="text-lg font-bold">{formatCurrency(simulacao.custoNF.custoEfetivoPorUnidade)} / unidade</span>
+                              <div>
+                                <span className="text-lg font-bold">
+                                  {formatCurrency(simulacao.notaBaixa.ativa && simulacao.custoNF.custoEfetivoPorUnidadeReal 
+                                    ? simulacao.custoNF.custoEfetivoPorUnidadeReal 
+                                    : simulacao.custoNF.custoEfetivoPorUnidade)} / unidade
+                                </span>
+                                {simulacao.notaBaixa.ativa && (
+                                  <span className="text-xs ml-2 text-amber-600">
+                                    (ajustado p/ valor real)
+                                  </span>
+                                )}
+                              </div>
                               <Button variant="ghost" size="sm" onClick={() => setCustoDetalhesOpen(!custoDetalhesOpen)}>
                                 <Eye className="h-4 w-4 mr-1" />
                                 {custoDetalhesOpen ? 'Ocultar' : 'Ver'} Detalhes
@@ -514,6 +655,18 @@ export default function Precificacao() {
                                     <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.despesasRateadas)}</span>
                                   </div>
                                 )}
+                                {(simulacao.custoNF.stRateado || 0) > 0 && (
+                                  <div className="flex justify-between">
+                                    <span>+ ICMS ST (compõe custo):</span>
+                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.stRateado || 0)}</span>
+                                  </div>
+                                )}
+                                {(simulacao.custoNF.ipiRateado || 0) > 0 && (
+                                  <div className="flex justify-between">
+                                    <span>+ IPI (compõe custo):</span>
+                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.ipiRateado || 0)}</span>
+                                  </div>
+                                )}
                                 {simulacao.custoNF.descontosRateados > 0 && (
                                   <div className="flex justify-between">
                                     <span>- Descontos rateados:</span>
@@ -523,13 +676,43 @@ export default function Precificacao() {
                               </div>
                               <Separator />
                               <div className="flex justify-between text-base font-semibold">
-                                <span>Custo Total Atribuído:</span>
+                                <span>Custo Total Atribuído (NF):</span>
                                 <span>{formatCurrency(simulacao.custoNF.custoEfetivo)}</span>
                               </div>
-                              <div className="flex justify-between text-base font-semibold text-emerald-700">
-                                <span>Custo Efetivo por Unidade:</span>
-                                <span>{formatCurrency(simulacao.custoNF.custoEfetivo)} ÷ {simulacao.custoNF.quantidade} = {formatCurrency(simulacao.custoNF.custoEfetivoPorUnidade)}</span>
+                              <div className="flex justify-between">
+                                <span>Custo por Unidade (NF):</span>
+                                <span>{formatCurrency(simulacao.custoNF.custoEfetivoPorUnidade)}</span>
                               </div>
+                              
+                              {simulacao.notaBaixa.ativa && simulacao.custoNF.fatorMultiplicador && simulacao.custoNF.fatorMultiplicador > 1 && (
+                                <>
+                                  <Separator />
+                                  <div className="p-2 rounded bg-amber-100 border border-amber-200">
+                                    <p className="text-amber-800 font-semibold mb-2">
+                                      Ajuste para Valor Real (×{simulacao.custoNF.fatorMultiplicador.toFixed(2)})
+                                    </p>
+                                    <div className="flex justify-between">
+                                      <span>Custo Efetivo Real por Unidade:</span>
+                                      <span className="font-bold text-amber-900">
+                                        {formatCurrency(simulacao.custoNF.custoEfetivoPorUnidadeReal || 0)}
+                                      </span>
+                                    </div>
+                                    {(simulacao.custoNF.stReal || 0) > 0 && (
+                                      <div className="flex justify-between text-sm">
+                                        <span>ST ajustado:</span>
+                                        <span>{formatCurrency(simulacao.custoNF.stReal || 0)}</span>
+                                      </div>
+                                    )}
+                                    {(simulacao.custoNF.ipiReal || 0) > 0 && (
+                                      <div className="flex justify-between text-sm">
+                                        <span>IPI ajustado:</span>
+                                        <span>{formatCurrency(simulacao.custoNF.ipiReal || 0)}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </>
+                              )}
+                              
                               {simulacao.custoNF.icmsDestacado > 0 && (
                                 <>
                                   <Separator />
@@ -538,6 +721,12 @@ export default function Precificacao() {
                                       <span>ICMS destacado na NF:</span>
                                       <span>{formatCurrency(simulacao.custoNF.icmsDestacado)} ({simulacao.custoNF.icmsAliquota}%)</span>
                                     </div>
+                                    {simulacao.custoNF.stDestacado > 0 && (
+                                      <div className="flex justify-between">
+                                        <span>ICMS ST destacado:</span>
+                                        <span>{formatCurrency(simulacao.custoNF.stDestacado)}</span>
+                                      </div>
+                                    )}
                                   </div>
                                 </>
                               )}
@@ -601,38 +790,65 @@ export default function Precificacao() {
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-4 gap-4">
-                        <div>
-                          <Label>ICMS (%)</Label>
-                          <Input type="number" step="0.01" value={simulacao?.tributacao.icmsAliquota || ''} onChange={(e) => handleTributacaoChange('icmsAliquota', parseFloat(e.target.value) || 0)} />
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-4 gap-4">
+                          <div>
+                            <Label>ICMS (%)</Label>
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.icmsAliquota || ''} onChange={(e) => handleTributacaoChange('icmsAliquota', parseFloat(e.target.value) || 0)} />
+                          </div>
+                          <div>
+                            <Label>Crédito ICMS (R$)</Label>
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.icmsCredito || ''} onChange={(e) => handleTributacaoChange('icmsCredito', parseFloat(e.target.value) || 0)} />
+                          </div>
+                          <div>
+                            <Label>ST (R$)</Label>
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.stValor || ''} onChange={(e) => handleTributacaoChange('stValor', parseFloat(e.target.value) || 0)} />
+                          </div>
+                          <div>
+                            <Label>IPI (R$)</Label>
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.ipiValor || ''} onChange={(e) => handleTributacaoChange('ipiValor', parseFloat(e.target.value) || 0)} />
+                          </div>
                         </div>
-                        <div>
-                          <Label>Crédito ICMS (R$)</Label>
-                          <Input type="number" step="0.01" value={simulacao?.tributacao.icmsCredito || ''} onChange={(e) => handleTributacaoChange('icmsCredito', parseFloat(e.target.value) || 0)} />
+                        
+                        {/* DIFAL */}
+                        <div className="p-3 rounded-lg border bg-secondary/20 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Label className="font-semibold">DIFAL (Diferencial de Alíquota)</Label>
+                            </div>
+                            <Switch
+                              checked={simulacao?.tributacao.difalAtivo || false}
+                              onCheckedChange={(checked) => handleTributacaoChange('difalAtivo', checked)}
+                            />
+                          </div>
+                          
+                          {simulacao?.tributacao.difalAtivo && (
+                            <div className="grid grid-cols-3 gap-4">
+                              <div>
+                                <Label>DIFAL (%)</Label>
+                                <Input type="number" step="0.01" value={simulacao?.tributacao.difalAliquota || ''} onChange={(e) => handleTributacaoChange('difalAliquota', parseFloat(e.target.value) || 0)} />
+                              </div>
+                              <div>
+                                <Label>DIFAL Valor (R$)</Label>
+                                <Input type="number" step="0.01" value={simulacao?.tributacao.difalValor || ''} onChange={(e) => handleTributacaoChange('difalValor', parseFloat(e.target.value) || 0)} />
+                              </div>
+                              <div>
+                                <Label>Fundo Fiscal DIFAL (R$)</Label>
+                                <Input type="number" step="0.01" value={simulacao?.tributacao.fundoFiscalDifal || ''} onChange={(e) => handleTributacaoChange('fundoFiscalDifal', parseFloat(e.target.value) || 0)} />
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <div>
-                          <Label>ST (R$)</Label>
-                          <Input type="number" step="0.01" value={simulacao?.tributacao.stValor || ''} onChange={(e) => handleTributacaoChange('stValor', parseFloat(e.target.value) || 0)} />
-                        </div>
-                        <div>
-                          <Label>IPI (%)</Label>
-                          <Input type="number" step="0.01" value={simulacao?.tributacao.ipiAliquota || ''} onChange={(e) => handleTributacaoChange('ipiAliquota', parseFloat(e.target.value) || 0)} />
-                        </div>
-                        <div>
-                          <Label>DIFAL (%)</Label>
-                          <Input type="number" step="0.01" value={simulacao?.tributacao.difalAliquota || ''} onChange={(e) => handleTributacaoChange('difalAliquota', parseFloat(e.target.value) || 0)} />
-                        </div>
-                        <div>
-                          <Label>Fundo Fiscal DIFAL (R$)</Label>
-                          <Input type="number" step="0.01" value={simulacao?.tributacao.fundoFiscalDifal || ''} onChange={(e) => handleTributacaoChange('fundoFiscalDifal', parseFloat(e.target.value) || 0)} />
-                        </div>
-                        <div>
-                          <Label>PIS (%)</Label>
-                          <Input type="number" step="0.01" value={simulacao?.tributacao.pisAliquota || ''} onChange={(e) => handleTributacaoChange('pisAliquota', parseFloat(e.target.value) || 0)} />
-                        </div>
-                        <div>
-                          <Label>COFINS (%)</Label>
-                          <Input type="number" step="0.01" value={simulacao?.tributacao.cofinsAliquota || ''} onChange={(e) => handleTributacaoChange('cofinsAliquota', parseFloat(e.target.value) || 0)} />
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <Label>PIS (%)</Label>
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.pisAliquota || ''} onChange={(e) => handleTributacaoChange('pisAliquota', parseFloat(e.target.value) || 0)} />
+                          </div>
+                          <div>
+                            <Label>COFINS (%)</Label>
+                            <Input type="number" step="0.01" value={simulacao?.tributacao.cofinsAliquota || ''} onChange={(e) => handleTributacaoChange('cofinsAliquota', parseFloat(e.target.value) || 0)} />
+                          </div>
                         </div>
                       </div>
                     )}
@@ -661,22 +877,32 @@ export default function Precificacao() {
                       </div>
                     </div>
                     
+                    {/* Taxas Extras - Toggle para ativar */}
                     {simulacao && simulacao.taxasExtras.length > 0 && (
-                      <div>
-                        <Label className="text-sm text-muted-foreground">Taxas Extras</Label>
-                        <div className="space-y-2 mt-2">
-                          {simulacao.taxasExtras.map(taxa => (
-                            <div key={taxa.id} className="flex items-center justify-between p-2 border rounded-lg">
-                              <div className="flex items-center gap-3">
-                                <Switch checked={taxa.ativo} onCheckedChange={() => handleTaxaExtraToggle(taxa.id)} />
-                                <span className="text-sm">{taxa.descricao}</span>
-                              </div>
-                              <Badge variant="outline">
-                                {taxa.tipo === 'fixo' ? formatCurrency(taxa.valor) : `${taxa.valor}%`}
-                              </Badge>
-                            </div>
-                          ))}
+                      <div className="p-3 rounded-lg border bg-secondary/20 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label className="font-semibold">Taxas Adicionais</Label>
+                          <Switch
+                            checked={simulacao.taxasExtrasAtivas}
+                            onCheckedChange={(checked) => handleSimulacaoChange('taxasExtrasAtivas', checked)}
+                          />
                         </div>
+                        
+                        {simulacao.taxasExtrasAtivas && (
+                          <div className="space-y-2">
+                            {simulacao.taxasExtras.map(taxa => (
+                              <div key={taxa.id} className="flex items-center justify-between p-2 border rounded-lg bg-background">
+                                <div className="flex items-center gap-3">
+                                  <Switch checked={taxa.ativo} onCheckedChange={() => handleTaxaExtraToggle(taxa.id)} />
+                                  <span className="text-sm">{taxa.descricao}</span>
+                                </div>
+                                <Badge variant="outline">
+                                  {taxa.tipo === 'fixo' ? formatCurrency(taxa.valor) : `${taxa.valor}%`}
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -692,8 +918,8 @@ export default function Precificacao() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {isML && (
-                      <Alert className={isFreteGratis ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}>
-                        {isFreteGratis ? (
+                      <Alert className={isFreteGratis && !habilitarFreteML ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}>
+                        {isFreteGratis && !habilitarFreteML ? (
                           <>
                             <CheckCircle className="h-4 w-4 text-emerald-600" />
                             <AlertTitle className="text-emerald-800">Frete Grátis para o Comprador</AlertTitle>
@@ -704,7 +930,7 @@ export default function Precificacao() {
                         ) : (
                           <>
                             <Info className="h-4 w-4 text-amber-600" />
-                            <AlertTitle className="text-amber-800">Preço acima de R$ 79,00</AlertTitle>
+                            <AlertTitle className="text-amber-800">Preço estimado acima de R$ 79,00</AlertTitle>
                             <AlertDescription className="text-amber-700">
                               Configure o custo de frete previsto para este anúncio.
                             </AlertDescription>
@@ -722,9 +948,9 @@ export default function Precificacao() {
                           value={simulacao?.freteVenda || ''}
                           onChange={(e) => handleSimulacaoChange('freteVenda', parseFloat(e.target.value) || 0)}
                           placeholder="0,00"
-                          disabled={isML && isFreteGratis}
+                          disabled={isML && isFreteGratis && !habilitarFreteML}
                         />
-                        {isML && isFreteGratis && (
+                        {isML && isFreteGratis && !habilitarFreteML && (
                           <p className="text-xs text-muted-foreground mt-1">Frete não configurável para produtos até R$ 79,00</p>
                         )}
                       </div>
@@ -823,6 +1049,25 @@ export default function Precificacao() {
                           </p>
                         </div>
                         
+                        {/* Margens com e sem DIFAL */}
+                        {simulacao?.tributacao.difalAtivo && (
+                          <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 space-y-2">
+                            <p className="text-sm font-semibold text-blue-800">Margens de Contribuição:</p>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-blue-700">Com DIFAL:</span>
+                              <span className={resultado.margemComDifalPercent >= 0 ? 'text-emerald-600 font-semibold' : 'text-destructive font-semibold'}>
+                                {formatCurrency(resultado.margemComDifal)} ({resultado.margemComDifalPercent.toFixed(1)}%)
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-blue-700">Sem DIFAL:</span>
+                              <span className={resultado.margemSemDifalPercent >= 0 ? 'text-emerald-600 font-semibold' : 'text-destructive font-semibold'}>
+                                {formatCurrency(resultado.margemSemDifal)} ({resultado.margemSemDifalPercent.toFixed(1)}%)
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        
                         {/* Detalhamento de custos */}
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
@@ -849,6 +1094,12 @@ export default function Precificacao() {
                             <span className="text-muted-foreground">Gastos Extras:</span>
                             <span className="text-destructive">-{formatCurrency(resultado.gastosExtrasTotal)}</span>
                           </div>
+                          {simulacao?.tributacao.difalAtivo && resultado.difalTotal > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">DIFAL:</span>
+                              <span className="text-destructive">-{formatCurrency(resultado.difalTotal)}</span>
+                            </div>
+                          )}
                           <Separator />
                           <div className="flex justify-between font-semibold">
                             <span>Custo Total Variável:</span>
@@ -871,14 +1122,22 @@ export default function Precificacao() {
                             placeholder="Digite um preço para ver a margem"
                             className="text-center"
                           />
-                          {resultado.margemManual !== undefined && resultado.margemManualPercent !== undefined && (
-                            <div className="p-2 rounded bg-background border">
+                          {resultado.margemManualComDifal !== undefined && (
+                            <div className="p-2 rounded bg-background border space-y-1">
                               <div className="flex justify-between text-sm">
-                                <span>Margem com R$ {simulacao?.precoVendaManual?.toFixed(2)}:</span>
-                                <span className={resultado.margemManualPercent >= 0 ? 'text-emerald-600 font-semibold' : 'text-destructive font-semibold'}>
-                                  {formatCurrency(resultado.margemManual)} ({resultado.margemManualPercent.toFixed(1)}%)
+                                <span>Margem com DIFAL:</span>
+                                <span className={(resultado.margemManualComDifalPercent || 0) >= 0 ? 'text-emerald-600 font-semibold' : 'text-destructive font-semibold'}>
+                                  {formatCurrency(resultado.margemManualComDifal)} ({(resultado.margemManualComDifalPercent || 0).toFixed(1)}%)
                                 </span>
                               </div>
+                              {simulacao?.tributacao.difalAtivo && (
+                                <div className="flex justify-between text-sm">
+                                  <span>Margem sem DIFAL:</span>
+                                  <span className={(resultado.margemManualSemDifalPercent || 0) >= 0 ? 'text-emerald-600 font-semibold' : 'text-destructive font-semibold'}>
+                                    {formatCurrency(resultado.margemManualSemDifal || 0)} ({(resultado.margemManualSemDifalPercent || 0).toFixed(1)}%)
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -997,10 +1256,10 @@ export default function Precificacao() {
                   </AlertDescription>
                 </Alert>
                 
-                <div className="text-sm text-muted-foreground">
-                  <span className="font-medium">Dados da NF:</span> Frete: {formatCurrency(xmlParsed.freteTotal || 0)} | 
-                  Despesas: {formatCurrency(xmlParsed.outrasDepesas || 0)} | 
-                  Descontos: {formatCurrency(xmlParsed.descontoTotal || 0)}
+                <div className="text-sm text-muted-foreground grid grid-cols-3 gap-2">
+                  <span><strong>Frete:</strong> {formatCurrency(xmlParsed.freteTotal || 0)}</span>
+                  <span><strong>Despesas:</strong> {formatCurrency(xmlParsed.outrasDepesas || 0)}</span>
+                  <span><strong>Descontos:</strong> {formatCurrency(xmlParsed.descontoTotal || 0)}</span>
                 </div>
                 
                 <Label>Selecione o item do produto:</Label>
@@ -1012,17 +1271,19 @@ export default function Precificacao() {
                         <TableHead>NCM</TableHead>
                         <TableHead className="text-right">Qtd</TableHead>
                         <TableHead className="text-right">Valor Unit.</TableHead>
-                        <TableHead className="text-right">Valor Total</TableHead>
+                        <TableHead className="text-right">ST</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
                         <TableHead></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {xmlParsed.itens.map((item, idx) => (
                         <TableRow key={idx} className={selectedXmlItemIndex === idx ? 'bg-primary/10' : ''}>
-                          <TableCell className="max-w-[200px] truncate">{item.descricao}</TableCell>
+                          <TableCell className="max-w-[180px] truncate">{item.descricao}</TableCell>
                           <TableCell className="font-mono text-xs">{item.ncm}</TableCell>
                           <TableCell className="text-right">{item.quantidade}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.icmsST || 0)}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.valorTotal)}</TableCell>
                           <TableCell>
                             <Button

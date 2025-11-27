@@ -11,6 +11,9 @@ export type TipoGastoExtra = 'fixo' | 'percentual';
 // Base de cálculo para percentuais
 export type BaseCalculo = 'preco_venda' | 'receita_liquida' | 'comissao';
 
+// Opções de nota baixa
+export type NotaBaixaOpcao = 'nenhuma' | '1/2' | '1/3' | '1/4' | '1/5' | 'personalizado';
+
 // ============= Interfaces =============
 
 export interface MarketplaceConfig {
@@ -47,12 +50,19 @@ export interface DadosTributacao {
   stValor: number;
   ipiAliquota: number;
   ipiValor: number;
+  difalAtivo: boolean;
   difalAliquota: number;
   difalValor: number;
   fundoFiscalDifal: number;
   pisAliquota: number;
   cofinsAliquota: number;
   simplesAliquota: number;
+}
+
+export interface NotaBaixaConfig {
+  ativa: boolean;
+  opcao: NotaBaixaOpcao;
+  percentualPersonalizado: number; // valor entre 0 e 100
 }
 
 export interface DadosCustoNF {
@@ -79,8 +89,17 @@ export interface DadosCustoNF {
   icmsDestacado: number;
   icmsAliquota: number;
   stDestacado: number;
+  stRateado: number;
   ipiDestacado: number;
+  ipiRateado: number;
   ipiAliquota: number;
+  // Nota baixa - valores ajustados para valor real
+  notaBaixa?: NotaBaixaConfig;
+  fatorMultiplicador?: number;
+  custoEfetivoReal?: number;
+  custoEfetivoPorUnidadeReal?: number;
+  stReal?: number;
+  ipiReal?: number;
 }
 
 export interface SimulacaoPrecificacao {
@@ -95,6 +114,7 @@ export interface SimulacaoPrecificacao {
   // Custo
   custoBase: number;
   custoNF?: DadosCustoNF;
+  notaBaixa: NotaBaixaConfig;
   
   // Tributação
   tributacao: DadosTributacao;
@@ -103,6 +123,7 @@ export interface SimulacaoPrecificacao {
   comissao: number;
   tarifaFixa: number;
   taxasExtras: TaxaMarketplace[];
+  taxasExtrasAtivas: boolean;
   
   // Frete
   freteVenda: number;
@@ -123,12 +144,21 @@ export interface ResultadoPrecificacao {
   tarifasTotal: number;
   freteTotal: number;
   gastosExtrasTotal: number;
+  difalTotal: number;
   custoTotalVariavel: number;
+  custoTotalVariavelSemDifal: number;
   precoSugerido: number;
+  // Margens
+  margemComDifal: number;
+  margemComDifalPercent: number;
+  margemSemDifal: number;
+  margemSemDifalPercent: number;
   // Se preço manual informado
   precoManual?: number;
-  margemManual?: number;
-  margemManualPercent?: number;
+  margemManualComDifal?: number;
+  margemManualComDifalPercent?: number;
+  margemManualSemDifal?: number;
+  margemManualSemDifalPercent?: number;
 }
 
 // ============= Configurações de Marketplaces =============
@@ -197,6 +227,30 @@ export const MARKETPLACE_CONFIG: Record<MarketplaceId, MarketplaceConfig> = {
 
 export const MARKETPLACES_LIST = Object.values(MARKETPLACE_CONFIG);
 
+// ============= Opções de Nota Baixa =============
+
+export const NOTA_BAIXA_OPCOES: { value: NotaBaixaOpcao; label: string; fator: number }[] = [
+  { value: 'nenhuma', label: 'Nota com valor integral', fator: 1 },
+  { value: '1/2', label: '1/2 da nota (50%)', fator: 2 },
+  { value: '1/3', label: '1/3 da nota (33,3%)', fator: 3 },
+  { value: '1/4', label: '1/4 da nota (25%)', fator: 4 },
+  { value: '1/5', label: '1/5 da nota (20%)', fator: 5 },
+  { value: 'personalizado', label: 'Percentual personalizado', fator: 0 },
+];
+
+export const getFatorNotaBaixa = (config: NotaBaixaConfig): number => {
+  if (!config.ativa) return 1;
+  
+  const opcao = NOTA_BAIXA_OPCOES.find(o => o.value === config.opcao);
+  if (opcao && opcao.fator > 0) return opcao.fator;
+  
+  if (config.opcao === 'personalizado' && config.percentualPersonalizado > 0) {
+    return 100 / config.percentualPersonalizado;
+  }
+  
+  return 1;
+};
+
 // ============= Alíquotas por Regime Tributário =============
 
 export const ALIQUOTAS_REGIME: Record<RegimeTributario, { icms: number; pis: number; cofins: number; simples: number }> = {
@@ -241,8 +295,10 @@ export const calcularCustoEfetivoNF = (dados: {
   despesasAcessorias: number;
   descontos: number;
   valorTotalNF: number;
-}): DadosCustoNF => {
-  const { valorTotalItem, quantidade, freteNF, despesasAcessorias, descontos, valorTotalNF } = dados;
+  stItem?: number;
+  ipiItem?: number;
+}, notaBaixa?: NotaBaixaConfig): DadosCustoNF => {
+  const { valorTotalItem, quantidade, freteNF, despesasAcessorias, descontos, valorTotalNF, stItem = 0, ipiItem = 0 } = dados;
   
   // Proporção do item no total da NF
   const proporcaoItem = valorTotalNF > 0 ? valorTotalItem / valorTotalNF : 1;
@@ -252,11 +308,24 @@ export const calcularCustoEfetivoNF = (dados: {
   const despesasRateadas = despesasAcessorias * proporcaoItem;
   const descontosRateados = descontos * proporcaoItem;
   
-  // Custo total do item
-  const custoEfetivo = valorTotalItem + freteRateado + despesasRateadas - descontosRateados;
+  // ST e IPI rateados (se não vieram do item, ratear pelo total)
+  const stRateado = stItem > 0 ? stItem : 0;
+  const ipiRateado = ipiItem > 0 ? ipiItem : 0;
+  
+  // Custo total do item (incluindo ST e IPI que compõem custo de aquisição)
+  const custoEfetivo = valorTotalItem + freteRateado + despesasRateadas - descontosRateados + stRateado + ipiRateado;
   
   // Custo por unidade
   const custoEfetivoPorUnidade = quantidade > 0 ? custoEfetivo / quantidade : 0;
+  
+  // Calcular fator de nota baixa
+  const fatorMultiplicador = notaBaixa ? getFatorNotaBaixa(notaBaixa) : 1;
+  
+  // Valores ajustados para o valor real (quando nota baixa)
+  const custoEfetivoReal = custoEfetivo * fatorMultiplicador;
+  const custoEfetivoPorUnidadeReal = custoEfetivoPorUnidade * fatorMultiplicador;
+  const stReal = stRateado * fatorMultiplicador;
+  const ipiReal = ipiRateado * fatorMultiplicador;
   
   return {
     nfNumero: '',
@@ -279,9 +348,54 @@ export const calcularCustoEfetivoNF = (dados: {
     icmsDestacado: 0,
     icmsAliquota: 0,
     stDestacado: 0,
+    stRateado: Math.round(stRateado * 100) / 100,
     ipiDestacado: 0,
+    ipiRateado: Math.round(ipiRateado * 100) / 100,
     ipiAliquota: 0,
+    // Nota baixa
+    notaBaixa,
+    fatorMultiplicador,
+    custoEfetivoReal: Math.round(custoEfetivoReal * 100) / 100,
+    custoEfetivoPorUnidadeReal: Math.round(custoEfetivoPorUnidadeReal * 100) / 100,
+    stReal: Math.round(stReal * 100) / 100,
+    ipiReal: Math.round(ipiReal * 100) / 100,
   };
+};
+
+// Estimar preço mínimo baseado nos custos já conhecidos
+export const estimarPrecoMinimo = (simulacao: SimulacaoPrecificacao): number => {
+  const { custoBase, tributacao, comissao, tarifaFixa, taxasExtras, taxasExtrasAtivas, gastosExtras, regimeTributario } = simulacao;
+  
+  if (custoBase <= 0) return 0;
+  
+  // Calcular percentuais de tributos
+  let tributosPercent = 0;
+  if (regimeTributario === 'simples_nacional') {
+    tributosPercent = tributacao.simplesAliquota;
+  } else {
+    tributosPercent = tributacao.icmsAliquota + tributacao.pisAliquota + tributacao.cofinsAliquota;
+  }
+  
+  // Gastos extras percentuais
+  const gastosExtrasPercent = gastosExtras.filter(g => g.tipo === 'percentual').reduce((sum, g) => sum + g.valor, 0);
+  const gastosExtrasFixos = gastosExtras.filter(g => g.tipo === 'fixo').reduce((sum, g) => sum + g.valor, 0);
+  
+  // Taxas extras ativas (percentuais)
+  const taxasExtrasPercent = taxasExtrasAtivas ? taxasExtras.filter(t => t.ativo && t.tipo === 'percentual').reduce((sum, t) => sum + t.valor, 0) : 0;
+  const taxasExtrasFixas = taxasExtrasAtivas ? taxasExtras.filter(t => t.ativo && t.tipo === 'fixo').reduce((sum, t) => sum + t.valor, 0) : 0;
+  
+  const comissaoTotal = comissao + taxasExtrasPercent;
+  const tarifaTotal = tarifaFixa + taxasExtrasFixas;
+  
+  // Preço mínimo apenas para cobrir custos (margem 0)
+  const totalPercentual = (comissaoTotal + tributosPercent + gastosExtrasPercent) / 100;
+  const totalFixo = custoBase + tarifaTotal + gastosExtrasFixos;
+  
+  const denominador = 1 - totalPercentual;
+  
+  if (denominador <= 0) return 0;
+  
+  return totalFixo / denominador;
 };
 
 // Calcular preço sugerido baseado na margem desejada
@@ -293,11 +407,12 @@ export const calcularPrecoSugerido = (
   tributosPercent: number,
   freteVenda: number,
   gastosExtrasFixos: number,
-  gastosExtrasPercent: number
+  gastosExtrasPercent: number,
+  difalValor: number = 0
 ): number => {
-  // Fórmula: Preço = (CustoBase + Gastos Fixos) / (1 - Margem% - Comissão% - Tributos% - GastosExtras%)
+  // Fórmula: Preço = (CustoBase + Gastos Fixos + DIFAL) / (1 - Margem% - Comissão% - Tributos% - GastosExtras%)
   const totalPercentual = (margemDesejada + comissaoPercent + tributosPercent + gastosExtrasPercent) / 100;
-  const totalFixo = custoBase + tarifaFixa + freteVenda + gastosExtrasFixos;
+  const totalFixo = custoBase + tarifaFixa + freteVenda + gastosExtrasFixos + difalValor;
   
   const denominador = 1 - totalPercentual;
   
@@ -311,7 +426,7 @@ export const calcularPrecoSugerido = (
 // Calcular resultado completo da precificação (focado em preço sugerido)
 export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao): ResultadoPrecificacao => {
   const { 
-    custoBase, tributacao, comissao, tarifaFixa, taxasExtras, 
+    custoBase, tributacao, comissao, tarifaFixa, taxasExtras, taxasExtrasAtivas,
     freteVenda, gastosExtras, margemDesejada, regimeTributario, precoVendaManual 
   } = simulacao;
   
@@ -327,14 +442,17 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   const gastosExtrasFixos = gastosExtras.filter(g => g.tipo === 'fixo').reduce((sum, g) => sum + g.valor, 0);
   const gastosExtrasPercent = gastosExtras.filter(g => g.tipo === 'percentual').reduce((sum, g) => sum + g.valor, 0);
   
-  // Taxas extras ativas (percentuais)
-  const taxasExtrasPercent = taxasExtras.filter(t => t.ativo && t.tipo === 'percentual').reduce((sum, t) => sum + t.valor, 0);
-  const taxasExtrasFixas = taxasExtras.filter(t => t.ativo && t.tipo === 'fixo').reduce((sum, t) => sum + t.valor, 0);
+  // Taxas extras ativas (apenas se taxasExtrasAtivas está habilitado)
+  const taxasExtrasPercent = taxasExtrasAtivas ? taxasExtras.filter(t => t.ativo && t.tipo === 'percentual').reduce((sum, t) => sum + t.valor, 0) : 0;
+  const taxasExtrasFixas = taxasExtrasAtivas ? taxasExtras.filter(t => t.ativo && t.tipo === 'fixo').reduce((sum, t) => sum + t.valor, 0) : 0;
   
   const comissaoTotal = comissao + taxasExtrasPercent;
   const tarifaTotal = tarifaFixa + taxasExtrasFixas;
   
-  // Calcular preço sugerido
+  // DIFAL (valor fixo quando ativo)
+  const difalTotal = tributacao.difalAtivo ? (tributacao.difalValor + tributacao.fundoFiscalDifal) : 0;
+  
+  // Calcular preço sugerido COM DIFAL
   const precoSugerido = calcularPrecoSugerido(
     custoBase,
     margemDesejada,
@@ -343,7 +461,8 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     tributosPercent,
     freteVenda,
     gastosExtrasFixos,
-    gastosExtrasPercent
+    gastosExtrasPercent,
+    difalTotal
   );
   
   // Calcular custos com base no preço sugerido
@@ -351,20 +470,33 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   const comissaoValor = (precoSugerido * comissaoTotal) / 100;
   const gastosExtrasTotal = gastosExtrasFixos + (precoSugerido * gastosExtrasPercent) / 100;
   
-  const custoTotalVariavel = custoBase + tributosTotal + comissaoValor + tarifaTotal + freteVenda + gastosExtrasTotal;
+  const custoTotalVariavel = custoBase + tributosTotal + comissaoValor + tarifaTotal + freteVenda + gastosExtrasTotal + difalTotal;
+  const custoTotalVariavelSemDifal = custoBase + tributosTotal + comissaoValor + tarifaTotal + freteVenda + gastosExtrasTotal;
   
-  // Se tem preço manual, calcular margem real
-  let margemManual: number | undefined;
-  let margemManualPercent: number | undefined;
+  // Margens
+  const margemComDifal = precoSugerido - custoTotalVariavel;
+  const margemComDifalPercent = precoSugerido > 0 ? (margemComDifal / precoSugerido) * 100 : 0;
+  const margemSemDifal = precoSugerido - custoTotalVariavelSemDifal;
+  const margemSemDifalPercent = precoSugerido > 0 ? (margemSemDifal / precoSugerido) * 100 : 0;
+  
+  // Se tem preço manual, calcular margens reais
+  let margemManualComDifal: number | undefined;
+  let margemManualComDifalPercent: number | undefined;
+  let margemManualSemDifal: number | undefined;
+  let margemManualSemDifalPercent: number | undefined;
   
   if (precoVendaManual && precoVendaManual > 0) {
     const tributosManual = (precoVendaManual * tributosPercent) / 100;
     const comissaoManual = (precoVendaManual * comissaoTotal) / 100;
     const gastosExtrasManual = gastosExtrasFixos + (precoVendaManual * gastosExtrasPercent) / 100;
-    const custoTotalManual = custoBase + tributosManual + comissaoManual + tarifaTotal + freteVenda + gastosExtrasManual;
     
-    margemManual = precoVendaManual - custoTotalManual;
-    margemManualPercent = (margemManual / precoVendaManual) * 100;
+    const custoTotalManualComDifal = custoBase + tributosManual + comissaoManual + tarifaTotal + freteVenda + gastosExtrasManual + difalTotal;
+    const custoTotalManualSemDifal = custoBase + tributosManual + comissaoManual + tarifaTotal + freteVenda + gastosExtrasManual;
+    
+    margemManualComDifal = precoVendaManual - custoTotalManualComDifal;
+    margemManualComDifalPercent = (margemManualComDifal / precoVendaManual) * 100;
+    margemManualSemDifal = precoVendaManual - custoTotalManualSemDifal;
+    margemManualSemDifalPercent = (margemManualSemDifal / precoVendaManual) * 100;
   }
   
   return {
@@ -374,17 +506,43 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     tarifasTotal: tarifaTotal,
     freteTotal: freteVenda,
     gastosExtrasTotal,
+    difalTotal,
     custoTotalVariavel,
+    custoTotalVariavelSemDifal,
     precoSugerido,
+    margemComDifal,
+    margemComDifalPercent,
+    margemSemDifal,
+    margemSemDifalPercent,
     precoManual: precoVendaManual,
-    margemManual,
-    margemManualPercent,
+    margemManualComDifal,
+    margemManualComDifalPercent,
+    margemManualSemDifal,
+    margemManualSemDifalPercent,
   };
 };
 
 // Verificar se é frete grátis ML (até R$ 79)
 export const isFreteGratisML = (precoVenda: number): boolean => {
   return precoVenda > 0 && precoVenda <= 79;
+};
+
+// Verificar se deve habilitar configuração de frete para ML
+export const deveHabilitarFreteML = (simulacao: SimulacaoPrecificacao): boolean => {
+  // Se já tem preço manual > 79, habilita
+  if (simulacao.precoVendaManual && simulacao.precoVendaManual > 79) return true;
+  
+  // Se já tem custo base, estimar preço mínimo
+  if (simulacao.custoBase > 0) {
+    const precoMinimo = estimarPrecoMinimo(simulacao);
+    // Se preço mínimo já está perto ou acima de 79, habilita
+    if (precoMinimo >= 75) return true;
+  }
+  
+  // Se custo base sozinho já é alto, habilita
+  if (simulacao.custoBase >= 50) return true;
+  
+  return false;
 };
 
 // Criar simulação inicial
@@ -403,6 +561,11 @@ export const criarSimulacaoInicial = (
     regimeTributario,
     marketplace,
     custoBase: 0,
+    notaBaixa: {
+      ativa: false,
+      opcao: 'nenhuma',
+      percentualPersonalizado: 50,
+    },
     tributacao: {
       icmsAliquota: aliquotas.icms,
       icmsValor: 0,
@@ -410,6 +573,7 @@ export const criarSimulacaoInicial = (
       stValor: 0,
       ipiAliquota: 0,
       ipiValor: 0,
+      difalAtivo: false,
       difalAliquota: 0,
       difalValor: 0,
       fundoFiscalDifal: 0,
@@ -420,6 +584,7 @@ export const criarSimulacaoInicial = (
     comissao: config.comissaoPadrao,
     tarifaFixa: config.tarifaFixaPadrao,
     taxasExtras: config.taxasExtras.map(t => ({ ...t })),
+    taxasExtrasAtivas: false,
     freteVenda: 0,
     freteGratisML: false,
     gastosExtras: [],
