@@ -28,6 +28,9 @@ import {
   formatCurrency,
   CreditoICMS,
   UF_LIST,
+  OrigemCredito,
+  ORIGEM_CREDITO_CONFIG,
+  determinarTipoCredito,
 } from "@/lib/icms-data";
 import {
   mockEmpresas,
@@ -44,8 +47,10 @@ interface ICMSCalculatorModalProps {
 
 const initialFormData = {
   empresa: "",
+  origemCredito: "compra_mercadoria" as OrigemCredito,
   numeroNF: "",
   ncm: "",
+  cfop: "",
   descricao: "",
   quantidade: "",
   valorUnitario: "",
@@ -76,8 +81,10 @@ export function ICMSCalculatorModal({
     if (editingCredit) {
       setFormData({
         empresa: editingCredit.empresa,
+        origemCredito: editingCredit.origemCredito || "compra_mercadoria",
         numeroNF: editingCredit.numeroNF || "",
         ncm: editingCredit.ncm,
+        cfop: editingCredit.cfop || "",
         descricao: editingCredit.descricao,
         quantidade: editingCredit.quantidade.toString(),
         valorUnitario: editingCredit.valorUnitario.toString(),
@@ -185,11 +192,20 @@ export function ICMSCalculatorModal({
       return;
     }
 
+    const hoje = new Date().toISOString().split("T")[0];
+    const competencia = hoje.substring(0, 7);
+    const tipoCredito = determinarTipoCredito(formData.empresa, mockEmpresas);
+    const valorCreditoBruto = parseFloat(formData.valorCredito);
+
     const credit: CreditoICMS = {
       id: editingCredit?.id || `cred-${Date.now()}`,
       empresa: creditData.empresa!,
+      tipoCredito,
+      origemCredito: formData.origemCredito,
+      statusCredito: editingCredit?.statusCredito || "ativo",
       numeroNF: creditData.numeroNF,
       ncm: creditData.ncm!,
+      cfop: formData.cfop || undefined,
       descricao: creditData.descricao || "",
       quantidade: creditData.quantidade!,
       valorUnitario: creditData.valorUnitario!,
@@ -198,8 +214,11 @@ export function ICMSCalculatorModal({
       aliquotaIcms: creditData.aliquotaIcms!,
       valorIcmsDestacado: creditData.valorIcmsDestacado!,
       percentualAproveitamento: creditData.percentualAproveitamento!,
-      valorCredito: creditData.valorCredito!,
-      dataLancamento: editingCredit?.dataLancamento || new Date().toISOString().split("T")[0],
+      valorCreditoBruto,
+      valorAjustes: editingCredit?.valorAjustes || 0,
+      valorCredito: valorCreditoBruto + (editingCredit?.valorAjustes || 0),
+      dataLancamento: editingCredit?.dataLancamento || hoje,
+      dataCompetencia: editingCredit?.dataCompetencia || competencia,
       observacoes: creditData.observacoes,
     };
 
@@ -282,7 +301,7 @@ export function ICMSCalculatorModal({
 
         <div className="grid gap-6 py-4">
           {/* Informações Básicas */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <Label>
                 Empresa <span className="text-destructive">*</span>
@@ -318,6 +337,27 @@ export function ICMSCalculatorModal({
               )}
             </div>
 
+            <div className="space-y-1.5">
+              <Label>Origem do Crédito</Label>
+              <Select
+                value={formData.origemCredito}
+                onValueChange={(v) => handleChange("origemCredito", v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(ORIGEM_CREDITO_CONFIG) as OrigemCredito[])
+                    .filter(o => o !== 'nota_adquirida')
+                    .map((origem) => (
+                      <SelectItem key={origem} value={origem}>
+                        {ORIGEM_CREDITO_CONFIG[origem].label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <InputWithError
               id="numeroNF"
               label="Número da NF"
@@ -329,18 +369,23 @@ export function ICMSCalculatorModal({
             <Alert className="bg-blue-50 border-blue-200">
               <Info className="h-4 w-4 text-blue-600" />
               <AlertDescription className="text-blue-700 text-sm">
-                <strong>Empresa em Simples Nacional.</strong> Este crédito de ICMS NÃO será considerado para compensação em relatórios de recomendação e planejamento tributário.
+                <strong>Empresa em Simples Nacional.</strong> Este crédito será classificado como <strong>Não Compensável</strong> e não entrará no cálculo de compensação de ICMS.
               </AlertDescription>
             </Alert>
           )}
 
-          {/* NCM e Descrição */}
-          <div className="grid grid-cols-3 gap-4">
+          {/* NCM, CFOP e Descrição */}
+          <div className="grid grid-cols-4 gap-4">
             <InputWithError
               id="ncm"
               label="NCM"
               placeholder="00000000"
               required
+            />
+            <InputWithError
+              id="cfop"
+              label="CFOP"
+              placeholder="Ex: 2102"
             />
             <div className="col-span-2">
               <InputWithError

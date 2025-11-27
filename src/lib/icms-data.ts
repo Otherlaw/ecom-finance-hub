@@ -1,4 +1,16 @@
-// ============= ICMS Credit Module Data Types & Logic =============
+// ============= ICMS Credit Module Data Types & Logic (Restructured) =============
+
+import { mockEmpresas, canUseICMSCredit, Empresa, RegimeTributario } from "./empresas-data";
+import { mockFornecedores, Fornecedor } from "./fornecedores-data";
+
+// ============= Enums & Types =============
+
+export type TipoCreditoICMS = 'compensavel' | 'nao_compensavel';
+export type OrigemCredito = 'compra_mercadoria' | 'devolucao_venda' | 'frete' | 'nota_adquirida' | 'outro';
+export type TipoAjuste = 'positivo' | 'negativo' | 'estorno';
+export type StatusCredito = 'ativo' | 'estornado' | 'compensado' | 'expirado';
+
+// ============= Interfaces =============
 
 export interface NotaFiscalXML {
   chaveAcesso: string;
@@ -17,6 +29,9 @@ export interface NotaFiscalXML {
   itens: NotaFiscalItem[];
   valorTotal: number;
   icmsTotal: number;
+  freteTotal?: number;
+  descontoTotal?: number;
+  outrasDepesas?: number;
 }
 
 export interface NotaFiscalItem {
@@ -39,27 +54,90 @@ export interface NotaFiscalItem {
 export interface CreditoICMS {
   id: string;
   empresa: string;
+  empresaId?: string;
+  
+  // Classificação do crédito
+  tipoCredito: TipoCreditoICMS;
+  origemCredito: OrigemCredito;
+  statusCredito: StatusCredito;
+  
+  // Dados da NF
   notaFiscalId?: string;
   chaveAcesso?: string;
   numeroNF?: string;
+  
+  // Dados do item/operação
   ncm: string;
   descricao: string;
   quantidade: number;
   valorUnitario: number;
   valorTotal: number;
   ufOrigem: string;
+  cfop?: string;
+  
+  // Valores de ICMS
   aliquotaIcms: number;
   valorIcmsDestacado: number;
   percentualAproveitamento: number;
-  valorCredito: number;
+  valorCreditoBruto: number;
+  valorAjustes: number;
+  valorCredito: number; // = valorCreditoBruto + valorAjustes
+  
+  // Controle
   dataLancamento: string;
+  dataCompetencia: string; // Mês/ano de competência
   responsavel?: string;
+  observacoes?: string;
+  
+  // Vínculo com fornecedor (para notas adquiridas)
+  fornecedorId?: string;
+  fornecedorNome?: string;
+  
+  // Ajustes vinculados
+  ajustes?: AjusteCredito[];
+}
+
+export interface AjusteCredito {
+  id: string;
+  creditoId: string;
+  tipoAjuste: TipoAjuste;
+  motivo: string;
+  valor: number;
+  dataAjuste: string;
+  observacoes?: string;
+}
+
+export interface NotaCreditoAdquirida {
+  id: string;
+  empresaId: string;
+  empresa: string;
+  fornecedorId: string;
+  fornecedorNome: string;
+  numeroNF: string;
+  chaveAcesso?: string;
+  dataOperacao: string;
+  valorOperacao: number;
+  valorCreditoGerado: number;
+  aliquotaMedia: number;
+  observacoes?: string;
+  dataCadastro: string;
+}
+
+export interface PerfilCreditoEmpresa {
+  empresaId: string;
+  regime: RegimeTributario;
+  cfopsCredito: string[]; // CFOPs que geram crédito
+  tiposOperacaoCredito: OrigemCredito[];
+  freteGeraCred: boolean;
+  devolucaoGeraCredito: boolean;
+  aliquotaMedia: number;
   observacoes?: string;
 }
 
 export interface ICMSRecommendation {
   icmsDebito: number;
-  totalCreditos: number;
+  totalCreditosCompensaveis: number;
+  totalCreditosNaoCompensaveis: number;
   icmsLiquido: number;
   suficiente: boolean;
   valorFaltante: number;
@@ -68,48 +146,109 @@ export interface ICMSRecommendation {
   mensagem: string;
 }
 
+export interface ResumoICMSEmpresa {
+  empresaId: string;
+  empresaNome: string;
+  regimeTributario: RegimeTributario;
+  podeCompensarCredito: boolean;
+  
+  // Créditos Compensáveis
+  creditosBrutos: number;
+  ajustesPositivos: number;
+  ajustesNegativos: number;
+  creditosLiquidos: number;
+  
+  // Créditos Não Compensáveis
+  creditosInformativos: number;
+  
+  // Por origem
+  creditosPorOrigem: {
+    compra_mercadoria: number;
+    devolucao_venda: number;
+    frete: number;
+    nota_adquirida: number;
+    outro: number;
+  };
+  
+  // Débito e Saldo
+  icmsDebito: number;
+  saldoICMS: number;
+  percentualCobertura: number;
+}
+
+// ============= Configuration =============
+
+export const ORIGEM_CREDITO_CONFIG: Record<OrigemCredito, { label: string; color: string; bgColor: string }> = {
+  compra_mercadoria: { label: 'Compra de Mercadoria', color: 'text-blue-700', bgColor: 'bg-blue-100' },
+  devolucao_venda: { label: 'Devolução de Venda', color: 'text-emerald-700', bgColor: 'bg-emerald-100' },
+  frete: { label: 'Frete', color: 'text-orange-700', bgColor: 'bg-orange-100' },
+  nota_adquirida: { label: 'Nota de Crédito Adquirida', color: 'text-purple-700', bgColor: 'bg-purple-100' },
+  outro: { label: 'Outro', color: 'text-gray-700', bgColor: 'bg-gray-100' },
+};
+
+export const TIPO_CREDITO_CONFIG: Record<TipoCreditoICMS, { label: string; color: string; bgColor: string; description: string }> = {
+  compensavel: { 
+    label: 'Compensável', 
+    color: 'text-success', 
+    bgColor: 'bg-success/10',
+    description: 'Crédito válido para compensação de ICMS devido'
+  },
+  nao_compensavel: { 
+    label: 'Não Compensável', 
+    color: 'text-blue-600', 
+    bgColor: 'bg-blue-50',
+    description: 'Crédito informativo, não utilizado na compensação'
+  },
+};
+
+export const STATUS_CREDITO_CONFIG: Record<StatusCredito, { label: string; color: string }> = {
+  ativo: { label: 'Ativo', color: 'text-success' },
+  estornado: { label: 'Estornado', color: 'text-destructive' },
+  compensado: { label: 'Compensado', color: 'text-blue-600' },
+  expirado: { label: 'Expirado', color: 'text-muted-foreground' },
+};
+
+// CFOPs que tipicamente geram crédito de ICMS
+export const CFOPS_CREDITO_PADRAO = [
+  '1102', '1403', '1556', '1949', // Entradas internas
+  '2102', '2403', '2556', '2949', // Entradas interestaduais
+];
+
 // ============= XML Parser for NF-e =============
 export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
   try {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlContent, "text/xml");
 
-    // Check for parsing errors
     const parseError = xmlDoc.querySelector("parsererror");
     if (parseError) {
       console.error("XML parsing error:", parseError.textContent);
       return null;
     }
 
-    // Get infNFe element (main container)
     const infNFe = xmlDoc.querySelector("infNFe") || xmlDoc.querySelector("*|infNFe");
     if (!infNFe) {
       console.error("Invalid NF-e XML: infNFe not found");
       return null;
     }
 
-    // Extract chave de acesso from Id attribute
     const chaveAcesso = infNFe.getAttribute("Id")?.replace("NFe", "") || "";
 
-    // Extract ide (identification)
     const ide = infNFe.querySelector("ide");
     const numero = ide?.querySelector("nNF")?.textContent || "";
     const serie = ide?.querySelector("serie")?.textContent || "";
     const dataEmissao = ide?.querySelector("dhEmi")?.textContent?.substring(0, 10) || "";
 
-    // Extract emit (emitter)
     const emit = infNFe.querySelector("emit");
     const emitCnpj = emit?.querySelector("CNPJ")?.textContent || "";
     const emitRazaoSocial = emit?.querySelector("xNome")?.textContent || "";
     const emitUf = emit?.querySelector("enderEmit UF")?.textContent || 
                    emit?.querySelector("enderEmit")?.querySelector("UF")?.textContent || "";
 
-    // Extract dest (destination)
     const dest = infNFe.querySelector("dest");
     const destCnpj = dest?.querySelector("CNPJ")?.textContent || "";
     const destRazaoSocial = dest?.querySelector("xNome")?.textContent || "";
 
-    // Extract items (det)
     const detElements = infNFe.querySelectorAll("det");
     const itens: NotaFiscalItem[] = [];
 
@@ -117,10 +256,7 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
       const prod = det.querySelector("prod");
       const imposto = det.querySelector("imposto");
       const icms = imposto?.querySelector("ICMS");
-      
-      // Find ICMS group (ICMS00, ICMS10, ICMS20, etc.)
-      const icmsGroup = icms?.querySelector("[class^='ICMS']") || 
-                        icms?.firstElementChild;
+      const icmsGroup = icms?.querySelector("[class^='ICMS']") || icms?.firstElementChild;
 
       const item: NotaFiscalItem = {
         codigo: prod?.querySelector("cProd")?.textContent || "",
@@ -143,10 +279,12 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
       itens.push(item);
     });
 
-    // Extract totals
     const total = infNFe.querySelector("total ICMSTot");
     const valorTotal = parseFloat(total?.querySelector("vNF")?.textContent || "0");
     const icmsTotal = parseFloat(total?.querySelector("vICMS")?.textContent || "0");
+    const freteTotal = parseFloat(total?.querySelector("vFrete")?.textContent || "0");
+    const descontoTotal = parseFloat(total?.querySelector("vDesc")?.textContent || "0");
+    const outrasDepesas = parseFloat(total?.querySelector("vOutro")?.textContent || "0");
 
     return {
       chaveAcesso,
@@ -165,6 +303,9 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
       itens,
       valorTotal,
       icmsTotal,
+      freteTotal,
+      descontoTotal,
+      outrasDepesas,
     };
   } catch (error) {
     console.error("Error parsing NF-e XML:", error);
@@ -188,23 +329,43 @@ export const calcularICMS = (
   };
 };
 
+// Determina o tipo de crédito baseado no regime da empresa
+export const determinarTipoCredito = (empresaNome: string, empresas: Empresa[]): TipoCreditoICMS => {
+  const empresa = empresas.find(e => 
+    e.nome.toUpperCase().includes(empresaNome.toUpperCase()) || 
+    empresaNome.toUpperCase().includes(e.nome.split(' ')[0].toUpperCase())
+  );
+  
+  if (!empresa) return 'compensavel';
+  return canUseICMSCredit(empresa.regimeTributario) ? 'compensavel' : 'nao_compensavel';
+};
+
 // ============= Generate Credits from NF-e =============
 export const generateCreditsFromNFe = (
   nfe: NotaFiscalXML,
-  empresa: string
+  empresa: string,
+  origemCredito: OrigemCredito = 'compra_mercadoria',
+  fornecedorId?: string,
+  fornecedorNome?: string
 ): CreditoICMS[] => {
   const credits: CreditoICMS[] = [];
+  const tipoCredito = determinarTipoCredito(empresa, mockEmpresas);
+  const hoje = new Date().toISOString().split("T")[0];
+  const competencia = `${hoje.substring(0, 7)}`;
 
   nfe.itens.forEach((item, index) => {
-    // Only generate credit for items with ICMS > 0
     if (item.valorIcms > 0) {
       const credit: CreditoICMS = {
         id: `${nfe.chaveAcesso}-${index}`,
         empresa,
+        tipoCredito,
+        origemCredito,
+        statusCredito: 'ativo',
         notaFiscalId: nfe.chaveAcesso,
         chaveAcesso: nfe.chaveAcesso,
         numeroNF: nfe.numero,
         ncm: item.ncm,
+        cfop: item.cfop,
         descricao: item.descricao,
         quantidade: item.quantidade,
         valorUnitario: item.valorUnitario,
@@ -213,8 +374,13 @@ export const generateCreditsFromNFe = (
         aliquotaIcms: item.aliquotaIcms,
         valorIcmsDestacado: item.valorIcms,
         percentualAproveitamento: 100,
-        valorCredito: item.valorIcms, // 100% aproveitamento por padrão
-        dataLancamento: new Date().toISOString().split("T")[0],
+        valorCreditoBruto: item.valorIcms,
+        valorAjustes: 0,
+        valorCredito: item.valorIcms,
+        dataLancamento: hoje,
+        dataCompetencia: competencia,
+        fornecedorId,
+        fornecedorNome,
         observacoes: `Importado automaticamente da NF ${nfe.numero}`,
       };
       credits.push(credit);
@@ -224,27 +390,83 @@ export const generateCreditsFromNFe = (
   return credits;
 };
 
+// ============= Calcular Resumo por Empresa =============
+export const calcularResumoEmpresa = (
+  creditos: CreditoICMS[],
+  empresaNome: string,
+  icmsDebito: number
+): ResumoICMSEmpresa => {
+  const empresa = mockEmpresas.find(e => 
+    e.nome.toUpperCase().includes(empresaNome.toUpperCase()) || 
+    empresaNome.toUpperCase().includes(e.nome.split(' ')[0].toUpperCase())
+  );
+  
+  const creditosEmpresa = creditos.filter(c => 
+    c.empresa.toUpperCase().includes(empresaNome.toUpperCase()) ||
+    empresaNome.toUpperCase().includes(c.empresa.toUpperCase())
+  );
+  
+  const creditosCompensaveis = creditosEmpresa.filter(c => c.tipoCredito === 'compensavel' && c.statusCredito === 'ativo');
+  const creditosNaoCompensaveis = creditosEmpresa.filter(c => c.tipoCredito === 'nao_compensavel' && c.statusCredito === 'ativo');
+  
+  const creditosBrutos = creditosCompensaveis.reduce((sum, c) => sum + c.valorCreditoBruto, 0);
+  const ajustesPositivos = creditosCompensaveis.reduce((sum, c) => sum + (c.valorAjustes > 0 ? c.valorAjustes : 0), 0);
+  const ajustesNegativos = creditosCompensaveis.reduce((sum, c) => sum + (c.valorAjustes < 0 ? Math.abs(c.valorAjustes) : 0), 0);
+  const creditosLiquidos = creditosBrutos + ajustesPositivos - ajustesNegativos;
+  
+  const creditosInformativos = creditosNaoCompensaveis.reduce((sum, c) => sum + c.valorCredito, 0);
+  
+  const podeCompensarCredito = empresa ? canUseICMSCredit(empresa.regimeTributario) : true;
+  const debitoEfetivo = podeCompensarCredito ? icmsDebito : 0;
+  const saldoICMS = creditosLiquidos - debitoEfetivo;
+  const percentualCobertura = debitoEfetivo > 0 ? (creditosLiquidos / debitoEfetivo) * 100 : 100;
+  
+  return {
+    empresaId: empresa?.id || '',
+    empresaNome,
+    regimeTributario: empresa?.regimeTributario || 'lucro_presumido',
+    podeCompensarCredito,
+    creditosBrutos,
+    ajustesPositivos,
+    ajustesNegativos,
+    creditosLiquidos,
+    creditosInformativos,
+    creditosPorOrigem: {
+      compra_mercadoria: creditosCompensaveis.filter(c => c.origemCredito === 'compra_mercadoria').reduce((s, c) => s + c.valorCredito, 0),
+      devolucao_venda: creditosCompensaveis.filter(c => c.origemCredito === 'devolucao_venda').reduce((s, c) => s + c.valorCredito, 0),
+      frete: creditosCompensaveis.filter(c => c.origemCredito === 'frete').reduce((s, c) => s + c.valorCredito, 0),
+      nota_adquirida: creditosCompensaveis.filter(c => c.origemCredito === 'nota_adquirida').reduce((s, c) => s + c.valorCredito, 0),
+      outro: creditosCompensaveis.filter(c => c.origemCredito === 'outro').reduce((s, c) => s + c.valorCredito, 0),
+    },
+    icmsDebito: debitoEfetivo,
+    saldoICMS,
+    percentualCobertura,
+  };
+};
+
 // ============= Recommendation Calculator =============
 export const calculateRecommendation = (
   icmsDebito: number,
-  totalCreditos: number,
+  totalCreditosCompensaveis: number,
+  totalCreditosNaoCompensaveis: number = 0,
   aliquotaMedia: number = 8
 ): ICMSRecommendation => {
-  const icmsLiquido = icmsDebito - totalCreditos;
+  const icmsLiquido = icmsDebito - totalCreditosCompensaveis;
   const suficiente = icmsLiquido <= 0;
   const valorFaltante = suficiente ? 0 : icmsLiquido;
   const valorNotasNecessario = valorFaltante > 0 ? (valorFaltante / (aliquotaMedia / 100)) : 0;
 
   let mensagem: string;
   if (suficiente) {
-    mensagem = `Seus créditos de ICMS (${formatCurrency(totalCreditos)}) são suficientes para compensar o ICMS devido (${formatCurrency(icmsDebito)}) neste período.`;
+    mensagem = `Seus créditos compensáveis de ICMS (${formatCurrency(totalCreditosCompensaveis)}) são suficientes para cobrir o ICMS devido (${formatCurrency(icmsDebito)}) neste período.`;
   } else {
-    mensagem = `Faltam ${formatCurrency(valorFaltante)} em crédito de ICMS para zerar o imposto. Isso corresponde, aproximadamente, a ${formatCurrency(valorNotasNecessario)} em notas fiscais com alíquota média de ${aliquotaMedia}%.`;
+    mensagem = `Faltam ${formatCurrency(valorFaltante)} em crédito de ICMS para zerar o imposto. Isso corresponde aproximadamente a ${formatCurrency(valorNotasNecessario)} em notas fiscais com alíquota média de ${aliquotaMedia}%.`;
   }
 
   return {
     icmsDebito,
-    totalCreditos,
+    totalCreditosCompensaveis,
+    totalCreditosNaoCompensaveis,
     icmsLiquido,
     suficiente,
     valorFaltante,
@@ -309,13 +531,17 @@ export const validateCreditoICMS = (credito: Partial<CreditoICMS>): CreditoICMSV
   };
 };
 
-// ============= Mock Data for Stored Credits =============
+// ============= Mock Data for Stored Credits (Restructured) =============
 export const mockCreditosICMS: CreditoICMS[] = [
   {
     id: "cred-001",
     empresa: "EXCHANGE",
+    tipoCredito: "compensavel",
+    origemCredito: "compra_mercadoria",
+    statusCredito: "ativo",
     numeroNF: "12345",
     ncm: "85287200",
+    cfop: "2102",
     descricao: "Televisor LCD 50 polegadas",
     quantidade: 50,
     valorUnitario: 1200,
@@ -324,15 +550,22 @@ export const mockCreditosICMS: CreditoICMS[] = [
     aliquotaIcms: 12,
     valorIcmsDestacado: 7200,
     percentualAproveitamento: 100,
+    valorCreditoBruto: 7200,
+    valorAjustes: 0,
     valorCredito: 7200,
     dataLancamento: "2024-10-05",
+    dataCompetencia: "2024-10",
     observacoes: "Compra para revenda",
   },
   {
     id: "cred-002",
     empresa: "EXCHANGE",
+    tipoCredito: "compensavel",
+    origemCredito: "compra_mercadoria",
+    statusCredito: "ativo",
     numeroNF: "12346",
     ncm: "84713012",
+    cfop: "2102",
     descricao: "Notebook Core i5",
     quantidade: 30,
     valorUnitario: 2500,
@@ -341,15 +574,22 @@ export const mockCreditosICMS: CreditoICMS[] = [
     aliquotaIcms: 12,
     valorIcmsDestacado: 9000,
     percentualAproveitamento: 100,
+    valorCreditoBruto: 9000,
+    valorAjustes: 0,
     valorCredito: 9000,
     dataLancamento: "2024-10-10",
+    dataCompetencia: "2024-10",
     observacoes: "Importação via fornecedor nacional",
   },
   {
     id: "cred-003",
     empresa: "EXCHANGE",
+    tipoCredito: "compensavel",
+    origemCredito: "compra_mercadoria",
+    statusCredito: "ativo",
     numeroNF: "12347",
     ncm: "85171231",
+    cfop: "1102",
     descricao: "Smartphone Android 128GB",
     quantidade: 100,
     valorUnitario: 800,
@@ -358,15 +598,71 @@ export const mockCreditosICMS: CreditoICMS[] = [
     aliquotaIcms: 12,
     valorIcmsDestacado: 9600,
     percentualAproveitamento: 100,
+    valorCreditoBruto: 9600,
+    valorAjustes: 0,
     valorCredito: 9600,
     dataLancamento: "2024-10-15",
+    dataCompetencia: "2024-10",
     observacoes: "",
   },
   {
     id: "cred-004",
+    empresa: "EXCHANGE",
+    tipoCredito: "compensavel",
+    origemCredito: "devolucao_venda",
+    statusCredito: "ativo",
+    numeroNF: "98765",
+    ncm: "85171231",
+    cfop: "1411",
+    descricao: "Devolução - Smartphone defeituoso",
+    quantidade: 5,
+    valorUnitario: 800,
+    valorTotal: 4000,
+    ufOrigem: "SP",
+    aliquotaIcms: 18,
+    valorIcmsDestacado: 720,
+    percentualAproveitamento: 100,
+    valorCreditoBruto: 720,
+    valorAjustes: 0,
+    valorCredito: 720,
+    dataLancamento: "2024-10-18",
+    dataCompetencia: "2024-10",
+    observacoes: "Devolução de cliente - garantia",
+  },
+  {
+    id: "cred-005",
+    empresa: "EXCHANGE",
+    tipoCredito: "compensavel",
+    origemCredito: "nota_adquirida",
+    statusCredito: "ativo",
+    numeroNF: "77777",
+    ncm: "99999999",
+    descricao: "Nota fiscal de crédito adquirida",
+    quantidade: 1,
+    valorUnitario: 50000,
+    valorTotal: 50000,
+    ufOrigem: "SP",
+    aliquotaIcms: 8,
+    valorIcmsDestacado: 4000,
+    percentualAproveitamento: 100,
+    valorCreditoBruto: 4000,
+    valorAjustes: 0,
+    valorCredito: 4000,
+    dataLancamento: "2024-10-20",
+    dataCompetencia: "2024-10",
+    fornecedorId: "forn-012",
+    fornecedorNome: "Créditos Fiscais SP Ltda",
+    observacoes: "Nota de crédito comprada para compensação",
+  },
+  {
+    id: "cred-006",
     empresa: "INPARI",
+    tipoCredito: "nao_compensavel",
+    origemCredito: "compra_mercadoria",
+    statusCredito: "ativo",
     numeroNF: "54321",
     ncm: "94035000",
+    cfop: "2102",
     descricao: "Móvel para escritório",
     quantidade: 20,
     valorUnitario: 450,
@@ -375,15 +671,22 @@ export const mockCreditosICMS: CreditoICMS[] = [
     aliquotaIcms: 7,
     valorIcmsDestacado: 630,
     percentualAproveitamento: 100,
+    valorCreditoBruto: 630,
+    valorAjustes: 0,
     valorCredito: 630,
     dataLancamento: "2024-10-18",
-    observacoes: "Material de escritório",
+    dataCompetencia: "2024-10",
+    observacoes: "Material de escritório - Simples Nacional (informativo)",
   },
   {
-    id: "cred-005",
+    id: "cred-007",
     empresa: "INPARI",
+    tipoCredito: "nao_compensavel",
+    origemCredito: "compra_mercadoria",
+    statusCredito: "ativo",
     numeroNF: "54322",
     ncm: "84716052",
+    cfop: "2102",
     descricao: "Monitor LED 24 polegadas",
     quantidade: 15,
     valorUnitario: 600,
@@ -392,9 +695,54 @@ export const mockCreditosICMS: CreditoICMS[] = [
     aliquotaIcms: 12,
     valorIcmsDestacado: 1080,
     percentualAproveitamento: 100,
+    valorCreditoBruto: 1080,
+    valorAjustes: 0,
     valorCredito: 1080,
     dataLancamento: "2024-10-20",
-    observacoes: "",
+    dataCompetencia: "2024-10",
+    observacoes: "Simples Nacional - apenas controle interno",
+  },
+  {
+    id: "cred-008",
+    empresa: "EXCHANGE",
+    tipoCredito: "compensavel",
+    origemCredito: "frete",
+    statusCredito: "ativo",
+    numeroNF: "CT-e 88888",
+    ncm: "00000000",
+    cfop: "2353",
+    descricao: "Frete sobre compra de mercadorias",
+    quantidade: 1,
+    valorUnitario: 5000,
+    valorTotal: 5000,
+    ufOrigem: "SP",
+    aliquotaIcms: 12,
+    valorIcmsDestacado: 600,
+    percentualAproveitamento: 100,
+    valorCreditoBruto: 600,
+    valorAjustes: 0,
+    valorCredito: 600,
+    dataLancamento: "2024-10-22",
+    dataCompetencia: "2024-10",
+    observacoes: "Crédito de frete sobre mercadorias",
+  },
+];
+
+// Mock data para notas de crédito adquiridas
+export const mockNotasAdquiridas: NotaCreditoAdquirida[] = [
+  {
+    id: "nca-001",
+    empresaId: "emp-001",
+    empresa: "EXCHANGE",
+    fornecedorId: "forn-012",
+    fornecedorNome: "Créditos Fiscais SP Ltda",
+    numeroNF: "77777",
+    dataOperacao: "2024-10-20",
+    valorOperacao: 50000,
+    valorCreditoGerado: 4000,
+    aliquotaMedia: 8,
+    observacoes: "Compra de nota para compensar saldo negativo de ICMS",
+    dataCadastro: "2024-10-20",
   },
 ];
 
@@ -410,6 +758,13 @@ export const formatDate = (date: string): string => {
   if (!date) return "";
   const [year, month, day] = date.split("-");
   return `${day}/${month}/${year}`;
+};
+
+export const formatCompetencia = (competencia: string): string => {
+  if (!competencia) return "";
+  const [year, month] = competencia.split("-");
+  const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  return `${meses[parseInt(month) - 1]}/${year}`;
 };
 
 export const UF_LIST = [

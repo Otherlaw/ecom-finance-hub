@@ -17,6 +17,7 @@ import {
   Lightbulb,
   FileText,
   ShoppingCart,
+  Info,
 } from "lucide-react";
 import { formatCurrency, ICMSRecommendation } from "@/lib/icms-data";
 
@@ -59,7 +60,7 @@ export function ICMSRecommendationModal({
   }
 
   const progressPercentage = Math.min(
-    (recommendation.totalCreditos / recommendation.icmsDebito) * 100,
+    (recommendation.totalCreditosCompensaveis / recommendation.icmsDebito) * 100,
     100
   );
 
@@ -103,9 +104,9 @@ export function ICMSRecommendationModal({
             </div>
             <div className="p-4 rounded-xl bg-success/10 border border-success/20 text-center">
               <TrendingUp className="h-6 w-6 mx-auto text-success mb-2" />
-              <p className="text-sm text-muted-foreground">Total Créditos</p>
+              <p className="text-sm text-muted-foreground">Créditos Compensáveis</p>
               <p className="text-xl font-bold text-success">
-                {formatCurrency(recommendation.totalCreditos)}
+                {formatCurrency(recommendation.totalCreditosCompensaveis)}
               </p>
             </div>
             <div
@@ -131,10 +132,20 @@ export function ICMSRecommendationModal({
             </div>
           </div>
 
+          {/* Créditos não compensáveis info */}
+          {recommendation.totalCreditosNaoCompensaveis > 0 && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
+              <Info className="h-4 w-4 text-blue-600" />
+              <p className="text-sm text-blue-700">
+                Você também possui <strong>{formatCurrency(recommendation.totalCreditosNaoCompensaveis)}</strong> em créditos não compensáveis (informativos).
+              </p>
+            </div>
+          )}
+
           {/* Progress Bar */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Cobertura de créditos</span>
+              <span className="text-muted-foreground">Cobertura de créditos compensáveis</span>
               <span className="font-medium">{progressPercentage.toFixed(1)}%</span>
             </div>
             <Progress
@@ -197,9 +208,9 @@ export function ICMSRecommendationModal({
                   💡 Sugestão de Ação
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Considere adquirir mercadorias com ICMS destacado para gerar créditos
-                  adicionais. Priorize fornecedores de estados com alíquota favorável
-                  (7% ou 12% dependendo da origem/destino).
+                  Considere adquirir mercadorias com ICMS destacado ou comprar notas de crédito
+                  de fornecedores especializados. Priorize fornecedores de estados com alíquota
+                  favorável (7% ou 12% dependendo da origem/destino).
                 </p>
               </div>
             </div>
