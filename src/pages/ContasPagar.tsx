@@ -51,7 +51,7 @@ import {
   TrendingDown,
   Receipt,
   Repeat,
-  FileBarChart,
+  BarChart3,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -277,7 +277,7 @@ export default function ContasPagar() {
             Exportar
           </Button>
           <Button variant="outline" onClick={() => setActiveTab('relatorios')}>
-            <FileBarChart className="h-4 w-4 mr-2" />
+            <BarChart3 className="h-4 w-4 mr-2" />
             Relatórios
           </Button>
           <Button onClick={() => { setSelectedConta(null); setFormModalOpen(true); }}>
