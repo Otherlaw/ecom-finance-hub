@@ -14,6 +14,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
+import { AskAssistantButton } from '@/components/assistant/AskAssistantButton';
+import { useAssistantChatContext } from '@/contexts/AssistantChatContext';
 import {
   Calculator, FileText, Upload, Building2, Package, Store, Truck, Receipt,
   PlusCircle, Trash2, Info, TrendingUp, AlertTriangle, CheckCircle, DollarSign,
@@ -322,6 +324,22 @@ export default function Precificacao() {
   const marketplaceConfig = MARKETPLACE_CONFIG[marketplaceSelecionado];
   const regimeConfig = empresaSelecionada ? REGIME_TRIBUTARIO_CONFIG[empresaSelecionada.regimeTributario] : null;
 
+  const { openChat } = useAssistantChatContext();
+
+  const handleAskAssistant = () => {
+    openChat('Explique como esta precificação foi calculada', {
+      telaAtual: 'Precificação',
+      empresa: empresaSelecionada ? { nome: empresaSelecionada.nome, regime: empresaSelecionada.regimeTributario } : undefined,
+      dadosAdicionais: {
+        produto: produtoSelecionado?.nome || 'Não selecionado',
+        marketplace: marketplaceConfig.nome,
+        custoBase: simulacao?.custoBase ? formatCurrency(simulacao.custoBase) : 'Não calculado',
+        margemDesejada: simulacao?.margemDesejada ? formatPercent(simulacao.margemDesejada) : 'Não definida',
+        precoSugerido: resultado?.precoSugerido ? formatCurrency(resultado.precoSugerido) : 'Não calculado',
+      },
+    });
+  };
+
   return (
     <div className="flex min-h-screen w-full bg-background">
       <AppSidebar />
@@ -338,6 +356,7 @@ export default function Precificacao() {
                 Calcule o preço de venda ideal com base no custo efetivo e margem desejada
               </p>
             </div>
+            <AskAssistantButton onClick={handleAskAssistant} label="Perguntar ao Assis.Fin" />
           </div>
 
           {/* Bloco 1 - Contexto */}
