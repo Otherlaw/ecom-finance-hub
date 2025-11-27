@@ -16,6 +16,7 @@ import {
   ShoppingCart,
   CreditCard,
   Truck,
+  Calculator,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -51,6 +52,7 @@ const mainNavItems: NavItem[] = [
   { title: "Compras", href: "/compras", icon: ShoppingCart },
   { title: "Contas a Pagar", href: "/contas-pagar", icon: CreditCard },
   { title: "Fornecedores", href: "/fornecedores", icon: Truck },
+  { title: "Precificação", href: "/precificacao", icon: Calculator },
   { title: "Assis.Fin", href: "/assistant", icon: Bot, badge: "IA" },
 ];
 
