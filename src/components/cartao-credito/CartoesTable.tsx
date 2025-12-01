@@ -2,16 +2,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Edit, Trash, AlertCircle } from "lucide-react";
+import { useCartoes } from "@/hooks/useCartoes";
 
 interface CartoesTableProps {
   onEdit: (id: string) => void;
 }
 
 export function CartoesTable({ onEdit }: CartoesTableProps) {
-  // TODO: Integrar com Supabase para buscar dados reais
-  const cartoes = [];
+  const { cartoes, isLoading } = useCartoes();
 
-  if (cartoes.length === 0) {
+  if (isLoading) {
+    return <div className="text-center py-8">Carregando cartões...</div>;
+  }
+
+  if (!cartoes || cartoes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
@@ -27,6 +31,7 @@ export function CartoesTable({ onEdit }: CartoesTableProps) {
     <Table>
       <TableHeader>
         <TableRow>
+          <TableHead>Empresa</TableHead>
           <TableHead>Nome</TableHead>
           <TableHead>Instituição</TableHead>
           <TableHead>Tipo</TableHead>
@@ -41,7 +46,10 @@ export function CartoesTable({ onEdit }: CartoesTableProps) {
       <TableBody>
         {cartoes.map((cartao: any) => (
           <TableRow key={cartao.id}>
-            <TableCell className="font-medium">{cartao.nome}</TableCell>
+            <TableCell className="font-medium">
+              {cartao.empresa?.nome_fantasia || cartao.empresa?.razao_social}
+            </TableCell>
+            <TableCell>{cartao.nome}</TableCell>
             <TableCell>{cartao.instituicao_financeira}</TableCell>
             <TableCell>
               <Badge variant={cartao.tipo === "credito" ? "default" : "secondary"}>

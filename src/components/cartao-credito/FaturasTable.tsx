@@ -3,22 +3,26 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Eye, Edit, CheckCircle, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
+import { useFaturas } from "@/hooks/useCartoes";
 
 interface FaturasTableProps {
   onViewTransactions: (id: string) => void;
 }
 
 export function FaturasTable({ onViewTransactions }: FaturasTableProps) {
-  // TODO: Integrar com Supabase para buscar dados reais
-  const faturas = [];
+  const { faturas, isLoading } = useFaturas();
 
-  if (faturas.length === 0) {
+  if (isLoading) {
+    return <div className="text-center py-8">Carregando faturas...</div>;
+  }
+
+  if (!faturas || faturas.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
         <h3 className="text-lg font-semibold mb-2">Nenhuma fatura cadastrada</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Clique em "Nova Fatura" para cadastrar a primeira fatura
+          Clique em "Importar Faturas" ou "Nova Fatura" para começar
         </p>
       </div>
     );
@@ -28,6 +32,7 @@ export function FaturasTable({ onViewTransactions }: FaturasTableProps) {
     <Table>
       <TableHeader>
         <TableRow>
+          <TableHead>Empresa</TableHead>
           <TableHead>Cartão</TableHead>
           <TableHead>Mês Referência</TableHead>
           <TableHead>Valor Total</TableHead>
@@ -42,7 +47,10 @@ export function FaturasTable({ onViewTransactions }: FaturasTableProps) {
         {faturas.map((fatura: any) => (
           <TableRow key={fatura.id}>
             <TableCell className="font-medium">
-              {fatura.credit_card?.nome} - {fatura.credit_card?.ultimos_digitos}
+              {fatura.cartao?.empresa?.razao_social}
+            </TableCell>
+            <TableCell>
+              {fatura.cartao?.nome}
             </TableCell>
             <TableCell>{format(new Date(fatura.mes_referencia), "MM/yyyy")}</TableCell>
             <TableCell>
@@ -57,10 +65,10 @@ export function FaturasTable({ onViewTransactions }: FaturasTableProps) {
             </TableCell>
             <TableCell>
               {fatura.pago ? (
-                <div className="flex items-center gap-1 text-success">
+                <div className="flex items-center gap-1 text-green-600">
                   <CheckCircle className="h-4 w-4" />
                   <span className="text-sm">
-                    {format(new Date(fatura.data_pagamento), "dd/MM/yyyy")}
+                    {fatura.data_pagamento ? format(new Date(fatura.data_pagamento), "dd/MM/yyyy") : "Pago"}
                   </span>
                 </div>
               ) : (
