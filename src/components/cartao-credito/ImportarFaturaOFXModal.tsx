@@ -117,8 +117,8 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
           estabelecimento: t.NAME || null,
           valor: Math.abs(valor),
           tipo_movimento: tipoMovimento,
-          tipo: "pontual",
-          status: "pendente",
+          tipo: "pontual" as const,
+          status: "pendente" as const,
         };
       });
 
