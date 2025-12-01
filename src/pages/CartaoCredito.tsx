@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Plus, CreditCard as CreditCardIcon, FileText, TrendingUp, AlertTriangle, Upload, Tags } from "lucide-react";
 import { CartaoFormModal } from "@/components/cartao-credito/CartaoFormModal";
 import { FaturaFormModal } from "@/components/cartao-credito/FaturaFormModal";
-import { ImportarFaturaModal } from "@/components/cartao-credito/ImportarFaturaModal";
+import { ImportarFaturaOFXModal } from "@/components/cartao-credito/ImportarFaturaOFXModal";
 import { CategorizarTransacoesModal } from "@/components/cartao-credito/CategorizarTransacoesModal";
 import { CartoesTable } from "@/components/cartao-credito/CartoesTable";
 import { FaturasTable } from "@/components/cartao-credito/FaturasTable";
