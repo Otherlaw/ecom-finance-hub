@@ -156,6 +156,7 @@ export type Database = {
           status: Database["public"]["Enums"]["transaction_status"]
           tipo: Database["public"]["Enums"]["transaction_type"]
           tipo_despesa: string | null
+          tipo_movimento: string | null
           total_parcelas: number | null
           updated_at: string
           updated_by: string | null
@@ -180,6 +181,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["transaction_status"]
           tipo?: Database["public"]["Enums"]["transaction_type"]
           tipo_despesa?: string | null
+          tipo_movimento?: string | null
           total_parcelas?: number | null
           updated_at?: string
           updated_by?: string | null
@@ -204,6 +206,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["transaction_status"]
           tipo?: Database["public"]["Enums"]["transaction_type"]
           tipo_despesa?: string | null
+          tipo_movimento?: string | null
           total_parcelas?: number | null
           updated_at?: string
           updated_by?: string | null
