@@ -14,7 +14,297 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      categorias_financeiras: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          descricao: string | null
+          id: string
+          nome: string
+          tipo: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          nome: string
+          tipo: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          nome?: string
+          tipo?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      centros_de_custo: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          descricao: string | null
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      credit_card_invoices: {
+        Row: {
+          arquivo_url: string | null
+          created_at: string
+          created_by: string | null
+          credit_card_id: string
+          data_fechamento: string
+          data_pagamento: string | null
+          data_vencimento: string
+          id: string
+          mes_referencia: string
+          observacoes: string | null
+          pago: boolean
+          status: string
+          updated_at: string
+          valor_total: number
+        }
+        Insert: {
+          arquivo_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          credit_card_id: string
+          data_fechamento: string
+          data_pagamento?: string | null
+          data_vencimento: string
+          id?: string
+          mes_referencia: string
+          observacoes?: string | null
+          pago?: boolean
+          status?: string
+          updated_at?: string
+          valor_total: number
+        }
+        Update: {
+          arquivo_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          credit_card_id?: string
+          data_fechamento?: string
+          data_pagamento?: string | null
+          data_vencimento?: string
+          id?: string
+          mes_referencia?: string
+          observacoes?: string | null
+          pago?: boolean
+          status?: string
+          updated_at?: string
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_invoices_credit_card_id_fkey"
+            columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      credit_card_transactions: {
+        Row: {
+          categoria_id: string | null
+          centro_custo_id: string | null
+          comprovante_url: string | null
+          created_at: string
+          created_by: string | null
+          data_transacao: string
+          descricao: string
+          id: string
+          invoice_id: string
+          observacoes: string | null
+          responsavel_id: string | null
+          status: Database["public"]["Enums"]["transaction_status"]
+          tipo: Database["public"]["Enums"]["transaction_type"]
+          updated_at: string
+          updated_by: string | null
+          valor: number
+        }
+        Insert: {
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          comprovante_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          data_transacao: string
+          descricao: string
+          id?: string
+          invoice_id: string
+          observacoes?: string | null
+          responsavel_id?: string | null
+          status?: Database["public"]["Enums"]["transaction_status"]
+          tipo?: Database["public"]["Enums"]["transaction_type"]
+          updated_at?: string
+          updated_by?: string | null
+          valor: number
+        }
+        Update: {
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          comprovante_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          data_transacao?: string
+          descricao?: string
+          id?: string
+          invoice_id?: string
+          observacoes?: string | null
+          responsavel_id?: string | null
+          status?: Database["public"]["Enums"]["transaction_status"]
+          tipo?: Database["public"]["Enums"]["transaction_type"]
+          updated_at?: string
+          updated_by?: string | null
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_transactions_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_financeiras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_transactions_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_transactions_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "credit_card_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_transactions_responsavel_id_fkey"
+            columns: ["responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "responsaveis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      credit_cards: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          dia_fechamento: number
+          dia_vencimento: number
+          empresa_id: string
+          id: string
+          instituicao_financeira: string
+          limite_credito: number | null
+          nome: string
+          observacoes: string | null
+          responsavel_id: string | null
+          tipo: Database["public"]["Enums"]["card_type"]
+          ultimos_digitos: string | null
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          dia_fechamento: number
+          dia_vencimento: number
+          empresa_id: string
+          id?: string
+          instituicao_financeira: string
+          limite_credito?: number | null
+          nome: string
+          observacoes?: string | null
+          responsavel_id?: string | null
+          tipo?: Database["public"]["Enums"]["card_type"]
+          ultimos_digitos?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          dia_fechamento?: number
+          dia_vencimento?: number
+          empresa_id?: string
+          id?: string
+          instituicao_financeira?: string
+          limite_credito?: number | null
+          nome?: string
+          observacoes?: string | null
+          responsavel_id?: string | null
+          tipo?: Database["public"]["Enums"]["card_type"]
+          ultimos_digitos?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_cards_responsavel_id_fkey"
+            columns: ["responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "responsaveis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      responsaveis: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          email: string | null
+          funcao: string | null
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          email?: string | null
+          funcao?: string | null
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          email?: string | null
+          funcao?: string | null
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +313,9 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      card_type: "credito" | "debito"
+      transaction_status: "conciliado" | "pendente" | "aprovado" | "reprovado"
+      transaction_type: "recorrente" | "pontual"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +442,10 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      card_type: ["credito", "debito"],
+      transaction_status: ["conciliado", "pendente", "aprovado", "reprovado"],
+      transaction_type: ["recorrente", "pontual"],
+    },
   },
 } as const
