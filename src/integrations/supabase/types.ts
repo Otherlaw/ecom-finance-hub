@@ -294,6 +294,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "credit_cards_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "credit_cards_responsavel_id_fkey"
             columns: ["responsavel_id"]
             isOneToOne: false
