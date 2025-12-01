@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,11 +23,11 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
   const { cartoes } = useCartoes();
 
   // Pré-selecionar cartão se houver apenas um
-  useState(() => {
+  useEffect(() => {
     if (cartoes && cartoes.length === 1 && !cartaoSelecionado) {
       setCartaoSelecionado(cartoes[0].id);
     }
-  });
+  }, [cartoes]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
