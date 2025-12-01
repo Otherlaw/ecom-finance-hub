@@ -3,18 +3,25 @@ import { MainLayout } from "@/components/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, CreditCard as CreditCardIcon, FileText, TrendingUp, AlertTriangle } from "lucide-react";
+import { Plus, CreditCard as CreditCardIcon, FileText, TrendingUp, AlertTriangle, Upload, Tags } from "lucide-react";
 import { CartaoFormModal } from "@/components/cartao-credito/CartaoFormModal";
 import { FaturaFormModal } from "@/components/cartao-credito/FaturaFormModal";
+import { ImportarFaturaModal } from "@/components/cartao-credito/ImportarFaturaModal";
+import { CategorizarTransacoesModal } from "@/components/cartao-credito/CategorizarTransacoesModal";
 import { CartoesTable } from "@/components/cartao-credito/CartoesTable";
 import { FaturasTable } from "@/components/cartao-credito/FaturasTable";
 import { TransacoesTable } from "@/components/cartao-credito/TransacoesTable";
 import { DashboardGastos } from "@/components/cartao-credito/DashboardGastos";
+import { useFaturas } from "@/hooks/useCartoes";
 
 export default function CartaoCredito() {
   const [cartaoModalOpen, setCartaoModalOpen] = useState(false);
   const [faturaModalOpen, setFaturaModalOpen] = useState(false);
+  const [importarModalOpen, setImportarModalOpen] = useState(false);
+  const [categorizarModalOpen, setCategorizarModalOpen] = useState(false);
   const [selectedCartao, setSelectedCartao] = useState<string | null>(null);
+  const [selectedFatura, setSelectedFatura] = useState<string | null>(null);
+  const { faturas } = useFaturas();
 
   return (
     <MainLayout
@@ -26,9 +33,13 @@ export default function CartaoCredito() {
             <Plus className="h-4 w-4 mr-2" />
             Novo Cartão
           </Button>
-          <Button onClick={() => setFaturaModalOpen(true)}>
+          <Button onClick={() => setImportarModalOpen(true)} variant="secondary">
+            <Upload className="h-4 w-4 mr-2" />
+            Importar Faturas
+          </Button>
+          <Button onClick={() => setFaturaModalOpen(true)} variant="outline">
             <FileText className="h-4 w-4 mr-2" />
-            Nova Fatura
+            Nova Fatura Manual
           </Button>
         </div>
       }
@@ -108,7 +119,12 @@ export default function CartaoCredito() {
               <CardDescription>Acompanhe as faturas mensais e seus status de pagamento</CardDescription>
             </CardHeader>
             <CardContent>
-              <FaturasTable onViewTransactions={(id) => console.log('View', id)} />
+              <FaturasTable
+                onViewTransactions={(id) => {
+                  setSelectedFatura(id);
+                  setCategorizarModalOpen(true);
+                }}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -133,6 +149,14 @@ export default function CartaoCredito() {
       {/* Modals */}
       <CartaoFormModal open={cartaoModalOpen} onOpenChange={setCartaoModalOpen} />
       <FaturaFormModal open={faturaModalOpen} onOpenChange={setFaturaModalOpen} />
+      <ImportarFaturaModal open={importarModalOpen} onOpenChange={setImportarModalOpen} />
+      {selectedFatura && (
+        <CategorizarTransacoesModal
+          open={categorizarModalOpen}
+          onOpenChange={setCategorizarModalOpen}
+          faturaId={selectedFatura}
+        />
+      )}
     </MainLayout>
   );
 }

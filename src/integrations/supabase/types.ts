@@ -73,7 +73,9 @@ export type Database = {
       }
       credit_card_invoices: {
         Row: {
+          arquivo_importacao_url: string | null
           arquivo_url: string | null
+          competencia: string | null
           created_at: string
           created_by: string | null
           credit_card_id: string
@@ -89,7 +91,9 @@ export type Database = {
           valor_total: number
         }
         Insert: {
+          arquivo_importacao_url?: string | null
           arquivo_url?: string | null
+          competencia?: string | null
           created_at?: string
           created_by?: string | null
           credit_card_id: string
@@ -105,7 +109,9 @@ export type Database = {
           valor_total: number
         }
         Update: {
+          arquivo_importacao_url?: string | null
           arquivo_url?: string | null
+          competencia?: string | null
           created_at?: string
           created_by?: string | null
           credit_card_id?: string
@@ -137,14 +143,20 @@ export type Database = {
           comprovante_url: string | null
           created_at: string
           created_by: string | null
+          data_lancamento: string | null
           data_transacao: string
           descricao: string
+          estabelecimento: string | null
           id: string
           invoice_id: string
+          moeda: string | null
+          numero_parcela: string | null
           observacoes: string | null
           responsavel_id: string | null
           status: Database["public"]["Enums"]["transaction_status"]
           tipo: Database["public"]["Enums"]["transaction_type"]
+          tipo_despesa: string | null
+          total_parcelas: number | null
           updated_at: string
           updated_by: string | null
           valor: number
@@ -155,14 +167,20 @@ export type Database = {
           comprovante_url?: string | null
           created_at?: string
           created_by?: string | null
+          data_lancamento?: string | null
           data_transacao: string
           descricao: string
+          estabelecimento?: string | null
           id?: string
           invoice_id: string
+          moeda?: string | null
+          numero_parcela?: string | null
           observacoes?: string | null
           responsavel_id?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           tipo?: Database["public"]["Enums"]["transaction_type"]
+          tipo_despesa?: string | null
+          total_parcelas?: number | null
           updated_at?: string
           updated_by?: string | null
           valor: number
@@ -173,14 +191,20 @@ export type Database = {
           comprovante_url?: string | null
           created_at?: string
           created_by?: string | null
+          data_lancamento?: string | null
           data_transacao?: string
           descricao?: string
+          estabelecimento?: string | null
           id?: string
           invoice_id?: string
+          moeda?: string | null
+          numero_parcela?: string | null
           observacoes?: string | null
           responsavel_id?: string | null
           status?: Database["public"]["Enums"]["transaction_status"]
           tipo?: Database["public"]["Enums"]["transaction_type"]
+          tipo_despesa?: string | null
+          total_parcelas?: number | null
           updated_at?: string
           updated_by?: string | null
           valor?: number
@@ -274,6 +298,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      empresas: {
+        Row: {
+          ativo: boolean
+          cnpj: string
+          created_at: string
+          email: string | null
+          endereco: string | null
+          id: string
+          inscricao_estadual: string | null
+          nome_fantasia: string | null
+          razao_social: string
+          regime_tributario: string
+          telefone: string | null
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          cnpj: string
+          created_at?: string
+          email?: string | null
+          endereco?: string | null
+          id?: string
+          inscricao_estadual?: string | null
+          nome_fantasia?: string | null
+          razao_social: string
+          regime_tributario: string
+          telefone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          cnpj?: string
+          created_at?: string
+          email?: string | null
+          endereco?: string | null
+          id?: string
+          inscricao_estadual?: string | null
+          nome_fantasia?: string | null
+          razao_social?: string
+          regime_tributario?: string
+          telefone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       responsaveis: {
         Row: {

@@ -1,20 +1,24 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Edit, Eye, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Edit, Eye, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
+import { useTransacoes } from "@/hooks/useCartoes";
 
 export function TransacoesTable() {
-  // TODO: Integrar com Supabase para buscar dados reais
-  const transacoes = [];
+  const { transacoes, isLoading } = useTransacoes();
 
-  if (transacoes.length === 0) {
+  if (isLoading) {
+    return <div className="text-center py-8">Carregando transações...</div>;
+  }
+
+  if (!transacoes || transacoes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
         <h3 className="text-lg font-semibold mb-2">Nenhuma transação cadastrada</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          As transações serão exibidas após o cadastro de faturas
+          As transações serão exibidas após a importação de faturas
         </p>
       </div>
     );
@@ -25,6 +29,7 @@ export function TransacoesTable() {
       <TableHeader>
         <TableRow>
           <TableHead>Data</TableHead>
+          <TableHead>Estabelecimento</TableHead>
           <TableHead>Descrição</TableHead>
           <TableHead>Valor</TableHead>
           <TableHead>Categoria</TableHead>
@@ -39,6 +44,7 @@ export function TransacoesTable() {
         {transacoes.map((transacao: any) => (
           <TableRow key={transacao.id}>
             <TableCell>{format(new Date(transacao.data_transacao), "dd/MM/yyyy")}</TableCell>
+            <TableCell>{transacao.estabelecimento || "-"}</TableCell>
             <TableCell className="font-medium max-w-xs truncate">{transacao.descricao}</TableCell>
             <TableCell>
               {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(transacao.valor)}
@@ -50,18 +56,16 @@ export function TransacoesTable() {
             <TableCell>{transacao.responsavel?.nome || "-"}</TableCell>
             <TableCell>
               <Badge variant={transacao.tipo === "recorrente" ? "default" : "secondary"}>
-                {transacao.tipo}
+                {transacao.tipo || "pontual"}
               </Badge>
             </TableCell>
             <TableCell>
               <Badge
                 variant={
-                  transacao.status === "aprovado"
+                  transacao.status === "conciliado"
                     ? "default"
                     : transacao.status === "reprovado"
                     ? "destructive"
-                    : transacao.status === "conciliado"
-                    ? "default"
                     : "outline"
                 }
               >
@@ -76,16 +80,6 @@ export function TransacoesTable() {
                 <Button variant="ghost" size="icon">
                   <Edit className="h-4 w-4" />
                 </Button>
-                {transacao.status === "pendente" && (
-                  <>
-                    <Button variant="ghost" size="icon">
-                      <CheckCircle className="h-4 w-4 text-success" />
-                    </Button>
-                    <Button variant="ghost" size="icon">
-                      <XCircle className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </>
-                )}
               </div>
             </TableCell>
           </TableRow>
