@@ -149,7 +149,7 @@ export default function CartaoCredito() {
       {/* Modals */}
       <CartaoFormModal open={cartaoModalOpen} onOpenChange={setCartaoModalOpen} />
       <FaturaFormModal open={faturaModalOpen} onOpenChange={setFaturaModalOpen} />
-      <ImportarFaturaModal open={importarModalOpen} onOpenChange={setImportarModalOpen} />
+      <ImportarFaturaOFXModal open={importarModalOpen} onOpenChange={setImportarModalOpen} />
       {selectedFatura && (
         <CategorizarTransacoesModal
           open={categorizarModalOpen}
