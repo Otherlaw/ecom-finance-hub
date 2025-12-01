@@ -32,8 +32,18 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
       const text = await file.text();
       const ofxData = OFX.parse(text);
       
+      let transactions = null;
+      
+      // Try credit card format
       if (ofxData?.OFX?.CREDITCARDMSGSRSV1?.CCSTMTTRNRS?.CCSTMTRS?.BANKTRANLIST?.STMTTRN) {
-        const transactions = ofxData.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS.CCSTMTRS.BANKTRANLIST.STMTTRN;
+        transactions = ofxData.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS.CCSTMTRS.BANKTRANLIST.STMTTRN;
+      } 
+      // Try bank account format
+      else if (ofxData?.OFX?.BANKMSGSRSV1?.STMTTRNRS?.STMTRS?.BANKTRANLIST?.STMTTRN) {
+        transactions = ofxData.OFX.BANKMSGSRSV1.STMTTRNRS.STMTRS.BANKTRANLIST.STMTTRN;
+      }
+      
+      if (transactions) {
         const transactionArray = Array.isArray(transactions) ? transactions : [transactions];
         
         setPreview(transactionArray.slice(0, 5));
@@ -64,13 +74,25 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
       const text = await arquivo.text();
       const ofxData = OFX.parse(text);
       
-      const transactions = ofxData?.OFX?.CREDITCARDMSGSRSV1?.CCSTMTTRNRS?.CCSTMTRS?.BANKTRANLIST?.STMTTRN;
-      const transactionArray = Array.isArray(transactions) ? transactions : [transactions];
+      let transactions = null;
+      let dtStart, dtEnd;
       
-      // Extrair dados da fatura
-      const ccStmt = ofxData.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS.CCSTMTRS;
-      const dtStart = ccStmt.BANKTRANLIST.DTSTART;
-      const dtEnd = ccStmt.BANKTRANLIST.DTEND;
+      // Try credit card format
+      if (ofxData?.OFX?.CREDITCARDMSGSRSV1?.CCSTMTTRNRS?.CCSTMTRS?.BANKTRANLIST) {
+        const ccStmt = ofxData.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS.CCSTMTRS;
+        transactions = ccStmt.BANKTRANLIST.STMTTRN;
+        dtStart = ccStmt.BANKTRANLIST.DTSTART;
+        dtEnd = ccStmt.BANKTRANLIST.DTEND;
+      } 
+      // Try bank account format
+      else if (ofxData?.OFX?.BANKMSGSRSV1?.STMTTRNRS?.STMTRS?.BANKTRANLIST) {
+        const bankStmt = ofxData.OFX.BANKMSGSRSV1.STMTTRNRS.STMTRS;
+        transactions = bankStmt.BANKTRANLIST.STMTTRN;
+        dtStart = bankStmt.BANKTRANLIST.DTSTART;
+        dtEnd = bankStmt.BANKTRANLIST.DTEND;
+      }
+      
+      const transactionArray = Array.isArray(transactions) ? transactions : [transactions];
       
       // Extrair mês/ano da competência
       const dataFechamento = new Date(dtEnd);
