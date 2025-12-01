@@ -22,6 +22,13 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
   const [preview, setPreview] = useState<any[]>([]);
   const { cartoes } = useCartoes();
 
+  // Pré-selecionar cartão se houver apenas um
+  useState(() => {
+    if (cartoes && cartoes.length === 1 && !cartaoSelecionado) {
+      setCartaoSelecionado(cartoes[0].id);
+    }
+  });
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
