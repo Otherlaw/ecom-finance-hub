@@ -15,14 +15,14 @@ import {
   TIPO_LANCAMENTO, 
   FORMA_PAGAMENTO, 
   PERIODICIDADE_CONFIG,
-  mockFornecedores, 
-  mockCategorias, 
-  mockCentrosCusto,
+  mockFornecedores,
   validateContaPagar,
   generateParcelas,
   formatCurrency,
 } from '@/lib/contas-pagar-data';
 import { mockEmpresas, REGIME_TRIBUTARIO_CONFIG } from '@/lib/empresas-data';
+import { useCategoriasFinanceiras } from '@/hooks/useCategoriasFinanceiras';
+import { useCentrosCusto } from '@/hooks/useCentrosCusto';
 import { Building2, CalendarDays, DollarSign, FileText, Repeat, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -36,6 +36,10 @@ interface ContaPagarFormModalProps {
 export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: ContaPagarFormModalProps) {
   const { toast } = useToast();
   const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  // Dados reais do Supabase
+  const { categorias, categoriasPorTipo } = useCategoriasFinanceiras();
+  const { centrosFlat } = useCentrosCusto();
   
   const [formData, setFormData] = useState<Partial<ContaPagar>>({
     empresaId: '',
@@ -382,10 +386,17 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
                     <SelectValue placeholder="Selecione a categoria" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockCategorias.filter(c => c.tipo === 'despesa' && c.ativo).map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>
-                        {cat.nome}
-                      </SelectItem>
+                    {categoriasPorTipo.map((grupo) => (
+                      <div key={grupo.tipo}>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted">
+                          {grupo.tipo}
+                        </div>
+                        {grupo.categorias.filter(c => c.ativo).map((cat) => (
+                          <SelectItem key={cat.id} value={cat.id}>
+                            {cat.nome}
+                          </SelectItem>
+                        ))}
+                      </div>
                     ))}
                   </SelectContent>
                 </Select>
@@ -402,9 +413,19 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
                     <SelectValue placeholder="Selecione (opcional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockCentrosCusto.filter(cc => cc.ativo).map((cc) => (
+                    {centrosFlat.filter(cc => cc.ativo).map((cc) => (
                       <SelectItem key={cc.id} value={cc.id}>
-                        {cc.nome}
+                        <div className="flex items-center gap-2">
+                          {cc.level > 0 && (
+                            <span className="text-muted-foreground">
+                              {"—".repeat(cc.level)}
+                            </span>
+                          )}
+                          <span>{cc.nome}</span>
+                          {cc.codigo && (
+                            <span className="text-xs text-muted-foreground">({cc.codigo})</span>
+                          )}
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>

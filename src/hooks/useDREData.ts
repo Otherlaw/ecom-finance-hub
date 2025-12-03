@@ -24,18 +24,18 @@ interface DRELinha {
 interface DREData {
   periodo: string;
   receitaBruta: number;
-  deducoes: DRELinha;
-  cmv: DRELinha;
-  receitaLiquida: number;
+  custos: DRELinha;
   lucroBruto: number;
   despesasOperacionais: DRELinha;
-  despesasPessoal: DRELinha;
+  despesasComercialMarketing: DRELinha;
   despesasAdministrativas: DRELinha;
-  marketing: DRELinha;
+  despesasPessoal: DRELinha;
   despesasFinanceiras: DRELinha;
   impostos: DRELinha;
+  outrasReceitasDespesas: DRELinha;
   totalDespesas: number;
   ebitda: number;
+  lucroAntesIR: number;
   lucroLiquido: number;
   linhasPorTipo: Record<string, DRELinha>;
 }
@@ -120,33 +120,32 @@ export function useDREData(mes?: string, ano?: number) {
       };
     };
 
-    // Extrai valores por tipo
+    // Extrai valores por tipo (usando novos nomes padronizados)
     const receitas = criarLinha("Receitas");
-    const deducoes = criarLinha("Deduções");
-    const cmv = criarLinha("CMV");
+    const custos = criarLinha("Custos");
     const despesasOperacionais = criarLinha("Despesas Operacionais");
-    const despesasPessoal = criarLinha("Despesas Pessoal");
-    const despesasAdministrativas = criarLinha("Despesas Administrativas");
-    const marketing = criarLinha("Marketing");
+    const despesasComercialMarketing = criarLinha("Despesas Comercial / Marketing");
+    const despesasAdministrativas = criarLinha("Despesas Administrativas / Gerais");
+    const despesasPessoal = criarLinha("Despesas com Pessoal");
     const despesasFinanceiras = criarLinha("Despesas Financeiras");
-    const impostos = criarLinha("Impostos");
+    const impostos = criarLinha("Impostos Sobre o Resultado");
+    const outrasReceitasDespesas = criarLinha("Outras Receitas / Despesas");
 
     // Cálculos do DRE
     const receitaBruta = receitas.valor;
-    const totalDeducoes = deducoes.valor;
-    const receitaLiquida = receitaBruta - totalDeducoes;
-    const lucroBruto = receitaLiquida - cmv.valor;
+    const totalCustos = custos.valor;
+    const lucroBruto = receitaBruta - totalCustos;
     
     const totalDespesas =
       despesasOperacionais.valor +
-      despesasPessoal.valor +
+      despesasComercialMarketing.valor +
       despesasAdministrativas.valor +
-      marketing.valor +
-      despesasFinanceiras.valor +
-      impostos.valor;
+      despesasPessoal.valor +
+      despesasFinanceiras.valor;
 
     const ebitda = lucroBruto - totalDespesas;
-    const lucroLiquido = ebitda;
+    const lucroAntesIR = ebitda + outrasReceitasDespesas.valor;
+    const lucroLiquido = lucroAntesIR - impostos.valor;
 
     // Mapa de todas as linhas por tipo
     const linhasPorTipo: Record<string, DRELinha> = {};
@@ -162,18 +161,18 @@ export function useDREData(mes?: string, ano?: number) {
     return {
       periodo,
       receitaBruta,
-      deducoes,
-      cmv,
-      receitaLiquida,
+      custos,
       lucroBruto,
       despesasOperacionais,
-      despesasPessoal,
+      despesasComercialMarketing,
       despesasAdministrativas,
-      marketing,
+      despesasPessoal,
       despesasFinanceiras,
       impostos,
+      outrasReceitasDespesas,
       totalDespesas,
       ebitda,
+      lucroAntesIR,
       lucroLiquido,
       linhasPorTipo,
     };
@@ -195,8 +194,8 @@ export function useDREData(mes?: string, ano?: number) {
       ? (dreData.lucroLiquido / dreData.receitaBruta) * 100 
       : 0;
 
-    const cmvPercentual = dreData.receitaBruta > 0 
-      ? (dreData.cmv.valor / dreData.receitaBruta) * 100 
+    const custosPercentual = dreData.receitaBruta > 0 
+      ? (dreData.custos.valor / dreData.receitaBruta) * 100 
       : 0;
 
     const despesasPercentual = dreData.receitaBruta > 0 
@@ -207,7 +206,7 @@ export function useDREData(mes?: string, ano?: number) {
       margemBruta,
       margemOperacional,
       margemLiquida,
-      cmvPercentual,
+      custosPercentual,
       despesasPercentual,
     };
   }, [dreData]);
