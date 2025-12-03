@@ -19,6 +19,7 @@ import {
   ShoppingBag,
   PenLine,
   Eye,
+  Tag,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
@@ -27,6 +28,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFaturas, useTransacoes } from "@/hooks/useCartoes";
 import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CategorizacaoModal } from "@/components/conciliacao/CategorizacaoModal";
+import { useQueryClient } from "@tanstack/react-query";
 
 // Mock data for non-integrated tabs
 const mockBancaria = [
@@ -229,8 +232,15 @@ function BancariaTab() {
 
 function CartoesTab() {
   const navigate = useNavigate();
-  const { transacoes, isLoading: loadingTransacoes } = useTransacoes();
+  const queryClient = useQueryClient();
+  const { transacoes, isLoading: loadingTransacoes, refetch } = useTransacoes();
   const { faturas, isLoading: loadingFaturas } = useFaturas();
+  
+  // Estado do modal de categorização
+  const [categorizacaoModal, setCategorizacaoModal] = useState<{
+    open: boolean;
+    transacao: any | null;
+  }>({ open: false, transacao: null });
 
   // Transform real data for conciliation view
   const conciliacaoData = (transacoes || []).map((t: any) => {
@@ -245,21 +255,45 @@ function CartoesTab() {
     return {
       id: t.id,
       data: new Date(t.data_transacao).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+      data_transacao: t.data_transacao,
       descricao: t.descricao,
       estabelecimento: t.estabelecimento,
       valorFatura: t.valor,
+      valor: t.valor,
       valorCategorizado,
       diferenca: diferenca > 0 ? diferenca : 0,
       status,
       cartao: t.fatura?.credit_card_id ? `Fatura ${t.fatura?.mes_referencia?.substring(0, 7)}` : "N/A",
       categoria: t.categoria?.nome || null,
+      categoria_id: t.categoria_id,
       centroCusto: t.centro_custo?.nome || null,
+      centro_custo_id: t.centro_custo_id,
       faturaId: t.invoice_id,
     };
   });
 
   const totals = calculateTotals(conciliacaoData);
   const isLoading = loadingTransacoes || loadingFaturas;
+  
+  const handleCategorizar = (item: any) => {
+    setCategorizacaoModal({
+      open: true,
+      transacao: {
+        id: item.id,
+        descricao: item.descricao,
+        valor: item.valor,
+        data: item.data_transacao,
+        estabelecimento: item.estabelecimento,
+        categoria_id: item.categoria_id,
+        centro_custo_id: item.centro_custo_id,
+      },
+    });
+  };
+  
+  const handleCategorizacaoSuccess = () => {
+    refetch();
+    queryClient.invalidateQueries({ queryKey: ["dre-transacoes"] });
+  };
 
   if (isLoading) {
     return (
@@ -355,15 +389,15 @@ function CartoesTab() {
                     <StatusBadge status={item.status} />
                   </TableCell>
                   <TableCell className="text-center">
-                    {item.status !== "ok" && item.status !== "conciliado" && (
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => navigate("/cartao-credito")}
-                      >
-                        Categorizar
-                      </Button>
-                    )}
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => handleCategorizar(item)}
+                    >
+                      <Tag className="h-3 w-3" />
+                      {item.status === "ok" || item.status === "conciliado" ? "Editar" : "Categorizar"}
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -379,6 +413,15 @@ function CartoesTab() {
           </div>
         )}
       </ModuleCard>
+      
+      {/* Modal de Categorização */}
+      <CategorizacaoModal
+        open={categorizacaoModal.open}
+        onOpenChange={(open) => setCategorizacaoModal({ ...categorizacaoModal, open })}
+        transacao={categorizacaoModal.transacao}
+        tipo="cartao"
+        onSuccess={handleCategorizacaoSuccess}
+      />
     </div>
   );
 }
