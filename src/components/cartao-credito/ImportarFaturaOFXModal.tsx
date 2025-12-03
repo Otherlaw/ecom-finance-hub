@@ -4,11 +4,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, CreditCard } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { FileText, CreditCard, Building2, Calendar, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { useCartoes } from "@/hooks/useCartoes";
 import { supabase } from "@/integrations/supabase/client";
-import { parseOFX, isValidOFX, OFXTransaction } from "@/lib/ofx-parser";
+import { 
+  parseOFX, 
+  isValidOFX, 
+  detectBank, 
+  getTransactionTypeName,
+  OFXTransaction,
+  OFXParseResult 
+} from "@/lib/ofx-parser";
 
 interface ImportarFaturaOFXModalProps {
   open: boolean;
@@ -20,7 +28,8 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [cartaoSelecionado, setCartaoSelecionado] = useState<string>("");
   const [preview, setPreview] = useState<OFXTransaction[]>([]);
-  const [totalTransacoes, setTotalTransacoes] = useState(0);
+  const [parseResult, setParseResult] = useState<OFXParseResult | null>(null);
+  const [detectedBank, setDetectedBank] = useState<string | null>(null);
   const { cartoes } = useCartoes();
 
   // Reset state when modal closes
@@ -29,7 +38,8 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
       setArquivo(null);
       setCartaoSelecionado("");
       setPreview([]);
-      setTotalTransacoes(0);
+      setParseResult(null);
+      setDetectedBank(null);
     }
   }, [open]);
 
@@ -46,7 +56,8 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
 
     setArquivo(file);
     setPreview([]);
-    setTotalTransacoes(0);
+    setParseResult(null);
+    setDetectedBank(null);
 
     try {
       const text = await file.text();
@@ -58,12 +69,19 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
         return;
       }
       
+      // Detect bank
+      const bank = detectBank(text);
+      setDetectedBank(bank);
+      
+      // Parse OFX
       const result = parseOFX(text);
+      setParseResult(result);
       
       if (result.transactions.length > 0) {
         setPreview(result.transactions.slice(0, 5));
-        setTotalTransacoes(result.transactions.length);
-        toast.success(`Arquivo OFX carregado: ${result.transactions.length} transações encontradas`);
+        
+        const bankInfo = bank ? ` (${bank})` : '';
+        toast.success(`Arquivo OFX carregado${bankInfo}: ${result.transactions.length} transações encontradas`);
       } else {
         toast.error("Nenhuma transação encontrada no arquivo OFX.");
         setArquivo(null);
@@ -76,7 +94,7 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
   };
 
   const handleImport = async () => {
-    if (!arquivo) {
+    if (!arquivo || !parseResult) {
       toast.error("Selecione um arquivo OFX para importar");
       return;
     }
@@ -89,23 +107,24 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
     setLoading(true);
 
     try {
-      const text = await arquivo.text();
-      const result = parseOFX(text);
+      const { transactions, dtEnd } = parseResult;
       
-      if (result.transactions.length === 0) {
+      if (transactions.length === 0) {
         toast.error("Nenhuma transação encontrada no arquivo OFX.");
         setLoading(false);
         return;
       }
       
       // Extrair mês/ano da competência a partir da última data
-      const dtEnd = result.dtEnd || result.transactions[0]?.date || new Date().toISOString().split('T')[0];
-      const dataRef = new Date(dtEnd);
+      const effectiveDate = dtEnd || transactions[0]?.date || new Date().toISOString().split('T')[0];
+      const dataRef = new Date(effectiveDate);
       const mesReferencia = `${dataRef.getFullYear()}-${String(dataRef.getMonth() + 1).padStart(2, '0')}-01`;
       const competencia = `${dataRef.getFullYear()}-${String(dataRef.getMonth() + 1).padStart(2, '0')}`;
       
-      // Calcular valor total
-      const valorTotal = result.transactions.reduce((sum, t) => sum + t.amount, 0);
+      // Calcular valor total (apenas débitos para fatura de cartão)
+      const valorTotal = transactions
+        .filter(t => t.type === 'debito')
+        .reduce((sum, t) => sum + t.amount, 0);
 
       // Criar fatura
       const { data: fatura, error: faturaError } = await supabase
@@ -114,11 +133,12 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
           credit_card_id: cartaoSelecionado,
           competencia,
           mes_referencia: mesReferencia,
-          data_fechamento: dtEnd,
-          data_vencimento: dtEnd,
+          data_fechamento: effectiveDate,
+          data_vencimento: effectiveDate,
           valor_total: valorTotal,
           status: "pendente",
           arquivo_importacao_url: arquivo.name,
+          observacoes: detectedBank ? `Importado de: ${detectedBank}` : null,
         })
         .select()
         .single();
@@ -131,7 +151,7 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
       }
 
       // Criar transações
-      const transacoesParaInserir = result.transactions.map((t) => ({
+      const transacoesParaInserir = transactions.map((t) => ({
         invoice_id: fatura.id,
         data_transacao: t.date,
         descricao: t.description,
@@ -140,6 +160,7 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
         tipo_movimento: t.type,
         tipo: "pontual" as const,
         status: "pendente" as const,
+        observacoes: t.transactionType ? `Tipo: ${getTransactionTypeName(t.transactionType)}` : null,
       }));
 
       const { error: transacoesError } = await supabase
@@ -161,9 +182,18 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
     }
   };
 
+  // Calculate summary stats
+  const totalDebitos = parseResult?.transactions
+    .filter(t => t.type === 'debito')
+    .reduce((sum, t) => sum + t.amount, 0) || 0;
+  
+  const totalCreditos = parseResult?.transactions
+    .filter(t => t.type === 'credito')
+    .reduce((sum, t) => sum + t.amount, 0) || 0;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CreditCard className="h-5 w-5" />
@@ -171,6 +201,7 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
           </DialogTitle>
           <DialogDescription>
             Faça upload do arquivo OFX da fatura do cartão de crédito para importar automaticamente todas as transações.
+            Suporta arquivos dos principais bancos brasileiros.
           </DialogDescription>
         </DialogHeader>
 
@@ -200,36 +231,107 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
               disabled={loading || !cartaoSelecionado}
             />
             <p className="text-sm text-muted-foreground mt-1">
-              Formatos aceitos: .ofx, .qfx (padrão bancário para extratos)
+              Formatos aceitos: .ofx, .qfx • Suporta: Nubank, Itaú, Bradesco, Santander, Inter, C6, BTG, BB e outros
             </p>
           </div>
 
+          {/* Detected Bank & Summary */}
+          {parseResult && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {detectedBank && (
+                <div className="border rounded-lg p-3 bg-muted/30">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                    <Building2 className="h-4 w-4" />
+                    Banco Detectado
+                  </div>
+                  <p className="font-medium">{detectedBank}</p>
+                </div>
+              )}
+              
+              <div className="border rounded-lg p-3 bg-muted/30">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <Calendar className="h-4 w-4" />
+                  Período
+                </div>
+                <p className="font-medium text-sm">
+                  {parseResult.dtStart} a {parseResult.dtEnd}
+                </p>
+              </div>
+              
+              <div className="border rounded-lg p-3 bg-muted/30">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <FileText className="h-4 w-4" />
+                  Transações
+                </div>
+                <p className="font-medium">{parseResult.transactions.length}</p>
+              </div>
+              
+              <div className="border rounded-lg p-3 bg-muted/30">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <Wallet className="h-4 w-4" />
+                  Total Débitos
+                </div>
+                <p className="font-medium text-destructive">
+                  {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(totalDebitos)}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Transaction Preview */}
           {preview.length > 0 && (
             <div className="border rounded-lg p-4 bg-muted/50">
-              <h4 className="font-medium mb-2 flex items-center gap-2">
+              <h4 className="font-medium mb-3 flex items-center gap-2">
                 <FileText className="h-4 w-4" />
-                Preview ({preview.length} de {totalTransacoes} transações)
+                Preview ({preview.length} de {parseResult?.transactions.length || 0} transações)
               </h4>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {preview.map((t, idx) => (
-                  <div key={idx} className="text-sm p-2 border rounded bg-background">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-medium">{t.description}</p>
-                        <p className="text-muted-foreground text-xs">{t.date}</p>
+                  <div key={idx} className="text-sm p-3 border rounded bg-background">
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{t.description}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-muted-foreground text-xs">{t.date}</span>
+                          {t.transactionType && (
+                            <Badge variant="outline" className="text-xs">
+                              {getTransactionTypeName(t.transactionType)}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className={t.type === 'debito' ? "text-destructive" : "text-green-600"}>
-                          {t.type === 'debito' ? 'Débito' : 'Crédito'}: {new Intl.NumberFormat("pt-BR", {
+                      <div className="text-right shrink-0">
+                        <p className={t.type === 'debito' ? "text-destructive font-medium" : "text-green-600 font-medium"}>
+                          {t.type === 'debito' ? '-' : '+'}{new Intl.NumberFormat("pt-BR", {
                             style: "currency",
                             currency: "BRL",
                           }).format(t.amount)}
                         </p>
+                        <Badge variant={t.type === 'debito' ? 'destructive' : 'default'} className="text-xs mt-1">
+                          {t.type === 'debito' ? 'Débito' : 'Crédito'}
+                        </Badge>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
+              
+              {/* Summary */}
+              {(totalDebitos > 0 || totalCreditos > 0) && (
+                <div className="mt-3 pt-3 border-t flex justify-between text-sm">
+                  <span className="text-muted-foreground">Resumo:</span>
+                  <div className="flex gap-4">
+                    <span className="text-destructive">
+                      Débitos: {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(totalDebitos)}
+                    </span>
+                    {totalCreditos > 0 && (
+                      <span className="text-green-600">
+                        Créditos: {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(totalCreditos)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
