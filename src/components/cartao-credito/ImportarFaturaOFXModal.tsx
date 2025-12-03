@@ -165,33 +165,84 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
         .filter(t => t.type === 'debito')
         .reduce((sum, t) => sum + t.amount, 0);
 
-      // Criar fatura
-      const { data: fatura, error: faturaError } = await supabase
+      // Verificar se já existe uma fatura para este cartão/mês
+      const { data: existingInvoice } = await supabase
         .from("credit_card_invoices")
-        .insert({
-          credit_card_id: cartaoSelecionado,
-          competencia,
-          mes_referencia: mesReferencia,
-          data_fechamento: effectiveDate,
-          data_vencimento: effectiveDate,
-          valor_total: valorTotal,
-          status: "pendente",
-          arquivo_importacao_url: arquivo.name,
-          observacoes: detectedBank ? `Importado de: ${detectedBank}` : null,
-        })
-        .select()
-        .single();
+        .select("id, competencia")
+        .eq("credit_card_id", cartaoSelecionado)
+        .eq("mes_referencia", mesReferencia)
+        .maybeSingle();
 
-      if (faturaError) {
-        console.error("Erro ao criar fatura:", faturaError);
-        toast.error("Erro ao criar fatura: " + faturaError.message);
-        setLoading(false);
-        return;
+      let faturaId: string;
+
+      if (existingInvoice) {
+        // Fatura já existe - deletar transações antigas e atualizar
+        const confirmReplace = window.confirm(
+          `Já existe uma fatura para este cartão no mês ${competencia}. Deseja substituir as transações existentes?`
+        );
+        
+        if (!confirmReplace) {
+          setLoading(false);
+          return;
+        }
+
+        // Deletar transações antigas
+        await supabase
+          .from("credit_card_transactions")
+          .delete()
+          .eq("invoice_id", existingInvoice.id);
+
+        // Atualizar fatura existente
+        const { error: updateError } = await supabase
+          .from("credit_card_invoices")
+          .update({
+            data_fechamento: effectiveDate,
+            data_vencimento: effectiveDate,
+            valor_total: valorTotal,
+            arquivo_importacao_url: arquivo.name,
+            observacoes: detectedBank ? `Importado de: ${detectedBank} (atualizado)` : 'Atualizado',
+          })
+          .eq("id", existingInvoice.id);
+
+        if (updateError) {
+          console.error("Erro ao atualizar fatura:", updateError);
+          toast.error("Erro ao atualizar fatura: " + updateError.message);
+          setLoading(false);
+          return;
+        }
+
+        faturaId = existingInvoice.id;
+      } else {
+        // Criar nova fatura
+        const { data: fatura, error: faturaError } = await supabase
+          .from("credit_card_invoices")
+          .insert({
+            credit_card_id: cartaoSelecionado,
+            competencia,
+            mes_referencia: mesReferencia,
+            data_fechamento: effectiveDate,
+            data_vencimento: effectiveDate,
+            valor_total: valorTotal,
+            status: "pendente",
+            arquivo_importacao_url: arquivo.name,
+            observacoes: detectedBank ? `Importado de: ${detectedBank}` : null,
+          })
+          .select()
+          .single();
+
+        if (faturaError) {
+          console.error("Erro ao criar fatura:", faturaError);
+          toast.error("Erro ao criar fatura: " + faturaError.message);
+          setLoading(false);
+          return;
+        }
+
+        faturaId = fatura.id;
       }
 
       // Criar transações
       const transacoesParaInserir = transactions.map((t) => ({
-        invoice_id: fatura.id,
+        invoice_id: faturaId,
         data_transacao: t.date,
         descricao: t.description,
         estabelecimento: t.name,
@@ -210,7 +261,8 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
         console.error("Erro ao criar transações:", transacoesError);
         toast.error("Erro ao importar transações: " + transacoesError.message);
       } else {
-        toast.success(`Fatura importada com sucesso! ${transacoesParaInserir.length} transações criadas.`);
+        const action = existingInvoice ? 'atualizada' : 'importada';
+        toast.success(`Fatura ${action} com sucesso! ${transacoesParaInserir.length} transações criadas.`);
         onOpenChange(false);
       }
     } catch (error: any) {
