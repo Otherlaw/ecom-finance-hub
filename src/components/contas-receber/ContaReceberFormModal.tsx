@@ -219,12 +219,12 @@ export function ContaReceberFormModal({ open, onOpenChange, conta, onSave }: Con
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Categoria Financeira</Label>
-              <Select value={formData.categoria_id} onValueChange={(v) => setFormData({ ...formData, categoria_id: v })}>
+              <Select value={formData.categoria_id || "none"} onValueChange={(v) => setFormData({ ...formData, categoria_id: v === "none" ? "" : v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhuma</SelectItem>
+                  <SelectItem value="none">Nenhuma</SelectItem>
                   {categoriasReceitas.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.nome}
@@ -236,12 +236,12 @@ export function ContaReceberFormModal({ open, onOpenChange, conta, onSave }: Con
 
             <div className="space-y-2">
               <Label>Centro de Custo</Label>
-              <Select value={formData.centro_custo_id} onValueChange={(v) => setFormData({ ...formData, centro_custo_id: v })}>
+              <Select value={formData.centro_custo_id || "none"} onValueChange={(v) => setFormData({ ...formData, centro_custo_id: v === "none" ? "" : v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhum</SelectItem>
+                  <SelectItem value="none">Nenhum</SelectItem>
                   {centrosCusto?.filter(cc => cc.ativo).map((cc) => (
                     <SelectItem key={cc.id} value={cc.id}>
                       {cc.codigo ? `${cc.codigo} - ` : ''}{cc.nome}
@@ -254,12 +254,12 @@ export function ContaReceberFormModal({ open, onOpenChange, conta, onSave }: Con
 
           <div className="space-y-2">
             <Label>Forma de Recebimento</Label>
-            <Select value={formData.forma_recebimento} onValueChange={(v) => setFormData({ ...formData, forma_recebimento: v })}>
+            <Select value={formData.forma_recebimento || "none"} onValueChange={(v) => setFormData({ ...formData, forma_recebimento: v === "none" ? "" : v })}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Não definido</SelectItem>
+                <SelectItem value="none">Não definido</SelectItem>
                 <SelectItem value="pix">PIX</SelectItem>
                 <SelectItem value="transferencia">Transferência</SelectItem>
                 <SelectItem value="boleto">Boleto</SelectItem>
