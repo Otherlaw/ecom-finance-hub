@@ -59,10 +59,29 @@ export const useEmpresas = () => {
     },
   });
 
+  const deleteEmpresa = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("empresas")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["empresas"] });
+      toast.success("Empresa excluída com sucesso!");
+    },
+    onError: (error: any) => {
+      toast.error("Erro ao excluir empresa: " + error.message);
+    },
+  });
+
   return {
     empresas,
     isLoading,
     createEmpresa,
     updateEmpresa,
+    deleteEmpresa,
   };
 };
