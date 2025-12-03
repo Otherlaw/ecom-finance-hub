@@ -368,6 +368,64 @@ export type Database = {
         }
         Relationships: []
       }
+      regras_categorizacao: {
+        Row: {
+          ativo: boolean
+          categoria_id: string | null
+          centro_custo_id: string | null
+          created_at: string
+          estabelecimento_pattern: string
+          id: string
+          responsavel_id: string | null
+          updated_at: string
+          uso_count: number
+        }
+        Insert: {
+          ativo?: boolean
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          created_at?: string
+          estabelecimento_pattern: string
+          id?: string
+          responsavel_id?: string | null
+          updated_at?: string
+          uso_count?: number
+        }
+        Update: {
+          ativo?: boolean
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          created_at?: string
+          estabelecimento_pattern?: string
+          id?: string
+          responsavel_id?: string | null
+          updated_at?: string
+          uso_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "regras_categorizacao_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_financeiras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "regras_categorizacao_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "regras_categorizacao_responsavel_id_fkey"
+            columns: ["responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "responsaveis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       responsaveis: {
         Row: {
           ativo: boolean
