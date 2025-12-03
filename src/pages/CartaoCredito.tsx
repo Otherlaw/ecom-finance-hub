@@ -21,7 +21,18 @@ export default function CartaoCredito() {
   const [categorizarModalOpen, setCategorizarModalOpen] = useState(false);
   const [selectedCartao, setSelectedCartao] = useState<string | null>(null);
   const [selectedFatura, setSelectedFatura] = useState<string | null>(null);
+  const [editingCartaoId, setEditingCartaoId] = useState<string | null>(null);
   const { faturas } = useFaturas();
+
+  const handleEditCartao = (id: string) => {
+    setEditingCartaoId(id);
+    setCartaoModalOpen(true);
+  };
+
+  const handleNewCartao = () => {
+    setEditingCartaoId(null);
+    setCartaoModalOpen(true);
+  };
 
   return (
     <MainLayout
@@ -29,7 +40,7 @@ export default function CartaoCredito() {
       subtitle="Controle completo de faturas e transações dos cartões corporativos"
       actions={
         <div className="flex gap-2">
-          <Button onClick={() => setCartaoModalOpen(true)}>
+          <Button onClick={handleNewCartao}>
             <Plus className="h-4 w-4 mr-2" />
             Novo Cartão
           </Button>
@@ -107,7 +118,7 @@ export default function CartaoCredito() {
               <CardDescription>Gerencie os cartões corporativos e pessoais da empresa</CardDescription>
             </CardHeader>
             <CardContent>
-              <CartoesTable onEdit={(id) => console.log('Edit', id)} />
+              <CartoesTable onEdit={handleEditCartao} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -147,7 +158,11 @@ export default function CartaoCredito() {
       </Tabs>
 
       {/* Modals */}
-      <CartaoFormModal open={cartaoModalOpen} onOpenChange={setCartaoModalOpen} />
+      <CartaoFormModal 
+        open={cartaoModalOpen} 
+        onOpenChange={setCartaoModalOpen} 
+        cartaoId={editingCartaoId}
+      />
       <FaturaFormModal open={faturaModalOpen} onOpenChange={setFaturaModalOpen} />
       <ImportarFaturaOFXModal open={importarModalOpen} onOpenChange={setImportarModalOpen} />
       {selectedFatura && (

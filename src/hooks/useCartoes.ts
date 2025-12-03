@@ -86,11 +86,30 @@ export const useCartoes = () => {
     },
   });
 
+  const deleteCartao = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("credit_cards")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cartoes"] });
+      toast.success("Cartão excluído com sucesso!");
+    },
+    onError: (error: any) => {
+      toast.error("Erro ao excluir cartão: " + error.message);
+    },
+  });
+
   return {
     cartoes,
     isLoading,
     createCartao,
     updateCartao,
+    deleteCartao,
   };
 };
 export const useFaturas = (cartaoId?: string) => {
