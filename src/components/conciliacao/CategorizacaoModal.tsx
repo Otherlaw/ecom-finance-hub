@@ -76,15 +76,18 @@ export function CategorizacaoModal({
           .update({
             categoria_id: categoriaId,
             centro_custo_id: centroCustoId || null,
-            status: "conciliado", // Marca como conciliado ao categorizar
+            status: "conciliado",
           })
           .eq("id", transacao.id);
 
         if (error) throw error;
+        toast.success("Transação categorizada com sucesso!");
+      } else if (tipo === "bancaria") {
+        // Transações bancárias ainda usam mock data
+        // TODO: Implementar tabela bank_transactions quando necessário
+        toast.info("Categorização bancária registrada (em desenvolvimento)");
       }
-      // Para transações bancárias, implementar quando houver tabela específica
-
-      toast.success("Transação categorizada com sucesso!");
+      
       onSuccess?.();
       onOpenChange(false);
     } catch (error: any) {
