@@ -1,14 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ensureMockCardExists } from "@/lib/mock-cartao";
+import { ensureMockCardExists, ensureDefaultCompanyAndUser } from "@/lib/mock-cartao";
 
 export const useCartoes = () => {
   const queryClient = useQueryClient();
 
   const { data: cartoes, isLoading } = useQuery({
-    queryKey: ["credit-cards"],
+    queryKey: ["cartoes"],
     queryFn: async () => {
+      // Garantir que existe empresa e responsável padrão antes de buscar
+      await ensureDefaultCompanyAndUser();
+      
       const { data, error } = await supabase
         .from("credit_cards")
         .select(`
@@ -19,24 +22,25 @@ export const useCartoes = () => {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      
-      // Se não houver cartões, criar cartão mock automaticamente
+
+      // Se não houver cartões, criar o mock
       if (!data || data.length === 0) {
-        await ensureMockCardExists();
-        // Recarregar dados após criar mock
-        const { data: newData, error: newError } = await supabase
-          .from("credit_cards")
-          .select(`
-            *,
-            empresa:empresas(id, razao_social, nome_fantasia, cnpj),
-            responsavel:responsaveis(id, nome)
-          `)
-          .order("created_at", { ascending: false });
-        
-        if (newError) throw newError;
-        return newData;
+        const mockCard = await ensureMockCardExists();
+        if (mockCard) {
+          // Recarregar dados após criar mock
+          const { data: refreshedData, error: refreshError } = await supabase
+            .from("credit_cards")
+            .select(`
+              *,
+              empresa:empresas(id, razao_social, nome_fantasia, cnpj),
+              responsavel:responsaveis(id, nome)
+            `)
+            .order("created_at", { ascending: false });
+          
+          if (!refreshError) return refreshedData;
+        }
       }
-      
+
       return data;
     },
   });
@@ -53,7 +57,7 @@ export const useCartoes = () => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["credit-cards"] });
+      queryClient.invalidateQueries({ queryKey: ["cartoes"] });
       toast.success("Cartão cadastrado com sucesso!");
     },
     onError: (error: any) => {
@@ -74,7 +78,7 @@ export const useCartoes = () => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["credit-cards"] });
+      queryClient.invalidateQueries({ queryKey: ["cartoes"] });
       toast.success("Cartão atualizado com sucesso!");
     },
     onError: (error: any) => {
@@ -89,7 +93,6 @@ export const useCartoes = () => {
     updateCartao,
   };
 };
-
 export const useFaturas = (cartaoId?: string) => {
   const queryClient = useQueryClient();
 
