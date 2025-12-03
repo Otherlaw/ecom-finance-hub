@@ -1,5 +1,5 @@
 // Mock data baseado na planilha FECHAMENTO_CONSOLIDADO.xlsx
-// REGRA DE NEGÓCIO: Caixa Tiny NÃO é receita, é movimentação financeira
+// Sistema ECOM Finance - Dados de demonstração
 
 export interface MonthlyData {
   month: string;
@@ -33,18 +33,18 @@ export interface OperationData {
     mercadoLivre: number;
     shopee: number;
     shein: number;
-    caixaTiny: number; // APENAS para referência, NÃO soma na receita
+    tikTok?: number;
   };
 }
 
-export interface TinyMovement {
+export interface FinancialMovement {
   id: string;
   data: string;
   descricao: string;
   valor: number;
   tipo: 'entrada' | 'saida';
   categoria: string;
-  origem: 'tiny';
+  origem: string;
 }
 
 // Dados consolidados do DRE - Valores da Planilha Página 1
@@ -68,28 +68,28 @@ export const monthlyHistory: MonthlyData[] = [
   {
     month: "Mai",
     year: 2024,
-    receitaBruta: 835645.16, // Exchange (431778) + Inpari (403867.16)
+    receitaBruta: 835645.16,
     devolucoes: 0,
     descontosComerciais: 0,
     impostosSobreVendas: 0,
-    receitaLiquida: 151197.08, // Exchange (100203.21) + Inpari (50993.87)
+    receitaLiquida: 151197.08,
     custos: 0,
     lucroBruto: 0,
-    despesas: 684448.08, // Total deduções
+    despesas: 684448.08,
     ebitda: 151197.08,
     lucroLiquido: 151197.08,
   },
   {
     month: "Jun",
     year: 2024,
-    receitaBruta: 1759228.30, // Exchange (1011637.71) + Inpari (747590.59)
+    receitaBruta: 1759228.30,
     devolucoes: 0,
     descontosComerciais: 0,
     impostosSobreVendas: 0,
-    receitaLiquida: 513001.42, // Exchange (320079.85) + Inpari (192921.57)
+    receitaLiquida: 513001.42,
     custos: 0,
     lucroBruto: 0,
-    despesas: 1246226.88, // Total deduções
+    despesas: 1246226.88,
     ebitda: 513001.42,
     lucroLiquido: 513001.42,
   },
@@ -110,7 +110,7 @@ export const monthlyHistory: MonthlyData[] = [
   {
     month: "Ago",
     year: 2024,
-    receitaBruta: 0, // Sem dados na planilha
+    receitaBruta: 0,
     devolucoes: 0,
     descontosComerciais: 0,
     impostosSobreVendas: 0,
@@ -124,7 +124,7 @@ export const monthlyHistory: MonthlyData[] = [
   {
     month: "Set",
     year: 2024,
-    receitaBruta: 0, // Sem dados na planilha
+    receitaBruta: 0,
     devolucoes: 0,
     descontosComerciais: 0,
     impostosSobreVendas: 0,
@@ -152,8 +152,7 @@ export const monthlyHistory: MonthlyData[] = [
 ];
 
 // ============================================
-// RECEITA POR CANAL - SEM CAIXA TINY
-// Caixa Tiny NÃO é marketplace, é movimentação financeira
+// RECEITA POR CANAL - MARKETPLACES
 // ============================================
 export const channelData: ChannelData[] = [
   // Exchange
@@ -166,63 +165,60 @@ export const channelData: ChannelData[] = [
 
 // Receita consolidada por canal (agrupado)
 export const channelDataConsolidated: ChannelData[] = [
-  { channel: "Mercado Livre", color: "hsl(48, 96%, 53%)", receitaBruta: 867496.27, percentual: 74.0 }, // Exchange + Inpari
+  { channel: "Mercado Livre", color: "hsl(48, 96%, 53%)", receitaBruta: 867496.27, percentual: 74.0 },
   { channel: "Shopee", color: "hsl(16, 100%, 50%)", receitaBruta: 99131.12, percentual: 8.5 },
   { channel: "Shein", color: "hsl(0, 0%, 15%)", receitaBruta: 3097.43, percentual: 0.3 },
 ];
 
-// Total de receita REAL (SEM Caixa Tiny)
+// Total de receita REAL dos marketplaces
 export const totalReceitaMarketplaces = 540354.27 + 99131.12 + 3097.43 + 327142.00; // = 969724.82
 
 // ============================================
-// MOVIMENTAÇÕES TINY - SEPARADAS DA RECEITA
-// Tiny = Contas a pagar, despesas, fluxo de caixa
+// MOVIMENTAÇÕES FINANCEIRAS - HISTÓRICO
 // ============================================
-export const tinyMovements: TinyMovement[] = [
-  { id: "tiny-001", data: "01/06/2024", descricao: "Repasse Exchange", valor: 369054.89, tipo: "entrada", categoria: "Repasse Marketplace", origem: "tiny" },
-  { id: "tiny-002", data: "01/06/2024", descricao: "Repasse Inpari", valor: 420448.59, tipo: "entrada", categoria: "Repasse Marketplace", origem: "tiny" },
-  { id: "tiny-003", data: "05/06/2024", descricao: "Pagamento Fornecedor", valor: 45000, tipo: "saida", categoria: "Fornecedores", origem: "tiny" },
-  { id: "tiny-004", data: "10/06/2024", descricao: "Folha de Pagamento", valor: 35000, tipo: "saida", categoria: "Pessoal", origem: "tiny" },
-  { id: "tiny-005", data: "15/06/2024", descricao: "Taxas Bancárias", valor: 2500, tipo: "saida", categoria: "Taxas", origem: "tiny" },
+export const financialMovements: FinancialMovement[] = [
+  { id: "mov-001", data: "01/06/2024", descricao: "Repasse Exchange", valor: 369054.89, tipo: "entrada", categoria: "Repasse Marketplace", origem: "banco" },
+  { id: "mov-002", data: "01/06/2024", descricao: "Repasse Inpari", valor: 420448.59, tipo: "entrada", categoria: "Repasse Marketplace", origem: "banco" },
+  { id: "mov-003", data: "05/06/2024", descricao: "Pagamento Fornecedor", valor: 45000, tipo: "saida", categoria: "Fornecedores", origem: "banco" },
+  { id: "mov-004", data: "10/06/2024", descricao: "Folha de Pagamento", valor: 35000, tipo: "saida", categoria: "Pessoal", origem: "banco" },
+  { id: "mov-005", data: "15/06/2024", descricao: "Taxas Bancárias", valor: 2500, tipo: "saida", categoria: "Taxas", origem: "banco" },
 ];
 
 // Dados por operação - JUNHO 2024 (dados mais completos da planilha)
 export const operationData: OperationData[] = [
   {
     operation: "Exchange",
-    receitaBruta: 642582.82, // ML (540354.27) + Shopee (99131.12) + Shein (3097.43) - SEM Caixa Tiny
+    receitaBruta: 642582.82,
     deducoes: 691557.86,
     receitaLiquida: 320079.85,
     detalhes: {
       mercadoLivre: 540354.27,
       shopee: 99131.12,
       shein: 3097.43,
-      caixaTiny: 369054.89, // REFERÊNCIA APENAS - Não soma na receita
     },
   },
   {
     operation: "Inpari",
-    receitaBruta: 327142.00, // Apenas ML - SEM Caixa Tiny
+    receitaBruta: 327142.00,
     deducoes: 554669.02,
     receitaLiquida: 192921.57,
     detalhes: {
       mercadoLivre: 327142.00,
       shopee: 0,
       shein: 0,
-      caixaTiny: 420448.59, // REFERÊNCIA APENAS - Não soma na receita
     },
   },
 ];
 
 // KPIs principais - Calculados com base nos dados reais
 export const kpis = {
-  faturamentoMensal: 792653.62, // Receita Bruta do DRE
+  faturamentoMensal: 792653.62,
   faturamentoVariacao: -8.5,
   lucroLiquido: -47601.86,
   lucroVariacao: -165.2,
-  margemBruta: 49.4, // (lucroBruto / receitaBruta) * 100
+  margemBruta: 49.4,
   margemBrutaVariacao: 2.1,
-  margemLiquida: -6.0, // (lucroLiquido / receitaBruta) * 100
+  margemLiquida: -6.0,
   margemLiquidaVariacao: -15.8,
   ticketMedio: 156.32,
   ticketMedioVariacao: 3.2,
@@ -295,9 +291,9 @@ export const icmsData = {
 
 // Despesas por categoria
 export const expensesByCategory = [
-  { category: "Deduções Comerciais", value: 365723.41, percentual: 29.3 }, // Exchange (227601.30) + Inpari (138122.11)
-  { category: "Impostos e Taxas", value: 847319.93, percentual: 68.0 }, // Exchange (430773.02) + Inpari (416546.91)
-  { category: "Devoluções", value: 33183.07, percentual: 2.7 }, // Exchange (-32183.07 ajuste) + outros
+  { category: "Deduções Comerciais", value: 365723.41, percentual: 29.3 },
+  { category: "Impostos e Taxas", value: 847319.93, percentual: 68.0 },
+  { category: "Devoluções", value: 33183.07, percentual: 2.7 },
 ];
 
 // Projeções
@@ -346,11 +342,6 @@ export const generateTransactionHash = (data: string, descricao: string, valor: 
   return btoa(`${data}|${descricao}|${valor}|${origem}`);
 };
 
-// Validar se é dado do Tiny (NÃO deve ser contado como receita)
-export const isTinyData = (origem: string): boolean => {
-  return origem.toLowerCase() === 'tiny' || origem.toLowerCase() === 'caixa tiny';
-};
-
 // Validar fechamento mensal
 export interface ValidationResult {
   isValid: boolean;
@@ -362,15 +353,9 @@ export const validateFechamento = (data: {
   receitaBruta: number;
   deducoes: number;
   receitaLiquida: number;
-  tinyIncluded?: boolean;
 }): ValidationResult => {
   const errors: string[] = [];
   const warnings: string[] = [];
-
-  // Verificar se Tiny foi incluído como receita (ERRO)
-  if (data.tinyIncluded) {
-    errors.push("ERRO CRÍTICO: Dados do Caixa Tiny foram incluídos como receita. Tiny é apenas movimentação financeira.");
-  }
 
   // Verificar cálculo da receita líquida
   const expectedReceitaLiquida = data.receitaBruta - data.deducoes;
@@ -401,8 +386,8 @@ export const spreadsheetTabMapping = {
   "LANÇAMENTOS EXCHANGE": "lancamentosExchange",
 };
 
-// Categorias de dados do Tiny (NUNCA são receita)
-export const tinyCategories = [
+// Categorias financeiras padrão
+export const financialCategories = [
   "Contas a Pagar",
   "Movimentações Financeiras",
   "Repasse Marketplace",

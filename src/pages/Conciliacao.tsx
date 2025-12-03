@@ -17,7 +17,6 @@ import {
   Building,
   CreditCard,
   ShoppingBag,
-  Package,
   PenLine,
   Eye,
 } from "lucide-react";
@@ -42,13 +41,6 @@ const mockMarketplace = [
   { id: 2, data: "05/11", descricao: "Repasse Shopee - Lote #67890", valorRepasse: 12500, valorVendas: 12800, status: "divergencia", canal: "Shopee", diferenca: 300 },
   { id: 3, data: "08/11", descricao: "Repasse TikTok - Lote #11111", valorRepasse: 8900, valorVendas: 8900, status: "ok", canal: "TikTok Shop" },
   { id: 4, data: "12/11", descricao: "Repasse Shein - Lote #22222", valorRepasse: 0, valorVendas: 5600, status: "faltando", canal: "Shein", diferenca: 5600 },
-];
-
-const mockTiny = [
-  { id: 1, data: "01/10", descricao: "Pagamento Fornecedor ABC", valorTiny: 45000, valorReal: 45000, status: "ok", categoria: "Fornecedores" },
-  { id: 2, data: "05/10", descricao: "Repasse Mercado Livre", valorTiny: 125000, valorReal: 124850, status: "divergencia", categoria: "Vendas", diferenca: 150 },
-  { id: 3, data: "08/10", descricao: "Taxa de Antecipação", valorTiny: 3200, valorReal: 3200, status: "ok", categoria: "Taxas" },
-  { id: 4, data: "12/10", descricao: "Compra Estoque - Forn. XYZ", valorTiny: 0, valorReal: 28500, status: "faltando", categoria: "Estoque", diferenca: 28500 },
 ];
 
 const mockManual = [
@@ -449,55 +441,6 @@ function MarketplaceTab() {
   );
 }
 
-function TinyTab() {
-  const totals = calculateTotals(mockTiny);
-  
-  return (
-    <div>
-      <SummaryCards totals={totals} />
-      <ProgressBar totals={totals} />
-      <FilterBar />
-      
-      <ModuleCard title="Conciliação Tiny" description="Tiny vs Sistema Real" icon={Package} noPadding>
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-secondary/30">
-              <TableHead className="w-[80px]">Data</TableHead>
-              <TableHead>Descrição</TableHead>
-              <TableHead>Categoria</TableHead>
-              <TableHead className="text-right">Valor Tiny</TableHead>
-              <TableHead className="text-right">Valor Real</TableHead>
-              <TableHead className="text-right">Diferença</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead className="text-center">Ação</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {mockTiny.map((item) => (
-              <TableRow key={item.id} className={item.status !== "ok" ? "bg-warning/5" : ""}>
-                <TableCell className="font-medium">{item.data}</TableCell>
-                <TableCell>{item.descricao}</TableCell>
-                <TableCell><Badge variant="outline">{item.categoria}</Badge></TableCell>
-                <TableCell className="text-right">
-                  {item.valorTiny > 0 ? formatCurrency(item.valorTiny) : "-"}
-                </TableCell>
-                <TableCell className="text-right">{formatCurrency(item.valorReal)}</TableCell>
-                <TableCell className="text-right font-medium text-destructive">
-                  {item.diferenca ? formatCurrency(item.diferenca) : "-"}
-                </TableCell>
-                <TableCell className="text-center"><StatusBadge status={item.status} /></TableCell>
-                <TableCell className="text-center">
-                  {item.status !== "ok" && <Button variant="ghost" size="sm">Resolver</Button>}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </ModuleCard>
-    </div>
-  );
-}
-
 function ManualTab() {
   const totals = calculateTotals(mockManual);
   
@@ -576,7 +519,7 @@ export default function Conciliacao() {
   return (
     <MainLayout
       title="Conciliações"
-      subtitle="Central de conciliação bancária, cartões, marketplace, Tiny e manual"
+      subtitle="Central de conciliação bancária, cartões, marketplace e ajustes manuais"
       actions={
         <div className="flex items-center gap-2">
           <Button variant="outline" className="gap-2">
@@ -591,7 +534,7 @@ export default function Conciliacao() {
       }
     >
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-5 mb-6">
+        <TabsList className="grid w-full grid-cols-4 mb-6">
           <TabsTrigger value="bancaria" className="gap-2">
             <Building className="h-4 w-4" />
             <span className="hidden sm:inline">Bancária</span>
@@ -603,10 +546,6 @@ export default function Conciliacao() {
           <TabsTrigger value="marketplace" className="gap-2">
             <ShoppingBag className="h-4 w-4" />
             <span className="hidden sm:inline">Marketplace</span>
-          </TabsTrigger>
-          <TabsTrigger value="tiny" className="gap-2">
-            <Package className="h-4 w-4" />
-            <span className="hidden sm:inline">Tiny</span>
           </TabsTrigger>
           <TabsTrigger value="manual" className="gap-2">
             <PenLine className="h-4 w-4" />
@@ -624,10 +563,6 @@ export default function Conciliacao() {
 
         <TabsContent value="marketplace">
           <MarketplaceTab />
-        </TabsContent>
-
-        <TabsContent value="tiny">
-          <TinyTab />
         </TabsContent>
 
         <TabsContent value="manual">

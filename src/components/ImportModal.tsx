@@ -66,10 +66,7 @@ export function ImportModal({ open, onOpenChange, onImportComplete }: ImportModa
       fileSize: `${(file.size / 1024).toFixed(1)} KB`,
       detectedTabs: ['DRE', 'CONSOLIDADO', 'CREDITO', 'FECHAMENTO EXCHANGE'],
       recordCount: 156,
-      warnings: [
-        'Linha 34: Caixa Tiny detectado - será categorizado como movimentação financeira (NÃO como receita)',
-        'Linha 45: Caixa Tiny detectado - será categorizado como movimentação financeira (NÃO como receita)'
-      ],
+      warnings: [],
       errors: []
     });
   };
@@ -158,15 +155,15 @@ export function ImportModal({ open, onOpenChange, onImportComplete }: ImportModa
               </div>
             </div>
 
-            <div className="p-4 rounded-lg bg-warning/10 border border-warning/20">
+            <div className="p-4 rounded-lg bg-muted/50 border border-border">
               <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
+                <AlertTriangle className="h-5 w-5 text-muted-foreground mt-0.5" />
                 <div>
-                  <p className="font-medium text-warning">Atenção: Regras de importação</p>
+                  <p className="font-medium">Regras de importação</p>
                   <ul className="text-sm text-muted-foreground mt-1 space-y-1">
-                    <li>• Dados do <strong>Caixa Tiny</strong> serão classificados como movimentação financeira, NUNCA como receita</li>
                     <li>• Duplicidades serão detectadas e bloqueadas automaticamente</li>
                     <li>• Um preview será exibido antes da importação final</li>
+                    <li>• Dados serão categorizados conforme plano de contas</li>
                   </ul>
                 </div>
               </div>

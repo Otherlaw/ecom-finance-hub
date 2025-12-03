@@ -95,7 +95,6 @@ function calculateChannelDataForPeriod(dateRange: DateRange): ChannelKPIData[] {
   const variance = (dateRange.from.getDate() % 10) / 100;
   
   return baseChannelData
-    .filter(channel => channel.channel !== "Caixa Tiny") // Exclude Tiny from KPIs
     .map((channel, index) => {
       const adjustedReceita = Math.round(channel.receitaBruta * periodMultiplier * (1 + variance * (index + 1) * 0.1));
       return {
