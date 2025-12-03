@@ -2,16 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMemo } from "react";
 
-interface TransacaoComCategoria {
+interface LancamentoDRE {
   id: string;
+  data: string;
   valor: number;
-  data_transacao: string;
-  tipo_movimento: string | null;
-  categoria: {
-    id: string;
-    nome: string;
-    tipo: string;
-  } | null;
+  origem: "cartao" | "contas_pagar";
+  categoria_id: string | null;
+  categoria_tipo: string | null;
+  categoria_nome: string | null;
 }
 
 interface DRELinha {
@@ -45,9 +43,9 @@ export function useDREData(mes?: string, ano?: number) {
   const selectedMonth = mes || String(currentDate.getMonth() + 1).padStart(2, "0");
   const selectedYear = ano || currentDate.getFullYear();
 
-  // Busca transações categorizadas do período
-  const { data: transacoes, isLoading: isLoadingTransacoes } = useQuery({
-    queryKey: ["dre-transacoes", selectedMonth, selectedYear],
+  // Busca transações de cartão categorizadas do período
+  const { data: transacoesCartao, isLoading: isLoadingCartao } = useQuery({
+    queryKey: ["dre-transacoes-cartao", selectedMonth, selectedYear],
     queryFn: async () => {
       const startDate = `${selectedYear}-${selectedMonth}-01`;
       const endDate = new Date(selectedYear, parseInt(selectedMonth), 0).toISOString().split("T")[0];
@@ -59,6 +57,7 @@ export function useDREData(mes?: string, ano?: number) {
           valor,
           data_transacao,
           tipo_movimento,
+          categoria_id,
           categoria:categorias_financeiras(id, nome, tipo)
         `)
         .gte("data_transacao", startDate)
@@ -66,7 +65,52 @@ export function useDREData(mes?: string, ano?: number) {
         .eq("status", "conciliado");
 
       if (error) throw error;
-      return data as TransacaoComCategoria[];
+      
+      // Normaliza para LancamentoDRE
+      return (data || []).map((t): LancamentoDRE => ({
+        id: t.id,
+        data: t.data_transacao,
+        valor: Math.abs(t.valor),
+        origem: "cartao",
+        categoria_id: t.categoria_id,
+        categoria_tipo: (t.categoria as any)?.tipo || null,
+        categoria_nome: (t.categoria as any)?.nome || null,
+      }));
+    },
+  });
+
+  // Busca contas a pagar pagas no período
+  const { data: contasPagas, isLoading: isLoadingContas } = useQuery({
+    queryKey: ["dre-contas-pagar", selectedMonth, selectedYear],
+    queryFn: async () => {
+      const startDate = `${selectedYear}-${selectedMonth}-01`;
+      const endDate = new Date(selectedYear, parseInt(selectedMonth), 0).toISOString().split("T")[0];
+
+      const { data, error } = await supabase
+        .from("contas_a_pagar")
+        .select(`
+          id,
+          valor_pago,
+          data_pagamento,
+          categoria_id,
+          categoria:categorias_financeiras(id, nome, tipo)
+        `)
+        .in("status", ["pago", "parcialmente_pago"])
+        .gte("data_pagamento", startDate)
+        .lte("data_pagamento", endDate);
+
+      if (error) throw error;
+      
+      // Normaliza para LancamentoDRE
+      return (data || []).map((c): LancamentoDRE => ({
+        id: c.id,
+        data: c.data_pagamento || "",
+        valor: c.valor_pago,
+        origem: "contas_pagar",
+        categoria_id: c.categoria_id,
+        categoria_tipo: (c.categoria as any)?.tipo || null,
+        categoria_nome: (c.categoria as any)?.nome || null,
+      }));
     },
   });
 
@@ -86,20 +130,24 @@ export function useDREData(mes?: string, ano?: number) {
     },
   });
 
+  // Combina todas as transações
+  const lancamentos = useMemo(() => {
+    return [...(transacoesCartao || []), ...(contasPagas || [])];
+  }, [transacoesCartao, contasPagas]);
+
   // Processa dados do DRE
   const dreData = useMemo<DREData | null>(() => {
-    if (!transacoes || !categorias) return null;
+    if (!categorias) return null;
 
-    // Agrupa transações por tipo de categoria
+    // Agrupa lançamentos por tipo de categoria
     const porTipo: Record<string, { total: number; categorias: Record<string, number> }> = {};
 
-    transacoes.forEach((t) => {
-      if (!t.categoria) return;
+    lancamentos.forEach((l) => {
+      if (!l.categoria_tipo) return;
 
-      const tipo = t.categoria.tipo;
-      const categoriaNome = t.categoria.nome;
-      // Valor positivo = despesa/saída, negativo = receita/entrada (crédito no cartão)
-      const valor = Math.abs(t.valor);
+      const tipo = l.categoria_tipo;
+      const categoriaNome = l.categoria_nome || "Sem nome";
+      const valor = l.valor;
 
       if (!porTipo[tipo]) {
         porTipo[tipo] = { total: 0, categorias: {} };
@@ -176,7 +224,7 @@ export function useDREData(mes?: string, ano?: number) {
       lucroLiquido,
       linhasPorTipo,
     };
-  }, [transacoes, categorias, selectedMonth, selectedYear]);
+  }, [lancamentos, categorias, selectedMonth, selectedYear]);
 
   // Estatísticas adicionais
   const stats = useMemo(() => {
@@ -211,36 +259,65 @@ export function useDREData(mes?: string, ano?: number) {
     };
   }, [dreData]);
 
+  // Contagem por origem
+  const transacoesCartaoCount = transacoesCartao?.length || 0;
+  const contasPagasCount = contasPagas?.length || 0;
+  const totalLancamentos = lancamentos.length;
+
   return {
     dreData,
     stats,
-    transacoesCount: transacoes?.length || 0,
-    isLoading: isLoadingTransacoes || isLoadingCategorias,
-    hasData: (transacoes?.length || 0) > 0,
+    transacoesCount: totalLancamentos,
+    transacoesCartaoCount,
+    contasPagasCount,
+    isLoading: isLoadingCartao || isLoadingContas || isLoadingCategorias,
+    hasData: totalLancamentos > 0,
   };
 }
 
-// Períodos disponíveis (últimos 12 meses)
+// Períodos disponíveis (últimos 12 meses com dados)
 export function usePeridosDisponiveis() {
   return useQuery({
     queryKey: ["periodos-dre"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Busca períodos de transações de cartão
+      const { data: cartaoData, error: cartaoError } = await supabase
         .from("credit_card_transactions")
         .select("data_transacao")
         .eq("status", "conciliado")
         .order("data_transacao", { ascending: false });
 
-      if (error) throw error;
+      if (cartaoError) throw cartaoError;
 
-      // Extrai meses únicos
+      // Busca períodos de contas pagas
+      const { data: contasData, error: contasError } = await supabase
+        .from("contas_a_pagar")
+        .select("data_pagamento")
+        .in("status", ["pago", "parcialmente_pago"])
+        .not("data_pagamento", "is", null)
+        .order("data_pagamento", { ascending: false });
+
+      if (contasError) throw contasError;
+
+      // Combina e extrai meses únicos
       const periodos = new Set<string>();
-      data?.forEach((t) => {
+      
+      cartaoData?.forEach((t) => {
         const date = new Date(t.data_transacao);
         periodos.add(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`);
       });
 
-      return Array.from(periodos).slice(0, 12).map((p) => {
+      contasData?.forEach((c) => {
+        if (c.data_pagamento) {
+          const date = new Date(c.data_pagamento);
+          periodos.add(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`);
+        }
+      });
+
+      // Ordena decrescente e limita a 12 meses
+      const sortedPeriodos = Array.from(periodos).sort().reverse().slice(0, 12);
+
+      return sortedPeriodos.map((p) => {
         const [ano, mes] = p.split("-");
         const meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", 
                        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
