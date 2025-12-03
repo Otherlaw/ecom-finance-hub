@@ -55,6 +55,7 @@ const mainNavItems: NavItem[] = [
   { title: "Produtos", href: "/produtos", icon: Package },
   { title: "Compras", href: "/compras", icon: ShoppingCart },
   { title: "Contas a Pagar", href: "/contas-pagar", icon: CreditCard },
+  { title: "Contas a Receber", href: "/contas-receber", icon: TrendingUp },
   { title: "Cartões de Crédito", href: "/cartao-credito", icon: CreditCardIcon },
   { title: "Fornecedores", href: "/fornecedores", icon: Truck },
   { title: "Precificação", href: "/precificacao", icon: Calculator },
