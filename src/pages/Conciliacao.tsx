@@ -107,8 +107,8 @@ const totais = {
 export default function Conciliacao() {
   return (
     <MainLayout
-      title="Conciliação Tiny"
-      subtitle="Cruzamento de dados financeiros"
+      title="Conciliações"
+      subtitle="Central de conciliação bancária, cartões, marketplace e Tiny"
       actions={
         <div className="flex items-center gap-2">
           <Button variant="outline" className="gap-2">
