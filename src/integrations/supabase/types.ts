@@ -179,6 +179,103 @@ export type Database = {
           },
         ]
       }
+      contas_a_receber: {
+        Row: {
+          categoria_id: string | null
+          centro_custo_id: string | null
+          cliente_nome: string
+          conciliado: boolean
+          created_at: string
+          data_emissao: string
+          data_recebimento: string | null
+          data_vencimento: string
+          descricao: string
+          documento: string | null
+          empresa_id: string
+          forma_recebimento: string | null
+          id: string
+          observacoes: string | null
+          origem: string | null
+          recorrente: boolean
+          status: string
+          tipo_lancamento: string
+          updated_at: string
+          valor_em_aberto: number
+          valor_recebido: number
+          valor_total: number
+        }
+        Insert: {
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          cliente_nome: string
+          conciliado?: boolean
+          created_at?: string
+          data_emissao: string
+          data_recebimento?: string | null
+          data_vencimento: string
+          descricao: string
+          documento?: string | null
+          empresa_id: string
+          forma_recebimento?: string | null
+          id?: string
+          observacoes?: string | null
+          origem?: string | null
+          recorrente?: boolean
+          status?: string
+          tipo_lancamento?: string
+          updated_at?: string
+          valor_em_aberto: number
+          valor_recebido?: number
+          valor_total: number
+        }
+        Update: {
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          cliente_nome?: string
+          conciliado?: boolean
+          created_at?: string
+          data_emissao?: string
+          data_recebimento?: string | null
+          data_vencimento?: string
+          descricao?: string
+          documento?: string | null
+          empresa_id?: string
+          forma_recebimento?: string | null
+          id?: string
+          observacoes?: string | null
+          origem?: string | null
+          recorrente?: boolean
+          status?: string
+          tipo_lancamento?: string
+          updated_at?: string
+          valor_em_aberto?: number
+          valor_recebido?: number
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contas_a_receber_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_financeiras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contas_a_receber_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contas_a_receber_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_card_invoices: {
         Row: {
           arquivo_importacao_url: string | null

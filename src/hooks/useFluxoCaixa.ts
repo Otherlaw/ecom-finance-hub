@@ -42,6 +42,22 @@ interface UseFluxoCaixaParams {
   empresaId?: string;
 }
 
+// Tipo auxiliar para contas a receber
+interface ContaReceber {
+  id: string;
+  descricao: string;
+  cliente_nome: string;
+  data_recebimento: string | null;
+  valor_recebido: number;
+  status: string;
+  categoria_id: string | null;
+  centro_custo_id: string | null;
+  empresa_id: string;
+  categoria: { id: string; nome: string; tipo: string } | null;
+  centro_custo: { id: string; nome: string } | null;
+  empresa: { id: string; razao_social: string; nome_fantasia: string | null } | null;
+}
+
 /**
  * Hook para buscar e calcular dados do Fluxo de Caixa
  * 
@@ -140,6 +156,49 @@ export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxo
     },
   });
 
+  // Buscar contas a receber RECEBIDAS no período (ENTRADAS)
+  const { data: contasRecebidas, isLoading: loadingReceber } = useQuery({
+    queryKey: ["fluxo-caixa-contas-receber", periodoInicio, periodoFim, empresaId],
+    queryFn: async () => {
+      let query = supabase
+        .from("contas_a_receber")
+        .select(`
+          id,
+          descricao,
+          cliente_nome,
+          data_recebimento,
+          valor_recebido,
+          status,
+          categoria_id,
+          centro_custo_id,
+          empresa_id,
+          categoria:categorias_financeiras(id, nome, tipo),
+          centro_custo:centros_de_custo(id, nome),
+          empresa:empresas(id, razao_social, nome_fantasia)
+        `)
+        .in("status", ["recebido", "parcialmente_recebido"])
+        .not("data_recebimento", "is", null)
+        .order("data_recebimento", { ascending: true });
+
+      // Filtro por período de recebimento
+      if (periodoInicio) {
+        query = query.gte("data_recebimento", periodoInicio);
+      }
+      if (periodoFim) {
+        query = query.lte("data_recebimento", periodoFim);
+      }
+
+      // Filtro por empresa
+      if (empresaId && empresaId !== "todas") {
+        query = query.eq("empresa_id", empresaId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []) as ContaReceber[];
+    },
+  });
+
   // Buscar todas as empresas para o filtro
   const { data: empresas } = useQuery({
     queryKey: ["empresas-fluxo"],
@@ -209,12 +268,34 @@ export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxo
       });
     });
 
-    // TODO: Adicionar contas a receber recebidas (quando tabela existir)
+    // Processar contas a receber recebidas (ENTRADAS)
+    contasRecebidas?.forEach((conta) => {
+      if (!conta.data_recebimento) return;
+      
+      items.push({
+        id: `cr-${conta.id}`,
+        data: conta.data_recebimento,
+        tipo: "entrada", // Contas a receber são sempre entradas
+        origem: "contas_receber",
+        descricao: conta.descricao,
+        categoriaId: conta.categoria_id,
+        categoriaNome: conta.categoria?.nome || null,
+        categoriaTipo: conta.categoria?.tipo || null,
+        centroCustoId: conta.centro_custo_id,
+        centroCustoNome: conta.centro_custo?.nome || null,
+        valor: Math.abs(conta.valor_recebido), // Valor efetivamente recebido
+        empresaId: conta.empresa_id,
+        empresaNome: conta.empresa?.nome_fantasia || conta.empresa?.razao_social || null,
+        fornecedorNome: conta.cliente_nome, // Usamos como "cliente" aqui
+        status: conta.status,
+      });
+    });
+
     // TODO: Adicionar transações bancárias (quando tabela existir)
 
     // Ordenar por data (mais antiga primeiro para cálculo de saldo acumulado)
     return items.sort((a, b) => a.data.localeCompare(b.data));
-  }, [transacoesCartao, contasPagas, empresaId]);
+  }, [transacoesCartao, contasPagas, contasRecebidas, empresaId]);
 
   // Calcular resumo
   const resumo = useMemo<FluxoCaixaResumo>(() => {
@@ -316,7 +397,7 @@ export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxo
     resumo,
     agregado,
     empresas,
-    isLoading: loadingCartao || loadingContas,
+    isLoading: loadingCartao || loadingContas || loadingReceber,
     hasData: movimentos.length > 0,
   };
 };
