@@ -14,12 +14,14 @@ import {
   Edit,
   AlertTriangle,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -27,6 +29,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { EmpresaFormModal } from "@/components/empresas/EmpresaFormModal";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import {
@@ -36,9 +48,11 @@ import {
 } from "@/lib/empresas-data";
 
 export default function Empresas() {
-  const { empresas, isLoading } = useEmpresas();
+  const { empresas, isLoading, deleteEmpresa } = useEmpresas();
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [editingEmpresa, setEditingEmpresa] = useState<any | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [empresaToDelete, setEmpresaToDelete] = useState<any | null>(null);
 
   const handleEdit = (empresa: any) => {
     setEditingEmpresa(empresa);
@@ -48,6 +62,19 @@ export default function Empresas() {
   const handleNew = () => {
     setEditingEmpresa(null);
     setFormModalOpen(true);
+  };
+
+  const handleDeleteClick = (empresa: any) => {
+    setEmpresaToDelete(empresa);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (empresaToDelete) {
+      await deleteEmpresa.mutateAsync(empresaToDelete.id);
+      setDeleteDialogOpen(false);
+      setEmpresaToDelete(null);
+    }
   };
 
   // Mapear regime_tributario do Supabase para o tipo local
@@ -188,6 +215,14 @@ export default function Empresas() {
                             <Users className="h-4 w-4 mr-2" />
                             Usuários
                           </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem 
+                            onClick={() => handleDeleteClick(empresa)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Excluir
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -244,6 +279,29 @@ export default function Empresas() {
         onOpenChange={setFormModalOpen}
         empresa={editingEmpresa}
       />
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir a empresa{" "}
+              <strong>{empresaToDelete?.nome_fantasia || empresaToDelete?.razao_social}</strong>?
+              <br />
+              Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </MainLayout>
   );
 }
