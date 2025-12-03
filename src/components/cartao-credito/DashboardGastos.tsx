@@ -188,10 +188,14 @@ export function DashboardGastos() {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) => `${name.substring(0, 15)}${name.length > 15 ? '...' : ''} (${(percent * 100).toFixed(0)}%)`}
+                    label={({ nome, percent }) => {
+                      const label = String(nome || 'Sem categoria');
+                      return `${label.substring(0, 15)}${label.length > 15 ? '...' : ''} (${(percent * 100).toFixed(0)}%)`;
+                    }}
                     outerRadius={80}
                     fill="#8884d8"
                     dataKey="valor"
+                    nameKey="nome"
                   >
                     {dadosPorCategoria.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
