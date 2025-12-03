@@ -151,7 +151,7 @@ export default function DRE() {
   const mes = selectedPeriodo ? selectedPeriodo.split("-")[1] : undefined;
   const ano = selectedPeriodo ? parseInt(selectedPeriodo.split("-")[0]) : undefined;
 
-  const { dreData, stats, transacoesCount, isLoading, hasData } = useDREData(mes, ano);
+  const { dreData, stats, transacoesCount, transacoesCartaoCount, contasPagasCount, isLoading, hasData } = useDREData(mes, ano);
   const { data: periodos } = usePeridosDisponiveis();
 
   // Usa dados mock ou reais
@@ -236,12 +236,12 @@ export default function DRE() {
                 </div>
                 <div>
                   <p className="font-medium">
-                    {hasData ? `${transacoesCount} transações categorizadas` : "Sem dados reais no período"}
+                    {hasData ? `${transacoesCount} lançamentos no período` : "Sem dados reais no período"}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {hasData
-                      ? "DRE calculado a partir das transações de cartão categorizadas e conciliadas."
-                      : "Nenhuma transação categorizada neste período. Acesse Conciliações → Cartões para categorizar transações."}
+                      ? `DRE calculado a partir de ${transacoesCartaoCount} transações de cartão e ${contasPagasCount} contas pagas.`
+                      : "Nenhuma transação ou pagamento no período. Categorize transações em Conciliações ou registre pagamentos em Contas a Pagar."}
                   </p>
                 </div>
               </div>
@@ -262,8 +262,8 @@ export default function DRE() {
                 <div className="text-sm">
                   <p className="font-medium text-amber-700">Para ver o DRE com dados reais:</p>
                   <ol className="list-decimal list-inside mt-1 text-muted-foreground space-y-1">
-                    <li>Importe faturas de cartão de crédito em <strong>Cartões de Crédito</strong></li>
-                    <li>Categorize as transações em <strong>Conciliações → Cartões</strong></li>
+                    <li>Importe faturas de cartão em <strong>Cartões de Crédito</strong> e categorize em <strong>Conciliações → Cartões</strong></li>
+                    <li>Ou registre pagamentos em <strong>Contas a Pagar</strong> com categoria financeira</li>
                     <li>Use as categorias do Plano de Contas (Receitas, Custos, Despesas...)</li>
                   </ol>
                 </div>
