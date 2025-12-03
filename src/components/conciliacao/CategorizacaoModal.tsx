@@ -180,12 +180,16 @@ export function CategorizacaoModal({
                 <Building2 className="h-4 w-4 text-muted-foreground" />
                 Centro de Custo
               </Label>
-              <Select value={centroCustoId} onValueChange={setCentroCustoId} disabled={isLoading}>
+              <Select 
+                value={centroCustoId || "none"} 
+                onValueChange={(val) => setCentroCustoId(val === "none" ? "" : val)} 
+                disabled={isLoading}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o centro de custo (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhum</SelectItem>
+                  <SelectItem value="none">Nenhum</SelectItem>
                   {centrosFlat
                     .filter((c) => c.ativo)
                     .map((centro) => (
