@@ -1,15 +1,41 @@
+import { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Edit, Trash, AlertCircle } from "lucide-react";
 import { useCartoes } from "@/hooks/useCartoes";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface CartoesTableProps {
   onEdit: (id: string) => void;
 }
 
 export function CartoesTable({ onEdit }: CartoesTableProps) {
-  const { cartoes, isLoading } = useCartoes();
+  const { cartoes, isLoading, deleteCartao } = useCartoes();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [cartaoToDelete, setCartaoToDelete] = useState<any | null>(null);
+
+  const handleDeleteClick = (cartao: any) => {
+    setCartaoToDelete(cartao);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (cartaoToDelete) {
+      await deleteCartao.mutateAsync(cartaoToDelete.id);
+      setDeleteDialogOpen(false);
+      setCartaoToDelete(null);
+    }
+  };
 
   if (isLoading) {
     return <div className="text-center py-8">Carregando cartões...</div>;
@@ -28,60 +54,89 @@ export function CartoesTable({ onEdit }: CartoesTableProps) {
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Empresa</TableHead>
-          <TableHead>Nome</TableHead>
-          <TableHead>Instituição</TableHead>
-          <TableHead>Tipo</TableHead>
-          <TableHead>Limite</TableHead>
-          <TableHead>Fechamento</TableHead>
-          <TableHead>Vencimento</TableHead>
-          <TableHead>Responsável</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead className="text-right">Ações</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {cartoes.map((cartao: any) => (
-          <TableRow key={cartao.id}>
-            <TableCell className="font-medium">
-              {cartao.empresa?.nome_fantasia || cartao.empresa?.razao_social}
-            </TableCell>
-            <TableCell>{cartao.nome}</TableCell>
-            <TableCell>{cartao.instituicao_financeira}</TableCell>
-            <TableCell>
-              <Badge variant={cartao.tipo === "credito" ? "default" : "secondary"}>
-                {cartao.tipo === "credito" ? "Crédito" : "Débito"}
-              </Badge>
-            </TableCell>
-            <TableCell>
-              {cartao.limite_credito
-                ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cartao.limite_credito)
-                : "-"}
-            </TableCell>
-            <TableCell>Dia {cartao.dia_fechamento}</TableCell>
-            <TableCell>Dia {cartao.dia_vencimento}</TableCell>
-            <TableCell>{cartao.responsavel?.nome || "-"}</TableCell>
-            <TableCell>
-              <Badge variant={cartao.ativo ? "default" : "secondary"}>
-                {cartao.ativo ? "Ativo" : "Inativo"}
-              </Badge>
-            </TableCell>
-            <TableCell className="text-right">
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" size="icon" onClick={() => onEdit(cartao.id)}>
-                  <Edit className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon">
-                  <Trash className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            </TableCell>
+    <>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Empresa</TableHead>
+            <TableHead>Nome</TableHead>
+            <TableHead>Instituição</TableHead>
+            <TableHead>Tipo</TableHead>
+            <TableHead>Limite</TableHead>
+            <TableHead>Fechamento</TableHead>
+            <TableHead>Vencimento</TableHead>
+            <TableHead>Responsável</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">Ações</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {cartoes.map((cartao: any) => (
+            <TableRow key={cartao.id}>
+              <TableCell className="font-medium">
+                {cartao.empresa?.nome_fantasia || cartao.empresa?.razao_social}
+              </TableCell>
+              <TableCell>{cartao.nome}</TableCell>
+              <TableCell>{cartao.instituicao_financeira}</TableCell>
+              <TableCell>
+                <Badge variant={cartao.tipo === "credito" ? "default" : "secondary"}>
+                  {cartao.tipo === "credito" ? "Crédito" : "Débito"}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                {cartao.limite_credito
+                  ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cartao.limite_credito)
+                  : "-"}
+              </TableCell>
+              <TableCell>Dia {cartao.dia_fechamento}</TableCell>
+              <TableCell>Dia {cartao.dia_vencimento}</TableCell>
+              <TableCell>{cartao.responsavel?.nome || "-"}</TableCell>
+              <TableCell>
+                <Badge variant={cartao.ativo ? "default" : "secondary"}>
+                  {cartao.ativo ? "Ativo" : "Inativo"}
+                </Badge>
+              </TableCell>
+              <TableCell className="text-right">
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="icon" onClick={() => onEdit(cartao.id)}>
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => handleDeleteClick(cartao)}
+                  >
+                    <Trash className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir o cartão{" "}
+              <strong>{cartaoToDelete?.nome}</strong>?
+              <br />
+              Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
