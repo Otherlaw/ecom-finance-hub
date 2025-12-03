@@ -16,6 +16,7 @@ import ChecklistFechamento from "./pages/ChecklistFechamento";
 import Produtos from "./pages/Produtos";
 import Compras from "./pages/Compras";
 import ContasPagar from "./pages/ContasPagar";
+import ContasReceber from "./pages/ContasReceber";
 import Fornecedores from "./pages/Fornecedores";
 import Precificacao from "./pages/Precificacao";
 import CartaoCredito from "./pages/CartaoCredito";
@@ -53,6 +54,7 @@ const App = () => (
             <Route path="/produtos" element={<Produtos />} />
             <Route path="/compras" element={<Compras />} />
             <Route path="/contas-pagar" element={<ContasPagar />} />
+            <Route path="/contas-receber" element={<ContasReceber />} />
             <Route path="/fornecedores" element={<Fornecedores />} />
             <Route path="/precificacao" element={<Precificacao />} />
             <Route path="/cartao-credito" element={<CartaoCredito />} />

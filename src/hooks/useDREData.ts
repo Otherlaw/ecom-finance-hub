@@ -6,7 +6,7 @@ interface LancamentoDRE {
   id: string;
   data: string;
   valor: number;
-  origem: "cartao" | "contas_pagar";
+  origem: "cartao" | "contas_pagar" | "contas_receber";
   categoria_id: string | null;
   categoria_tipo: string | null;
   categoria_nome: string | null;
@@ -114,6 +114,41 @@ export function useDREData(mes?: string, ano?: number) {
     },
   });
 
+  // Busca contas a receber recebidas no período (RECEITAS)
+  const { data: contasRecebidas, isLoading: isLoadingReceber } = useQuery({
+    queryKey: ["dre-contas-receber", selectedMonth, selectedYear],
+    queryFn: async () => {
+      const startDate = `${selectedYear}-${selectedMonth}-01`;
+      const endDate = new Date(selectedYear, parseInt(selectedMonth), 0).toISOString().split("T")[0];
+
+      const { data, error } = await supabase
+        .from("contas_a_receber")
+        .select(`
+          id,
+          valor_recebido,
+          data_recebimento,
+          categoria_id,
+          categoria:categorias_financeiras(id, nome, tipo)
+        `)
+        .in("status", ["recebido", "parcialmente_recebido"])
+        .gte("data_recebimento", startDate)
+        .lte("data_recebimento", endDate);
+
+      if (error) throw error;
+      
+      // Normaliza para LancamentoDRE
+      return (data || []).map((c): LancamentoDRE => ({
+        id: c.id,
+        data: c.data_recebimento || "",
+        valor: c.valor_recebido,
+        origem: "contas_receber",
+        categoria_id: c.categoria_id,
+        categoria_tipo: (c.categoria as any)?.tipo || null,
+        categoria_nome: (c.categoria as any)?.nome || null,
+      }));
+    },
+  });
+
   // Busca todas as categorias para estrutura
   const { data: categorias, isLoading: isLoadingCategorias } = useQuery({
     queryKey: ["categorias-dre"],
@@ -132,8 +167,8 @@ export function useDREData(mes?: string, ano?: number) {
 
   // Combina todas as transações
   const lancamentos = useMemo(() => {
-    return [...(transacoesCartao || []), ...(contasPagas || [])];
-  }, [transacoesCartao, contasPagas]);
+    return [...(transacoesCartao || []), ...(contasPagas || []), ...(contasRecebidas || [])];
+  }, [transacoesCartao, contasPagas, contasRecebidas]);
 
   // Processa dados do DRE
   const dreData = useMemo<DREData | null>(() => {
@@ -262,6 +297,7 @@ export function useDREData(mes?: string, ano?: number) {
   // Contagem por origem
   const transacoesCartaoCount = transacoesCartao?.length || 0;
   const contasPagasCount = contasPagas?.length || 0;
+  const contasRecebidasCount = contasRecebidas?.length || 0;
   const totalLancamentos = lancamentos.length;
 
   return {
@@ -270,7 +306,8 @@ export function useDREData(mes?: string, ano?: number) {
     transacoesCount: totalLancamentos,
     transacoesCartaoCount,
     contasPagasCount,
-    isLoading: isLoadingCartao || isLoadingContas || isLoadingCategorias,
+    contasRecebidasCount,
+    isLoading: isLoadingCartao || isLoadingContas || isLoadingReceber || isLoadingCategorias,
     hasData: totalLancamentos > 0,
   };
 }
