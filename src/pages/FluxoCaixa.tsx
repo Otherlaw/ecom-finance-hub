@@ -102,8 +102,9 @@ const getOrigemIcon = (origem: string) => {
     case "banco":
       return <Banknote className="h-4 w-4" />;
     case "contas_pagar":
+      return <FileText className="h-4 w-4 text-destructive" />;
     case "contas_receber":
-      return <FileText className="h-4 w-4" />;
+      return <FileText className="h-4 w-4 text-success" />;
     default:
       return <Wallet className="h-4 w-4" />;
   }
@@ -318,6 +319,11 @@ export default function FluxoCaixa() {
                           {mov.cartaoNome && (
                             <span className="text-xs text-muted-foreground">
                               {mov.cartaoNome}
+                            </span>
+                          )}
+                          {mov.fornecedorNome && (
+                            <span className="text-xs text-muted-foreground">
+                              Fornecedor: {mov.fornecedorNome}
                             </span>
                           )}
                         </div>

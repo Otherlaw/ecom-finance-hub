@@ -18,6 +18,7 @@ export interface MovimentoCaixa {
   empresaId: string | null;
   empresaNome: string | null;
   cartaoNome?: string | null;
+  fornecedorNome?: string | null;
   status: string;
 }
 
@@ -44,11 +45,11 @@ interface UseFluxoCaixaParams {
 /**
  * Hook para buscar e calcular dados do Fluxo de Caixa
  * 
- * Fontes de dados (atual):
+ * Fontes de dados:
  * - credit_card_transactions: transações de cartão categorizadas (SAÍDAS)
+ * - contas_a_pagar: títulos pagos (SAÍDAS)
  * 
  * Fontes futuras (preparado para extensão):
- * - contas_a_pagar: títulos pagos (SAÍDAS)
  * - contas_a_receber: títulos recebidos (ENTRADAS)
  * - bank_transactions: transações bancárias (ENTRADAS/SAÍDAS)
  */
@@ -96,6 +97,49 @@ export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxo
     },
   });
 
+  // Buscar contas a pagar PAGAS no período
+  const { data: contasPagas, isLoading: loadingContas } = useQuery({
+    queryKey: ["fluxo-caixa-contas-pagar", periodoInicio, periodoFim, empresaId],
+    queryFn: async () => {
+      let query = supabase
+        .from("contas_a_pagar")
+        .select(`
+          id,
+          descricao,
+          fornecedor_nome,
+          data_pagamento,
+          valor_pago,
+          status,
+          categoria_id,
+          centro_custo_id,
+          empresa_id,
+          categoria:categorias_financeiras(id, nome, tipo),
+          centro_custo:centros_de_custo(id, nome),
+          empresa:empresas(id, razao_social, nome_fantasia)
+        `)
+        .in("status", ["pago", "parcialmente_pago"]) // Apenas títulos com pagamento
+        .not("data_pagamento", "is", null) // Deve ter data de pagamento
+        .order("data_pagamento", { ascending: true });
+
+      // Filtro por período de pagamento
+      if (periodoInicio) {
+        query = query.gte("data_pagamento", periodoInicio);
+      }
+      if (periodoFim) {
+        query = query.lte("data_pagamento", periodoFim);
+      }
+
+      // Filtro por empresa
+      if (empresaId && empresaId !== "todas") {
+        query = query.eq("empresa_id", empresaId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   // Buscar todas as empresas para o filtro
   const { data: empresas } = useQuery({
     queryKey: ["empresas-fluxo"],
@@ -126,7 +170,7 @@ export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxo
       }
 
       items.push({
-        id: tx.id,
+        id: `cartao-${tx.id}`,
         data: tx.data_transacao,
         tipo: "saida", // Transações de cartão são sempre saídas
         origem: "cartao",
@@ -144,13 +188,33 @@ export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxo
       });
     });
 
-    // TODO: Adicionar contas a pagar pagas (quando tabela existir)
+    // Processar contas a pagar pagas (SAÍDAS)
+    contasPagas?.forEach((conta: any) => {
+      items.push({
+        id: `cp-${conta.id}`,
+        data: conta.data_pagamento,
+        tipo: "saida", // Contas a pagar são sempre saídas
+        origem: "contas_pagar",
+        descricao: conta.descricao,
+        categoriaId: conta.categoria_id,
+        categoriaNome: conta.categoria?.nome || null,
+        categoriaTipo: conta.categoria?.tipo || null,
+        centroCustoId: conta.centro_custo_id,
+        centroCustoNome: conta.centro_custo?.nome || null,
+        valor: Math.abs(conta.valor_pago), // Valor efetivamente pago
+        empresaId: conta.empresa_id,
+        empresaNome: conta.empresa?.nome_fantasia || conta.empresa?.razao_social || null,
+        fornecedorNome: conta.fornecedor_nome,
+        status: conta.status,
+      });
+    });
+
     // TODO: Adicionar contas a receber recebidas (quando tabela existir)
     // TODO: Adicionar transações bancárias (quando tabela existir)
 
     // Ordenar por data (mais antiga primeiro para cálculo de saldo acumulado)
     return items.sort((a, b) => a.data.localeCompare(b.data));
-  }, [transacoesCartao, empresaId]);
+  }, [transacoesCartao, contasPagas, empresaId]);
 
   // Calcular resumo
   const resumo = useMemo<FluxoCaixaResumo>(() => {
@@ -252,7 +316,7 @@ export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxo
     resumo,
     agregado,
     empresas,
-    isLoading: loadingCartao,
+    isLoading: loadingCartao || loadingContas,
     hasData: movimentos.length > 0,
   };
 };
