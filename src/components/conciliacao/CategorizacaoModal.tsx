@@ -14,8 +14,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  SelectGroup,
-  SelectLabel,
 } from "@/components/ui/select";
 import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
@@ -51,7 +49,7 @@ export function CategorizacaoModal({
   const [centroCustoId, setCentroCustoId] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
 
-  const { categorias, categoriasPorTipo, isLoading: loadingCategorias } = useCategoriasFinanceiras();
+  const { categoriasPorTipo, isLoading: loadingCategorias } = useCategoriasFinanceiras();
   const { centrosFlat, isLoading: loadingCentros } = useCentrosCusto();
 
   // Carrega valores atuais quando a transação muda
@@ -98,19 +96,6 @@ export function CategorizacaoModal({
 
   const isLoading = loadingCategorias || loadingCentros;
 
-  // Agrupa categorias por tipo para exibição organizada
-  const tiposOrdenados = [
-    "Receitas",
-    "Custos",
-    "Despesas Operacionais",
-    "Despesas Comercial / Marketing",
-    "Despesas Administrativas / Gerais",
-    "Despesas com Pessoal",
-    "Despesas Financeiras",
-    "Impostos Sobre o Resultado",
-    "Outras Receitas / Despesas",
-  ];
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -154,22 +139,18 @@ export function CategorizacaoModal({
                   <SelectValue placeholder="Selecione a categoria" />
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px]">
-                  {tiposOrdenados.map((tipo) => {
-                    const cats = categoriasPorTipo[tipo] || [];
-                    if (cats.length === 0) return null;
-                    return (
-                      <SelectGroup key={tipo}>
-                        <SelectLabel className="text-xs font-semibold text-primary/70 uppercase tracking-wider">
-                          {tipo}
-                        </SelectLabel>
-                        {cats.map((cat) => (
-                          <SelectItem key={cat.id} value={cat.id}>
-                            {cat.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    );
-                  })}
+                  {categoriasPorTipo.map((grupo) => (
+                    <div key={grupo.tipo}>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted">
+                        {grupo.tipo}
+                      </div>
+                      {grupo.categorias.filter(c => c.ativo).map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          {cat.nome}
+                        </SelectItem>
+                      ))}
+                    </div>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
