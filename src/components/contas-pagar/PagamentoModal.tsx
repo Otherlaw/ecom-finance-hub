@@ -5,38 +5,47 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/hooks/use-toast';
-import { 
-  ContaPagar, 
-  Pagamento, 
-  FormaPagamento,
-  FORMA_PAGAMENTO, 
-  mockContasBancarias,
-  formatCurrency,
-  formatDateBR,
-} from '@/lib/contas-pagar-data';
-import { mockFornecedores } from '@/lib/contas-pagar-data';
-import { mockEmpresas } from '@/lib/empresas-data';
+import { toast } from 'sonner';
+import { ContaPagar } from '@/hooks/useContasPagar';
 import { Banknote, Calculator, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+
+const FORMA_PAGAMENTO = {
+  pix: { label: 'Pix' },
+  boleto: { label: 'Boleto' },
+  transferencia: { label: 'Transferência' },
+  cartao: { label: 'Cartão' },
+  dinheiro: { label: 'Dinheiro' },
+  outro: { label: 'Outro' },
+};
+
+const formatCurrency = (value: number): string => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value);
+};
+
+const formatDateBR = (dateStr: string): string => {
+  if (!dateStr) return '-';
+  const [year, month, day] = dateStr.split('-');
+  return `${day}/${month}/${year}`;
+};
 
 interface PagamentoModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   conta: ContaPagar | null;
-  onSave: (pagamento: Pagamento, contaId: string) => void;
+  onSave: (valorPago: number, dataPagamento: string, contaId: string) => void;
 }
 
 export function PagamentoModal({ open, onOpenChange, conta, onSave }: PagamentoModalProps) {
-  const { toast } = useToast();
-  
   const [formData, setFormData] = useState({
     dataPagamento: new Date().toISOString().split('T')[0],
     valorPrincipal: 0,
     jurosMulta: 0,
     desconto: 0,
-    formaPagamento: '' as FormaPagamento | '',
-    contaBancariaId: '',
+    formaPagamento: '',
     observacoes: '',
   });
 
@@ -46,11 +55,10 @@ export function PagamentoModal({ open, onOpenChange, conta, onSave }: PagamentoM
     if (conta && open) {
       setFormData({
         dataPagamento: new Date().toISOString().split('T')[0],
-        valorPrincipal: conta.valorEmAberto,
+        valorPrincipal: conta.valor_em_aberto,
         jurosMulta: 0,
         desconto: 0,
-        formaPagamento: conta.formaPagamento || '',
-        contaBancariaId: conta.contaBancariaId || '',
+        formaPagamento: conta.forma_pagamento || '',
         observacoes: '',
       });
       setErrors({});
@@ -59,12 +67,8 @@ export function PagamentoModal({ open, onOpenChange, conta, onSave }: PagamentoM
 
   if (!conta) return null;
 
-  const empresa = mockEmpresas.find(e => e.id === conta.empresaId);
-  const fornecedor = mockFornecedores.find(f => f.id === conta.fornecedorId);
-  const contasBancariasEmpresa = mockContasBancarias.filter(cb => cb.empresaId === conta.empresaId && cb.ativo);
-
   const valorTotal = formData.valorPrincipal + formData.jurosMulta - formData.desconto;
-  const isPagamentoTotal = formData.valorPrincipal >= conta.valorEmAberto;
+  const isPagamentoTotal = formData.valorPrincipal >= conta.valor_em_aberto;
 
   const handleSubmit = () => {
     const newErrors: Record<string, string> = {};
@@ -75,47 +79,17 @@ export function PagamentoModal({ open, onOpenChange, conta, onSave }: PagamentoM
     if (formData.valorPrincipal <= 0) {
       newErrors.valorPrincipal = 'Valor deve ser maior que zero';
     }
-    if (formData.valorPrincipal > conta.valorEmAberto) {
-      newErrors.valorPrincipal = `Valor não pode exceder o saldo em aberto (${formatCurrency(conta.valorEmAberto)})`;
-    }
-    if (!formData.formaPagamento) {
-      newErrors.formaPagamento = 'Forma de pagamento é obrigatória';
-    }
-    if (!formData.contaBancariaId) {
-      newErrors.contaBancariaId = 'Conta bancária é obrigatória';
+    if (formData.valorPrincipal > conta.valor_em_aberto) {
+      newErrors.valorPrincipal = `Valor não pode exceder o saldo em aberto (${formatCurrency(conta.valor_em_aberto)})`;
     }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      toast({
-        title: 'Erro de validação',
-        description: 'Preencha todos os campos obrigatórios.',
-        variant: 'destructive',
-      });
+      toast.error('Preencha todos os campos obrigatórios');
       return;
     }
 
-    const pagamento: Pagamento = {
-      id: `pag-${Date.now()}`,
-      contaPagarId: conta.id,
-      dataPagamento: formData.dataPagamento,
-      valorPrincipal: formData.valorPrincipal,
-      jurosMulta: formData.jurosMulta,
-      desconto: formData.desconto,
-      valorTotal,
-      formaPagamento: formData.formaPagamento as FormaPagamento,
-      contaBancariaId: formData.contaBancariaId,
-      observacoes: formData.observacoes || undefined,
-    };
-
-    onSave(pagamento, conta.id);
-    toast({
-      title: 'Pagamento registrado',
-      description: isPagamentoTotal 
-        ? 'Conta paga integralmente.' 
-        : `Pagamento parcial de ${formatCurrency(valorTotal)} registrado.`,
-    });
-    onOpenChange(false);
+    onSave(formData.valorPrincipal, formData.dataPagamento, conta.id);
   };
 
   return (
@@ -134,22 +108,24 @@ export function PagamentoModal({ open, onOpenChange, conta, onSave }: PagamentoM
             <div className="flex justify-between items-start">
               <div>
                 <p className="font-medium">{conta.descricao}</p>
-                <p className="text-sm text-muted-foreground">{fornecedor?.nome} • {empresa?.nome}</p>
+                <p className="text-sm text-muted-foreground">
+                  {conta.fornecedor_nome} • {conta.empresa?.nome_fantasia || conta.empresa?.razao_social}
+                </p>
               </div>
               <Badge variant="outline">{conta.documento || 'Sem doc.'}</Badge>
             </div>
             <div className="grid grid-cols-3 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Vencimento:</span>
-                <p className="font-medium">{formatDateBR(conta.dataVencimento)}</p>
+                <p className="font-medium">{formatDateBR(conta.data_vencimento)}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Valor Original:</span>
-                <p className="font-medium">{formatCurrency(conta.valorTotal)}</p>
+                <p className="font-medium">{formatCurrency(conta.valor_total)}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Saldo em Aberto:</span>
-                <p className="font-semibold text-primary">{formatCurrency(conta.valorEmAberto)}</p>
+                <p className="font-semibold text-primary">{formatCurrency(conta.valor_em_aberto)}</p>
               </div>
             </div>
           </div>
@@ -176,7 +152,7 @@ export function PagamentoModal({ open, onOpenChange, conta, onSave }: PagamentoM
                   type="number"
                   step="0.01"
                   min="0"
-                  max={conta.valorEmAberto}
+                  max={conta.valor_em_aberto}
                   value={formData.valorPrincipal || ''}
                   onChange={(e) => setFormData({ ...formData, valorPrincipal: parseFloat(e.target.value) || 0 })}
                   className={errors.valorPrincipal ? 'border-red-500' : ''}
@@ -235,55 +211,29 @@ export function PagamentoModal({ open, onOpenChange, conta, onSave }: PagamentoM
                 ) : (
                   <>
                     <AlertTriangle className="h-4 w-4" />
-                    Pagamento parcial - restará {formatCurrency(conta.valorEmAberto - formData.valorPrincipal)} em aberto.
+                    Pagamento parcial - restará {formatCurrency(conta.valor_em_aberto - formData.valorPrincipal)} em aberto.
                   </>
                 )}
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="formaPagamento">Forma de Pagamento *</Label>
-                <Select
-                  value={formData.formaPagamento}
-                  onValueChange={(value) => setFormData({ ...formData, formaPagamento: value as FormaPagamento })}
-                >
-                  <SelectTrigger className={errors.formaPagamento ? 'border-red-500' : ''}>
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(FORMA_PAGAMENTO).map(([key, config]) => (
-                      <SelectItem key={key} value={key}>
-                        {config.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {errors.formaPagamento && <p className="text-xs text-red-500">{errors.formaPagamento}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="contaBancariaId">Conta Bancária *</Label>
-                <Select
-                  value={formData.contaBancariaId}
-                  onValueChange={(value) => setFormData({ ...formData, contaBancariaId: value })}
-                >
-                  <SelectTrigger className={errors.contaBancariaId ? 'border-red-500' : ''}>
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {contasBancariasEmpresa.map((cb) => (
-                      <SelectItem key={cb.id} value={cb.id}>
-                        {cb.nome} ({formatCurrency(cb.saldoAtual)})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {errors.contaBancariaId && <p className="text-xs text-red-500">{errors.contaBancariaId}</p>}
-                {contasBancariasEmpresa.length === 0 && (
-                  <p className="text-xs text-amber-600">Nenhuma conta bancária cadastrada para esta empresa.</p>
-                )}
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="formaPagamento">Forma de Pagamento</Label>
+              <Select
+                value={formData.formaPagamento}
+                onValueChange={(value) => setFormData({ ...formData, formaPagamento: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione (opcional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(FORMA_PAGAMENTO).map(([key, config]) => (
+                    <SelectItem key={key} value={key}>
+                      {config.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
