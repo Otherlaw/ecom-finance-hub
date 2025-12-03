@@ -19,24 +19,22 @@ import {
   ShoppingBag,
   Package,
   PenLine,
+  Eye,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useFaturas, useTransacoes } from "@/hooks/useCartoes";
+import { useNavigate } from "react-router-dom";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Mock data for different reconciliation types
+// Mock data for non-integrated tabs
 const mockBancaria = [
   { id: 1, data: "01/11", descricao: "TED Recebido - Cliente ABC", valorExtrato: 15000, valorSistema: 15000, status: "ok", conta: "Itaú 1234" },
   { id: 2, data: "03/11", descricao: "Pagamento Boleto Fornecedor", valorExtrato: -8500, valorSistema: -8500, status: "ok", conta: "Itaú 1234" },
   { id: 3, data: "05/11", descricao: "PIX Recebido", valorExtrato: 3200, valorSistema: 0, status: "faltando", conta: "Nubank", diferenca: 3200 },
   { id: 4, data: "08/11", descricao: "Tarifa Bancária", valorExtrato: -45, valorSistema: -45, status: "ok", conta: "Itaú 1234" },
-];
-
-const mockCartoes = [
-  { id: 1, data: "02/11", descricao: "Amazon AWS", valorFatura: 890, valorCategorizado: 890, status: "ok", cartao: "Nubank ****9999" },
-  { id: 2, data: "05/11", descricao: "Google Ads", valorFatura: 2500, valorCategorizado: 2300, status: "divergencia", cartao: "Nubank ****9999", diferenca: 200 },
-  { id: 3, data: "10/11", descricao: "Uber Freight", valorFatura: 450, valorCategorizado: 0, status: "pendente", cartao: "Itaú ****5678" },
 ];
 
 const mockMarketplace = [
@@ -62,7 +60,7 @@ const mockManual = [
 function calculateTotals(data: any[], statusField = "status") {
   return {
     registros: data.length,
-    conciliados: data.filter(c => c[statusField] === "ok" || c[statusField] === "aprovado").length,
+    conciliados: data.filter(c => c[statusField] === "ok" || c[statusField] === "aprovado" || c[statusField] === "conciliado").length,
     divergencias: data.filter(c => c[statusField] === "divergencia").length,
     pendentes: data.filter(c => c[statusField] === "faltando" || c[statusField] === "pendente").length,
     totalDiferencas: data.reduce((acc, c) => acc + (c.diferenca || 0), 0),
@@ -70,11 +68,11 @@ function calculateTotals(data: any[], statusField = "status") {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === "ok" || status === "aprovado") {
+  if (status === "ok" || status === "aprovado" || status === "conciliado") {
     return (
       <Badge className="bg-success/10 text-success border-success/20">
         <Check className="h-3 w-3 mr-1" />
-        {status === "aprovado" ? "Aprovado" : "OK"}
+        {status === "aprovado" ? "Aprovado" : status === "conciliado" ? "Conciliado" : "OK"}
       </Badge>
     );
   }
@@ -164,7 +162,7 @@ function ProgressBar({ totals }: { totals: ReturnType<typeof calculateTotals> })
   );
 }
 
-function FilterBar() {
+function FilterBar({ showExport = true }: { showExport?: boolean }) {
   return (
     <div className="flex items-center gap-4 mb-6">
       <div className="relative flex-1 max-w-md">
@@ -175,10 +173,12 @@ function FilterBar() {
         <Filter className="h-4 w-4" />
         Filtrar
       </Button>
-      <Button variant="outline" className="gap-2">
-        <Download className="h-4 w-4" />
-        Exportar
-      </Button>
+      {showExport && (
+        <Button variant="outline" className="gap-2">
+          <Download className="h-4 w-4" />
+          Exportar
+        </Button>
+      )}
     </div>
   );
 }
@@ -236,49 +236,156 @@ function BancariaTab() {
 }
 
 function CartoesTab() {
-  const totals = calculateTotals(mockCartoes);
-  
+  const navigate = useNavigate();
+  const { transacoes, isLoading: loadingTransacoes } = useTransacoes();
+  const { faturas, isLoading: loadingFaturas } = useFaturas();
+
+  // Transform real data for conciliation view
+  const conciliacaoData = (transacoes || []).map((t: any) => {
+    const valorCategorizado = t.categoria_id ? t.valor : 0;
+    const diferenca = t.categoria_id ? 0 : t.valor;
+    let status = "pendente";
+    if (t.status === "conciliado") status = "conciliado";
+    else if (t.status === "aprovado") status = "ok";
+    else if (t.categoria_id && t.centro_custo_id) status = "ok";
+    else if (t.categoria_id || t.centro_custo_id) status = "divergencia";
+    
+    return {
+      id: t.id,
+      data: new Date(t.data_transacao).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+      descricao: t.descricao,
+      estabelecimento: t.estabelecimento,
+      valorFatura: t.valor,
+      valorCategorizado,
+      diferenca: diferenca > 0 ? diferenca : 0,
+      status,
+      cartao: t.fatura?.credit_card_id ? `Fatura ${t.fatura?.mes_referencia?.substring(0, 7)}` : "N/A",
+      categoria: t.categoria?.nome || null,
+      centroCusto: t.centro_custo?.nome || null,
+      faturaId: t.invoice_id,
+    };
+  });
+
+  const totals = calculateTotals(conciliacaoData);
+  const isLoading = loadingTransacoes || loadingFaturas;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-16 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
+  }
+
   return (
     <div>
       <SummaryCards totals={totals} />
       <ProgressBar totals={totals} />
-      <FilterBar />
       
-      <ModuleCard title="Conciliação de Cartões" description="Fatura vs Categorizado" icon={CreditCard} noPadding>
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-secondary/30">
-              <TableHead className="w-[80px]">Data</TableHead>
-              <TableHead>Descrição</TableHead>
-              <TableHead>Cartão</TableHead>
-              <TableHead className="text-right">Fatura</TableHead>
-              <TableHead className="text-right">Categorizado</TableHead>
-              <TableHead className="text-right">Diferença</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead className="text-center">Ação</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {mockCartoes.map((item) => (
-              <TableRow key={item.id} className={item.status !== "ok" ? "bg-warning/5" : ""}>
-                <TableCell className="font-medium">{item.data}</TableCell>
-                <TableCell>{item.descricao}</TableCell>
-                <TableCell><Badge variant="outline">{item.cartao}</Badge></TableCell>
-                <TableCell className="text-right">{formatCurrency(item.valorFatura)}</TableCell>
-                <TableCell className="text-right">
-                  {item.valorCategorizado > 0 ? formatCurrency(item.valorCategorizado) : "-"}
-                </TableCell>
-                <TableCell className="text-right font-medium text-destructive">
-                  {item.diferenca ? formatCurrency(item.diferenca) : "-"}
-                </TableCell>
-                <TableCell className="text-center"><StatusBadge status={item.status} /></TableCell>
-                <TableCell className="text-center">
-                  {item.status !== "ok" && <Button variant="ghost" size="sm">Categorizar</Button>}
-                </TableCell>
+      <div className="flex items-center gap-4 mb-6">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Buscar por descrição ou estabelecimento..." className="pl-10" />
+        </div>
+        <Button variant="outline" className="gap-2">
+          <Filter className="h-4 w-4" />
+          Filtrar
+        </Button>
+        <Button variant="outline" className="gap-2" onClick={() => navigate("/cartao-credito")}>
+          <Eye className="h-4 w-4" />
+          Ver Módulo Completo
+        </Button>
+      </div>
+      
+      <ModuleCard title="Conciliação de Cartões" description="Transações vs Categorizadas" icon={CreditCard} noPadding>
+        {conciliacaoData.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground">
+            <CreditCard className="h-12 w-12 mx-auto mb-4 opacity-30" />
+            <p className="font-medium">Nenhuma transação encontrada</p>
+            <p className="text-sm mt-1">Importe faturas de cartão para iniciar a conciliação</p>
+            <Button className="mt-4" onClick={() => navigate("/cartao-credito")}>
+              Ir para Cartões de Crédito
+            </Button>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-secondary/30">
+                <TableHead className="w-[80px]">Data</TableHead>
+                <TableHead>Descrição</TableHead>
+                <TableHead>Categoria</TableHead>
+                <TableHead>Centro Custo</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-center">Ação</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {conciliacaoData.slice(0, 20).map((item: any) => (
+                <TableRow key={item.id} className={item.status !== "ok" && item.status !== "conciliado" ? "bg-warning/5" : ""}>
+                  <TableCell className="font-medium">{item.data}</TableCell>
+                  <TableCell>
+                    <div>
+                      <span className="font-medium">{item.descricao}</span>
+                      {item.estabelecimento && (
+                        <p className="text-xs text-muted-foreground">{item.estabelecimento}</p>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {item.categoria ? (
+                      <Badge variant="outline" className="bg-success/5 border-success/30 text-success">
+                        {item.categoria}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-muted-foreground">
+                        Não categorizado
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {item.centroCusto ? (
+                      <Badge variant="secondary">{item.centroCusto}</Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
+                    {formatCurrency(item.valorFatura)}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <StatusBadge status={item.status} />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {item.status !== "ok" && item.status !== "conciliado" && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => navigate("/cartao-credito")}
+                      >
+                        Categorizar
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        
+        {conciliacaoData.length > 20 && (
+          <div className="p-4 border-t border-border text-center">
+            <Button variant="link" onClick={() => navigate("/cartao-credito")}>
+              Ver todas as {conciliacaoData.length} transações
+            </Button>
+          </div>
+        )}
       </ModuleCard>
     </div>
   );
