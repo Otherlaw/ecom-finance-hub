@@ -8,59 +8,141 @@ import { Upload, FileText, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { useCartoes } from "@/hooks/useCartoes";
 import { supabase } from "@/integrations/supabase/client";
-import * as OFX from "ofx-js";
+import OFX from "ofx-js";
 
 interface ImportarFaturaOFXModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+interface ParsedTransaction {
+  date: string;
+  amount: number;
+  description: string;
+  name: string | null;
+  fitid: string | null;
+  type: 'debito' | 'credito';
+}
+
+// Parse OFX date format (YYYYMMDDHHMMSS or YYYYMMDD) to ISO date string
+function parseOfxDate(ofxDate: string): string {
+  if (!ofxDate) return new Date().toISOString().split('T')[0];
+  
+  // Remove timezone info if present (e.g., "20240515120000[-3:BRT]")
+  const cleanDate = ofxDate.split('[')[0];
+  
+  const year = cleanDate.substring(0, 4);
+  const month = cleanDate.substring(4, 6);
+  const day = cleanDate.substring(6, 8);
+  
+  return `${year}-${month}-${day}`;
+}
+
+// Parse OFX content and extract transactions
+async function parseOfxContent(text: string): Promise<{
+  transactions: ParsedTransaction[];
+  dtStart: string;
+  dtEnd: string;
+}> {
+  // Use ofx-js to parse the OFX content
+  const ofxData = await OFX.parse(text);
+  
+  let transactions: any[] = [];
+  let dtStart = '';
+  let dtEnd = '';
+  
+  // Try credit card format (CREDITCARDMSGSRSV1)
+  if (ofxData?.OFX?.CREDITCARDMSGSRSV1?.CCSTMTTRNRS?.CCSTMTRS?.BANKTRANLIST) {
+    const ccStmt = ofxData.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS.CCSTMTRS;
+    const bankTranList = ccStmt.BANKTRANLIST;
+    transactions = bankTranList.STMTTRN || [];
+    dtStart = bankTranList.DTSTART || '';
+    dtEnd = bankTranList.DTEND || '';
+  } 
+  // Try bank account format (BANKMSGSRSV1)
+  else if (ofxData?.OFX?.BANKMSGSRSV1?.STMTTRNRS?.STMTRS?.BANKTRANLIST) {
+    const bankStmt = ofxData.OFX.BANKMSGSRSV1.STMTTRNRS.STMTRS;
+    const bankTranList = bankStmt.BANKTRANLIST;
+    transactions = bankTranList.STMTTRN || [];
+    dtStart = bankTranList.DTSTART || '';
+    dtEnd = bankTranList.DTEND || '';
+  }
+  
+  // Ensure transactions is an array
+  if (!Array.isArray(transactions)) {
+    transactions = transactions ? [transactions] : [];
+  }
+  
+  // Parse transactions
+  const parsedTransactions: ParsedTransaction[] = transactions.map((t: any) => {
+    const amount = parseFloat(t.TRNAMT) || 0;
+    
+    return {
+      date: parseOfxDate(t.DTPOSTED),
+      amount: Math.abs(amount),
+      description: t.MEMO || t.NAME || 'Transação sem descrição',
+      name: t.NAME || null,
+      fitid: t.FITID || null,
+      type: amount < 0 ? 'debito' : 'credito',
+    };
+  });
+  
+  return {
+    transactions: parsedTransactions,
+    dtStart: parseOfxDate(dtStart),
+    dtEnd: parseOfxDate(dtEnd),
+  };
+}
+
 export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFXModalProps) {
   const [loading, setLoading] = useState(false);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [cartaoSelecionado, setCartaoSelecionado] = useState<string>("");
-  const [preview, setPreview] = useState<any[]>([]);
+  const [preview, setPreview] = useState<ParsedTransaction[]>([]);
+  const [totalTransacoes, setTotalTransacoes] = useState(0);
   const { cartoes } = useCartoes();
+
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!open) {
+      setArquivo(null);
+      setCartaoSelecionado("");
+      setPreview([]);
+      setTotalTransacoes(0);
+    }
+  }, [open]);
 
   // Pré-selecionar cartão se houver apenas um
   useEffect(() => {
-    if (cartoes && cartoes.length === 1 && !cartaoSelecionado) {
+    if (open && cartoes && cartoes.length === 1 && !cartaoSelecionado) {
       setCartaoSelecionado(cartoes[0].id);
     }
-  }, [cartoes]);
+  }, [open, cartoes, cartaoSelecionado]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setArquivo(file);
+    setPreview([]);
+    setTotalTransacoes(0);
 
     try {
       const text = await file.text();
-      const ofxData = OFX.parse(text);
+      const { transactions } = await parseOfxContent(text);
       
-      let transactions = null;
-      
-      // Try credit card format
-      if (ofxData?.OFX?.CREDITCARDMSGSRSV1?.CCSTMTTRNRS?.CCSTMTRS?.BANKTRANLIST?.STMTTRN) {
-        transactions = ofxData.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS.CCSTMTRS.BANKTRANLIST.STMTTRN;
-      } 
-      // Try bank account format
-      else if (ofxData?.OFX?.BANKMSGSRSV1?.STMTTRNRS?.STMTRS?.BANKTRANLIST?.STMTTRN) {
-        transactions = ofxData.OFX.BANKMSGSRSV1.STMTTRNRS.STMTRS.BANKTRANLIST.STMTTRN;
-      }
-      
-      if (transactions) {
-        const transactionArray = Array.isArray(transactions) ? transactions : [transactions];
-        
-        setPreview(transactionArray.slice(0, 5));
-        toast.success(`Arquivo OFX carregado: ${transactionArray.length} transações encontradas`);
+      if (transactions.length > 0) {
+        setPreview(transactions.slice(0, 5));
+        setTotalTransacoes(transactions.length);
+        toast.success(`Arquivo OFX carregado: ${transactions.length} transações encontradas`);
       } else {
-        toast.error("Formato OFX não reconhecido. Verifique o arquivo.");
+        toast.error("Nenhuma transação encontrada no arquivo OFX.");
+        setArquivo(null);
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error("Erro ao ler arquivo OFX:", error);
       toast.error("Erro ao ler arquivo OFX. Certifique-se de que é um arquivo válido.");
-      console.error(error);
+      setArquivo(null);
     }
   };
 
@@ -79,37 +161,21 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
 
     try {
       const text = await arquivo.text();
-      const ofxData = OFX.parse(text);
+      const { transactions, dtEnd } = await parseOfxContent(text);
       
-      let transactions = null;
-      let dtStart, dtEnd;
-      
-      // Try credit card format
-      if (ofxData?.OFX?.CREDITCARDMSGSRSV1?.CCSTMTTRNRS?.CCSTMTRS?.BANKTRANLIST) {
-        const ccStmt = ofxData.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS.CCSTMTRS;
-        transactions = ccStmt.BANKTRANLIST.STMTTRN;
-        dtStart = ccStmt.BANKTRANLIST.DTSTART;
-        dtEnd = ccStmt.BANKTRANLIST.DTEND;
-      } 
-      // Try bank account format
-      else if (ofxData?.OFX?.BANKMSGSRSV1?.STMTTRNRS?.STMTRS?.BANKTRANLIST) {
-        const bankStmt = ofxData.OFX.BANKMSGSRSV1.STMTTRNRS.STMTRS;
-        transactions = bankStmt.BANKTRANLIST.STMTTRN;
-        dtStart = bankStmt.BANKTRANLIST.DTSTART;
-        dtEnd = bankStmt.BANKTRANLIST.DTEND;
+      if (transactions.length === 0) {
+        toast.error("Nenhuma transação encontrada no arquivo OFX.");
+        setLoading(false);
+        return;
       }
       
-      const transactionArray = Array.isArray(transactions) ? transactions : [transactions];
-      
-      // Extrair mês/ano da competência
-      const dataFechamento = new Date(dtEnd);
-      const competencia = `${dataFechamento.getFullYear()}-${String(dataFechamento.getMonth() + 1).padStart(2, '0')}`;
+      // Extrair mês/ano da competência a partir da última data
+      const dataRef = new Date(dtEnd);
+      const mesReferencia = `${dataRef.getFullYear()}-${String(dataRef.getMonth() + 1).padStart(2, '0')}-01`;
+      const competencia = `${dataRef.getFullYear()}-${String(dataRef.getMonth() + 1).padStart(2, '0')}`;
       
       // Calcular valor total
-      const valorTotal = transactionArray.reduce((sum: number, t: any) => {
-        const valor = parseFloat(t.TRNAMT) || 0;
-        return sum + Math.abs(valor);
-      }, 0);
+      const valorTotal = transactions.reduce((sum, t) => sum + t.amount, 0);
 
       // Criar fatura
       const { data: fatura, error: faturaError } = await supabase
@@ -117,7 +183,7 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
         .insert({
           credit_card_id: cartaoSelecionado,
           competencia,
-          mes_referencia: competencia + "-01",
+          mes_referencia: mesReferencia,
           data_fechamento: dtEnd,
           data_vencimento: dtEnd,
           valor_total: valorTotal,
@@ -135,21 +201,16 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
       }
 
       // Criar transações
-      const transacoesParaInserir = transactionArray.map((t: any) => {
-        const valor = parseFloat(t.TRNAMT) || 0;
-        const tipoMovimento = valor < 0 ? "debito" : "credito";
-        
-        return {
-          invoice_id: fatura.id,
-          data_transacao: t.DTPOSTED,
-          descricao: t.MEMO || t.NAME || "Transação sem descrição",
-          estabelecimento: t.NAME || null,
-          valor: Math.abs(valor),
-          tipo_movimento: tipoMovimento,
-          tipo: "pontual" as const,
-          status: "pendente" as const,
-        };
-      });
+      const transacoesParaInserir = transactions.map((t) => ({
+        invoice_id: fatura.id,
+        data_transacao: t.date,
+        descricao: t.description,
+        estabelecimento: t.name,
+        valor: t.amount,
+        tipo_movimento: t.type,
+        tipo: "pontual" as const,
+        status: "pendente" as const,
+      }));
 
       const { error: transacoesError } = await supabase
         .from("credit_card_transactions")
@@ -161,13 +222,10 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
       } else {
         toast.success(`Fatura importada com sucesso! ${transacoesParaInserir.length} transações criadas.`);
         onOpenChange(false);
-        setCartaoSelecionado("");
-        setArquivo(null);
-        setPreview([]);
       }
     } catch (error: any) {
       console.error("Erro na importação:", error);
-      toast.error("Erro ao processar arquivo OFX: " + error.message);
+      toast.error("Não foi possível processar o arquivo OFX. Verifique se o arquivo é uma fatura válida.");
     } finally {
       setLoading(false);
     }
@@ -194,9 +252,9 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
                 <SelectValue placeholder="Escolha o cartão correspondente..." />
               </SelectTrigger>
               <SelectContent>
-                {cartoes?.map((cartao) => (
+                {cartoes?.map((cartao: any) => (
                   <SelectItem key={cartao.id} value={cartao.id}>
-                    {cartao.nome} - {cartao.instituicao_financeira} (****{cartao.ultimos_digitos})
+                    {cartao.nome} - {cartao.instituicao_financeira} {cartao.ultimos_digitos ? `(****${cartao.ultimos_digitos})` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -220,32 +278,27 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
             <div className="border rounded-lg p-4 bg-muted/50">
               <h4 className="font-medium mb-2 flex items-center gap-2">
                 <FileText className="h-4 w-4" />
-                Preview (primeiras 5 transações)
+                Preview ({preview.length} de {totalTransacoes} transações)
               </h4>
               <div className="space-y-2">
-                {preview.map((t: any, idx: number) => {
-                  const valor = parseFloat(t.TRNAMT) || 0;
-                  const tipo = valor < 0 ? "Débito" : "Crédito";
-                  
-                  return (
-                    <div key={idx} className="text-sm p-2 border rounded bg-background">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-medium">{t.NAME || t.MEMO}</p>
-                          <p className="text-muted-foreground text-xs">{t.DTPOSTED}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className={valor < 0 ? "text-destructive" : "text-green-600"}>
-                            {tipo}: {new Intl.NumberFormat("pt-BR", {
-                              style: "currency",
-                              currency: "BRL",
-                            }).format(Math.abs(valor))}
-                          </p>
-                        </div>
+                {preview.map((t, idx) => (
+                  <div key={idx} className="text-sm p-2 border rounded bg-background">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-medium">{t.description}</p>
+                        <p className="text-muted-foreground text-xs">{t.date}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className={t.type === 'debito' ? "text-destructive" : "text-green-600"}>
+                          {t.type === 'debito' ? 'Débito' : 'Crédito'}: {new Intl.NumberFormat("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                          }).format(t.amount)}
+                        </p>
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
           )}
