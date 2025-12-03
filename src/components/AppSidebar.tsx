@@ -27,6 +27,7 @@ import {
   Bot,
   FolderTree,
   List,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -64,6 +65,7 @@ const settingsNavItems: NavItem[] = [
   { title: "Empresas", href: "/empresas", icon: Building2 },
   { title: "Centros de Custo", href: "/centros-custo", icon: FolderTree },
   { title: "Plano de Contas", href: "/plano-contas", icon: List },
+  { title: "Regras Categorização", href: "/regras-categorizacao", icon: Sparkles },
   { title: "Usuários", href: "/usuarios", icon: Users },
   { title: "Configurações", href: "/configuracoes", icon: Settings },
 ];
