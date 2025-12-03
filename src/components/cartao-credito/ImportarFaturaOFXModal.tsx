@@ -4,101 +4,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, FileText, CreditCard } from "lucide-react";
+import { FileText, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { useCartoes } from "@/hooks/useCartoes";
 import { supabase } from "@/integrations/supabase/client";
-import OFX from "ofx-js";
+import { parseOFX, isValidOFX, OFXTransaction } from "@/lib/ofx-parser";
 
 interface ImportarFaturaOFXModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-interface ParsedTransaction {
-  date: string;
-  amount: number;
-  description: string;
-  name: string | null;
-  fitid: string | null;
-  type: 'debito' | 'credito';
-}
-
-// Parse OFX date format (YYYYMMDDHHMMSS or YYYYMMDD) to ISO date string
-function parseOfxDate(ofxDate: string): string {
-  if (!ofxDate) return new Date().toISOString().split('T')[0];
-  
-  // Remove timezone info if present (e.g., "20240515120000[-3:BRT]")
-  const cleanDate = ofxDate.split('[')[0];
-  
-  const year = cleanDate.substring(0, 4);
-  const month = cleanDate.substring(4, 6);
-  const day = cleanDate.substring(6, 8);
-  
-  return `${year}-${month}-${day}`;
-}
-
-// Parse OFX content and extract transactions
-async function parseOfxContent(text: string): Promise<{
-  transactions: ParsedTransaction[];
-  dtStart: string;
-  dtEnd: string;
-}> {
-  // Use ofx-js to parse the OFX content
-  const ofxData = await OFX.parse(text);
-  
-  let transactions: any[] = [];
-  let dtStart = '';
-  let dtEnd = '';
-  
-  // Try credit card format (CREDITCARDMSGSRSV1)
-  if (ofxData?.OFX?.CREDITCARDMSGSRSV1?.CCSTMTTRNRS?.CCSTMTRS?.BANKTRANLIST) {
-    const ccStmt = ofxData.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS.CCSTMTRS;
-    const bankTranList = ccStmt.BANKTRANLIST;
-    transactions = bankTranList.STMTTRN || [];
-    dtStart = bankTranList.DTSTART || '';
-    dtEnd = bankTranList.DTEND || '';
-  } 
-  // Try bank account format (BANKMSGSRSV1)
-  else if (ofxData?.OFX?.BANKMSGSRSV1?.STMTTRNRS?.STMTRS?.BANKTRANLIST) {
-    const bankStmt = ofxData.OFX.BANKMSGSRSV1.STMTTRNRS.STMTRS;
-    const bankTranList = bankStmt.BANKTRANLIST;
-    transactions = bankTranList.STMTTRN || [];
-    dtStart = bankTranList.DTSTART || '';
-    dtEnd = bankTranList.DTEND || '';
-  }
-  
-  // Ensure transactions is an array
-  if (!Array.isArray(transactions)) {
-    transactions = transactions ? [transactions] : [];
-  }
-  
-  // Parse transactions
-  const parsedTransactions: ParsedTransaction[] = transactions.map((t: any) => {
-    const amount = parseFloat(t.TRNAMT) || 0;
-    
-    return {
-      date: parseOfxDate(t.DTPOSTED),
-      amount: Math.abs(amount),
-      description: t.MEMO || t.NAME || 'Transação sem descrição',
-      name: t.NAME || null,
-      fitid: t.FITID || null,
-      type: amount < 0 ? 'debito' : 'credito',
-    };
-  });
-  
-  return {
-    transactions: parsedTransactions,
-    dtStart: parseOfxDate(dtStart),
-    dtEnd: parseOfxDate(dtEnd),
-  };
-}
-
 export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFXModalProps) {
   const [loading, setLoading] = useState(false);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [cartaoSelecionado, setCartaoSelecionado] = useState<string>("");
-  const [preview, setPreview] = useState<ParsedTransaction[]>([]);
+  const [preview, setPreview] = useState<OFXTransaction[]>([]);
   const [totalTransacoes, setTotalTransacoes] = useState(0);
   const { cartoes } = useCartoes();
 
@@ -129,12 +50,20 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
 
     try {
       const text = await file.text();
-      const { transactions } = await parseOfxContent(text);
       
-      if (transactions.length > 0) {
-        setPreview(transactions.slice(0, 5));
-        setTotalTransacoes(transactions.length);
-        toast.success(`Arquivo OFX carregado: ${transactions.length} transações encontradas`);
+      // Validate OFX content
+      if (!isValidOFX(text)) {
+        toast.error("O arquivo não parece ser um OFX válido. Verifique o formato.");
+        setArquivo(null);
+        return;
+      }
+      
+      const result = parseOFX(text);
+      
+      if (result.transactions.length > 0) {
+        setPreview(result.transactions.slice(0, 5));
+        setTotalTransacoes(result.transactions.length);
+        toast.success(`Arquivo OFX carregado: ${result.transactions.length} transações encontradas`);
       } else {
         toast.error("Nenhuma transação encontrada no arquivo OFX.");
         setArquivo(null);
@@ -161,21 +90,22 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
 
     try {
       const text = await arquivo.text();
-      const { transactions, dtEnd } = await parseOfxContent(text);
+      const result = parseOFX(text);
       
-      if (transactions.length === 0) {
+      if (result.transactions.length === 0) {
         toast.error("Nenhuma transação encontrada no arquivo OFX.");
         setLoading(false);
         return;
       }
       
       // Extrair mês/ano da competência a partir da última data
+      const dtEnd = result.dtEnd || result.transactions[0]?.date || new Date().toISOString().split('T')[0];
       const dataRef = new Date(dtEnd);
       const mesReferencia = `${dataRef.getFullYear()}-${String(dataRef.getMonth() + 1).padStart(2, '0')}-01`;
       const competencia = `${dataRef.getFullYear()}-${String(dataRef.getMonth() + 1).padStart(2, '0')}`;
       
       // Calcular valor total
-      const valorTotal = transactions.reduce((sum, t) => sum + t.amount, 0);
+      const valorTotal = result.transactions.reduce((sum, t) => sum + t.amount, 0);
 
       // Criar fatura
       const { data: fatura, error: faturaError } = await supabase
@@ -201,7 +131,7 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
       }
 
       // Criar transações
-      const transacoesParaInserir = transactions.map((t) => ({
+      const transacoesParaInserir = result.transactions.map((t) => ({
         invoice_id: fatura.id,
         data_transacao: t.date,
         descricao: t.description,
@@ -265,12 +195,12 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
             <Label>Arquivo OFX da Fatura</Label>
             <Input
               type="file"
-              accept=".ofx"
+              accept=".ofx,.qfx"
               onChange={handleFileChange}
               disabled={loading || !cartaoSelecionado}
             />
             <p className="text-sm text-muted-foreground mt-1">
-              Formato aceito: .ofx (padrão bancário para extratos)
+              Formatos aceitos: .ofx, .qfx (padrão bancário para extratos)
             </p>
           </div>
 
@@ -280,7 +210,7 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
                 <FileText className="h-4 w-4" />
                 Preview ({preview.length} de {totalTransacoes} transações)
               </h4>
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-64 overflow-y-auto">
                 {preview.map((t, idx) => (
                   <div key={idx} className="text-sm p-2 border rounded bg-background">
                     <div className="flex justify-between items-start">
