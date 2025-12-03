@@ -1,13 +1,19 @@
 import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  PieChart, Pie, Cell, Legend, LineChart, Line, Area, AreaChart 
+  PieChart, Pie, Cell, Legend, AreaChart, Area 
 } from 'recharts';
 import { ContaReceber } from '@/hooks/useContasReceber';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, TrendingUp, Users, Calendar } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertTriangle, TrendingUp, Users, Calendar, Download, FileSpreadsheet, Bell } from 'lucide-react';
+import { useContasReceberAlerts } from '@/hooks/useContasReceberAlerts';
+import { exportContasReceberToExcel, exportContasReceberToCSV } from '@/lib/export-contas-receber';
+import { toast } from 'sonner';
+import { SEVERITY_CONFIG } from '@/lib/assistant-data';
 
 const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -200,8 +206,78 @@ export function RelatoriosContasReceber({ contas }: RelatoriosContasReceberProps
     .filter(a => a.faixa !== 'A Vencer')
     .reduce((sum, a) => sum + a.valor, 0);
 
+  const { alerts, hasAlerts } = useContasReceberAlerts();
+
+  const handleExportExcel = () => {
+    try {
+      exportContasReceberToExcel(contas);
+      toast.success('Relatório exportado com sucesso!', {
+        description: 'O arquivo Excel foi baixado para seu computador.'
+      });
+    } catch (error) {
+      toast.error('Erro ao exportar relatório');
+    }
+  };
+
+  const handleExportCSV = () => {
+    try {
+      exportContasReceberToCSV(contas);
+      toast.success('Relatório exportado com sucesso!', {
+        description: 'O arquivo CSV foi baixado para seu computador.'
+      });
+    } catch (error) {
+      toast.error('Erro ao exportar relatório');
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* Export Buttons */}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={handleExportCSV}>
+          <Download className="h-4 w-4 mr-2" />
+          CSV
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleExportExcel}>
+          <FileSpreadsheet className="h-4 w-4 mr-2" />
+          Excel Completo
+        </Button>
+      </div>
+
+      {/* Alertas de Inadimplência */}
+      {hasAlerts && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Bell className="h-4 w-4" />
+            Alertas de Inadimplência
+          </h3>
+          {alerts.slice(0, 3).map(alert => {
+            const severityConfig = SEVERITY_CONFIG[alert.severidade];
+            return (
+              <Alert 
+                key={alert.id} 
+                variant={alert.severidade === 'critico' ? 'destructive' : 'default'}
+                className={`${severityConfig.borderColor} border-l-4`}
+              >
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle className="flex items-center gap-2">
+                  {alert.titulo}
+                  <Badge variant="outline" className={`${severityConfig.bgColor} ${severityConfig.color} text-xs`}>
+                    {severityConfig.label}
+                  </Badge>
+                </AlertTitle>
+                <AlertDescription className="mt-1">
+                  {alert.descricao}
+                  <p className="text-xs mt-1 text-muted-foreground">
+                    {alert.acaoRecomendada}
+                  </p>
+                </AlertDescription>
+              </Alert>
+            );
+          })}
+        </div>
+      )}
+
       {/* KPIs */}
       <div className="grid grid-cols-4 gap-4">
         <Card>
