@@ -180,7 +180,31 @@ function FilterBar({ showExport = true }: { showExport?: boolean }) {
 
 // Tab content components
 function BancariaTab() {
+  const [categorizacaoModal, setCategorizacaoModal] = useState<{
+    open: boolean;
+    transacao: any | null;
+  }>({ open: false, transacao: null });
+  
   const totals = calculateTotals(mockBancaria);
+  
+  const handleCategorizar = (item: typeof mockBancaria[0]) => {
+    setCategorizacaoModal({
+      open: true,
+      transacao: {
+        id: item.id.toString(),
+        descricao: item.descricao,
+        valor: Math.abs(item.valorExtrato),
+        data: `2024-11-${item.data.split("/")[0]}`,
+        estabelecimento: item.conta,
+        categoria_id: null,
+        centro_custo_id: null,
+      },
+    });
+  };
+  
+  const handleCategorizacaoSuccess = () => {
+    // TODO: Quando houver tabela de transações bancárias, fazer refetch
+  };
   
   return (
     <div>
@@ -219,13 +243,30 @@ function BancariaTab() {
                 </TableCell>
                 <TableCell className="text-center"><StatusBadge status={item.status} /></TableCell>
                 <TableCell className="text-center">
-                  {item.status !== "ok" && <Button variant="ghost" size="sm">Resolver</Button>}
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => handleCategorizar(item)}
+                  >
+                    <Tag className="h-3 w-3" />
+                    {item.status === "ok" ? "Editar" : "Categorizar"}
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </ModuleCard>
+      
+      {/* Modal de Categorização */}
+      <CategorizacaoModal
+        open={categorizacaoModal.open}
+        onOpenChange={(open) => setCategorizacaoModal({ ...categorizacaoModal, open })}
+        transacao={categorizacaoModal.transacao}
+        tipo="bancaria"
+        onSuccess={handleCategorizacaoSuccess}
+      />
     </div>
   );
 }
