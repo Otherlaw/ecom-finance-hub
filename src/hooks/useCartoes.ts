@@ -166,7 +166,7 @@ export const useFaturas = (cartaoId?: string) => {
 export const useTransacoes = (faturaId?: string) => {
   const queryClient = useQueryClient();
 
-  const { data: transacoes, isLoading } = useQuery({
+  const { data: transacoes, isLoading, refetch } = useQuery({
     queryKey: ["credit-card-transactions", faturaId],
     queryFn: async () => {
       let query = supabase
@@ -215,5 +215,6 @@ export const useTransacoes = (faturaId?: string) => {
     transacoes,
     isLoading,
     updateTransacao,
+    refetch,
   };
 };

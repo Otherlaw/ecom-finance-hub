@@ -240,8 +240,8 @@ export default function DRE() {
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {hasData
-                      ? "Dados calculados a partir das transações de cartão de crédito categorizadas"
-                      : "Exibindo dados de demonstração. Categorize transações para ver dados reais."}
+                      ? "DRE calculado a partir das transações de cartão categorizadas e conciliadas."
+                      : "Nenhuma transação categorizada neste período. Acesse Conciliações → Cartões para categorizar transações."}
                   </p>
                 </div>
               </div>
@@ -254,6 +254,21 @@ export default function DRE() {
                 </TabsList>
               </Tabs>
             </div>
+            
+            {/* Dica de categorização */}
+            {!hasData && (
+              <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm">
+                  <p className="font-medium text-amber-700">Para ver o DRE com dados reais:</p>
+                  <ol className="list-decimal list-inside mt-1 text-muted-foreground space-y-1">
+                    <li>Importe faturas de cartão de crédito em <strong>Cartões de Crédito</strong></li>
+                    <li>Categorize as transações em <strong>Conciliações → Cartões</strong></li>
+                    <li>Use as categorias do Plano de Contas (Receitas, Custos, Despesas...)</li>
+                  </ol>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -28,6 +28,8 @@ export function useCentrosCusto() {
       const { data, error } = await supabase
         .from("centros_de_custo")
         .select("*")
+        .eq("ativo", true)
+        .order("codigo")
         .order("nome");
       
       if (error) throw error;
