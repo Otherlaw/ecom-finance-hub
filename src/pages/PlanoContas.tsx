@@ -34,16 +34,14 @@ import { cn } from "@/lib/utils";
 
 const TIPO_COLORS: Record<string, string> = {
   "Receitas": "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
-  "CMV": "bg-orange-500/10 text-orange-600 border-orange-500/30",
-  "Deduções": "bg-red-500/10 text-red-600 border-red-500/30",
+  "Custos": "bg-orange-500/10 text-orange-600 border-orange-500/30",
   "Despesas Operacionais": "bg-blue-500/10 text-blue-600 border-blue-500/30",
-  "Despesas Pessoal": "bg-purple-500/10 text-purple-600 border-purple-500/30",
-  "Despesas Administrativas": "bg-slate-500/10 text-slate-600 border-slate-500/30",
-  "Marketing": "bg-pink-500/10 text-pink-600 border-pink-500/30",
+  "Despesas Comercial / Marketing": "bg-pink-500/10 text-pink-600 border-pink-500/30",
+  "Despesas Administrativas / Gerais": "bg-slate-500/10 text-slate-600 border-slate-500/30",
+  "Despesas com Pessoal": "bg-purple-500/10 text-purple-600 border-purple-500/30",
   "Despesas Financeiras": "bg-amber-500/10 text-amber-600 border-amber-500/30",
-  "Impostos": "bg-red-600/10 text-red-700 border-red-600/30",
-  "Investimentos": "bg-cyan-500/10 text-cyan-600 border-cyan-500/30",
-  "Transferências": "bg-gray-500/10 text-gray-600 border-gray-500/30",
+  "Impostos Sobre o Resultado": "bg-red-600/10 text-red-700 border-red-600/30",
+  "Outras Receitas / Despesas": "bg-gray-500/10 text-gray-600 border-gray-500/30",
 };
 
 export default function PlanoContas() {

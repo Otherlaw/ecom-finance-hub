@@ -159,18 +159,18 @@ export default function DRE() {
   const currentDre = useMockData
     ? {
         receitaBruta: mockDreData.receitaBruta,
-        deducoes: { valor: mockDreData.devolucoes + mockDreData.descontosComerciais + mockDreData.impostosSobreVendas, categorias: [] },
-        cmv: { valor: mockDreData.custos, categorias: [] },
-        receitaLiquida: mockDreData.receitaLiquida,
+        custos: { valor: mockDreData.custos, categorias: [] },
         lucroBruto: mockDreData.lucroBruto,
-        despesasOperacionais: { valor: mockDreData.despesas * 0.4, categorias: [] },
-        despesasPessoal: { valor: mockDreData.despesas * 0.25, categorias: [] },
+        despesasOperacionais: { valor: mockDreData.despesas * 0.2, categorias: [] },
+        despesasComercialMarketing: { valor: mockDreData.despesas * 0.25, categorias: [] },
         despesasAdministrativas: { valor: mockDreData.despesas * 0.15, categorias: [] },
-        marketing: { valor: mockDreData.despesas * 0.1, categorias: [] },
-        despesasFinanceiras: { valor: mockDreData.despesas * 0.05, categorias: [] },
+        despesasPessoal: { valor: mockDreData.despesas * 0.25, categorias: [] },
+        despesasFinanceiras: { valor: mockDreData.despesas * 0.1, categorias: [] },
         impostos: { valor: mockDreData.despesas * 0.05, categorias: [] },
+        outrasReceitasDespesas: { valor: 0, categorias: [] },
         totalDespesas: mockDreData.despesas,
         ebitda: mockDreData.ebitda,
+        lucroAntesIR: mockDreData.ebitda,
         lucroLiquido: mockDreData.lucroLiquido,
         periodo: "Out 2024",
       }
@@ -181,7 +181,7 @@ export default function DRE() {
         margemBruta: (mockDreData.lucroBruto / mockDreData.receitaBruta) * 100,
         margemOperacional: (mockDreData.ebitda / mockDreData.receitaBruta) * 100,
         margemLiquida: (mockDreData.lucroLiquido / mockDreData.receitaBruta) * 100,
-        cmvPercentual: (mockDreData.custos / mockDreData.receitaBruta) * 100,
+        custosPercentual: (mockDreData.custos / mockDreData.receitaBruta) * 100,
         despesasPercentual: (mockDreData.despesas / mockDreData.receitaBruta) * 100,
       }
     : stats;
@@ -289,30 +289,11 @@ export default function DRE() {
                   />
 
                   <DRELine
-                    label="(-) Deduções"
-                    value={-(currentDre?.deducoes?.valor || 0)}
+                    label="(-) Custos"
+                    value={-(currentDre?.custos?.valor || 0)}
                     receitaBase={receitaBase}
                     indent={1}
-                    categorias={currentDre?.deducoes?.categorias}
-                    showVariation
-                    variation={0}
-                  />
-
-                  <DRELine
-                    label="= Receita Líquida"
-                    value={currentDre?.receitaLiquida || 0}
-                    receitaBase={receitaBase}
-                    isSubtotal
-                    showVariation
-                    variation={0}
-                  />
-
-                  <DRELine
-                    label="(-) CMV / Custo de Mercadoria"
-                    value={-(currentDre?.cmv?.valor || 0)}
-                    receitaBase={receitaBase}
-                    indent={1}
-                    categorias={currentDre?.cmv?.categorias}
+                    categorias={currentDre?.custos?.categorias}
                     showVariation
                     variation={0}
                   />
@@ -337,17 +318,17 @@ export default function DRE() {
                   />
 
                   <DRELine
-                    label="(-) Despesas com Pessoal"
-                    value={-(currentDre?.despesasPessoal?.valor || 0)}
+                    label="(-) Despesas Comercial / Marketing"
+                    value={-(currentDre?.despesasComercialMarketing?.valor || 0)}
                     receitaBase={receitaBase}
                     indent={1}
-                    categorias={currentDre?.despesasPessoal?.categorias}
+                    categorias={currentDre?.despesasComercialMarketing?.categorias}
                     showVariation
                     variation={0}
                   />
 
                   <DRELine
-                    label="(-) Despesas Administrativas"
+                    label="(-) Despesas Administrativas / Gerais"
                     value={-(currentDre?.despesasAdministrativas?.valor || 0)}
                     receitaBase={receitaBase}
                     indent={1}
@@ -357,11 +338,11 @@ export default function DRE() {
                   />
 
                   <DRELine
-                    label="(-) Marketing e Vendas"
-                    value={-(currentDre?.marketing?.valor || 0)}
+                    label="(-) Despesas com Pessoal"
+                    value={-(currentDre?.despesasPessoal?.valor || 0)}
                     receitaBase={receitaBase}
                     indent={1}
-                    categorias={currentDre?.marketing?.categorias}
+                    categorias={currentDre?.despesasPessoal?.categorias}
                     showVariation
                     variation={0}
                   />
@@ -377,20 +358,39 @@ export default function DRE() {
                   />
 
                   <DRELine
-                    label="(-) Impostos"
-                    value={-(currentDre?.impostos?.valor || 0)}
+                    label="= EBITDA"
+                    value={currentDre?.ebitda || 0}
                     receitaBase={receitaBase}
-                    indent={1}
-                    categorias={currentDre?.impostos?.categorias}
+                    isSubtotal
                     showVariation
                     variation={0}
                   />
 
                   <DRELine
-                    label="= EBITDA"
-                    value={currentDre?.ebitda || 0}
+                    label="(+/-) Outras Receitas / Despesas"
+                    value={currentDre?.outrasReceitasDespesas?.valor || 0}
+                    receitaBase={receitaBase}
+                    indent={1}
+                    categorias={currentDre?.outrasReceitasDespesas?.categorias}
+                    showVariation
+                    variation={0}
+                  />
+
+                  <DRELine
+                    label="= Lucro Antes do IR"
+                    value={currentDre?.lucroAntesIR || 0}
                     receitaBase={receitaBase}
                     isSubtotal
+                    showVariation
+                    variation={0}
+                  />
+
+                  <DRELine
+                    label="(-) Impostos Sobre o Resultado"
+                    value={-(currentDre?.impostos?.valor || 0)}
+                    receitaBase={receitaBase}
+                    indent={1}
+                    categorias={currentDre?.impostos?.categorias}
                     showVariation
                     variation={0}
                   />
@@ -485,8 +485,8 @@ export default function DRE() {
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">CMV / Receita</span>
-                  <Badge variant="outline">{currentStats?.cmvPercentual?.toFixed(1) || 0}%</Badge>
+                  <span className="text-sm text-muted-foreground">Custos / Receita</span>
+                  <Badge variant="outline">{currentStats?.custosPercentual?.toFixed(1) || 0}%</Badge>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Despesas / Receita</span>

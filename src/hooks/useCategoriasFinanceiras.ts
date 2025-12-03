@@ -19,16 +19,14 @@ export interface CategoriasPorTipo {
 
 const TIPOS_ORDEM = [
   "Receitas",
-  "CMV",
-  "Deduções",
+  "Custos",
   "Despesas Operacionais",
-  "Despesas Pessoal",
-  "Despesas Administrativas",
-  "Marketing",
+  "Despesas Comercial / Marketing",
+  "Despesas Administrativas / Gerais",
+  "Despesas com Pessoal",
   "Despesas Financeiras",
-  "Impostos",
-  "Investimentos",
-  "Transferências",
+  "Impostos Sobre o Resultado",
+  "Outras Receitas / Despesas",
 ];
 
 export function useCategoriasFinanceiras() {
