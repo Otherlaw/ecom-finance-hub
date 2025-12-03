@@ -6,14 +6,15 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useContasReceber, STATUS_LABELS_RECEBER, ContaReceber } from '@/hooks/useContasReceber';
 import { useEmpresas } from '@/hooks/useEmpresas';
 import { ContaReceberFormModal } from '@/components/contas-receber/ContaReceberFormModal';
 import { RecebimentoModal } from '@/components/contas-receber/RecebimentoModal';
+import { RelatoriosContasReceber } from '@/components/contas-receber/RelatoriosContasReceber';
 import {
   Plus,
   Search,
-  Eye,
   Edit,
   DollarSign,
   AlertTriangle,
@@ -24,6 +25,7 @@ import {
   TrendingUp,
   Loader2,
   Trash2,
+  BarChart3,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -66,6 +68,7 @@ const getDaysUntilDue = (dataVencimento: string): number => {
 };
 
 export default function ContasReceber() {
+  const [activeTab, setActiveTab] = useState<string>('lista');
   const [searchTerm, setSearchTerm] = useState('');
   const [empresaFilter, setEmpresaFilter] = useState<string>('todas');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
@@ -193,9 +196,21 @@ export default function ContasReceber() {
         </Button>
       }
     >
-      <div className="space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="lista" className="gap-2">
+            <DollarSign className="h-4 w-4" />
+            Lista
+          </TabsTrigger>
+          <TabsTrigger value="relatorios" className="gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Relatórios
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="lista" className="space-y-6">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
@@ -427,7 +442,12 @@ export default function ContasReceber() {
             )}
           </CardContent>
         </Card>
-      </div>
+        </TabsContent>
+
+        <TabsContent value="relatorios">
+          <RelatoriosContasReceber contas={contas || []} />
+        </TabsContent>
+      </Tabs>
 
       {/* Modals */}
       <ContaReceberFormModal
