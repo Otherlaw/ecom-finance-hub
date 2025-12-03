@@ -6,25 +6,29 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { useToast } from '@/hooks/use-toast';
-import { 
-  ContaPagar, 
-  TipoLancamento, 
-  FormaPagamento, 
-  Periodicidade,
-  TIPO_LANCAMENTO, 
-  FORMA_PAGAMENTO, 
-  PERIODICIDADE_CONFIG,
-  mockFornecedores,
-  validateContaPagar,
-  generateParcelas,
-  formatCurrency,
-} from '@/lib/contas-pagar-data';
-import { mockEmpresas, REGIME_TRIBUTARIO_CONFIG } from '@/lib/empresas-data';
+import { toast } from 'sonner';
+import { useEmpresas } from '@/hooks/useEmpresas';
 import { useCategoriasFinanceiras } from '@/hooks/useCategoriasFinanceiras';
 import { useCentrosCusto } from '@/hooks/useCentrosCusto';
-import { Building2, CalendarDays, DollarSign, FileText, Repeat, AlertTriangle } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { ContaPagar } from '@/hooks/useContasPagar';
+import { Building2, CalendarDays, DollarSign, FileText } from 'lucide-react';
+
+const TIPO_LANCAMENTO = {
+  despesa_operacional: { label: 'Despesa Operacional' },
+  compra_mercadoria: { label: 'Compra de Mercadoria' },
+  imposto: { label: 'Imposto/Tributo' },
+  servico: { label: 'Serviço' },
+  outro: { label: 'Outro' },
+};
+
+const FORMA_PAGAMENTO = {
+  pix: { label: 'Pix' },
+  boleto: { label: 'Boleto' },
+  transferencia: { label: 'Transferência' },
+  cartao: { label: 'Cartão' },
+  dinheiro: { label: 'Dinheiro' },
+  outro: { label: 'Outro' },
+};
 
 interface ContaPagarFormModalProps {
   open: boolean;
@@ -34,116 +38,108 @@ interface ContaPagarFormModalProps {
 }
 
 export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: ContaPagarFormModalProps) {
-  const { toast } = useToast();
   const [errors, setErrors] = useState<Record<string, string>>({});
   
   // Dados reais do Supabase
+  const { empresas } = useEmpresas();
   const { categorias, categoriasPorTipo } = useCategoriasFinanceiras();
   const { centrosFlat } = useCentrosCusto();
   
-  const [formData, setFormData] = useState<Partial<ContaPagar>>({
-    empresaId: '',
-    fornecedorId: '',
+  const [formData, setFormData] = useState({
+    empresa_id: '',
+    fornecedor_nome: '',
     descricao: '',
     documento: '',
-    tipoLancamento: 'despesa_operacional',
-    dataEmissao: new Date().toISOString().split('T')[0],
-    dataVencimento: '',
-    valorTotal: 0,
-    formaPagamento: undefined,
-    categoriaId: '',
-    centroCustoId: '',
+    tipo_lancamento: 'despesa_operacional',
+    data_emissao: new Date().toISOString().split('T')[0],
+    data_vencimento: '',
+    valor_total: 0,
+    forma_pagamento: '',
+    categoria_id: '',
+    centro_custo_id: '',
     observacoes: '',
     recorrente: false,
-    periodicidade: 'mensal',
   });
-  
-  const [parcelado, setParcelado] = useState(false);
-  const [numeroParcelas, setNumeroParcelas] = useState(2);
-  const [previewParcelas, setPreviewParcelas] = useState<Array<{ numero: number; data: string; valor: number }>>([]);
 
   useEffect(() => {
     if (conta) {
       setFormData({
-        ...conta,
+        empresa_id: conta.empresa_id,
+        fornecedor_nome: conta.fornecedor_nome,
+        descricao: conta.descricao,
+        documento: conta.documento || '',
+        tipo_lancamento: conta.tipo_lancamento,
+        data_emissao: conta.data_emissao,
+        data_vencimento: conta.data_vencimento,
+        valor_total: conta.valor_total,
+        forma_pagamento: conta.forma_pagamento || '',
+        categoria_id: conta.categoria_id || '',
+        centro_custo_id: conta.centro_custo_id || '',
+        observacoes: conta.observacoes || '',
+        recorrente: conta.recorrente,
       });
-      setParcelado(conta.parcelas && conta.parcelas.length > 1);
-      setNumeroParcelas(conta.parcelas?.length || 2);
     } else {
       setFormData({
-        empresaId: '',
-        fornecedorId: '',
+        empresa_id: empresas?.[0]?.id || '',
+        fornecedor_nome: '',
         descricao: '',
         documento: '',
-        tipoLancamento: 'despesa_operacional',
-        dataEmissao: new Date().toISOString().split('T')[0],
-        dataVencimento: '',
-        valorTotal: 0,
-        formaPagamento: undefined,
-        categoriaId: '',
-        centroCustoId: '',
+        tipo_lancamento: 'despesa_operacional',
+        data_emissao: new Date().toISOString().split('T')[0],
+        data_vencimento: '',
+        valor_total: 0,
+        forma_pagamento: '',
+        categoria_id: '',
+        centro_custo_id: '',
         observacoes: '',
         recorrente: false,
-        periodicidade: 'mensal',
       });
-      setParcelado(false);
-      setNumeroParcelas(2);
     }
     setErrors({});
-    setPreviewParcelas([]);
-  }, [conta, open]);
+  }, [conta, open, empresas]);
 
-  useEffect(() => {
-    if (parcelado && formData.valorTotal && formData.valorTotal > 0 && formData.dataVencimento) {
-      const parcelas = generateParcelas(
-        formData.valorTotal,
-        numeroParcelas,
-        formData.dataVencimento,
-        formData.periodicidade || 'mensal'
-      );
-      setPreviewParcelas(parcelas.map(p => ({
-        numero: p.numero,
-        data: p.dataVencimento,
-        valor: p.valorOriginal,
-      })));
-    } else {
-      setPreviewParcelas([]);
-    }
-  }, [parcelado, numeroParcelas, formData.valorTotal, formData.dataVencimento, formData.periodicidade]);
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    
+    if (!formData.empresa_id) newErrors.empresa_id = 'Empresa é obrigatória';
+    if (!formData.fornecedor_nome.trim()) newErrors.fornecedor_nome = 'Fornecedor é obrigatório';
+    if (!formData.descricao.trim()) newErrors.descricao = 'Descrição é obrigatória';
+    if (!formData.data_emissao) newErrors.data_emissao = 'Data de emissão é obrigatória';
+    if (!formData.data_vencimento) newErrors.data_vencimento = 'Data de vencimento é obrigatória';
+    if (!formData.valor_total || formData.valor_total <= 0) newErrors.valor_total = 'Valor deve ser maior que zero';
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSubmit = () => {
-    const validation = validateContaPagar(formData);
-    if (!validation.isValid) {
-      setErrors(validation.errors);
-      toast({
-        title: 'Erro de validação',
-        description: 'Preencha todos os campos obrigatórios.',
-        variant: 'destructive',
-      });
+    if (!validate()) {
+      toast.error('Preencha todos os campos obrigatórios');
       return;
     }
 
     const dataToSave: Partial<ContaPagar> = {
-      ...formData,
-      valorPago: conta?.valorPago || 0,
-      valorEmAberto: formData.valorTotal || 0,
-      status: 'em_aberto',
-      anexos: conta?.anexos || [],
-      parcelas: parcelado ? generateParcelas(
-        formData.valorTotal!,
-        numeroParcelas,
-        formData.dataVencimento!,
-        formData.periodicidade || 'mensal'
-      ) : [],
-      pagamentos: conta?.pagamentos || [],
-      conciliado: false,
+      empresa_id: formData.empresa_id,
+      fornecedor_nome: formData.fornecedor_nome,
+      descricao: formData.descricao,
+      documento: formData.documento || null,
+      tipo_lancamento: formData.tipo_lancamento,
+      data_emissao: formData.data_emissao,
+      data_vencimento: formData.data_vencimento,
+      valor_total: formData.valor_total,
+      valor_pago: conta?.valor_pago || 0,
+      valor_em_aberto: conta ? conta.valor_em_aberto : formData.valor_total,
+      status: conta?.status || 'em_aberto',
+      forma_pagamento: formData.forma_pagamento || null,
+      categoria_id: formData.categoria_id || null,
+      centro_custo_id: formData.centro_custo_id || null,
+      observacoes: formData.observacoes || null,
+      recorrente: formData.recorrente,
+      conciliado: conta?.conciliado || false,
     };
 
     onSave(dataToSave);
-    onOpenChange(false);
   };
-
-  const selectedEmpresa = mockEmpresas.find(e => e.id === formData.empresaId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -165,48 +161,35 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="empresaId">Empresa *</Label>
+                <Label htmlFor="empresa_id">Empresa *</Label>
                 <Select
-                  value={formData.empresaId}
-                  onValueChange={(value) => setFormData({ ...formData, empresaId: value })}
+                  value={formData.empresa_id}
+                  onValueChange={(value) => setFormData({ ...formData, empresa_id: value })}
                 >
-                  <SelectTrigger className={errors.empresaId ? 'border-red-500' : ''}>
+                  <SelectTrigger className={errors.empresa_id ? 'border-red-500' : ''}>
                     <SelectValue placeholder="Selecione a empresa" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockEmpresas.map((empresa) => (
+                    {empresas?.map((empresa) => (
                       <SelectItem key={empresa.id} value={empresa.id}>
-                        <span className="flex items-center gap-2">
-                          {empresa.nome}
-                          <Badge variant="outline" className="text-xs">
-                            {REGIME_TRIBUTARIO_CONFIG[empresa.regimeTributario].shortLabel}
-                          </Badge>
-                        </span>
+                        {empresa.nome_fantasia || empresa.razao_social}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {errors.empresaId && <p className="text-xs text-red-500">{errors.empresaId}</p>}
+                {errors.empresa_id && <p className="text-xs text-red-500">{errors.empresa_id}</p>}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="fornecedorId">Fornecedor *</Label>
-                <Select
-                  value={formData.fornecedorId}
-                  onValueChange={(value) => setFormData({ ...formData, fornecedorId: value })}
-                >
-                  <SelectTrigger className={errors.fornecedorId ? 'border-red-500' : ''}>
-                    <SelectValue placeholder="Selecione o fornecedor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mockFornecedores.filter(f => f.ativo).map((fornecedor) => (
-                      <SelectItem key={fornecedor.id} value={fornecedor.id}>
-                        {fornecedor.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {errors.fornecedorId && <p className="text-xs text-red-500">{errors.fornecedorId}</p>}
+                <Label htmlFor="fornecedor_nome">Fornecedor *</Label>
+                <Input
+                  id="fornecedor_nome"
+                  value={formData.fornecedor_nome}
+                  onChange={(e) => setFormData({ ...formData, fornecedor_nome: e.target.value })}
+                  placeholder="Nome do fornecedor"
+                  className={errors.fornecedor_nome ? 'border-red-500' : ''}
+                />
+                {errors.fornecedor_nome && <p className="text-xs text-red-500">{errors.fornecedor_nome}</p>}
               </div>
             </div>
 
@@ -234,12 +217,12 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="tipoLancamento">Tipo de Lançamento *</Label>
+                <Label htmlFor="tipo_lancamento">Tipo de Lançamento *</Label>
                 <Select
-                  value={formData.tipoLancamento}
-                  onValueChange={(value) => setFormData({ ...formData, tipoLancamento: value as TipoLancamento })}
+                  value={formData.tipo_lancamento}
+                  onValueChange={(value) => setFormData({ ...formData, tipo_lancamento: value })}
                 >
-                  <SelectTrigger className={errors.tipoLancamento ? 'border-red-500' : ''}>
+                  <SelectTrigger>
                     <SelectValue placeholder="Selecione o tipo" />
                   </SelectTrigger>
                   <SelectContent>
@@ -250,7 +233,6 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
                     ))}
                   </SelectContent>
                 </Select>
-                {errors.tipoLancamento && <p className="text-xs text-red-500">{errors.tipoLancamento}</p>}
               </div>
             </div>
           </div>
@@ -264,110 +246,43 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
 
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="dataEmissao">Data de Emissão *</Label>
+                <Label htmlFor="data_emissao">Data de Emissão *</Label>
                 <Input
-                  id="dataEmissao"
+                  id="data_emissao"
                   type="date"
-                  value={formData.dataEmissao}
-                  onChange={(e) => setFormData({ ...formData, dataEmissao: e.target.value })}
-                  className={errors.dataEmissao ? 'border-red-500' : ''}
+                  value={formData.data_emissao}
+                  onChange={(e) => setFormData({ ...formData, data_emissao: e.target.value })}
+                  className={errors.data_emissao ? 'border-red-500' : ''}
                 />
-                {errors.dataEmissao && <p className="text-xs text-red-500">{errors.dataEmissao}</p>}
+                {errors.data_emissao && <p className="text-xs text-red-500">{errors.data_emissao}</p>}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="dataVencimento">Data de Vencimento *</Label>
+                <Label htmlFor="data_vencimento">Data de Vencimento *</Label>
                 <Input
-                  id="dataVencimento"
+                  id="data_vencimento"
                   type="date"
-                  value={formData.dataVencimento}
-                  onChange={(e) => setFormData({ ...formData, dataVencimento: e.target.value })}
-                  className={errors.dataVencimento ? 'border-red-500' : ''}
+                  value={formData.data_vencimento}
+                  onChange={(e) => setFormData({ ...formData, data_vencimento: e.target.value })}
+                  className={errors.data_vencimento ? 'border-red-500' : ''}
                 />
-                {errors.dataVencimento && <p className="text-xs text-red-500">{errors.dataVencimento}</p>}
+                {errors.data_vencimento && <p className="text-xs text-red-500">{errors.data_vencimento}</p>}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="valorTotal">Valor Total *</Label>
+                <Label htmlFor="valor_total">Valor Total *</Label>
                 <Input
-                  id="valorTotal"
+                  id="valor_total"
                   type="number"
                   step="0.01"
                   min="0"
-                  value={formData.valorTotal || ''}
-                  onChange={(e) => setFormData({ ...formData, valorTotal: parseFloat(e.target.value) || 0 })}
+                  value={formData.valor_total || ''}
+                  onChange={(e) => setFormData({ ...formData, valor_total: parseFloat(e.target.value) || 0 })}
                   placeholder="0,00"
-                  className={errors.valorTotal ? 'border-red-500' : ''}
+                  className={errors.valor_total ? 'border-red-500' : ''}
                 />
-                {errors.valorTotal && <p className="text-xs text-red-500">{errors.valorTotal}</p>}
+                {errors.valor_total && <p className="text-xs text-red-500">{errors.valor_total}</p>}
               </div>
-            </div>
-
-            {/* Parcelamento */}
-            <div className="bg-muted/50 rounded-lg p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="h-4 w-4 text-muted-foreground" />
-                  <Label htmlFor="parcelado">Parcelar pagamento</Label>
-                </div>
-                <Switch
-                  id="parcelado"
-                  checked={parcelado}
-                  onCheckedChange={setParcelado}
-                />
-              </div>
-
-              {parcelado && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="numeroParcelas">Número de Parcelas</Label>
-                    <Input
-                      id="numeroParcelas"
-                      type="number"
-                      min="2"
-                      max="48"
-                      value={numeroParcelas}
-                      onChange={(e) => setNumeroParcelas(parseInt(e.target.value) || 2)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="periodicidade">Periodicidade</Label>
-                    <Select
-                      value={formData.periodicidade}
-                      onValueChange={(value) => setFormData({ ...formData, periodicidade: value as Periodicidade })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(PERIODICIDADE_CONFIG).map(([key, config]) => (
-                          <SelectItem key={key} value={key}>
-                            {config.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-
-              {previewParcelas.length > 0 && (
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Prévia das parcelas:</Label>
-                  <div className="grid grid-cols-3 gap-2 text-sm">
-                    {previewParcelas.slice(0, 6).map((p) => (
-                      <div key={p.numero} className="bg-background rounded p-2 border">
-                        <span className="font-medium">{p.numero}ª</span> - {p.data.split('-').reverse().join('/')} - {formatCurrency(p.valor)}
-                      </div>
-                    ))}
-                    {previewParcelas.length > 6 && (
-                      <div className="bg-background rounded p-2 border text-muted-foreground">
-                        +{previewParcelas.length - 6} parcelas...
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
@@ -377,12 +292,12 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="categoriaId">Categoria Financeira *</Label>
+                <Label htmlFor="categoria_id">Categoria Financeira</Label>
                 <Select
-                  value={formData.categoriaId}
-                  onValueChange={(value) => setFormData({ ...formData, categoriaId: value })}
+                  value={formData.categoria_id}
+                  onValueChange={(value) => setFormData({ ...formData, categoria_id: value })}
                 >
-                  <SelectTrigger className={errors.categoriaId ? 'border-red-500' : ''}>
+                  <SelectTrigger>
                     <SelectValue placeholder="Selecione a categoria" />
                   </SelectTrigger>
                   <SelectContent>
@@ -400,14 +315,13 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
                     ))}
                   </SelectContent>
                 </Select>
-                {errors.categoriaId && <p className="text-xs text-red-500">{errors.categoriaId}</p>}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="centroCustoId">Centro de Custo</Label>
+                <Label htmlFor="centro_custo_id">Centro de Custo</Label>
                 <Select
-                  value={formData.centroCustoId || ''}
-                  onValueChange={(value) => setFormData({ ...formData, centroCustoId: value })}
+                  value={formData.centro_custo_id || ''}
+                  onValueChange={(value) => setFormData({ ...formData, centro_custo_id: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione (opcional)" />
@@ -434,10 +348,10 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="formaPagamento">Forma de Pagamento</Label>
+              <Label htmlFor="forma_pagamento">Forma de Pagamento</Label>
               <Select
-                value={formData.formaPagamento || ''}
-                onValueChange={(value) => setFormData({ ...formData, formaPagamento: value as FormaPagamento })}
+                value={formData.forma_pagamento || ''}
+                onValueChange={(value) => setFormData({ ...formData, forma_pagamento: value })}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione (opcional)" />
@@ -457,7 +371,7 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
           <div className="bg-muted/50 rounded-lg p-4 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Repeat className="h-4 w-4 text-muted-foreground" />
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
                 <Label htmlFor="recorrente">Despesa recorrente</Label>
               </div>
               <Switch
@@ -466,13 +380,6 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
                 onCheckedChange={(checked) => setFormData({ ...formData, recorrente: checked })}
               />
             </div>
-
-            {formData.recorrente && (
-              <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded text-amber-700 text-sm">
-                <AlertTriangle className="h-4 w-4" />
-                Esta despesa será marcada como recorrente para facilitar o lançamento futuro.
-              </div>
-            )}
           </div>
 
           {/* Observações */}
@@ -493,7 +400,7 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
               Cancelar
             </Button>
             <Button onClick={handleSubmit}>
-              {conta ? 'Salvar Alterações' : 'Criar Conta a Pagar'}
+              {conta ? 'Salvar Alterações' : 'Criar Conta'}
             </Button>
           </div>
         </div>

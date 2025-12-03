@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { MainLayout } from '@/components/MainLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -8,24 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useToast } from '@/hooks/use-toast';
-import {
-  ContaPagar,
-  Pagamento,
-  StatusContaPagar,
-  mockContasPagar,
-  mockFornecedores,
-  mockCategorias,
-  mockCentrosCusto,
-  STATUS_CONTA_PAGAR,
-  TIPO_LANCAMENTO,
-  FORMA_PAGAMENTO,
-  calculateContasPagarSummary,
-  formatCurrency,
-  formatDateBR,
-  getDaysUntilDue,
-} from '@/lib/contas-pagar-data';
-import { mockEmpresas, REGIME_TRIBUTARIO_CONFIG } from '@/lib/empresas-data';
+import { toast } from 'sonner';
+import { useContasPagar, STATUS_LABELS, ContaPagar } from '@/hooks/useContasPagar';
+import { useEmpresas } from '@/hooks/useEmpresas';
+import { useCategoriasFinanceiras } from '@/hooks/useCategoriasFinanceiras';
 import { ContaPagarFormModal } from '@/components/contas-pagar/ContaPagarFormModal';
 import { PagamentoModal } from '@/components/contas-pagar/PagamentoModal';
 import { ContaPagarDetailModal } from '@/components/contas-pagar/ContaPagarDetailModal';
@@ -34,7 +20,6 @@ import { RelatoriosContasPagar } from '@/components/contas-pagar/RelatoriosConta
 import {
   Plus,
   Search,
-  Filter,
   Upload,
   Download,
   Eye,
@@ -52,6 +37,7 @@ import {
   Receipt,
   Repeat,
   BarChart3,
+  Loader2,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -61,11 +47,37 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
+// Funções utilitárias
+const formatCurrency = (value: number): string => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value);
+};
+
+const formatDateBR = (dateStr: string): string => {
+  if (!dateStr) return '-';
+  const [year, month, day] = dateStr.split('-');
+  return `${day}/${month}/${year}`;
+};
+
+const getDaysUntilDue = (dataVencimento: string): number => {
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const [year, month, day] = dataVencimento.split('-').map(Number);
+  const vencimento = new Date(year, month - 1, day);
+  const diffTime = vencimento.getTime() - hoje.getTime();
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+};
+
 export default function ContasPagar() {
-  const { toast } = useToast();
-  
-  // State
-  const [contas, setContas] = useState<ContaPagar[]>(mockContasPagar);
+  // State dos filtros
+  const [searchTerm, setSearchTerm] = useState('');
+  const [empresaFilter, setEmpresaFilter] = useState<string>('todas');
+  const [statusFilter, setStatusFilter] = useState<string>('todos');
+  const [categoriaFilter, setCategoriaFilter] = useState<string>('todas');
+  const [dataInicio, setDataInicio] = useState('');
+  const [dataFim, setDataFim] = useState('');
   const [activeTab, setActiveTab] = useState('lista');
   
   // Modals
@@ -73,53 +85,78 @@ export default function ContasPagar() {
   const [pagamentoModalOpen, setPagamentoModalOpen] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [relatoriosOpen, setRelatoriosOpen] = useState(false);
   const [selectedConta, setSelectedConta] = useState<ContaPagar | null>(null);
-  
-  // Filters
-  const [searchTerm, setSearchTerm] = useState('');
-  const [empresaFilter, setEmpresaFilter] = useState<string>('todas');
-  const [statusFilter, setStatusFilter] = useState<string>('todos');
-  const [fornecedorFilter, setFornecedorFilter] = useState<string>('todos');
-  const [categoriaFilter, setCategoriaFilter] = useState<string>('todas');
-  const [dataInicio, setDataInicio] = useState('');
-  const [dataFim, setDataFim] = useState('');
   
   // Selection for batch actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Filtered data
+  // Hooks de dados reais do Supabase
+  const { 
+    contas, 
+    isLoading, 
+    createConta, 
+    updateConta, 
+    pagarConta,
+    resumo 
+  } = useContasPagar({
+    empresaId: empresaFilter !== 'todas' ? empresaFilter : undefined,
+    status: statusFilter !== 'todos' ? statusFilter : undefined,
+    dataInicio: dataInicio || undefined,
+    dataFim: dataFim || undefined,
+  });
+
+  const { empresas } = useEmpresas();
+  const { categorias, categoriasPorTipo } = useCategoriasFinanceiras();
+
+  // Filtered data (busca local por texto)
   const contasFiltradas = useMemo(() => {
+    if (!contas) return [];
     return contas.filter(conta => {
-      if (empresaFilter !== 'todas' && conta.empresaId !== empresaFilter) return false;
-      if (statusFilter !== 'todos' && conta.status !== statusFilter) return false;
-      if (fornecedorFilter !== 'todos' && conta.fornecedorId !== fornecedorFilter) return false;
-      if (categoriaFilter !== 'todas' && conta.categoriaId !== categoriaFilter) return false;
-      
-      if (dataInicio && conta.dataVencimento < dataInicio) return false;
-      if (dataFim && conta.dataVencimento > dataFim) return false;
+      if (categoriaFilter !== 'todas' && conta.categoria_id !== categoriaFilter) return false;
       
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
-        const fornecedor = mockFornecedores.find(f => f.id === conta.fornecedorId);
         return (
           conta.descricao.toLowerCase().includes(term) ||
           conta.documento?.toLowerCase().includes(term) ||
-          fornecedor?.nome.toLowerCase().includes(term)
+          conta.fornecedor_nome.toLowerCase().includes(term)
         );
       }
       
       return true;
     });
-  }, [contas, empresaFilter, statusFilter, fornecedorFilter, categoriaFilter, dataInicio, dataFim, searchTerm]);
+  }, [contas, categoriaFilter, searchTerm]);
 
-  // Summary
+  // Summary calculado
   const summary = useMemo(() => {
-    const contasParaSummary = empresaFilter === 'todas' 
-      ? contas 
-      : contas.filter(c => c.empresaId === empresaFilter);
-    return calculateContasPagarSummary(contasParaSummary);
-  }, [contas, empresaFilter]);
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    
+    const emAberto = contasFiltradas.filter(c => c.status !== 'pago' && c.status !== 'cancelado');
+    
+    const vencido = emAberto.filter(c => getDaysUntilDue(c.data_vencimento) < 0);
+    const venceHoje = emAberto.filter(c => getDaysUntilDue(c.data_vencimento) === 0);
+    const venceSemana = emAberto.filter(c => {
+      const dias = getDaysUntilDue(c.data_vencimento);
+      return dias >= 0 && dias <= 7;
+    });
+    const venceMes = emAberto.filter(c => {
+      const dias = getDaysUntilDue(c.data_vencimento);
+      return dias >= 0 && dias <= 30;
+    });
+
+    return {
+      totalEmAberto: emAberto.reduce((sum, c) => sum + c.valor_em_aberto, 0),
+      totalVencido: vencido.reduce((sum, c) => sum + c.valor_em_aberto, 0),
+      totalHoje: venceHoje.reduce((sum, c) => sum + c.valor_em_aberto, 0),
+      totalSemana: venceSemana.reduce((sum, c) => sum + c.valor_em_aberto, 0),
+      totalMes: venceMes.reduce((sum, c) => sum + c.valor_em_aberto, 0),
+      quantidadeEmAberto: emAberto.length,
+      quantidadeVencido: vencido.length,
+      quantidadeHoje: venceHoje.length,
+      quantidadeSemana: venceSemana.length,
+    };
+  }, [contasFiltradas]);
 
   // Handlers
   const handleNewConta = () => {
@@ -142,86 +179,78 @@ export default function ContasPagar() {
     setPagamentoModalOpen(true);
   };
 
-  const handleSaveConta = (contaData: Partial<ContaPagar>) => {
+  const handleSaveConta = async (contaData: Partial<ContaPagar>) => {
     if (selectedConta) {
       // Edit
-      setContas(prev => prev.map(c => 
-        c.id === selectedConta.id 
-          ? { ...c, ...contaData, dataAtualizacao: new Date().toISOString().split('T')[0] }
-          : c
-      ));
-      toast({ title: 'Conta atualizada com sucesso!' });
+      await updateConta.mutateAsync({ id: selectedConta.id, ...contaData });
     } else {
       // Create
-      const novaConta: ContaPagar = {
-        ...contaData as ContaPagar,
-        id: `cp-${Date.now()}`,
-        dataCriacao: new Date().toISOString().split('T')[0],
-        dataAtualizacao: new Date().toISOString().split('T')[0],
-      };
-      setContas(prev => [...prev, novaConta]);
-      toast({ title: 'Conta criada com sucesso!' });
+      await createConta.mutateAsync(contaData as any);
     }
+    setFormModalOpen(false);
   };
 
-  const handleSavePagamento = (pagamento: Pagamento, contaId: string) => {
-    setContas(prev => prev.map(conta => {
-      if (conta.id !== contaId) return conta;
-      
-      const novoValorPago = conta.valorPago + pagamento.valorPrincipal;
-      const novoValorEmAberto = conta.valorTotal - novoValorPago;
-      const novoStatus: StatusContaPagar = novoValorEmAberto <= 0 ? 'pago' : 'parcialmente_pago';
-      
-      return {
-        ...conta,
-        valorPago: novoValorPago,
-        valorEmAberto: Math.max(0, novoValorEmAberto),
-        status: novoStatus,
-        contaBancariaId: pagamento.contaBancariaId,
-        pagamentos: [...conta.pagamentos, pagamento],
-        dataAtualizacao: new Date().toISOString().split('T')[0],
-      };
-    }));
+  const handleSavePagamento = async (valorPago: number, dataPagamento: string, contaId: string) => {
+    await pagarConta.mutateAsync({
+      id: contaId,
+      valorPago,
+      dataPagamento,
+    });
+    setPagamentoModalOpen(false);
   };
 
-  const handleImport = (data: any[]) => {
+const handleImport = (data: any[]) => {
     // Process imported data
-    const novasContas: ContaPagar[] = data.map((row, index) => ({
-      id: `cp-import-${Date.now()}-${index}`,
-      empresaId: mockEmpresas.find(e => e.nome.toLowerCase() === row.empresa?.toLowerCase())?.id || 'emp-001',
-      fornecedorId: mockFornecedores.find(f => f.nome.toLowerCase() === row.fornecedor?.toLowerCase())?.id || 'forn-001',
-      descricao: row.descricao || 'Importado',
-      documento: row.documento,
-      tipoLancamento: 'despesa_operacional',
-      dataEmissao: new Date().toISOString().split('T')[0],
-      dataVencimento: row.datavencimento?.split('/').reverse().join('-') || new Date().toISOString().split('T')[0],
-      valorTotal: parseFloat(row.valor?.replace(',', '.')) || 0,
-      valorPago: 0,
-      valorEmAberto: parseFloat(row.valor?.replace(',', '.')) || 0,
-      status: 'em_aberto' as StatusContaPagar,
-      categoriaId: mockCategorias.find(c => c.nome.toLowerCase() === row.categoria?.toLowerCase())?.id || 'cat-001',
-      anexos: [],
-      parcelas: [],
-      pagamentos: [],
-      recorrente: false,
-      conciliado: false,
-      dataCriacao: new Date().toISOString().split('T')[0],
-      dataAtualizacao: new Date().toISOString().split('T')[0],
-    }));
+    const defaultEmpresa = empresas?.[0];
+    
+    data.forEach(async (row) => {
+      try {
+        const empresa = empresas?.find(e => 
+          e.razao_social.toLowerCase().includes(row.empresa?.toLowerCase()) ||
+          e.nome_fantasia?.toLowerCase().includes(row.empresa?.toLowerCase())
+        ) || defaultEmpresa;
+        
+        if (!empresa) return;
+        
+        const valorTotal = parseFloat(row.valor?.replace(',', '.')) || 0;
+        
+        await createConta.mutateAsync({
+          empresa_id: empresa.id,
+          fornecedor_nome: row.fornecedor || 'Importado',
+          descricao: row.descricao || 'Importado',
+          documento: row.documento || null,
+          tipo_lancamento: 'despesa_operacional',
+          data_emissao: new Date().toISOString().split('T')[0],
+          data_vencimento: row.datavencimento?.split('/').reverse().join('-') || new Date().toISOString().split('T')[0],
+          data_pagamento: null,
+          valor_total: valorTotal,
+          valor_pago: 0,
+          valor_em_aberto: valorTotal,
+          status: 'em_aberto',
+          categoria_id: null,
+          centro_custo_id: null,
+          forma_pagamento: null,
+          observacoes: null,
+          recorrente: false,
+          conciliado: false,
+        });
+      } catch (err) {
+        console.error('Erro ao importar:', err);
+      }
+    });
 
-    setContas(prev => [...prev, ...novasContas]);
-    toast({ title: `${novasContas.length} contas importadas!` });
+    toast.success(`Importação iniciada para ${data.length} contas`);
   };
 
   const handleExport = () => {
     let csvContent = 'Empresa;Fornecedor;Descrição;Documento;Vencimento;Valor Total;Valor Pago;Em Aberto;Status;Categoria\n';
     
     contasFiltradas.forEach(conta => {
-      const empresa = mockEmpresas.find(e => e.id === conta.empresaId);
-      const fornecedor = mockFornecedores.find(f => f.id === conta.fornecedorId);
-      const categoria = mockCategorias.find(c => c.id === conta.categoriaId);
+      const empresa = conta.empresa;
+      const categoria = conta.categoria;
+      const statusLabel = STATUS_LABELS[conta.status]?.label || conta.status;
       
-      csvContent += `${empresa?.nome};${fornecedor?.nome};${conta.descricao};${conta.documento || ''};${formatDateBR(conta.dataVencimento)};${conta.valorTotal.toFixed(2)};${conta.valorPago.toFixed(2)};${conta.valorEmAberto.toFixed(2)};${STATUS_CONTA_PAGAR[conta.status].label};${categoria?.nome}\n`;
+      csvContent += `${empresa?.razao_social || ''};${conta.fornecedor_nome};${conta.descricao};${conta.documento || ''};${formatDateBR(conta.data_vencimento)};${conta.valor_total.toFixed(2)};${conta.valor_pago.toFixed(2)};${conta.valor_em_aberto.toFixed(2)};${statusLabel};${categoria?.nome || ''}\n`;
     });
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -232,16 +261,15 @@ export default function ContasPagar() {
     link.click();
     URL.revokeObjectURL(url);
 
-    toast({ title: 'Exportação concluída!' });
+    toast.success('Exportação concluída!');
   };
 
   const handleBatchPayment = () => {
     if (selectedIds.size === 0) {
-      toast({ title: 'Selecione ao menos uma conta', variant: 'destructive' });
+      toast.error('Selecione ao menos uma conta');
       return;
     }
-    // For simplicity, just show a message. In production, would open a batch payment modal.
-    toast({ title: `${selectedIds.size} contas selecionadas para pagamento em lote.` });
+    toast.info(`${selectedIds.size} contas selecionadas para pagamento em lote.`);
   };
 
   const toggleSelectAll = () => {
@@ -280,7 +308,7 @@ export default function ContasPagar() {
             <BarChart3 className="h-4 w-4 mr-2" />
             Relatórios
           </Button>
-          <Button onClick={() => { setSelectedConta(null); setFormModalOpen(true); }}>
+          <Button onClick={handleNewConta}>
             <Plus className="h-4 w-4 mr-2" />
             Nova Conta
           </Button>
@@ -397,9 +425,9 @@ export default function ContasPagar() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todas">Todas as empresas</SelectItem>
-                      {mockEmpresas.map(emp => (
+                      {empresas?.map(emp => (
                         <SelectItem key={emp.id} value={emp.id}>
-                          {emp.nome}
+                          {emp.nome_fantasia || emp.razao_social}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -411,23 +439,9 @@ export default function ContasPagar() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todos">Todos</SelectItem>
-                      {Object.entries(STATUS_CONTA_PAGAR).map(([key, config]) => (
+                      {Object.entries(STATUS_LABELS).map(([key, config]) => (
                         <SelectItem key={key} value={key}>
                           {config.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={fornecedorFilter} onValueChange={setFornecedorFilter}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Fornecedor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos</SelectItem>
-                      {mockFornecedores.filter(f => f.ativo).map(forn => (
-                        <SelectItem key={forn.id} value={forn.id}>
-                          {forn.nome}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -439,7 +453,7 @@ export default function ContasPagar() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todas">Todas</SelectItem>
-                      {mockCategorias.filter(c => c.tipo === 'despesa').map(cat => (
+                      {categorias?.filter(c => c.ativo).map(cat => (
                         <SelectItem key={cat.id} value={cat.id}>
                           {cat.nome}
                         </SelectItem>
@@ -486,158 +500,149 @@ export default function ContasPagar() {
             {/* Table */}
             <Card>
               <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[40px]">
-                        <Checkbox
-                          checked={selectedIds.size === contasFiltradas.filter(c => c.status !== 'pago' && c.status !== 'cancelado').length && contasFiltradas.length > 0}
-                          onCheckedChange={toggleSelectAll}
-                        />
-                      </TableHead>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead>Empresa</TableHead>
-                      <TableHead>Fornecedor</TableHead>
-                      <TableHead>Vencimento</TableHead>
-                      <TableHead className="text-right">Valor</TableHead>
-                      <TableHead className="text-right">Em Aberto</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="w-[60px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {contasFiltradas.length === 0 ? (
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
-                          <Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                          <p>Nenhuma conta encontrada.</p>
-                        </TableCell>
+                        <TableHead className="w-[40px]">
+                          <Checkbox
+                            checked={selectedIds.size === contasFiltradas.filter(c => c.status !== 'pago' && c.status !== 'cancelado').length && contasFiltradas.length > 0}
+                            onCheckedChange={toggleSelectAll}
+                          />
+                        </TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead>Empresa</TableHead>
+                        <TableHead>Fornecedor</TableHead>
+                        <TableHead>Vencimento</TableHead>
+                        <TableHead className="text-right">Valor</TableHead>
+                        <TableHead className="text-right">Em Aberto</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="w-[60px]"></TableHead>
                       </TableRow>
-                    ) : (
-                      contasFiltradas.map((conta) => {
-                        const empresa = mockEmpresas.find(e => e.id === conta.empresaId);
-                        const fornecedor = mockFornecedores.find(f => f.id === conta.fornecedorId);
-                        const statusConfig = STATUS_CONTA_PAGAR[conta.status];
-                        const diasVencimento = getDaysUntilDue(conta.dataVencimento);
-                        const isPayable = conta.status !== 'pago' && conta.status !== 'cancelado';
+                    </TableHeader>
+                    <TableBody>
+                      {contasFiltradas.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                            <Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p>Nenhuma conta encontrada.</p>
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        contasFiltradas.map((conta) => {
+                          const statusConfig = STATUS_LABELS[conta.status] || { label: conta.status, color: 'bg-gray-100 text-gray-800' };
+                          const diasVencimento = getDaysUntilDue(conta.data_vencimento);
+                          const isPayable = conta.status !== 'pago' && conta.status !== 'cancelado';
 
-                        return (
-                          <TableRow key={conta.id} className={conta.status === 'vencido' ? 'bg-red-50/50' : ''}>
-                            <TableCell>
-                              {isPayable && (
-                                <Checkbox
-                                  checked={selectedIds.has(conta.id)}
-                                  onCheckedChange={() => toggleSelect(conta.id)}
-                                />
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-col">
-                                <span className="font-medium">{conta.descricao}</span>
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  {conta.documento && <span>{conta.documento}</span>}
-                                  {conta.nfId && (
-                                    <Badge variant="outline" className="text-xs">
-                                      <FileText className="h-3 w-3 mr-1" />
-                                      NF
-                                    </Badge>
-                                  )}
-                                  {conta.recorrente && (
-                                    <Badge variant="outline" className="text-xs">
-                                      <Repeat className="h-3 w-3 mr-1" />
-                                      Recorrente
-                                    </Badge>
+                          return (
+                            <TableRow key={conta.id} className={conta.status === 'vencido' || (isPayable && diasVencimento < 0) ? 'bg-red-50/50' : ''}>
+                              <TableCell>
+                                {isPayable && (
+                                  <Checkbox
+                                    checked={selectedIds.has(conta.id)}
+                                    onCheckedChange={() => toggleSelect(conta.id)}
+                                  />
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{conta.descricao}</span>
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    {conta.documento && <span>{conta.documento}</span>}
+                                    {conta.recorrente && (
+                                      <Badge variant="outline" className="text-xs">
+                                        <Repeat className="h-3 w-3 mr-1" />
+                                        Recorrente
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <span className="text-sm">{conta.empresa?.nome_fantasia || conta.empresa?.razao_social}</span>
+                              </TableCell>
+                              <TableCell className="text-sm">{conta.fornecedor_nome}</TableCell>
+                              <TableCell>
+                                <div className="flex flex-col">
+                                  <span className="text-sm">{formatDateBR(conta.data_vencimento)}</span>
+                                  {isPayable && (
+                                    <span className={`text-xs ${
+                                      diasVencimento < 0 ? 'text-red-600' :
+                                      diasVencimento === 0 ? 'text-amber-600' :
+                                      diasVencimento <= 3 ? 'text-amber-500' :
+                                      'text-muted-foreground'
+                                    }`}>
+                                      {diasVencimento < 0 ? `${Math.abs(diasVencimento)}d atrasado` :
+                                       diasVencimento === 0 ? 'Hoje' :
+                                       `em ${diasVencimento}d`}
+                                    </span>
                                   )}
                                 </div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-col">
-                                <span className="text-sm">{empresa?.nome}</span>
-                                {empresa && (
-                                  <Badge variant="outline" className="text-xs w-fit">
-                                    {REGIME_TRIBUTARIO_CONFIG[empresa.regimeTributario].shortLabel}
-                                  </Badge>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-sm">{fornecedor?.nome}</TableCell>
-                            <TableCell>
-                              <div className="flex flex-col">
-                                <span className="text-sm">{formatDateBR(conta.dataVencimento)}</span>
-                                {isPayable && (
-                                  <span className={`text-xs ${
-                                    diasVencimento < 0 ? 'text-red-600' :
-                                    diasVencimento === 0 ? 'text-amber-600' :
-                                    diasVencimento <= 3 ? 'text-amber-500' :
-                                    'text-muted-foreground'
-                                  }`}>
-                                    {diasVencimento < 0 ? `${Math.abs(diasVencimento)}d atrasado` :
-                                     diasVencimento === 0 ? 'Hoje' :
-                                     `em ${diasVencimento}d`}
-                                  </span>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right font-medium">
-                              {formatCurrency(conta.valorTotal)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <span className={conta.valorEmAberto > 0 ? 'text-red-600 font-semibold' : 'text-emerald-600'}>
-                                {formatCurrency(conta.valorEmAberto)}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={`${statusConfig.bgColor} ${statusConfig.color} border`}>
-                                {statusConfig.label}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => handleViewConta(conta)}>
-                                    <Eye className="h-4 w-4 mr-2" />
-                                    Ver Detalhes
-                                  </DropdownMenuItem>
-                                  {isPayable && (
-                                    <>
-                                      <DropdownMenuItem onClick={() => handleEditConta(conta)}>
-                                        <Edit className="h-4 w-4 mr-2" />
-                                        Editar
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem onClick={() => handlePayConta(conta)}>
-                                        <DollarSign className="h-4 w-4 mr-2" />
-                                        Registrar Pagamento
-                                      </DropdownMenuItem>
-                                    </>
-                                  )}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </Table>
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {formatCurrency(conta.valor_total)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className={conta.valor_em_aberto > 0 ? 'text-red-600 font-semibold' : 'text-emerald-600'}>
+                                  {formatCurrency(conta.valor_em_aberto)}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <Badge className={statusConfig.color}>
+                                  {statusConfig.label}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon">
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => handleViewConta(conta)}>
+                                      <Eye className="h-4 w-4 mr-2" />
+                                      Ver Detalhes
+                                    </DropdownMenuItem>
+                                    {isPayable && (
+                                      <>
+                                        <DropdownMenuItem onClick={() => handleEditConta(conta)}>
+                                          <Edit className="h-4 w-4 mr-2" />
+                                          Editar
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem onClick={() => handlePayConta(conta)}>
+                                          <DollarSign className="h-4 w-4 mr-2" />
+                                          Registrar Pagamento
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
 
             {/* Summary footer */}
             <div className="flex justify-between items-center text-sm text-muted-foreground">
-              <span>Mostrando {contasFiltradas.length} de {contas.length} contas</span>
-              <span>Total filtrado: {formatCurrency(contasFiltradas.reduce((sum, c) => sum + c.valorEmAberto, 0))}</span>
+              <span>Mostrando {contasFiltradas.length} conta(s)</span>
+              <span>Total filtrado: {formatCurrency(contasFiltradas.reduce((sum, c) => sum + c.valor_em_aberto, 0))}</span>
             </div>
           </TabsContent>
 
           <TabsContent value="relatorios">
-            <RelatoriosContasPagar contas={contas} />
+            <RelatoriosContasPagar contas={contasFiltradas as any} />
           </TabsContent>
         </Tabs>
       </div>
@@ -660,7 +665,7 @@ export default function ContasPagar() {
       <ContaPagarDetailModal
         open={detailModalOpen}
         onOpenChange={setDetailModalOpen}
-        conta={selectedConta}
+        conta={selectedConta as any}
         onEdit={() => {
           setDetailModalOpen(false);
           setFormModalOpen(true);
