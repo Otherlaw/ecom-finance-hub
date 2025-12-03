@@ -5,11 +5,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCartoes } from "@/hooks/useCartoes";
-import { ensureDefaultCompanyAndUser } from "@/lib/mock-cartao";
-import { Loader2 } from "lucide-react";
+import { mockEmpresas } from "@/lib/empresas-data";
+
+// Mock responsáveis - mesma estrutura usada no restante do sistema
+const mockResponsaveis = [
+  { id: "resp-001", nome: "João Silva", email: "joao@exchange.com", funcao: "Financeiro" },
+  { id: "resp-002", nome: "Maria Santos", email: "maria@exchange.com", funcao: "Administrativo" },
+  { id: "resp-003", nome: "Carlos Oliveira", email: "carlos@inpari.com", funcao: "Gerente" },
+];
 
 interface CartaoFormModalProps {
   open: boolean;
@@ -19,72 +23,37 @@ interface CartaoFormModalProps {
 
 export function CartaoFormModal({ open, onOpenChange, cartaoId }: CartaoFormModalProps) {
   const [loading, setLoading] = useState(false);
-  const [initializingData, setInitializingData] = useState(false);
   const [empresaId, setEmpresaId] = useState<string>("");
   const [responsavelId, setResponsavelId] = useState<string>("");
   const [tipo, setTipo] = useState<string>("credito");
   
   const { createCartao, updateCartao } = useCartoes();
-  const queryClient = useQueryClient();
 
-  // Garantir dados padrão ao abrir o modal
+  // Usar dados mock (mesma fonte da tela de Empresas)
+  const empresas = mockEmpresas;
+  const responsaveis = mockResponsaveis;
+
+  // Limpar estado ao fechar modal
   useEffect(() => {
-    if (open) {
-      setInitializingData(true);
-      ensureDefaultCompanyAndUser().then(() => {
-        // Recarregar listas após garantir dados padrão
-        queryClient.invalidateQueries({ queryKey: ["empresas"] });
-        queryClient.invalidateQueries({ queryKey: ["responsaveis"] });
-        setInitializingData(false);
-      });
-    } else {
-      // Limpar estado ao fechar
+    if (!open) {
       setEmpresaId("");
       setResponsavelId("");
       setTipo("credito");
     }
-  }, [open, queryClient]);
-
-  const { data: empresas, isLoading: loadingEmpresas } = useQuery({
-    queryKey: ["empresas"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("empresas")
-        .select("*")
-        .eq("ativo", true)
-        .order("razao_social");
-      if (error) throw error;
-      return data;
-    },
-    enabled: open,
-  });
-
-  const { data: responsaveis, isLoading: loadingResponsaveis } = useQuery({
-    queryKey: ["responsaveis"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("responsaveis")
-        .select("*")
-        .eq("ativo", true)
-        .order("nome");
-      if (error) throw error;
-      return data;
-    },
-    enabled: open,
-  });
+  }, [open]);
 
   // Pré-selecionar empresa e responsável se houver apenas um
   useEffect(() => {
-    if (empresas && empresas.length === 1 && !empresaId) {
+    if (open && empresas.length === 1 && !empresaId) {
       setEmpresaId(empresas[0].id);
     }
-  }, [empresas, empresaId]);
+  }, [open, empresas, empresaId]);
 
   useEffect(() => {
-    if (responsaveis && responsaveis.length === 1 && !responsavelId) {
+    if (open && responsaveis.length === 1 && !responsavelId) {
       setResponsavelId(responsaveis[0].id);
     }
-  }, [responsaveis, responsavelId]);
+  }, [open, responsaveis, responsavelId]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -123,8 +92,6 @@ export function CartaoFormModal({ open, onOpenChange, cartaoId }: CartaoFormModa
     }
   };
 
-  const isDataLoading = initializingData || loadingEmpresas || loadingResponsaveis;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -135,33 +102,22 @@ export function CartaoFormModal({ open, onOpenChange, cartaoId }: CartaoFormModa
           </DialogDescription>
         </DialogHeader>
 
-        {isDataLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            <span className="ml-2 text-muted-foreground">Carregando dados...</span>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <Label htmlFor="empresa_id">Empresa / CNPJ *</Label>
+            <Select value={empresaId} onValueChange={setEmpresaId} required>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione a empresa" />
+              </SelectTrigger>
+              <SelectContent>
+                {empresas.map((empresa) => (
+                  <SelectItem key={empresa.id} value={empresa.id}>
+                    {empresa.nome} — {empresa.cnpj}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Label htmlFor="empresa_id">Empresa / CNPJ *</Label>
-              <Select value={empresaId} onValueChange={setEmpresaId} required>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a empresa" />
-                </SelectTrigger>
-                <SelectContent>
-                  {empresas?.map((empresa) => (
-                    <SelectItem key={empresa.id} value={empresa.id}>
-                      {empresa.razao_social} - {empresa.cnpj}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {(!empresas || empresas.length === 0) && (
-                <p className="text-sm text-destructive mt-1">
-                  Nenhuma empresa cadastrada. Aguarde a criação automática.
-                </p>
-              )}
-            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -233,16 +189,15 @@ export function CartaoFormModal({ open, onOpenChange, cartaoId }: CartaoFormModa
               <Textarea id="observacoes" name="observacoes" placeholder="Informações adicionais sobre o cartão" rows={3} />
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={loading || !empresaId}>
-                {loading ? "Salvando..." : cartaoId ? "Atualizar" : "Cadastrar"}
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={loading || !empresaId}>
+              {loading ? "Salvando..." : cartaoId ? "Atualizar" : "Cadastrar"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
