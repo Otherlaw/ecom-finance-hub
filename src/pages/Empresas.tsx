@@ -13,6 +13,7 @@ import {
   Check,
   Edit,
   AlertTriangle,
+  Loader2,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -27,31 +28,19 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { EmpresaFormModal } from "@/components/empresas/EmpresaFormModal";
+import { useEmpresas } from "@/hooks/useEmpresas";
 import {
-  Empresa,
-  mockEmpresas,
   REGIME_TRIBUTARIO_CONFIG,
   canUseICMSCredit,
+  RegimeTributario,
 } from "@/lib/empresas-data";
 
 export default function Empresas() {
-  const [empresas, setEmpresas] = useState<Empresa[]>(mockEmpresas);
+  const { empresas, isLoading } = useEmpresas();
   const [formModalOpen, setFormModalOpen] = useState(false);
-  const [editingEmpresa, setEditingEmpresa] = useState<Empresa | null>(null);
+  const [editingEmpresa, setEditingEmpresa] = useState<any | null>(null);
 
-  const handleSaveEmpresa = (empresa: Empresa) => {
-    setEmpresas((prev) => {
-      const index = prev.findIndex((e) => e.id === empresa.id);
-      if (index >= 0) {
-        const updated = [...prev];
-        updated[index] = empresa;
-        return updated;
-      }
-      return [...prev, empresa];
-    });
-  };
-
-  const handleEdit = (empresa: Empresa) => {
+  const handleEdit = (empresa: any) => {
     setEditingEmpresa(empresa);
     setFormModalOpen(true);
   };
@@ -59,6 +48,16 @@ export default function Empresas() {
   const handleNew = () => {
     setEditingEmpresa(null);
     setFormModalOpen(true);
+  };
+
+  // Mapear regime_tributario do Supabase para o tipo local
+  const getRegimeConfig = (regime: string) => {
+    const regimeMap: Record<string, RegimeTributario> = {
+      'simples_nacional': 'simples_nacional',
+      'lucro_presumido': 'lucro_presumido', 
+      'lucro_real': 'lucro_real',
+    };
+    return REGIME_TRIBUTARIO_CONFIG[regimeMap[regime] || 'lucro_presumido'];
   };
 
   return (
@@ -78,114 +77,126 @@ export default function Empresas() {
         icon={Building2}
         noPadding
       >
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-secondary/30">
-              <TableHead>Empresa</TableHead>
-              <TableHead>CNPJ</TableHead>
-              <TableHead>Regime Tributário</TableHead>
-              <TableHead>Marketplaces</TableHead>
-              <TableHead className="text-center">Usuários</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead className="text-center">Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {empresas.map((empresa) => {
-              const regimeConfig = REGIME_TRIBUTARIO_CONFIG[empresa.regimeTributario];
-              const usesICMS = canUseICMSCredit(empresa.regimeTributario);
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-muted-foreground">Carregando empresas...</span>
+          </div>
+        ) : !empresas || empresas.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Building2 className="h-12 w-12 text-muted-foreground/50 mb-4" />
+            <p className="text-muted-foreground mb-4">Nenhuma empresa cadastrada ainda.</p>
+            <Button onClick={handleNew}>
+              <Plus className="h-4 w-4 mr-2" />
+              Cadastrar primeira empresa
+            </Button>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-secondary/30">
+                <TableHead>Empresa</TableHead>
+                <TableHead>CNPJ</TableHead>
+                <TableHead>Regime Tributário</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-center">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {empresas.map((empresa) => {
+                const regimeConfig = getRegimeConfig(empresa.regime_tributario);
+                const usesICMS = canUseICMSCredit(empresa.regime_tributario as RegimeTributario);
 
-              return (
-                <TableRow key={empresa.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-primary/10">
-                        <Building2 className="h-5 w-5 text-primary" />
-                      </div>
-                      <span className="font-medium">{empresa.nome}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-sm">
-                    {empresa.cnpj}
-                  </TableCell>
-                  <TableCell>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex items-center gap-2">
-                          <Badge 
-                            variant="outline" 
-                            className={`${regimeConfig.bgColor} ${regimeConfig.color} border`}
-                          >
-                            {regimeConfig.shortLabel}
-                          </Badge>
-                          <span className="text-sm">{regimeConfig.label}</span>
-                          {!usesICMS && (
-                            <AlertTriangle className="h-4 w-4 text-amber-500" />
+                return (
+                  <TableRow key={empresa.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-primary/10">
+                          <Building2 className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <span className="font-medium block">
+                            {empresa.nome_fantasia || empresa.razao_social}
+                          </span>
+                          {empresa.nome_fantasia && (
+                            <span className="text-xs text-muted-foreground">
+                              {empresa.razao_social}
+                            </span>
                           )}
                         </div>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs">
-                        {usesICMS ? (
-                          <p>Esta empresa pode utilizar créditos de ICMS para compensação tributária.</p>
-                        ) : (
-                          <p>Simples Nacional: créditos de ICMS são apenas para controle interno, não para compensação.</p>
-                        )}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {empresa.marketplaces.map((mp) => (
-                        <Badge key={mp} variant="outline" className="text-xs">
-                          {mp}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground font-mono text-sm">
+                      {empresa.cnpj}
+                    </TableCell>
+                    <TableCell>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center gap-2">
+                            <Badge 
+                              variant="outline" 
+                              className={`${regimeConfig.bgColor} ${regimeConfig.color} border`}
+                            >
+                              {regimeConfig.shortLabel}
+                            </Badge>
+                            <span className="text-sm">{regimeConfig.label}</span>
+                            {!usesICMS && (
+                              <AlertTriangle className="h-4 w-4 text-amber-500" />
+                            )}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          {usesICMS ? (
+                            <p>Esta empresa pode utilizar créditos de ICMS para compensação tributária.</p>
+                          ) : (
+                            <p>Simples Nacional: créditos de ICMS são apenas para controle interno, não para compensação.</p>
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {empresa.ativo ? (
+                        <Badge className="bg-success/10 text-success border-success/20">
+                          <Check className="h-3 w-3 mr-1" />
+                          Ativo
                         </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <Users className="h-4 w-4 text-muted-foreground" />
-                      {empresa.usuarios}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Badge className="bg-success/10 text-success border-success/20">
-                      <Check className="h-3 w-3 mr-1" />
-                      Ativo
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleEdit(empresa)}>
-                          <Edit className="h-4 w-4 mr-2" />
-                          Editar
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Settings className="h-4 w-4 mr-2" />
-                          Configurações
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Store className="h-4 w-4 mr-2" />
-                          Marketplaces
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Users className="h-4 w-4 mr-2" />
-                          Usuários
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                      ) : (
+                        <Badge variant="outline">Inativo</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleEdit(empresa)}>
+                            <Edit className="h-4 w-4 mr-2" />
+                            Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem>
+                            <Settings className="h-4 w-4 mr-2" />
+                            Configurações
+                          </DropdownMenuItem>
+                          <DropdownMenuItem>
+                            <Store className="h-4 w-4 mr-2" />
+                            Marketplaces
+                          </DropdownMenuItem>
+                          <DropdownMenuItem>
+                            <Users className="h-4 w-4 mr-2" />
+                            Usuários
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
       </ModuleCard>
 
       {/* Marketplaces Conectados */}
@@ -232,7 +243,6 @@ export default function Empresas() {
         open={formModalOpen}
         onOpenChange={setFormModalOpen}
         empresa={editingEmpresa}
-        onSave={handleSaveEmpresa}
       />
     </MainLayout>
   );

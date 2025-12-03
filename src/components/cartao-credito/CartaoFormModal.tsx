@@ -6,14 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useCartoes } from "@/hooks/useCartoes";
-import { mockEmpresas } from "@/lib/empresas-data";
-
-// Mock responsáveis - mesma estrutura usada no restante do sistema
-const mockResponsaveis = [
-  { id: "resp-001", nome: "João Silva", email: "joao@exchange.com", funcao: "Financeiro" },
-  { id: "resp-002", nome: "Maria Santos", email: "maria@exchange.com", funcao: "Administrativo" },
-  { id: "resp-003", nome: "Carlos Oliveira", email: "carlos@inpari.com", funcao: "Gerente" },
-];
+import { useEmpresas } from "@/hooks/useEmpresas";
+import { useResponsaveis } from "@/hooks/useResponsaveis";
+import { Loader2 } from "lucide-react";
 
 interface CartaoFormModalProps {
   open: boolean;
@@ -28,10 +23,8 @@ export function CartaoFormModal({ open, onOpenChange, cartaoId }: CartaoFormModa
   const [tipo, setTipo] = useState<string>("credito");
   
   const { createCartao, updateCartao } = useCartoes();
-
-  // Usar dados mock (mesma fonte da tela de Empresas)
-  const empresas = mockEmpresas;
-  const responsaveis = mockResponsaveis;
+  const { empresas, isLoading: loadingEmpresas } = useEmpresas();
+  const { responsaveis, isLoading: loadingResponsaveis } = useResponsaveis();
 
   // Limpar estado ao fechar modal
   useEffect(() => {
@@ -44,13 +37,13 @@ export function CartaoFormModal({ open, onOpenChange, cartaoId }: CartaoFormModa
 
   // Pré-selecionar empresa e responsável se houver apenas um
   useEffect(() => {
-    if (open && empresas.length === 1 && !empresaId) {
+    if (open && empresas && empresas.length === 1 && !empresaId) {
       setEmpresaId(empresas[0].id);
     }
   }, [open, empresas, empresaId]);
 
   useEffect(() => {
-    if (open && responsaveis.length === 1 && !responsavelId) {
+    if (open && responsaveis && responsaveis.length === 1 && !responsavelId) {
       setResponsavelId(responsaveis[0].id);
     }
   }, [open, responsaveis, responsavelId]);
@@ -110,13 +103,24 @@ export function CartaoFormModal({ open, onOpenChange, cartaoId }: CartaoFormModa
                 <SelectValue placeholder="Selecione a empresa" />
               </SelectTrigger>
               <SelectContent>
-                {empresas.map((empresa) => (
+                {empresas?.map((empresa) => (
                   <SelectItem key={empresa.id} value={empresa.id}>
-                    {empresa.nome} — {empresa.cnpj}
+                    {empresa.nome_fantasia || empresa.razao_social} — {empresa.cnpj}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {loadingEmpresas && (
+              <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Carregando empresas...
+              </p>
+            )}
+            {!loadingEmpresas && (!empresas || empresas.length === 0) && (
+              <p className="text-sm text-destructive mt-1">
+                Nenhuma empresa cadastrada. Cadastre uma empresa primeiro.
+              </p>
+            )}
           </div>
 
             <div className="grid grid-cols-2 gap-4">

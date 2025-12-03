@@ -18,61 +18,85 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, Info } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { Info, Loader2 } from "lucide-react";
 import {
-  Empresa,
   RegimeTributario,
   REGIME_TRIBUTARIO_CONFIG,
-  validateEmpresa,
   formatCNPJ,
-  SIMPLES_NACIONAL_ICMS_WARNING,
 } from "@/lib/empresas-data";
+import { useEmpresas } from "@/hooks/useEmpresas";
 
 interface EmpresaFormModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  empresa?: Empresa | null;
-  onSave: (empresa: Empresa) => void;
+  empresa?: any | null;
+}
+
+interface FormData {
+  razao_social: string;
+  nome_fantasia: string;
+  cnpj: string;
+  regime_tributario: string;
+  inscricao_estadual: string;
+  telefone: string;
+  email: string;
+  endereco: string;
+  ativo: boolean;
 }
 
 export function EmpresaFormModal({
   open,
   onOpenChange,
   empresa,
-  onSave,
 }: EmpresaFormModalProps) {
-  const { toast } = useToast();
+  const { createEmpresa, updateEmpresa } = useEmpresas();
   const isEditing = !!empresa;
+  const [loading, setLoading] = useState(false);
 
-  const [formData, setFormData] = useState<Partial<Empresa>>({
-    nome: "",
+  const [formData, setFormData] = useState<FormData>({
+    razao_social: "",
+    nome_fantasia: "",
     cnpj: "",
-    regimeTributario: undefined,
-    marketplaces: [],
-    usuarios: 1,
-    status: "ativo",
+    regime_tributario: "",
+    inscricao_estadual: "",
+    telefone: "",
+    email: "",
+    endereco: "",
+    ativo: true,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (empresa) {
-      setFormData(empresa);
+      setFormData({
+        razao_social: empresa.razao_social || "",
+        nome_fantasia: empresa.nome_fantasia || "",
+        cnpj: empresa.cnpj || "",
+        regime_tributario: empresa.regime_tributario || "",
+        inscricao_estadual: empresa.inscricao_estadual || "",
+        telefone: empresa.telefone || "",
+        email: empresa.email || "",
+        endereco: empresa.endereco || "",
+        ativo: empresa.ativo ?? true,
+      });
     } else {
       setFormData({
-        nome: "",
+        razao_social: "",
+        nome_fantasia: "",
         cnpj: "",
-        regimeTributario: undefined,
-        marketplaces: [],
-        usuarios: 1,
-        status: "ativo",
+        regime_tributario: "",
+        inscricao_estadual: "",
+        telefone: "",
+        email: "",
+        endereco: "",
+        ativo: true,
       });
     }
     setErrors({});
   }, [empresa, open]);
 
-  const handleChange = (field: keyof Empresa, value: string | number | string[]) => {
+  const handleChange = (field: keyof FormData, value: string | boolean) => {
     if (field === 'cnpj' && typeof value === 'string') {
       value = formatCNPJ(value);
     }
@@ -86,44 +110,51 @@ export function EmpresaFormModal({
     }
   };
 
-  const handleSubmit = () => {
-    const validation = validateEmpresa(formData);
-    if (!validation.isValid) {
-      setErrors(validation.errors);
-      toast({
-        title: "Erro de validação",
-        description: "Preencha todos os campos obrigatórios corretamente",
-        variant: "destructive",
-      });
-      return;
+  const validate = (): boolean => {
+    const newErrors: Record<string, string> = {};
+    
+    if (!formData.razao_social.trim()) {
+      newErrors.razao_social = "Razão social é obrigatória";
+    }
+    if (!formData.cnpj.trim()) {
+      newErrors.cnpj = "CNPJ é obrigatório";
+    } else if (!/^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/.test(formData.cnpj)) {
+      newErrors.cnpj = "CNPJ inválido (formato: 00.000.000/0000-00)";
+    }
+    if (!formData.regime_tributario) {
+      newErrors.regime_tributario = "Regime tributário é obrigatório";
     }
 
-    const now = new Date().toISOString().split("T")[0];
-    const savedEmpresa: Empresa = {
-      id: empresa?.id || `emp-${Date.now()}`,
-      nome: formData.nome!,
-      cnpj: formData.cnpj!,
-      regimeTributario: formData.regimeTributario!,
-      marketplaces: formData.marketplaces || [],
-      usuarios: formData.usuarios || 1,
-      status: formData.status as 'ativo' | 'inativo',
-      dataCadastro: empresa?.dataCadastro || now,
-      dataAtualizacao: now,
-    };
-
-    onSave(savedEmpresa);
-    toast({
-      title: isEditing ? "Empresa atualizada" : "Empresa cadastrada",
-      description: `${savedEmpresa.nome} foi ${isEditing ? "atualizada" : "cadastrada"} com sucesso.`,
-    });
-    onOpenChange(false);
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const showSimplesWarning = formData.regimeTributario === 'simples_nacional';
+  const handleSubmit = async () => {
+    if (!validate()) return;
+
+    setLoading(true);
+    try {
+      if (isEditing) {
+        await updateEmpresa.mutateAsync({
+          id: empresa.id,
+          ...formData,
+        });
+      } else {
+        await createEmpresa.mutateAsync(formData);
+      }
+      onOpenChange(false);
+    } catch (error) {
+      // Erro já tratado no hook
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const showSimplesWarning = formData.regime_tributario === 'simples_nacional';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {isEditing ? "Editar Empresa" : "Nova Empresa"}
@@ -135,24 +166,34 @@ export function EmpresaFormModal({
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="nome">Nome da Empresa *</Label>
+            <Label htmlFor="razao_social">Razão Social *</Label>
             <Input
-              id="nome"
-              value={formData.nome || ""}
-              onChange={(e) => handleChange("nome", e.target.value)}
+              id="razao_social"
+              value={formData.razao_social}
+              onChange={(e) => handleChange("razao_social", e.target.value)}
               placeholder="Ex: Minha Empresa Ltda"
-              className={errors.nome ? "border-destructive" : ""}
+              className={errors.razao_social ? "border-destructive" : ""}
             />
-            {errors.nome && (
-              <span className="text-xs text-destructive">{errors.nome}</span>
+            {errors.razao_social && (
+              <span className="text-xs text-destructive">{errors.razao_social}</span>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="nome_fantasia">Nome Fantasia</Label>
+            <Input
+              id="nome_fantasia"
+              value={formData.nome_fantasia}
+              onChange={(e) => handleChange("nome_fantasia", e.target.value)}
+              placeholder="Ex: Minha Empresa"
+            />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="cnpj">CNPJ *</Label>
             <Input
               id="cnpj"
-              value={formData.cnpj || ""}
+              value={formData.cnpj}
               onChange={(e) => handleChange("cnpj", e.target.value)}
               placeholder="00.000.000/0000-00"
               maxLength={18}
@@ -164,12 +205,12 @@ export function EmpresaFormModal({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="regimeTributario">Regime Tributário *</Label>
+            <Label htmlFor="regime_tributario">Regime Tributário *</Label>
             <Select
-              value={formData.regimeTributario}
-              onValueChange={(value) => handleChange("regimeTributario", value as RegimeTributario)}
+              value={formData.regime_tributario}
+              onValueChange={(value) => handleChange("regime_tributario", value)}
             >
-              <SelectTrigger className={errors.regimeTributario ? "border-destructive" : ""}>
+              <SelectTrigger className={errors.regime_tributario ? "border-destructive" : ""}>
                 <SelectValue placeholder="Selecione o regime tributário" />
               </SelectTrigger>
               <SelectContent>
@@ -185,8 +226,8 @@ export function EmpresaFormModal({
                 ))}
               </SelectContent>
             </Select>
-            {errors.regimeTributario && (
-              <span className="text-xs text-destructive">{errors.regimeTributario}</span>
+            {errors.regime_tributario && (
+              <span className="text-xs text-destructive">{errors.regime_tributario}</span>
             )}
           </div>
 
@@ -194,16 +235,58 @@ export function EmpresaFormModal({
             <Alert className="bg-blue-50 border-blue-200">
               <Info className="h-4 w-4 text-blue-600" />
               <AlertDescription className="text-blue-800 text-sm">
-                <strong>Simples Nacional:</strong> Empresas neste regime não utilizam créditos de ICMS para compensação tributária da mesma forma que Lucro Presumido/Real. O módulo de ICMS funcionará apenas como controle interno.
+                <strong>Simples Nacional:</strong> Empresas neste regime não utilizam créditos de ICMS para compensação tributária da mesma forma que Lucro Presumido/Real.
               </AlertDescription>
             </Alert>
           )}
 
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="inscricao_estadual">Inscrição Estadual</Label>
+              <Input
+                id="inscricao_estadual"
+                value={formData.inscricao_estadual}
+                onChange={(e) => handleChange("inscricao_estadual", e.target.value)}
+                placeholder="Opcional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="telefone">Telefone</Label>
+              <Input
+                id="telefone"
+                value={formData.telefone}
+                onChange={(e) => handleChange("telefone", e.target.value)}
+                placeholder="(00) 00000-0000"
+              />
+            </div>
+          </div>
+
           <div className="space-y-2">
-            <Label htmlFor="status">Status</Label>
+            <Label htmlFor="email">E-mail</Label>
+            <Input
+              id="email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => handleChange("email", e.target.value)}
+              placeholder="empresa@email.com"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="endereco">Endereço</Label>
+            <Input
+              id="endereco"
+              value={formData.endereco}
+              onChange={(e) => handleChange("endereco", e.target.value)}
+              placeholder="Rua, número, cidade - UF"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="ativo">Status</Label>
             <Select
-              value={formData.status}
-              onValueChange={(value) => handleChange("status", value)}
+              value={formData.ativo ? "ativo" : "inativo"}
+              onValueChange={(value) => handleChange("ativo", value === "ativo")}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -217,10 +300,11 @@ export function EmpresaFormModal({
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit}>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {isEditing ? "Salvar Alterações" : "Cadastrar Empresa"}
           </Button>
         </div>
