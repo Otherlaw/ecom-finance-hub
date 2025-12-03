@@ -124,15 +124,21 @@ function parseOfxDate(ofxDate: string | null | undefined): string {
  * Supports: <TAG>value, <TAG>value</TAG>, and multiline values
  */
 function extractTagValue(content: string, tagName: string): string | null {
-  // Try SGML format first (no closing tag): <TAG>value
-  const sgmlRegex = new RegExp(`<${tagName}>([^<\\r\\n]+)`, 'i');
-  const sgmlMatch = content.match(sgmlRegex);
-  if (sgmlMatch) return sgmlMatch[1].trim();
-  
-  // Try XML format: <TAG>value</TAG>
-  const xmlRegex = new RegExp(`<${tagName}>([\\s\\S]*?)</${tagName}>`, 'i');
+  // Try XML format first: <TAG>value</TAG>
+  const xmlRegex = new RegExp(`<${tagName}>\\s*([\\s\\S]*?)\\s*</${tagName}>`, 'i');
   const xmlMatch = content.match(xmlRegex);
-  if (xmlMatch) return xmlMatch[1].trim();
+  if (xmlMatch && xmlMatch[1].trim()) return xmlMatch[1].trim();
+  
+  // Try SGML format (no closing tag): <TAG>value followed by newline or another tag
+  // This is more permissive for OFX files
+  const sgmlRegex = new RegExp(`<${tagName}>\\s*([^<\\r\\n]+)`, 'i');
+  const sgmlMatch = content.match(sgmlRegex);
+  if (sgmlMatch && sgmlMatch[1].trim()) return sgmlMatch[1].trim();
+  
+  // Try even more permissive: value might be on next line
+  const multilineRegex = new RegExp(`<${tagName}>\\s*\\n?([^<]+)`, 'i');
+  const multilineMatch = content.match(multilineRegex);
+  if (multilineMatch && multilineMatch[1].trim()) return multilineMatch[1].trim();
   
   return null;
 }
@@ -202,7 +208,11 @@ function parseTransaction(transBlock: string): OFXTransaction | null {
   const dtPosted = extractTagValue(transBlock, 'DTPOSTED');
   const trnAmt = extractTagValue(transBlock, 'TRNAMT');
   
-  if (!dtPosted && !trnAmt) return null;
+  // Need at least a date or amount to be valid
+  if (!dtPosted && !trnAmt) {
+    console.log("Transaction missing both date and amount");
+    return null;
+  }
   
   const memo = extractTagValue(transBlock, 'MEMO');
   const name = extractTagValue(transBlock, 'NAME');
@@ -216,13 +226,20 @@ function parseTransaction(transBlock: string): OFXTransaction | null {
   // Build description from available fields
   let description = '';
   if (memo && name) {
-    description = `${name} - ${memo}`;
+    // Avoid duplicating if memo contains name
+    if (memo.toLowerCase().includes(name.toLowerCase())) {
+      description = memo;
+    } else {
+      description = `${name} - ${memo}`;
+    }
   } else {
-    description = memo || name || '';
+    description = memo || name || 'Transação';
   }
   
+  const parsedDate = parseOfxDate(dtPosted);
+  
   return {
-    date: parseOfxDate(dtPosted),
+    date: parsedDate,
     amount: Math.abs(amount),
     description: cleanDescription(description),
     name: name ? cleanDescription(name) : null,
@@ -241,11 +258,13 @@ function parseTransaction(transBlock: string): OFXTransaction | null {
 function extractTransactions(content: string): OFXTransaction[] {
   const transactions: OFXTransaction[] = [];
   
-  // Find all STMTTRN blocks using multiple strategies
+  console.log("Looking for STMTTRN blocks...");
   
-  // Strategy 1: Match <STMTTRN>...</STMTTRN> (XML format)
+  // Strategy 1: Match <STMTTRN>...</STMTTRN> (XML format with closing tag)
   const xmlRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi;
-  let matches = content.matchAll(xmlRegex);
+  let matches = [...content.matchAll(xmlRegex)];
+  
+  console.log("XML format matches:", matches.length);
   
   for (const match of matches) {
     const trans = parseTransaction(match[1]);
@@ -254,31 +273,45 @@ function extractTransactions(content: string): OFXTransaction[] {
   
   // Strategy 2: If no XML matches, try SGML format (no closing tags)
   if (transactions.length === 0) {
+    console.log("Trying SGML format parsing...");
+    
     // Split by <STMTTRN> and process each block
     const parts = content.split(/<STMTTRN>/i);
+    
+    console.log("Found STMTTRN blocks:", parts.length - 1);
     
     for (let i = 1; i < parts.length; i++) {
       // Find the end of this transaction block
       const part = parts[i];
       let endIndex = part.length;
       
-      // Look for next transaction or end of list
-      const nextTrans = part.search(/<STMTTRN>/i);
-      const endList = part.search(/<\/BANKTRANLIST>/i);
-      const endStmt = part.search(/<\/STMTRS>/i);
-      const endCc = part.search(/<\/CCSTMTRS>/i);
+      // Look for next transaction or end markers
+      const endMarkers = [
+        /<STMTTRN>/i,
+        /<\/STMTTRN>/i,
+        /<\/BANKTRANLIST>/i,
+        /<\/STMTRS>/i,
+        /<\/CCSTMTRS>/i,
+        /<LEDGERBAL>/i,
+        /<AVAILBAL>/i,
+      ];
       
-      if (nextTrans > 0) endIndex = Math.min(endIndex, nextTrans);
-      if (endList > 0) endIndex = Math.min(endIndex, endList);
-      if (endStmt > 0) endIndex = Math.min(endIndex, endStmt);
-      if (endCc > 0) endIndex = Math.min(endIndex, endCc);
+      for (const marker of endMarkers) {
+        const idx = part.search(marker);
+        if (idx > 0) endIndex = Math.min(endIndex, idx);
+      }
       
       const transBlock = part.substring(0, endIndex);
       const trans = parseTransaction(transBlock);
-      if (trans) transactions.push(trans);
+      if (trans) {
+        transactions.push(trans);
+      } else {
+        console.log("Failed to parse transaction block:", transBlock.substring(0, 200));
+      }
     }
   }
   
+  console.log("Total transactions extracted:", transactions.length);
   return transactions;
 }
 
@@ -320,19 +353,27 @@ function extractBalance(content: string): { balance: number | null; balanceDate:
 }
 
 /**
- * Main parse function - handles all Brazilian bank formats
+ * Normalize OFX content - strip headers and clean up
  */
-export function parseOFX(content: string): OFXParseResult {
-  // Normalize line endings and clean content
-  let normalizedContent = content
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n');
+function normalizeOFXContent(content: string): string {
+  let normalized = content;
+  
+  // Normalize line endings
+  normalized = normalized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  
+  // Find the start of OFX data (skip SGML headers)
+  // Look for <OFX> tag which marks the start of actual OFX data
+  const ofxStart = normalized.search(/<OFX[\s>]/i);
+  if (ofxStart > 0) {
+    normalized = normalized.substring(ofxStart);
+  }
   
   // Try to detect and handle encoding issues (ISO-8859-1 vs UTF-8)
   // Common in Brazilian bank files
-  if (content.includes('CHARSET:ISO-8859-1') || content.includes('CHARSET:1252')) {
+  if (content.includes('CHARSET:ISO-8859-1') || content.includes('CHARSET:1252') || 
+      content.includes('CHARSET=ISO-8859-1') || content.includes('CHARSET=1252')) {
     // Content might have encoding issues - try to clean common problems
-    normalizedContent = normalizedContent
+    normalized = normalized
       .replace(/Ã£/g, 'ã')
       .replace(/Ã©/g, 'é')
       .replace(/Ã§/g, 'ç')
@@ -345,6 +386,18 @@ export function parseOFX(content: string): OFXParseResult {
       .replace(/Ãª/g, 'ê')
       .replace(/Ã´/g, 'ô');
   }
+  
+  return normalized;
+}
+
+/**
+ * Main parse function - handles all Brazilian bank formats
+ */
+export function parseOFX(content: string): OFXParseResult {
+  // Normalize and clean content
+  const normalizedContent = normalizeOFXContent(content);
+  
+  console.log("Parsing OFX content, length:", normalizedContent.length);
   
   // Extract date range from BANKTRANLIST
   const dtStart = extractTagValue(normalizedContent, 'DTSTART') || '';
@@ -363,6 +416,8 @@ export function parseOFX(content: string): OFXParseResult {
   // Extract transactions
   const transactions = extractTransactions(normalizedContent);
   
+  console.log("Extracted transactions:", transactions.length);
+  
   // Sort transactions by date (newest first)
   transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   
@@ -380,14 +435,19 @@ export function parseOFX(content: string): OFXParseResult {
 
 /**
  * Validate if content looks like an OFX file
+ * More tolerant validation for Brazilian bank files
  */
 export function isValidOFX(content: string): boolean {
+  if (!content || content.length < 50) return false;
+  
   const upperContent = content.toUpperCase();
   
-  // Check for OFX header markers
+  // Check for OFX header markers (very flexible)
   const hasOFXHeader = upperContent.includes('OFXHEADER') || 
                        upperContent.includes('<OFX>') ||
-                       upperContent.includes('DATA:OFXSGML');
+                       upperContent.includes('<OFX') ||
+                       upperContent.includes('DATA:OFXSGML') ||
+                       upperContent.includes('DATA:OFX');
   
   // Check for transaction data markers
   const hasTransactionData = upperContent.includes('BANKTRANLIST') || 
@@ -398,9 +458,16 @@ export function isValidOFX(content: string): boolean {
   // Check for bank/account markers
   const hasBankData = upperContent.includes('BANKMSGSRSV1') ||
                       upperContent.includes('CREDITCARDMSGSRSV1') ||
-                      upperContent.includes('ACCTID');
+                      upperContent.includes('ACCTID') ||
+                      upperContent.includes('BANKID') ||
+                      upperContent.includes('CURDEF');
   
-  return hasOFXHeader || (hasTransactionData && hasBankData);
+  // Check for any transaction-like content (fallback)
+  const hasTransactionContent = upperContent.includes('DTPOSTED') ||
+                                upperContent.includes('TRNAMT') ||
+                                upperContent.includes('FITID');
+  
+  return hasOFXHeader || hasTransactionData || (hasBankData && hasTransactionContent);
 }
 
 /**

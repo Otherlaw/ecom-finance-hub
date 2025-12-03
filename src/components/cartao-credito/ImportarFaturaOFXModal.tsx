@@ -50,6 +50,33 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
     }
   }, [open, cartoes, cartaoSelecionado]);
 
+  /**
+   * Read file with encoding detection (UTF-8 first, then Latin-1)
+   */
+  const readFileWithEncoding = async (file: File): Promise<string> => {
+    // First try UTF-8
+    const arrayBuffer = await file.arrayBuffer();
+    
+    // Try UTF-8 first
+    let text = new TextDecoder('utf-8').decode(arrayBuffer);
+    
+    // Check for encoding declaration in OFX header
+    const hasLatin1 = /CHARSET[:=]\s*(ISO-8859-1|1252|ANSI)/i.test(text) ||
+                      /ENCODING[:=]\s*(ISO-8859-1|1252|ANSI)/i.test(text);
+    
+    // If Latin-1 declared or we see garbled characters, try Latin-1
+    if (hasLatin1 || /Ã[£©§µ¡­ºóâêô]/.test(text)) {
+      text = new TextDecoder('iso-8859-1').decode(arrayBuffer);
+    }
+    
+    // Remove BOM if present
+    if (text.charCodeAt(0) === 0xFEFF) {
+      text = text.substring(1);
+    }
+    
+    return text;
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -60,10 +87,14 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
     setDetectedBank(null);
 
     try {
-      const text = await file.text();
+      // Read file with proper encoding detection
+      const text = await readFileWithEncoding(file);
+      
+      console.log("OFX content preview:", text.substring(0, 500));
       
       // Validate OFX content
       if (!isValidOFX(text)) {
+        console.warn("OFX validation failed. Content starts with:", text.substring(0, 200));
         toast.error("O arquivo não parece ser um OFX válido. Verifique o formato.");
         setArquivo(null);
         return;
@@ -75,6 +106,13 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
       
       // Parse OFX
       const result = parseOFX(text);
+      console.log("OFX parse result:", { 
+        transactionCount: result.transactions.length,
+        dtStart: result.dtStart,
+        dtEnd: result.dtEnd,
+        bank: result.organization
+      });
+      
       setParseResult(result);
       
       if (result.transactions.length > 0) {
@@ -83,6 +121,7 @@ export function ImportarFaturaOFXModal({ open, onOpenChange }: ImportarFaturaOFX
         const bankInfo = bank ? ` (${bank})` : '';
         toast.success(`Arquivo OFX carregado${bankInfo}: ${result.transactions.length} transações encontradas`);
       } else {
+        console.warn("No transactions found in OFX. Raw content:", text.substring(0, 1000));
         toast.error("Nenhuma transação encontrada no arquivo OFX.");
         setArquivo(null);
       }
