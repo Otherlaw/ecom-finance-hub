@@ -25,6 +25,7 @@ import {
   Users,
   LogOut,
   Bot,
+  FolderTree,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -48,7 +49,7 @@ const mainNavItems: NavItem[] = [
   { title: "KPIs", href: "/kpis", icon: TrendingUp },
   { title: "Projeções", href: "/projecoes", icon: LineChart },
   { title: "Crédito ICMS", href: "/icms", icon: Receipt, badge: "!" },
-  { title: "Conciliação Tiny", href: "/conciliacao", icon: RefreshCw },
+  { title: "Conciliações", href: "/conciliacao", icon: RefreshCw },
   { title: "Produtos", href: "/produtos", icon: Package },
   { title: "Compras", href: "/compras", icon: ShoppingCart },
   { title: "Contas a Pagar", href: "/contas-pagar", icon: CreditCard },
@@ -60,6 +61,7 @@ const mainNavItems: NavItem[] = [
 
 const settingsNavItems: NavItem[] = [
   { title: "Empresas", href: "/empresas", icon: Building2 },
+  { title: "Centros de Custo", href: "/centros-custo", icon: FolderTree },
   { title: "Usuários", href: "/usuarios", icon: Users },
   { title: "Configurações", href: "/configuracoes", icon: Settings },
 ];

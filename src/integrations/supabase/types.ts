@@ -47,29 +47,43 @@ export type Database = {
       centros_de_custo: {
         Row: {
           ativo: boolean
+          codigo: string | null
           created_at: string
           descricao: string | null
           id: string
           nome: string
+          parent_id: string | null
           updated_at: string
         }
         Insert: {
           ativo?: boolean
+          codigo?: string | null
           created_at?: string
           descricao?: string | null
           id?: string
           nome: string
+          parent_id?: string | null
           updated_at?: string
         }
         Update: {
           ativo?: boolean
+          codigo?: string | null
           created_at?: string
           descricao?: string | null
           id?: string
           nome?: string
+          parent_id?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "centros_de_custo_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       credit_card_invoices: {
         Row: {
