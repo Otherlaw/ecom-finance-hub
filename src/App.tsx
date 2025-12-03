@@ -21,6 +21,7 @@ import Precificacao from "./pages/Precificacao";
 import CartaoCredito from "./pages/CartaoCredito";
 import CentrosCusto from "./pages/CentrosCusto";
 import PlanoContas from "./pages/PlanoContas";
+import RegrasCategorizacao from "./pages/RegrasCategorizacao";
 import Empresas from "./pages/Empresas";
 import Usuarios from "./pages/Usuarios";
 import Configuracoes from "./pages/Configuracoes";
@@ -57,6 +58,7 @@ const App = () => (
             <Route path="/cartao-credito" element={<CartaoCredito />} />
             <Route path="/centros-custo" element={<CentrosCusto />} />
             <Route path="/plano-contas" element={<PlanoContas />} />
+            <Route path="/regras-categorizacao" element={<RegrasCategorizacao />} />
             <Route path="/assistant" element={<AssistantCenter />} />
             <Route path="/empresas" element={<Empresas />} />
             <Route path="/usuarios" element={<Usuarios />} />
