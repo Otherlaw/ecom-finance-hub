@@ -131,7 +131,10 @@ export default function FluxoCaixa() {
   const [periodoSelecionado, setPeriodoSelecionado] = useState(format(new Date(), "yyyy-MM"));
   const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
   const [visaoAtiva, setVisaoAtiva] = useState<"diario" | "dashboard">("diario");
-  const [tipoFiltro, setTipoFiltro] = useState<"todos" | "entradas" | "saidas">("todos");
+  const [filtroTipo, setFiltroTipo] = useState<"todos" | "entradas" | "saidas">("todos");
+  const [filtroOrigem, setFiltroOrigem] = useState<"todas" | "cartao" | "banco" | "contas_pagar" | "contas_receber" | "manual">("todas");
+  const [filtroCategoria, setFiltroCategoria] = useState<string>("todas");
+  const [filtroCentroCusto, setFiltroCentroCusto] = useState<string>("todas");
 
   // Calcular datas do período
   const { periodoInicio, periodoFim } = useMemo(() => {
@@ -152,28 +155,145 @@ export default function FluxoCaixa() {
 
   const opcoesPeriodo = useMemo(() => gerarOpcoesPeriodo(), []);
 
-  // Filtrar movimentos por tipo
+  // Listas para popular os selects de filtros
+  const categoriasDisponiveis = useMemo(() => {
+    const nomes = movimentos
+      .map((m) => m.categoriaNome)
+      .filter((nome): nome is string => !!nome);
+    return Array.from(new Set(nomes)).sort();
+  }, [movimentos]);
+
+  const centrosDisponiveis = useMemo(() => {
+    const nomes = movimentos
+      .map((m) => m.centroCustoNome)
+      .filter((nome): nome is string => !!nome);
+    return Array.from(new Set(nomes)).sort();
+  }, [movimentos]);
+
+  // Filtrar movimentos com todos os filtros
   const movimentosFiltrados = useMemo(() => {
-    if (tipoFiltro === "todos") return movimentos;
-    return movimentos.filter((m) =>
-      tipoFiltro === "entradas" ? m.tipo === "entrada" : m.tipo === "saida"
-    );
-  }, [movimentos, tipoFiltro]);
+    return movimentos.filter((m) => {
+      // Filtro por tipo
+      if (filtroTipo !== "todos") {
+        if (filtroTipo === "entradas" && m.tipo !== "entrada") return false;
+        if (filtroTipo === "saidas" && m.tipo !== "saida") return false;
+      }
+      // Filtro por origem
+      if (filtroOrigem !== "todas" && m.origem !== filtroOrigem) return false;
+      // Filtro por categoria
+      if (filtroCategoria !== "todas" && m.categoriaNome !== filtroCategoria) return false;
+      // Filtro por centro de custo
+      if (filtroCentroCusto !== "todas" && m.centroCustoNome !== filtroCentroCusto) return false;
+      return true;
+    });
+  }, [movimentos, filtroTipo, filtroOrigem, filtroCategoria, filtroCentroCusto]);
+
+  // Recalcular resumo baseado nos movimentos filtrados
+  const resumoFiltrado = useMemo(() => {
+    const totalEntradas = movimentosFiltrados
+      .filter((m) => m.tipo === "entrada")
+      .reduce((acc, m) => acc + m.valor, 0);
+
+    const totalSaidas = movimentosFiltrados
+      .filter((m) => m.tipo === "saida")
+      .reduce((acc, m) => acc + m.valor, 0);
+
+    const saldoInicial = 0;
+    const saldoFinal = saldoInicial + totalEntradas - totalSaidas;
+
+    const diasNoPeriodo = movimentosFiltrados.length > 0 ? 
+      Math.max(1, Math.ceil((new Date(movimentosFiltrados[movimentosFiltrados.length - 1]?.data).getTime() - new Date(movimentosFiltrados[0]?.data).getTime()) / (1000 * 60 * 60 * 24))) : 1;
+    const mediaDiariaSaidas = totalSaidas / diasNoPeriodo;
+    const projecao30Dias = saldoFinal - (mediaDiariaSaidas * 30);
+
+    return {
+      saldoInicial,
+      totalEntradas,
+      totalSaidas,
+      saldoFinal,
+      projecao30Dias,
+    };
+  }, [movimentosFiltrados]);
+
+  // Recalcular agregados para dashboard baseado nos movimentos filtrados
+  const agregadoFiltrado = useMemo(() => {
+    // Agrupar por dia
+    const porDiaMap = new Map<string, { entradas: number; saidas: number }>();
+    movimentosFiltrados.forEach((m) => {
+      const existing = porDiaMap.get(m.data) || { entradas: 0, saidas: 0 };
+      if (m.tipo === "entrada") {
+        existing.entradas += m.valor;
+      } else {
+        existing.saidas += m.valor;
+      }
+      porDiaMap.set(m.data, existing);
+    });
+
+    let saldoAcumulado = 0;
+    const porDia = Array.from(porDiaMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([data, values]) => {
+        const saldo = values.entradas - values.saidas;
+        saldoAcumulado += saldo;
+        return { data, entradas: values.entradas, saidas: values.saidas, saldo, saldoAcumulado };
+      });
+
+    // Agrupar por categoria (saídas)
+    const porCategoriaMap = new Map<string, { tipo: string; valor: number }>();
+    movimentosFiltrados
+      .filter((m) => m.tipo === "saida")
+      .forEach((m) => {
+        const key = m.categoriaNome || "Não categorizado";
+        const existing = porCategoriaMap.get(key) || { tipo: m.categoriaTipo || "", valor: 0 };
+        existing.valor += m.valor;
+        porCategoriaMap.set(key, existing);
+      });
+
+    const porCategoria = Array.from(porCategoriaMap.entries())
+      .map(([categoria, { tipo, valor }]) => ({ categoria, tipo, valor }))
+      .sort((a, b) => b.valor - a.valor);
+
+    // Agrupar por centro de custo
+    const porCCMap = new Map<string, number>();
+    movimentosFiltrados
+      .filter((m) => m.tipo === "saida")
+      .forEach((m) => {
+        const key = m.centroCustoNome || "Sem centro de custo";
+        porCCMap.set(key, (porCCMap.get(key) || 0) + m.valor);
+      });
+
+    const porCentroCusto = Array.from(porCCMap.entries())
+      .map(([centroCusto, valor]) => ({ centroCusto, valor }))
+      .sort((a, b) => b.valor - a.valor);
+
+    return { porDia, porCategoria, porCentroCusto };
+  }, [movimentosFiltrados]);
+
+  // Verificar se há filtros ativos
+  const temFiltrosAtivos = filtroTipo !== "todos" || filtroOrigem !== "todas" || filtroCategoria !== "todas" || filtroCentroCusto !== "todas";
+
+  // Limpar todos os filtros
+  const limparFiltros = () => {
+    setFiltroTipo("todos");
+    setFiltroOrigem("todas");
+    setFiltroCategoria("todas");
+    setFiltroCentroCusto("todas");
+  };
 
   // Dados para gráfico de evolução
   const dadosEvolucao = useMemo(() => {
-    return agregado.porDia.map((d) => ({
+    return agregadoFiltrado.porDia.map((d) => ({
       data: formatDateBR(d.data).slice(0, 5), // DD/MM
       entradas: d.entradas,
       saidas: d.saidas,
       saldo: d.saldoAcumulado,
     }));
-  }, [agregado.porDia]);
+  }, [agregadoFiltrado.porDia]);
 
   // Top categorias para gráfico
   const topCategorias = useMemo(() => {
-    return agregado.porCategoria.slice(0, 8);
-  }, [agregado.porCategoria]);
+    return agregadoFiltrado.porCategoria.slice(0, 8);
+  }, [agregadoFiltrado.porCategoria]);
 
   return (
     <MainLayout
@@ -220,71 +340,124 @@ export default function FluxoCaixa() {
         </div>
       }
     >
-      {/* KPIs - sempre visíveis */}
+      {/* KPIs - sempre visíveis (usando resumoFiltrado) */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <KPICard
           title="Saldo Inicial"
-          value={formatCurrency(resumo.saldoInicial)}
+          value={formatCurrency(resumoFiltrado.saldoInicial)}
           icon={Wallet}
           trend="neutral"
         />
         <KPICard
           title="Total Entradas"
-          value={formatCurrency(resumo.totalEntradas)}
+          value={formatCurrency(resumoFiltrado.totalEntradas)}
           icon={ArrowUpCircle}
           iconColor="text-success"
           trend="up"
         />
         <KPICard
           title="Total Saídas"
-          value={formatCurrency(resumo.totalSaidas)}
+          value={formatCurrency(resumoFiltrado.totalSaidas)}
           icon={ArrowDownCircle}
           iconColor="text-destructive"
           trend="down"
         />
         <KPICard
           title="Saldo Final"
-          value={formatCurrency(resumo.saldoFinal)}
+          value={formatCurrency(resumoFiltrado.saldoFinal)}
           icon={Wallet}
-          trend={resumo.saldoFinal >= 0 ? "up" : "down"}
+          trend={resumoFiltrado.saldoFinal >= 0 ? "up" : "down"}
         />
         <KPICard
           title="Projeção 30 dias"
-          value={formatCurrency(resumo.projecao30Dias)}
+          value={formatCurrency(resumoFiltrado.projecao30Dias)}
           changeLabel="Estimativa"
           icon={TrendingUp}
-          trend={resumo.projecao30Dias >= 0 ? "neutral" : "down"}
+          trend={resumoFiltrado.projecao30Dias >= 0 ? "neutral" : "down"}
         />
+      </div>
+
+      {/* Filtros Avançados */}
+      <div className="flex flex-wrap items-center gap-2 mb-4 p-3 bg-secondary/20 rounded-lg">
+        <span className="text-sm font-medium text-muted-foreground">Filtros:</span>
+        
+        {/* Filtro por Tipo */}
+        <Select value={filtroTipo} onValueChange={(v) => setFiltroTipo(v as any)}>
+          <SelectTrigger className="w-[140px] h-9">
+            <SelectValue placeholder="Tipo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos</SelectItem>
+            <SelectItem value="entradas">Entradas</SelectItem>
+            <SelectItem value="saidas">Saídas</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Filtro por Origem */}
+        <Select value={filtroOrigem} onValueChange={(v) => setFiltroOrigem(v as any)}>
+          <SelectTrigger className="w-[160px] h-9">
+            <SelectValue placeholder="Origem" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todas">Todas Origens</SelectItem>
+            <SelectItem value="cartao">Cartão</SelectItem>
+            <SelectItem value="banco">Banco</SelectItem>
+            <SelectItem value="contas_pagar">Contas a Pagar</SelectItem>
+            <SelectItem value="contas_receber">Contas a Receber</SelectItem>
+            <SelectItem value="manual">Manual</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Filtro por Categoria */}
+        <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
+          <SelectTrigger className="w-[180px] h-9">
+            <SelectValue placeholder="Categoria" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todas">Todas Categorias</SelectItem>
+            {categoriasDisponiveis.map((cat) => (
+              <SelectItem key={cat} value={cat}>
+                {cat}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Filtro por Centro de Custo */}
+        <Select value={filtroCentroCusto} onValueChange={setFiltroCentroCusto}>
+          <SelectTrigger className="w-[180px] h-9">
+            <SelectValue placeholder="Centro de Custo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todas">Todos Centros</SelectItem>
+            {centrosDisponiveis.map((cc) => (
+              <SelectItem key={cc} value={cc}>
+                {cc}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Botão Limpar Filtros */}
+        {temFiltrosAtivos && (
+          <Button variant="ghost" size="sm" onClick={limparFiltros} className="h-9">
+            Limpar filtros
+          </Button>
+        )}
       </div>
 
       {/* Tabs de Visão */}
       <Tabs value={visaoAtiva} onValueChange={(v) => setVisaoAtiva(v as any)} className="space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <TabsList>
-            <TabsTrigger value="diario" className="gap-2">
-              <List className="h-4 w-4" />
-              Visão Diária
-            </TabsTrigger>
-            <TabsTrigger value="dashboard" className="gap-2">
-              <LayoutDashboard className="h-4 w-4" />
-              Dashboard
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Filtro de Tipo de Movimento */}
-          {visaoAtiva === "diario" && (
-            <Select value={tipoFiltro} onValueChange={(v) => setTipoFiltro(v as any)}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="entradas">Somente Entradas</SelectItem>
-                <SelectItem value="saidas">Somente Saídas</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+        <TabsList>
+          <TabsTrigger value="diario" className="gap-2">
+            <List className="h-4 w-4" />
+            Visão Diária
+          </TabsTrigger>
+          <TabsTrigger value="dashboard" className="gap-2">
+            <LayoutDashboard className="h-4 w-4" />
+            Dashboard
+          </TabsTrigger>
+        </TabsList>
 
         {/* VISÃO DIÁRIA */}
         <TabsContent value="diario" className="space-y-4">
