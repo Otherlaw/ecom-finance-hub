@@ -1,5 +1,8 @@
 /**
  * Modal para criar/editar Movimentação Manual
+ * 
+ * Modal auto-contido que gerencia criação/edição de movimentos manuais.
+ * Integra diretamente com o FLOW HUB via useMovimentosManuais.
  */
 
 import { useState, useEffect } from "react";
@@ -29,10 +32,25 @@ import { useEmpresas } from "@/hooks/useEmpresas";
 import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { useResponsaveis } from "@/hooks/useResponsaveis";
-import { MovimentoManual } from "@/hooks/useMovimentosManuais";
-import { MovimentoManualPayload } from "@/lib/movimentos-manuais";
+import { useMovimentosManuais } from "@/hooks/useMovimentosManuais";
 import { Loader2 } from "lucide-react";
 import { format } from "date-fns";
+
+// Interface flexível que aceita tanto MovimentoFinanceiro quanto MovimentoManual
+interface MovimentoBase {
+  id?: string;
+  data: string;
+  tipo: "entrada" | "saida";
+  descricao: string;
+  valor: number;
+  empresaId: string;
+  referenciaId?: string | null;
+  categoriaId?: string | null;
+  centroCustoId?: string | null;
+  responsavelId?: string | null;
+  formaPagamento?: string | null;
+  observacoes?: string | null;
+}
 
 const formSchema = z.object({
   data: z.string().min(1, "Data é obrigatória"),
@@ -49,12 +67,12 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
-interface MovimentoManualFormModalProps {
+interface MovimentoManualModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  movimento?: MovimentoManual | null;
-  onSubmit: (data: MovimentoManualPayload) => Promise<void>;
-  isLoading?: boolean;
+  movimento?: MovimentoBase | null; // aceita qualquer movimento com campos base
+  empresaIdDefault?: string;
+  onSuccess?: () => void;
 }
 
 const FORMAS_PAGAMENTO = [
@@ -71,13 +89,14 @@ export function MovimentoManualFormModal({
   open,
   onOpenChange,
   movimento,
-  onSubmit,
-  isLoading,
-}: MovimentoManualFormModalProps) {
+  empresaIdDefault,
+  onSuccess,
+}: MovimentoManualModalProps) {
   const { empresas } = useEmpresas();
-  const { categorias, categoriasPorTipo } = useCategoriasFinanceiras();
+  const { categorias } = useCategoriasFinanceiras();
   const { centrosFlat } = useCentrosCusto();
   const { responsaveis } = useResponsaveis();
+  const { createMovimento, updateMovimento } = useMovimentosManuais({});
   const [submitting, setSubmitting] = useState(false);
 
   const isEditing = !!movimento;
@@ -108,7 +127,7 @@ export function MovimentoManualFormModal({
   const tipoSelecionado = watch("tipo");
   const categoriaSelecionada = watch("categoriaId");
 
-  // Preencher form ao editar
+  // Preencher form ao abrir
   useEffect(() => {
     if (movimento && open) {
       reset({
@@ -129,7 +148,7 @@ export function MovimentoManualFormModal({
         tipo: "saida",
         valor: 0,
         descricao: "",
-        empresaId: empresas?.[0]?.id || "",
+        empresaId: empresaIdDefault || empresas?.[0]?.id || "",
         categoriaId: "",
         centroCustoId: "",
         responsavelId: "",
@@ -137,7 +156,7 @@ export function MovimentoManualFormModal({
         observacoes: "",
       });
     }
-  }, [movimento, open, reset, empresas]);
+  }, [movimento, open, reset, empresas, empresaIdDefault]);
 
   // Filtrar categorias por tipo (receitas para entrada, despesas para saída)
   const categoriasDisponiveis = categorias?.filter((cat) => {
@@ -153,11 +172,11 @@ export function MovimentoManualFormModal({
       const categoriaNome = categorias?.find((c) => c.id === data.categoriaId)?.nome;
       const centroCustoNome = centrosFlat?.find((c) => c.id === data.centroCustoId)?.nome;
 
-      const payload: MovimentoManualPayload = {
+      const payload = {
         referenciaId: movimento?.referenciaId || undefined,
         empresaId: data.empresaId,
         data: data.data,
-        tipo: data.tipo,
+        tipo: data.tipo as "entrada" | "saida",
         valor: data.valor,
         descricao: data.descricao,
         categoriaId: data.categoriaId,
@@ -169,12 +188,20 @@ export function MovimentoManualFormModal({
         observacoes: data.observacoes || undefined,
       };
 
-      await onSubmit(payload);
+      if (isEditing && movimento?.referenciaId) {
+        await updateMovimento.mutateAsync(payload);
+      } else {
+        await createMovimento.mutateAsync(payload);
+      }
+
       onOpenChange(false);
+      onSuccess?.();
     } finally {
       setSubmitting(false);
     }
   };
+
+  const isLoading = submitting || createMovimento.isPending || updateMovimento.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -384,12 +411,12 @@ export function MovimentoManualFormModal({
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={submitting || isLoading}
+              disabled={isLoading}
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={submitting || isLoading}>
-              {(submitting || isLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button type="submit" disabled={isLoading}>
+              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {isEditing ? "Salvar Alterações" : "Criar Movimentação"}
             </Button>
           </DialogFooter>

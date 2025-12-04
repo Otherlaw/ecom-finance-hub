@@ -52,9 +52,7 @@ import {
 import { useMovimentosManuais, MovimentoManual } from "@/hooks/useMovimentosManuais";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { MovimentoManualFormModal } from "@/components/movimentos-manuais/MovimentoManualFormModal";
-import { MovimentoManualPayload } from "@/lib/movimentos-manuais";
 import { format, startOfMonth, endOfMonth } from "date-fns";
-import { ptBR } from "date-fns/locale";
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat("pt-BR", {
@@ -87,8 +85,6 @@ export default function MovimentosManuais() {
     movimentos,
     resumo,
     isLoading,
-    createMovimento,
-    updateMovimento,
     deleteMovimento,
   } = useMovimentosManuais({
     empresaId: empresaId === "todas" ? undefined : empresaId,
@@ -130,14 +126,6 @@ export default function MovimentosManuais() {
     await deleteMovimento.mutateAsync(movimentoExcluindo.referenciaId);
     setDeleteDialogOpen(false);
     setMovimentoExcluindo(null);
-  };
-
-  const handleSubmitForm = async (data: MovimentoManualPayload) => {
-    if (movimentoEditando) {
-      await updateMovimento.mutateAsync(data);
-    } else {
-      await createMovimento.mutateAsync(data);
-    }
   };
 
   return (
@@ -382,8 +370,6 @@ export default function MovimentosManuais() {
         open={modalOpen}
         onOpenChange={setModalOpen}
         movimento={movimentoEditando}
-        onSubmit={handleSubmitForm}
-        isLoading={createMovimento.isPending || updateMovimento.isPending}
       />
 
       {/* Dialog de Exclusão */}
