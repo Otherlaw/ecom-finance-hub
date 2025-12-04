@@ -60,6 +60,7 @@ import { Link } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { MovimentacaoManualModal } from "@/components/conciliacao/MovimentacaoManualModal";
 
 // Cores para gráficos
 const CHART_COLORS = [
@@ -148,6 +149,10 @@ export default function FluxoCaixa() {
   const [filtroOrigem, setFiltroOrigem] = useState<OrigemFiltro>("todas");
   const [filtroCategoria, setFiltroCategoria] = useState<string>("todas");
   const [filtroCentroCusto, setFiltroCentroCusto] = useState<string>("todas");
+
+  // Estado do modal de movimentação manual
+  const [modalManualOpen, setModalManualOpen] = useState(false);
+  const [movimentoEdicao, setMovimentoEdicao] = useState<any | null>(null);
 
   // Calcular datas do período (considerando modo mensal ou personalizado)
   const { periodoInicio, periodoFim } = useMemo(() => {
@@ -510,13 +515,25 @@ export default function FluxoCaixa() {
             </Select>
           </div>
 
-          {/* Exportar */}
+          {/* Ações */}
           <div className="flex flex-col gap-1">
             <Label className="text-xs font-medium text-muted-foreground invisible">Ação</Label>
-            <Button variant="outline" className="gap-2 h-9" onClick={exportarExcel}>
-              <Download className="h-4 w-4" />
-              Exportar
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setMovimentoEdicao(null);
+                  setModalManualOpen(true);
+                }}
+              >
+                + Movimentação Manual
+              </Button>
+              <Button variant="outline" className="gap-2 h-9" onClick={exportarExcel}>
+                <Download className="h-4 w-4" />
+                Exportar
+              </Button>
+            </div>
           </div>
         </div>
       }
@@ -1055,6 +1072,15 @@ export default function FluxoCaixa() {
           )}
         </TabsContent>
       </Tabs>
+
+      <MovimentacaoManualModal
+        open={modalManualOpen}
+        onOpenChange={setModalManualOpen}
+        movimento={movimentoEdicao}
+        onSuccess={() => {
+          // Dados serão atualizados automaticamente via invalidateQueries no modal
+        }}
+      />
     </MainLayout>
   );
 }
