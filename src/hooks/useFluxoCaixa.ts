@@ -21,6 +21,8 @@ export interface MovimentoCaixa {
   fornecedorNome?: string | null;
   clienteNome?: string | null;
   status: string;
+  referenciaId?: string | null;
+  isManual: boolean;
 }
 
 export interface FluxoCaixaResumo {
@@ -83,6 +85,8 @@ export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxo
       valor: Math.abs(m.valor), empresaId: m.empresa_id,
       empresaNome: m.empresa?.nome_fantasia || m.empresa?.razao_social,
       fornecedorNome: m.fornecedor_nome, clienteNome: m.cliente_nome, status: "conciliado",
+      referenciaId: m.referencia_id,
+      isManual: m.origem === "manual",
     }));
   }, [movimentosRaw]);
 
