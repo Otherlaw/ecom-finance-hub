@@ -3,7 +3,35 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { registrarMovimentoFinanceiro, removerMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
 import { processarSaidaEstoqueMarketplace, reverterSaidaEstoqueMarketplace } from "@/lib/motor-saida-marketplace";
-import { validarEstoqueParaConciliacao } from "@/lib/validacao-estoque-marketplace";
+import { validarEstoqueMarketplaceAntesConciliar } from "@/lib/validacao-estoque-marketplace";
+
+// ============= HELPER DE MENSAGEM DE ERRO =============
+function construirMensagemDeErro(validacao: {
+  ok: boolean;
+  erros: {
+    itemId: string;
+    motivo: string;
+    skuMarketplace?: string | null;
+    produtoId?: string | null;
+    skuId?: string | null;
+    estoqueAtual?: number;
+    quantidadeNecessaria?: number;
+  }[];
+}): string {
+  if (validacao.ok || validacao.erros.length === 0) {
+    return "Validação OK";
+  }
+
+  const linhas = validacao.erros.map((e) => {
+    const sku = e.skuMarketplace ? `SKU: ${e.skuMarketplace}` : (e.skuId || e.produtoId || "Item");
+    if (e.motivo === "Estoque insuficiente") {
+      return `• ${sku} - Estoque: ${e.estoqueAtual ?? 0}, Necessário: ${e.quantidadeNecessaria ?? 1}`;
+    }
+    return `• ${sku} - ${e.motivo}`;
+  });
+
+  return `Estoque insuficiente para ${validacao.erros.length} item(s):\n${linhas.join("\n")}`;
+}
 
 export interface MarketplaceTransaction {
   id: string;
@@ -341,11 +369,13 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
       // VALIDAÇÃO DE ESTOQUE (a menos que forçada)
       if (!forcarConciliacao) {
-        const validacao = await validarEstoqueParaConciliacao(id, transacao.empresa_id);
-        if (!validacao.valido) {
-          const error = new Error(`Estoque insuficiente: ${validacao.mensagem_geral}`);
-          (error as any).validacao = validacao;
-          throw error;
+        const validacao = await validarEstoqueMarketplaceAntesConciliar({
+          transactionId: id,
+          empresaId: transacao.empresa_id,
+        });
+        if (!validacao.ok) {
+          const msg = construirMensagemDeErro(validacao);
+          throw new Error(msg);
         }
       }
 
