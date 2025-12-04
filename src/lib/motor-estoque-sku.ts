@@ -535,18 +535,58 @@ async function verificarIdempotenciaCompra(compraId: string): Promise<boolean> {
 }
 
 /**
+ * Busca dados de uma compra (mock por agora, preparado para banco)
+ */
+async function buscarCompra(compraId: string): Promise<CompraParaEstoque | null> {
+  // TODO: Quando tabela 'compras' existir no banco, substituir por query real
+  // Por agora, importa do mock
+  const { mockPurchases } = await import("./purchases-data");
+  
+  const purchase = mockPurchases.find(p => p.id === compraId);
+  if (!purchase) return null;
+
+  // Buscar empresa_id pelo nome da empresa (mock)
+  const { data: empresa } = await supabase
+    .from("empresas")
+    .select("id")
+    .ilike("razao_social", `%${purchase.empresa}%`)
+    .maybeSingle();
+
+  return {
+    id: purchase.id,
+    empresaId: empresa?.id || "",
+    dataCompra: purchase.dataCompra,
+    numeroNF: purchase.numeroNF,
+    itens: purchase.itens
+      .filter(item => item.mapeado && item.produtoId)
+      .map(item => ({
+        produtoId: item.produtoId!,
+        produtoNome: item.produtoNome,
+        quantidade: item.quantidade,
+        valorUnitario: item.valorUnitario,
+        valorTotal: item.valorTotal,
+      })),
+  };
+}
+
+/**
  * Processa uma compra para atualizar o estoque
  * 
+ * Aceita:
+ * - compraId (string): busca a compra e processa
+ * - CompraParaEstoque (objeto): processa diretamente
+ * 
  * Fluxo:
- * 1. Verifica idempotência (não duplica movimentos)
- * 2. Para cada item mapeado:
+ * 1. Busca compra (se necessário)
+ * 2. Verifica idempotência (não duplica movimentos)
+ * 3. Para cada item mapeado:
  *    - Busca ou cria SKU padrão
  *    - Calcula custo unitário efetivo
  *    - Registra entrada no estoque
- * 3. Retorna resumo do processamento
+ * 4. Retorna resumo do processamento
  */
 export async function processarCompraParaEstoque(
-  compra: CompraParaEstoque
+  compraOuId: string | CompraParaEstoque
 ): Promise<{
   success: boolean;
   processados: number;
@@ -562,7 +602,31 @@ export async function processarCompraParaEstoque(
     erros: [] as string[],
   };
 
-  // 1. Verificar idempotência
+  // 1. Resolver compra
+  let compra: CompraParaEstoque | null;
+  if (typeof compraOuId === "string") {
+    compra = await buscarCompra(compraOuId);
+    if (!compra) {
+      return {
+        ...resultado,
+        success: false,
+        erros: [`Compra ${compraOuId} não encontrada`],
+      };
+    }
+  } else {
+    compra = compraOuId;
+  }
+
+  // Validar empresa
+  if (!compra.empresaId) {
+    return {
+      ...resultado,
+      success: false,
+      erros: ["Empresa não identificada para esta compra"],
+    };
+  }
+
+  // 2. Verificar idempotência
   const jaProcessada = await verificarIdempotenciaCompra(compra.id);
   if (jaProcessada) {
     console.warn(`[Motor Estoque] Compra ${compra.id} já processada. Ignorando.`);
@@ -573,7 +637,7 @@ export async function processarCompraParaEstoque(
     };
   }
 
-  // 2. Processar cada item
+  // 3. Processar cada item
   for (const item of compra.itens) {
     // Ignorar itens sem produto mapeado
     if (!item.produtoId) {
@@ -582,10 +646,10 @@ export async function processarCompraParaEstoque(
     }
 
     try {
-      // 2.1. Buscar ou criar SKU padrão
+      // 3.1. Buscar ou criar SKU padrão
       const skuId = await buscarOuCriarSKUPadrao(item.produtoId, compra.empresaId);
 
-      // 2.2. Registrar entrada no estoque
+      // 3.2. Registrar entrada no estoque
       const movId = await registrarEntradaEstoqueSKU({
         skuId,
         empresaId: compra.empresaId,
