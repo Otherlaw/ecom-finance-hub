@@ -55,6 +55,7 @@ const mainNavItems: NavItem[] = [
   { title: "Crédito ICMS", href: "/icms", icon: Receipt, badge: "!" },
   { title: "Conciliações", href: "/conciliacao", icon: RefreshCw },
   { title: "Produtos", href: "/produtos", icon: Package },
+  { title: "Estoque SKU", href: "/estoque-sku", icon: Package, badge: "V1" },
   { title: "CMV & Margem", href: "/cmv", icon: BarChart3, badge: "V1" },
   { title: "Compras", href: "/compras", icon: ShoppingCart },
   { title: "Contas a Pagar", href: "/contas-pagar", icon: CreditCard },

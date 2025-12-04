@@ -29,6 +29,7 @@ import Configuracoes from "./pages/Configuracoes";
 import AssistantCenter from "./pages/AssistantCenter";
 import MovimentosManuais from "./pages/MovimentosManuais";
 import CMVRelatorio from "./pages/CMVRelatorio";
+import EstoqueSKU from "./pages/EstoqueSKU";
 import NotFound from "./pages/NotFound";
 import { AssistantWidget } from "./components/assistant/AssistantWidget";
 import { AssistantChatProvider } from "./contexts/AssistantChatContext";
@@ -55,6 +56,7 @@ const App = () => (
             <Route path="/checklist-fechamento" element={<ChecklistFechamento />} />
             <Route path="/produtos" element={<Produtos />} />
             <Route path="/cmv" element={<CMVRelatorio />} />
+            <Route path="/estoque-sku" element={<EstoqueSKU />} />
             <Route path="/compras" element={<Compras />} />
             <Route path="/contas-pagar" element={<ContasPagar />} />
             <Route path="/contas-receber" element={<ContasReceber />} />

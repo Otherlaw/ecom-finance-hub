@@ -1,5 +1,6 @@
 /**
  * Hook para gerenciamento de registros de CMV (Custo de Mercadoria Vendida).
+ * Suporta controle por Produto ou por SKU (Motor de Estoque V1).
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -7,12 +8,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { CMVRegistro, Produto } from "@/lib/motor-custos";
 import { registrarSaidaEstoque, buscarResumoCMV } from "@/lib/motor-custos";
+import { registrarSaidaEstoqueSKU, type SaidaEstoqueSKUInput } from "@/lib/motor-estoque-sku";
 
 // ============= TIPOS =============
 
 export interface UseCMVParams {
   empresaId?: string;
   produtoId?: string;
+  skuId?: string;
   dataInicio?: string;
   dataFim?: string;
   canal?: string;
@@ -20,6 +23,12 @@ export interface UseCMVParams {
 }
 
 export interface CMVRegistroComProduto extends Omit<CMVRegistro, "produto"> {
+  sku_id?: string | null;
+  sku?: {
+    id: string;
+    codigo_sku: string;
+    variacao: Record<string, string>;
+  } | null;
   produto: {
     id: string;
     nome: string;
@@ -32,7 +41,7 @@ export interface CMVRegistroComProduto extends Omit<CMVRegistro, "produto"> {
 
 export function useCMV(params: UseCMVParams = {}) {
   const queryClient = useQueryClient();
-  const { empresaId, produtoId, dataInicio, dataFim, canal, origem } = params;
+  const { empresaId, produtoId, skuId, dataInicio, dataFim, canal, origem } = params;
 
   // Query de registros de CMV
   const {
@@ -40,13 +49,14 @@ export function useCMV(params: UseCMVParams = {}) {
     isLoading,
     refetch,
   } = useQuery({
-    queryKey: ["cmv_registros", empresaId, produtoId, dataInicio, dataFim, canal, origem],
+    queryKey: ["cmv_registros", empresaId, produtoId, skuId, dataInicio, dataFim, canal, origem],
     queryFn: async () => {
       let query = supabase
         .from("cmv_registros")
         .select(`
           *,
-          produto:produtos(id, nome, codigo_interno, categoria)
+          produto:produtos(id, nome, codigo_interno, categoria),
+          sku:produto_skus(id, codigo_sku, variacao)
         `)
         .order("data", { ascending: false });
 
@@ -56,6 +66,10 @@ export function useCMV(params: UseCMVParams = {}) {
 
       if (produtoId) {
         query = query.eq("produto_id", produtoId);
+      }
+
+      if (skuId) {
+        query = query.eq("sku_id", skuId);
       }
 
       if (dataInicio) {
@@ -85,6 +99,7 @@ export function useCMV(params: UseCMVParams = {}) {
         id: r.id,
         empresa_id: r.empresa_id,
         produto_id: r.produto_id,
+        sku_id: r.sku_id,
         origem: r.origem as CMVRegistro["origem"],
         referencia_id: r.referencia_id,
         data: r.data,
@@ -98,6 +113,7 @@ export function useCMV(params: UseCMVParams = {}) {
         canal: r.canal,
         observacoes: r.observacoes,
         created_at: r.created_at,
+        sku: r.sku as CMVRegistroComProduto["sku"],
         produto: r.produto as CMVRegistroComProduto["produto"],
       }));
     },
@@ -116,7 +132,7 @@ export function useCMV(params: UseCMVParams = {}) {
     },
   });
 
-  // Registrar venda manualmente (gera CMV)
+  // Registrar venda manualmente (gera CMV) - por Produto
   const registrarVenda = useMutation({
     mutationFn: async (input: {
       produtoId: string;
@@ -153,6 +169,28 @@ export function useCMV(params: UseCMVParams = {}) {
     },
   });
 
+  // Registrar venda por SKU (Motor de Estoque V1)
+  const registrarVendaSKU = useMutation({
+    mutationFn: async (input: Omit<SaidaEstoqueSKUInput, "origem"> & { origem?: SaidaEstoqueSKUInput["origem"] }) => {
+      return registrarSaidaEstoqueSKU({
+        ...input,
+        origem: input.origem || "manual",
+      });
+    },
+    onSuccess: () => {
+      toast.success("Venda (SKU) registrada e CMV calculado");
+      queryClient.invalidateQueries({ queryKey: ["cmv_registros"] });
+      queryClient.invalidateQueries({ queryKey: ["cmv_resumo"] });
+      queryClient.invalidateQueries({ queryKey: ["produtos"] });
+      queryClient.invalidateQueries({ queryKey: ["produto_skus"] });
+      queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });
+    },
+    onError: (error: Error) => {
+      console.error("Erro ao registrar venda SKU:", error);
+      toast.error(`Erro ao registrar venda: ${error.message}`);
+    },
+  });
+
   // Resumo calculado localmente (para quando não temos período definido)
   const resumoLocal = {
     totalCMV: registros.reduce((sum, r) => sum + r.custo_total, 0),
@@ -173,7 +211,10 @@ export function useCMV(params: UseCMVParams = {}) {
     refetch,
     resumo: resumo || resumoLocal,
     isLoadingResumo,
+    // Operações por Produto (legado)
     registrarVenda,
+    // Operações por SKU (Motor V1)
+    registrarVendaSKU,
   };
 }
 

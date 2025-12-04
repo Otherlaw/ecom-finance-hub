@@ -1,5 +1,6 @@
 /**
  * Hook para gerenciamento de movimentações de estoque.
+ * Suporta controle por Produto ou por SKU (Motor de Estoque V1).
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -7,12 +8,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { MovimentacaoEstoque, Produto } from "@/lib/motor-custos";
 import { registrarEntradaEstoque, ajustarEstoque } from "@/lib/motor-custos";
+import { 
+  registrarEntradaEstoqueSKU, 
+  ajustarEstoqueSKU,
+  type EntradaEstoqueSKUInput,
+  type AjusteEstoqueSKUInput 
+} from "@/lib/motor-estoque-sku";
 
 // ============= TIPOS =============
 
 export interface UseMovimentacoesEstoqueParams {
   empresaId?: string;
   produtoId?: string;
+  skuId?: string;
   dataInicio?: string;
   dataFim?: string;
   tipo?: "entrada" | "saida";
@@ -20,6 +28,12 @@ export interface UseMovimentacoesEstoqueParams {
 }
 
 export interface MovimentacaoEstoqueComProduto extends MovimentacaoEstoque {
+  sku_id?: string | null;
+  sku?: {
+    id: string;
+    codigo_sku: string;
+    variacao: Record<string, string>;
+  } | null;
   produto: Pick<Produto, "id" | "nome" | "codigo_interno">;
 }
 
@@ -27,7 +41,7 @@ export interface MovimentacaoEstoqueComProduto extends MovimentacaoEstoque {
 
 export function useMovimentacoesEstoque(params: UseMovimentacoesEstoqueParams = {}) {
   const queryClient = useQueryClient();
-  const { empresaId, produtoId, dataInicio, dataFim, tipo, motivo } = params;
+  const { empresaId, produtoId, skuId, dataInicio, dataFim, tipo, motivo } = params;
 
   // Query de movimentações
   const {
@@ -35,13 +49,14 @@ export function useMovimentacoesEstoque(params: UseMovimentacoesEstoqueParams = 
     isLoading,
     refetch,
   } = useQuery({
-    queryKey: ["movimentacoes_estoque", empresaId, produtoId, dataInicio, dataFim, tipo, motivo],
+    queryKey: ["movimentacoes_estoque", empresaId, produtoId, skuId, dataInicio, dataFim, tipo, motivo],
     queryFn: async () => {
       let query = supabase
         .from("movimentacoes_estoque")
         .select(`
           *,
-          produto:produtos(id, nome, codigo_interno)
+          produto:produtos(id, nome, codigo_interno),
+          sku:produto_skus(id, codigo_sku, variacao)
         `)
         .order("data", { ascending: false })
         .order("created_at", { ascending: false });
@@ -52,6 +67,10 @@ export function useMovimentacoesEstoque(params: UseMovimentacoesEstoqueParams = 
 
       if (produtoId) {
         query = query.eq("produto_id", produtoId);
+      }
+
+      if (skuId) {
+        query = query.eq("sku_id", skuId);
       }
 
       if (dataInicio) {
@@ -81,6 +100,7 @@ export function useMovimentacoesEstoque(params: UseMovimentacoesEstoqueParams = 
         id: m.id,
         empresa_id: m.empresa_id,
         produto_id: m.produto_id,
+        sku_id: m.sku_id,
         tipo: m.tipo as "entrada" | "saida",
         motivo: m.motivo as MovimentacaoEstoque["motivo"],
         origem: m.origem,
@@ -96,6 +116,7 @@ export function useMovimentacoesEstoque(params: UseMovimentacoesEstoqueParams = 
         custo_medio_posterior: Number(m.custo_medio_posterior) || 0,
         observacoes: m.observacoes,
         created_at: m.created_at,
+        sku: m.sku as MovimentacaoEstoqueComProduto["sku"],
         produto: m.produto as MovimentacaoEstoqueComProduto["produto"],
       }));
     },
@@ -134,7 +155,7 @@ export function useMovimentacoesEstoque(params: UseMovimentacoesEstoqueParams = 
     },
   });
 
-  // Ajustar estoque
+  // Ajustar estoque (por produto)
   const ajustar = useMutation({
     mutationFn: async (input: {
       produtoId: string;
@@ -162,6 +183,45 @@ export function useMovimentacoesEstoque(params: UseMovimentacoesEstoqueParams = 
     },
   });
 
+  // ============= OPERAÇÕES POR SKU (MOTOR DE ESTOQUE V1) =============
+
+  // Registrar entrada por SKU
+  const registrarEntradaSKU = useMutation({
+    mutationFn: async (input: Omit<EntradaEstoqueSKUInput, "origem"> & { origem?: string }) => {
+      return registrarEntradaEstoqueSKU({
+        ...input,
+        origem: input.origem || "compra",
+      });
+    },
+    onSuccess: () => {
+      toast.success("Entrada de estoque (SKU) registrada com sucesso");
+      queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });
+      queryClient.invalidateQueries({ queryKey: ["produtos"] });
+      queryClient.invalidateQueries({ queryKey: ["produto_skus"] });
+    },
+    onError: (error: Error) => {
+      console.error("Erro ao registrar entrada SKU:", error);
+      toast.error(`Erro ao registrar entrada: ${error.message}`);
+    },
+  });
+
+  // Ajustar estoque por SKU
+  const ajustarSKU = useMutation({
+    mutationFn: async (input: AjusteEstoqueSKUInput) => {
+      return ajustarEstoqueSKU(input);
+    },
+    onSuccess: () => {
+      toast.success("Estoque do SKU ajustado com sucesso");
+      queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });
+      queryClient.invalidateQueries({ queryKey: ["produtos"] });
+      queryClient.invalidateQueries({ queryKey: ["produto_skus"] });
+    },
+    onError: (error: Error) => {
+      console.error("Erro ao ajustar estoque SKU:", error);
+      toast.error(`Erro ao ajustar estoque: ${error.message}`);
+    },
+  });
+
   // Resumo
   const resumo = {
     totalEntradas: movimentacoes.filter((m) => m.tipo === "entrada").reduce((sum, m) => sum + m.quantidade, 0),
@@ -176,7 +236,11 @@ export function useMovimentacoesEstoque(params: UseMovimentacoesEstoqueParams = 
     isLoading,
     refetch,
     resumo,
+    // Operações por Produto (legado)
     registrarEntrada,
     ajustar,
+    // Operações por SKU (Motor V1)
+    registrarEntradaSKU,
+    ajustarSKU,
   };
 }
