@@ -174,6 +174,78 @@ export type Database = {
           },
         ]
       }
+      cmv_registros: {
+        Row: {
+          canal: string | null
+          created_at: string
+          custo_total: number
+          custo_unitario_momento: number
+          data: string
+          empresa_id: string
+          id: string
+          margem_bruta: number | null
+          margem_percentual: number | null
+          observacoes: string | null
+          origem: string
+          preco_venda_unitario: number | null
+          produto_id: string
+          quantidade: number
+          receita_total: number | null
+          referencia_id: string | null
+        }
+        Insert: {
+          canal?: string | null
+          created_at?: string
+          custo_total: number
+          custo_unitario_momento: number
+          data: string
+          empresa_id: string
+          id?: string
+          margem_bruta?: number | null
+          margem_percentual?: number | null
+          observacoes?: string | null
+          origem: string
+          preco_venda_unitario?: number | null
+          produto_id: string
+          quantidade: number
+          receita_total?: number | null
+          referencia_id?: string | null
+        }
+        Update: {
+          canal?: string | null
+          created_at?: string
+          custo_total?: number
+          custo_unitario_momento?: number
+          data?: string
+          empresa_id?: string
+          id?: string
+          margem_bruta?: number | null
+          margem_percentual?: number | null
+          observacoes?: string | null
+          origem?: string
+          preco_venda_unitario?: number | null
+          produto_id?: string
+          quantidade?: number
+          receita_total?: number | null
+          referencia_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cmv_registros_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cmv_registros_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contas_a_pagar: {
         Row: {
           categoria_id: string | null
@@ -835,6 +907,84 @@ export type Database = {
           },
         ]
       }
+      movimentacoes_estoque: {
+        Row: {
+          created_at: string
+          custo_medio_anterior: number
+          custo_medio_posterior: number
+          custo_total: number
+          custo_unitario: number
+          data: string
+          documento: string | null
+          empresa_id: string
+          estoque_anterior: number
+          estoque_posterior: number
+          id: string
+          motivo: string
+          observacoes: string | null
+          origem: string
+          produto_id: string
+          quantidade: number
+          referencia_id: string | null
+          tipo: string
+        }
+        Insert: {
+          created_at?: string
+          custo_medio_anterior: number
+          custo_medio_posterior: number
+          custo_total: number
+          custo_unitario: number
+          data: string
+          documento?: string | null
+          empresa_id: string
+          estoque_anterior: number
+          estoque_posterior: number
+          id?: string
+          motivo: string
+          observacoes?: string | null
+          origem: string
+          produto_id: string
+          quantidade: number
+          referencia_id?: string | null
+          tipo: string
+        }
+        Update: {
+          created_at?: string
+          custo_medio_anterior?: number
+          custo_medio_posterior?: number
+          custo_total?: number
+          custo_unitario?: number
+          data?: string
+          documento?: string | null
+          empresa_id?: string
+          estoque_anterior?: number
+          estoque_posterior?: number
+          id?: string
+          motivo?: string
+          observacoes?: string | null
+          origem?: string
+          produto_id?: string
+          quantidade?: number
+          referencia_id?: string | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "movimentacoes_estoque_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "movimentacoes_estoque_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       movimentos_financeiros: {
         Row: {
           atualizado_em: string
@@ -926,6 +1076,92 @@ export type Database = {
             columns: ["responsavel_id"]
             isOneToOne: false
             referencedRelation: "responsaveis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      produtos: {
+        Row: {
+          canais: Json | null
+          categoria: string | null
+          cfop_compra: string | null
+          cfop_venda: string | null
+          codigo_interno: string
+          created_at: string
+          custo_medio_atual: number
+          descricao: string | null
+          empresa_id: string
+          estoque_atual: number
+          fornecedor_principal_id: string | null
+          fornecedor_principal_nome: string | null
+          id: string
+          ncm: string | null
+          nome: string
+          observacoes: string | null
+          preco_venda_sugerido: number | null
+          situacao_tributaria: string | null
+          status: string
+          subcategoria: string | null
+          ultima_atualizacao_custo: string | null
+          unidade_medida: string
+          updated_at: string
+        }
+        Insert: {
+          canais?: Json | null
+          categoria?: string | null
+          cfop_compra?: string | null
+          cfop_venda?: string | null
+          codigo_interno: string
+          created_at?: string
+          custo_medio_atual?: number
+          descricao?: string | null
+          empresa_id: string
+          estoque_atual?: number
+          fornecedor_principal_id?: string | null
+          fornecedor_principal_nome?: string | null
+          id?: string
+          ncm?: string | null
+          nome: string
+          observacoes?: string | null
+          preco_venda_sugerido?: number | null
+          situacao_tributaria?: string | null
+          status?: string
+          subcategoria?: string | null
+          ultima_atualizacao_custo?: string | null
+          unidade_medida?: string
+          updated_at?: string
+        }
+        Update: {
+          canais?: Json | null
+          categoria?: string | null
+          cfop_compra?: string | null
+          cfop_venda?: string | null
+          codigo_interno?: string
+          created_at?: string
+          custo_medio_atual?: number
+          descricao?: string | null
+          empresa_id?: string
+          estoque_atual?: number
+          fornecedor_principal_id?: string | null
+          fornecedor_principal_nome?: string | null
+          id?: string
+          ncm?: string | null
+          nome?: string
+          observacoes?: string | null
+          preco_venda_sugerido?: number | null
+          situacao_tributaria?: string | null
+          status?: string
+          subcategoria?: string | null
+          ultima_atualizacao_custo?: string | null
+          unidade_medida?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "produtos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
             referencedColumns: ["id"]
           },
         ]
