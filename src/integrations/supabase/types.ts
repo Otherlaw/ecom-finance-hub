@@ -559,101 +559,6 @@ export type Database = {
         }
         Relationships: []
       }
-      movimentos_financeiros: {
-        Row: {
-          atualizado_em: string
-          categoria_id: string | null
-          categoria_nome: string | null
-          centro_custo_id: string | null
-          centro_custo_nome: string | null
-          cliente_nome: string | null
-          criado_em: string
-          data: string
-          descricao: string
-          empresa_id: string
-          forma_pagamento: string | null
-          fornecedor_nome: string | null
-          id: string
-          observacoes: string | null
-          origem: Database["public"]["Enums"]["movimento_origem"]
-          referencia_id: string | null
-          responsavel_id: string | null
-          tipo: Database["public"]["Enums"]["movimento_tipo"]
-          valor: number
-        }
-        Insert: {
-          atualizado_em?: string
-          categoria_id?: string | null
-          categoria_nome?: string | null
-          centro_custo_id?: string | null
-          centro_custo_nome?: string | null
-          cliente_nome?: string | null
-          criado_em?: string
-          data: string
-          descricao: string
-          empresa_id: string
-          forma_pagamento?: string | null
-          fornecedor_nome?: string | null
-          id?: string
-          observacoes?: string | null
-          origem: Database["public"]["Enums"]["movimento_origem"]
-          referencia_id?: string | null
-          responsavel_id?: string | null
-          tipo: Database["public"]["Enums"]["movimento_tipo"]
-          valor: number
-        }
-        Update: {
-          atualizado_em?: string
-          categoria_id?: string | null
-          categoria_nome?: string | null
-          centro_custo_id?: string | null
-          centro_custo_nome?: string | null
-          cliente_nome?: string | null
-          criado_em?: string
-          data?: string
-          descricao?: string
-          empresa_id?: string
-          forma_pagamento?: string | null
-          fornecedor_nome?: string | null
-          id?: string
-          observacoes?: string | null
-          origem?: Database["public"]["Enums"]["movimento_origem"]
-          referencia_id?: string | null
-          responsavel_id?: string | null
-          tipo?: Database["public"]["Enums"]["movimento_tipo"]
-          valor?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "movimentos_financeiros_categoria_id_fkey"
-            columns: ["categoria_id"]
-            isOneToOne: false
-            referencedRelation: "categorias_financeiras"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "movimentos_financeiros_centro_custo_id_fkey"
-            columns: ["centro_custo_id"]
-            isOneToOne: false
-            referencedRelation: "centros_de_custo"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "movimentos_financeiros_empresa_id_fkey"
-            columns: ["empresa_id"]
-            isOneToOne: false
-            referencedRelation: "empresas"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "movimentos_financeiros_responsavel_id_fkey"
-            columns: ["responsavel_id"]
-            isOneToOne: false
-            referencedRelation: "responsaveis"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       regras_categorizacao: {
         Row: {
           ativo: boolean
@@ -747,38 +652,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      registrar_movimento_financeiro: {
-        Args: {
-          p_categoria_id?: string
-          p_categoria_nome?: string
-          p_centro_custo_id?: string
-          p_centro_custo_nome?: string
-          p_cliente_nome?: string
-          p_data: string
-          p_descricao: string
-          p_empresa_id: string
-          p_forma_pagamento?: string
-          p_fornecedor_nome?: string
-          p_observacoes?: string
-          p_origem: Database["public"]["Enums"]["movimento_origem"]
-          p_referencia_id?: string
-          p_responsavel_id?: string
-          p_tipo: Database["public"]["Enums"]["movimento_tipo"]
-          p_valor: number
-        }
-        Returns: string
-      }
+      [_ in never]: never
     }
     Enums: {
       card_type: "credito" | "debito"
-      movimento_origem:
-        | "cartao"
-        | "banco"
-        | "contas_pagar"
-        | "contas_receber"
-        | "marketplace"
-        | "manual"
-      movimento_tipo: "entrada" | "saida"
       transaction_status: "conciliado" | "pendente" | "aprovado" | "reprovado"
       transaction_type: "recorrente" | "pontual"
     }
@@ -909,15 +786,6 @@ export const Constants = {
   public: {
     Enums: {
       card_type: ["credito", "debito"],
-      movimento_origem: [
-        "cartao",
-        "banco",
-        "contas_pagar",
-        "contas_receber",
-        "marketplace",
-        "manual",
-      ],
-      movimento_tipo: ["entrada", "saida"],
       transaction_status: ["conciliado", "pendente", "aprovado", "reprovado"],
       transaction_type: ["recorrente", "pontual"],
     },

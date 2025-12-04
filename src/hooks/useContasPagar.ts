@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { registrarMovimentoFinanceiro, excluirMovimentoPorReferencia } from "@/hooks/useMovimentosFinanceiros";
 
 export interface ContaPagar {
   id: string;
@@ -148,14 +147,10 @@ export const useContasPagar = (params: UseContasPagarParams = {}) => {
 
   const pagarConta = useMutation({
     mutationFn: async ({ id, valorPago, dataPagamento }: { id: string; valorPago: number; dataPagamento: string }) => {
-      // Buscar conta atual com dados completos
+      // Buscar conta atual
       const { data: contaAtual, error: fetchError } = await supabase
         .from("contas_a_pagar")
-        .select(`
-          *,
-          categoria:categorias_financeiras(id, nome),
-          centro_custo:centros_de_custo(id, nome)
-        `)
+        .select("valor_total, valor_pago")
         .eq("id", id)
         .single();
 
@@ -178,30 +173,11 @@ export const useContasPagar = (params: UseContasPagarParams = {}) => {
         .single();
 
       if (error) throw error;
-
-      // Registrar movimento no MEU
-      await registrarMovimentoFinanceiro({
-        data: dataPagamento,
-        tipo: "saida",
-        origem: "contas_pagar",
-        descricao: contaAtual.descricao,
-        valor: novoValorPago, // Valor total pago consolidado
-        empresa_id: contaAtual.empresa_id,
-        referencia_id: id,
-        categoria_id: contaAtual.categoria_id || undefined,
-        categoria_nome: (contaAtual.categoria as any)?.nome || undefined,
-        centro_custo_id: contaAtual.centro_custo_id || undefined,
-        centro_custo_nome: (contaAtual.centro_custo as any)?.nome || undefined,
-        forma_pagamento: contaAtual.forma_pagamento || undefined,
-        fornecedor_nome: contaAtual.fornecedor_nome,
-        observacoes: "Pagamento de título a pagar",
-      });
-
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["contas-a-pagar"] });
-      queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-caixa-contas-pagar"] });
       toast.success("Pagamento registrado com sucesso!");
     },
     onError: (error: any) => {
