@@ -50,7 +50,7 @@ export function ImportarExtratoBancarioModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [empresaId, setEmpresaId] = useState<string>("");
   const [arquivo, setArquivo] = useState<File | null>(null);
-  const [tipoArquivo, setTipoArquivo] = useState<"ofx" | "csv" | null>(null);
+  const [tipoArquivo, setTipoArquivo] = useState<"ofx" | "csv" | "xlsx" | null>(null);
   const [transacoesPreview, setTransacoesPreview] = useState<TransacaoPreview[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<"upload" | "preview">("upload");
