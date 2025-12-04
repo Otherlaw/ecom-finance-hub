@@ -248,17 +248,21 @@ export function ImportarMarketplaceModal({
     const transactions: MarketplaceTransactionInsert[] = parsedData.map(row => ({
       empresa_id: empresaId,
       canal,
-      conta_nome: contaNome || undefined,
-      pedido_id: row.pedido_id || undefined,
+      conta_nome: canal, // por enquanto
+      pedido_id: row.pedido_id,
       referencia_externa: row.referencia_externa,
       data_transacao: row.data_transacao,
+      data_repasse: null,
       tipo_transacao: row.tipo_transacao,
       descricao: row.descricao,
       valor_bruto: row.valor_bruto,
       valor_liquido: row.valor_liquido,
       tipo_lancamento: row.tipo_lancamento,
-      status: "importado",
-      origem_arquivo: canal,
+      status: 'importado',
+      categoria_id: null,
+      centro_custo_id: null,
+      responsavel_id: null,
+      origem_arquivo: 'csv',
     }));
 
     await importarTransacoes.mutateAsync(transactions);
