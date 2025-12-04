@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -16,11 +17,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { useResponsaveis } from "@/hooks/useResponsaveis";
 import { useMarketplaceTransactions, MarketplaceTransaction } from "@/hooks/useMarketplaceTransactions";
-import { Store, Check, X, RotateCcw, Tag, Building2 } from "lucide-react";
+import { Store, Check, X, RotateCcw, Tag, Building2, Receipt } from "lucide-react";
 import { toast } from "sonner";
 
 interface CategorizacaoMarketplaceModalProps {
@@ -39,6 +46,15 @@ const CANAL_LABELS: Record<string, string> = {
   outro: "Outro",
 };
 
+const CANAL_OPTIONS = [
+  { value: "mercado_livre", label: "Mercado Livre" },
+  { value: "shopee", label: "Shopee" },
+  { value: "amazon", label: "Amazon" },
+  { value: "tiktok", label: "TikTok Shop" },
+  { value: "shein", label: "Shein" },
+  { value: "outro", label: "Outro" },
+];
+
 export function CategorizacaoMarketplaceModal({
   open,
   onOpenChange,
@@ -53,12 +69,22 @@ export function CategorizacaoMarketplaceModal({
   const [categoriaId, setCategoriaId] = useState<string>("");
   const [centroCustoId, setCentroCustoId] = useState<string>("");
   const [responsavelId, setResponsavelId] = useState<string>("");
+  
+  // Novos campos editáveis
+  const [canalVenda, setCanalVenda] = useState<string>("");
+  const [tarifas, setTarifas] = useState<string>("");
+  const [taxas, setTaxas] = useState<string>("");
+  const [outrosDescontos, setOutrosDescontos] = useState<string>("");
 
   useEffect(() => {
     if (transaction) {
       setCategoriaId(transaction.categoria_id || "");
       setCentroCustoId(transaction.centro_custo_id || "");
       setResponsavelId(transaction.responsavel_id || "");
+      setCanalVenda(transaction.canal_venda || "");
+      setTarifas(transaction.tarifas?.toString() || "");
+      setTaxas(transaction.taxas?.toString() || "");
+      setOutrosDescontos(transaction.outros_descontos?.toString() || "");
     }
   }, [transaction]);
 
@@ -71,15 +97,28 @@ export function CategorizacaoMarketplaceModal({
     }).format(value);
   };
 
+  const parseNumber = (value: string): number => {
+    if (!value) return 0;
+    // Remove R$ e espaços, troca vírgula por ponto
+    const cleaned = value.replace(/[R$\s]/g, "").replace(",", ".");
+    return parseFloat(cleaned) || 0;
+  };
+
   const isLoading = atualizarTransacao.isPending || conciliarTransacao.isPending || ignorarTransacao.isPending || reabrirTransacao.isPending;
 
+  const getUpdatePayload = () => ({
+    id: transaction.id,
+    categoriaId: categoriaId || undefined,
+    centroCustoId: centroCustoId || undefined,
+    responsavelId: responsavelId || undefined,
+    canalVenda: canalVenda || undefined,
+    tarifas: parseNumber(tarifas),
+    taxas: parseNumber(taxas),
+    outrosDescontos: parseNumber(outrosDescontos),
+  });
+
   const handleSalvar = async () => {
-    await atualizarTransacao.mutateAsync({
-      id: transaction.id,
-      categoriaId: categoriaId || undefined,
-      centroCustoId: centroCustoId || undefined,
-      responsavelId: responsavelId || undefined,
-    });
+    await atualizarTransacao.mutateAsync(getUpdatePayload());
     onSuccess?.();
     onOpenChange(false);
   };
@@ -89,18 +128,18 @@ export function CategorizacaoMarketplaceModal({
       toast.error("Selecione uma categoria antes de conciliar.");
       return;
     }
-    // Salvar categoria primeiro se mudou
-    if (
+    // Salvar categoria e campos primeiro se houve mudanças
+    const hasChanges =
       categoriaId !== transaction.categoria_id ||
       centroCustoId !== transaction.centro_custo_id ||
-      responsavelId !== transaction.responsavel_id
-    ) {
-      await atualizarTransacao.mutateAsync({
-        id: transaction.id,
-        categoriaId: categoriaId || undefined,
-        centroCustoId: centroCustoId || undefined,
-        responsavelId: responsavelId || undefined,
-      });
+      responsavelId !== transaction.responsavel_id ||
+      canalVenda !== (transaction.canal_venda || "") ||
+      parseNumber(tarifas) !== (transaction.tarifas || 0) ||
+      parseNumber(taxas) !== (transaction.taxas || 0) ||
+      parseNumber(outrosDescontos) !== (transaction.outros_descontos || 0);
+
+    if (hasChanges) {
+      await atualizarTransacao.mutateAsync(getUpdatePayload());
     }
     await conciliarTransacao.mutateAsync(transaction.id);
     onSuccess?.();
@@ -132,10 +171,14 @@ export function CategorizacaoMarketplaceModal({
 
   const isConciliado = transaction.status === "conciliado";
   const isIgnorado = transaction.status === "ignorado";
+  const isReadOnly = isConciliado || isIgnorado;
+
+  // Cálculo do total de descontos
+  const totalDescontos = parseNumber(tarifas) + parseNumber(taxas) + parseNumber(outrosDescontos);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Store className="h-5 w-5" />
@@ -172,27 +215,11 @@ export function CategorizacaoMarketplaceModal({
               </div>
             </div>
 
-            {/* Detalhes financeiros */}
+            {/* Resumo financeiro */}
             <div className="grid grid-cols-2 gap-2 text-sm border-t pt-3">
-              <div>
-                <span className="text-muted-foreground">Canal:</span>{" "}
-                <span className="font-medium">{transaction.canal_venda || "—"}</span>
-              </div>
               <div>
                 <span className="text-muted-foreground">Bruto:</span>{" "}
                 <span className="font-medium">{formatCurrency(transaction.valor_bruto || 0)}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Tarifas:</span>{" "}
-                <span className="font-medium text-red-600">{formatCurrency(transaction.tarifas || 0)}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Taxas:</span>{" "}
-                <span className="font-medium text-red-600">{formatCurrency(transaction.taxas || 0)}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Outros Desc.:</span>{" "}
-                <span className="font-medium text-red-600">{formatCurrency(transaction.outros_descontos || 0)}</span>
               </div>
               <div>
                 <span className="text-muted-foreground">Líquido:</span>{" "}
@@ -209,6 +236,83 @@ export function CategorizacaoMarketplaceModal({
             </div>
           </div>
 
+          {/* Campos de tarifas editáveis */}
+          <div className="space-y-4 p-4 bg-destructive/5 rounded-lg border border-destructive/20">
+            <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+              <Receipt className="h-4 w-4" />
+              Tarifas e Descontos
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Canal de Venda</Label>
+                <Select
+                  value={canalVenda}
+                  onValueChange={setCanalVenda}
+                  disabled={isReadOnly}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Selecione o canal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CANAL_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Tarifas (R$)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0,00"
+                  value={tarifas}
+                  onChange={(e) => setTarifas(e.target.value)}
+                  disabled={isReadOnly}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Taxas (R$)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0,00"
+                  value={taxas}
+                  onChange={(e) => setTaxas(e.target.value)}
+                  disabled={isReadOnly}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Outros Descontos (R$)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0,00"
+                  value={outrosDescontos}
+                  onChange={(e) => setOutrosDescontos(e.target.value)}
+                  disabled={isReadOnly}
+                  className="h-9"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-destructive/20">
+              <span className="text-sm text-muted-foreground">Total de Descontos:</span>
+              <span className="font-medium text-destructive">{formatCurrency(totalDescontos)}</span>
+            </div>
+          </div>
+
           {/* Campos de categorização */}
           <div className="space-y-4">
             <div className="space-y-2">
@@ -219,7 +323,7 @@ export function CategorizacaoMarketplaceModal({
               <Select
                 value={categoriaId}
                 onValueChange={setCategoriaId}
-                disabled={isConciliado}
+                disabled={isReadOnly}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione a categoria" />
@@ -244,7 +348,7 @@ export function CategorizacaoMarketplaceModal({
               <Select
                 value={centroCustoId}
                 onValueChange={setCentroCustoId}
-                disabled={isConciliado}
+                disabled={isReadOnly}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o centro de custo" />
@@ -267,7 +371,7 @@ export function CategorizacaoMarketplaceModal({
               <Select
                 value={responsavelId}
                 onValueChange={setResponsavelId}
-                disabled={isConciliado}
+                disabled={isReadOnly}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o responsável" />

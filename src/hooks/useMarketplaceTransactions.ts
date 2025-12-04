@@ -86,6 +86,10 @@ interface MarketplaceResumo {
   ignoradas: number;
   totalCreditos: number;
   totalDebitos: number;
+  totalTarifas: number;
+  totalTaxas: number;
+  totalOutrosDescontos: number;
+  totalDescontos: number; // soma de tarifas + taxas + outros_descontos
 }
 
 interface UseMarketplaceTransactionsReturn {
@@ -203,21 +207,37 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       categoriaId,
       centroCustoId,
       responsavelId,
+      canalVenda,
+      tarifas,
+      taxas,
+      outrosDescontos,
     }: {
       id: string;
       categoriaId?: string;
       centroCustoId?: string;
       responsavelId?: string;
+      canalVenda?: string;
+      tarifas?: number;
+      taxas?: number;
+      outrosDescontos?: number;
     }) => {
+      const updateData: Record<string, any> = {
+        categoria_id: categoriaId || null,
+        centro_custo_id: centroCustoId || null,
+        responsavel_id: responsavelId || null,
+        status: "pendente",
+        atualizado_em: new Date().toISOString(),
+      };
+
+      // Adicionar campos opcionais apenas se fornecidos
+      if (canalVenda !== undefined) updateData.canal_venda = canalVenda || null;
+      if (tarifas !== undefined) updateData.tarifas = tarifas ?? 0;
+      if (taxas !== undefined) updateData.taxas = taxas ?? 0;
+      if (outrosDescontos !== undefined) updateData.outros_descontos = outrosDescontos ?? 0;
+
       const { data, error } = await supabase
         .from("marketplace_transactions")
-        .update({
-          categoria_id: categoriaId || null,
-          centro_custo_id: centroCustoId || null,
-          responsavel_id: responsavelId || null,
-          status: "pendente",
-          atualizado_em: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq("id", id)
         .select(`
           *,
@@ -362,6 +382,10 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
   });
 
   // Resumo calculado
+  const totalTarifas = transacoes.reduce((acc, t) => acc + (t.tarifas || 0), 0);
+  const totalTaxas = transacoes.reduce((acc, t) => acc + (t.taxas || 0), 0);
+  const totalOutrosDescontos = transacoes.reduce((acc, t) => acc + (t.outros_descontos || 0), 0);
+
   const resumo: MarketplaceResumo = {
     total: transacoes.length,
     importadas: transacoes.filter(t => t.status === "importado").length,
@@ -374,6 +398,10 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     totalDebitos: transacoes
       .filter(t => t.tipo_lancamento === "debito")
       .reduce((acc, t) => acc + t.valor_liquido, 0),
+    totalTarifas,
+    totalTaxas,
+    totalOutrosDescontos,
+    totalDescontos: totalTarifas + totalTaxas + totalOutrosDescontos,
   };
 
   return {
