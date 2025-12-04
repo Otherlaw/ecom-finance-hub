@@ -20,6 +20,7 @@ import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Tag, Building2 } from "lucide-react";
+import { registrarMovimentoFinanceiro, excluirMovimentoPorReferencia } from "@/hooks/useMovimentosFinanceiros";
 import { formatCurrency } from "@/lib/mock-data";
 
 interface CategorizacaoModalProps {
@@ -71,6 +72,7 @@ export function CategorizacaoModal({
     setIsSaving(true);
     try {
       if (tipo === "cartao") {
+        // Atualizar transação de cartão
         const { error } = await supabase
           .from("credit_card_transactions")
           .update({
@@ -81,6 +83,58 @@ export function CategorizacaoModal({
           .eq("id", transacao.id);
 
         if (error) throw error;
+
+        // Buscar dados completos da transação para registrar no MEU
+        const { data: txCompleta } = await supabase
+          .from("credit_card_transactions")
+          .select(`
+            id,
+            data_transacao,
+            descricao,
+            estabelecimento,
+            valor,
+            categoria:categorias_financeiras(id, nome),
+            centro_custo:centros_de_custo(id, nome),
+            fatura:credit_card_invoices(
+              cartao:credit_cards(
+                id,
+                empresa_id,
+                responsavel_id
+              )
+            )
+          `)
+          .eq("id", transacao.id)
+          .single();
+
+        // Registrar movimento no MEU
+        if (txCompleta) {
+          const empresaId = (txCompleta.fatura as any)?.cartao?.empresa_id;
+          const categoriaSelecionada = categoriasPorTipo
+            .flatMap(g => g.categorias)
+            .find(c => c.id === categoriaId);
+          const centroCustoSelecionado = centrosFlat.find(c => c.id === centroCustoId);
+
+          if (empresaId) {
+            await registrarMovimentoFinanceiro({
+              data: txCompleta.data_transacao,
+              tipo: "saida",
+              origem: "cartao",
+              descricao: txCompleta.descricao || txCompleta.estabelecimento || "Transação de cartão",
+              valor: Math.abs(txCompleta.valor),
+              empresa_id: empresaId,
+              referencia_id: txCompleta.id,
+              categoria_id: categoriaId,
+              categoria_nome: categoriaSelecionada?.nome || null,
+              centro_custo_id: centroCustoId || undefined,
+              centro_custo_nome: centroCustoSelecionado?.nome || undefined,
+              responsavel_id: (txCompleta.fatura as any)?.cartao?.responsavel_id || undefined,
+              forma_pagamento: "Cartão de crédito",
+              fornecedor_nome: txCompleta.estabelecimento || undefined,
+              observacoes: "Transação de cartão conciliada",
+            });
+          }
+        }
+
         toast.success("Transação categorizada com sucesso!");
       } else if (tipo === "bancaria") {
         // Transações bancárias ainda usam mock data
