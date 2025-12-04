@@ -192,6 +192,7 @@ export type Database = {
           quantidade: number
           receita_total: number | null
           referencia_id: string | null
+          sku_id: string | null
         }
         Insert: {
           canal?: string | null
@@ -210,6 +211,7 @@ export type Database = {
           quantidade: number
           receita_total?: number | null
           referencia_id?: string | null
+          sku_id?: string | null
         }
         Update: {
           canal?: string | null
@@ -228,6 +230,7 @@ export type Database = {
           quantidade?: number
           receita_total?: number | null
           referencia_id?: string | null
+          sku_id?: string | null
         }
         Relationships: [
           {
@@ -242,6 +245,13 @@ export type Database = {
             columns: ["produto_id"]
             isOneToOne: false
             referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cmv_registros_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "produto_skus"
             referencedColumns: ["id"]
           },
         ]
@@ -926,6 +936,7 @@ export type Database = {
           produto_id: string
           quantidade: number
           referencia_id: string | null
+          sku_id: string | null
           tipo: string
         }
         Insert: {
@@ -946,6 +957,7 @@ export type Database = {
           produto_id: string
           quantidade: number
           referencia_id?: string | null
+          sku_id?: string | null
           tipo: string
         }
         Update: {
@@ -966,6 +978,7 @@ export type Database = {
           produto_id?: string
           quantidade?: number
           referencia_id?: string | null
+          sku_id?: string | null
           tipo?: string
         }
         Relationships: [
@@ -981,6 +994,13 @@ export type Database = {
             columns: ["produto_id"]
             isOneToOne: false
             referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "movimentacoes_estoque_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "produto_skus"
             referencedColumns: ["id"]
           },
         ]
@@ -1076,6 +1096,66 @@ export type Database = {
             columns: ["responsavel_id"]
             isOneToOne: false
             referencedRelation: "responsaveis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      produto_skus: {
+        Row: {
+          ativo: boolean
+          codigo_sku: string
+          created_at: string
+          custo_medio_atual: number
+          empresa_id: string
+          estoque_atual: number
+          id: string
+          observacoes: string | null
+          produto_id: string
+          ultima_atualizacao_custo: string | null
+          updated_at: string
+          variacao: Json | null
+        }
+        Insert: {
+          ativo?: boolean
+          codigo_sku: string
+          created_at?: string
+          custo_medio_atual?: number
+          empresa_id: string
+          estoque_atual?: number
+          id?: string
+          observacoes?: string | null
+          produto_id: string
+          ultima_atualizacao_custo?: string | null
+          updated_at?: string
+          variacao?: Json | null
+        }
+        Update: {
+          ativo?: boolean
+          codigo_sku?: string
+          created_at?: string
+          custo_medio_atual?: number
+          empresa_id?: string
+          estoque_atual?: number
+          id?: string
+          observacoes?: string | null
+          produto_id?: string
+          ultima_atualizacao_custo?: string | null
+          updated_at?: string
+          variacao?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "produto_skus_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produto_skus_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
             referencedColumns: ["id"]
           },
         ]
