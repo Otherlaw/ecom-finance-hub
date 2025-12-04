@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency } from "@/lib/mock-data";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Wallet,
   Download,
@@ -23,6 +25,7 @@ import {
   ArrowRight,
   Filter,
   X,
+  CalendarRange,
 } from "lucide-react";
 import {
   Select,
@@ -124,6 +127,7 @@ const getOrigemLabel = (origem: string) => {
 
 type TipoFiltro = "todos" | "entradas" | "saidas";
 type OrigemFiltro = "todas" | "cartao" | "banco" | "contas_pagar" | "contas_receber" | "manual";
+type ModoPeriodo = "mensal" | "personalizado";
 
 export default function FluxoCaixa() {
   // Estado dos filtros principais
@@ -131,21 +135,33 @@ export default function FluxoCaixa() {
   const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
   const [visaoAtiva, setVisaoAtiva] = useState<"diario" | "dashboard">("diario");
 
+  // Estados de período personalizado
+  const [modoPeriodo, setModoPeriodo] = useState<ModoPeriodo>("mensal");
+  const [dataInicioCustom, setDataInicioCustom] = useState<string>("");
+  const [dataFimCustom, setDataFimCustom] = useState<string>("");
+
   // Estado dos filtros avançados
   const [filtroTipo, setFiltroTipo] = useState<TipoFiltro>("todos");
   const [filtroOrigem, setFiltroOrigem] = useState<OrigemFiltro>("todas");
   const [filtroCategoria, setFiltroCategoria] = useState<string>("todas");
   const [filtroCentroCusto, setFiltroCentroCusto] = useState<string>("todas");
 
-  // Calcular datas do período
+  // Calcular datas do período (considerando modo mensal ou personalizado)
   const { periodoInicio, periodoFim } = useMemo(() => {
+    if (modoPeriodo === "personalizado" && dataInicioCustom && dataFimCustom) {
+      return {
+        periodoInicio: dataInicioCustom,
+        periodoFim: dataFimCustom,
+      };
+    }
+    // Modo mensal (padrão)
     const [ano, mes] = periodoSelecionado.split("-").map(Number);
     const dataRef = new Date(ano, mes - 1, 1);
     return {
       periodoInicio: format(startOfMonth(dataRef), "yyyy-MM-dd"),
       periodoFim: format(endOfMonth(dataRef), "yyyy-MM-dd"),
     };
-  }, [periodoSelecionado]);
+  }, [modoPeriodo, periodoSelecionado, dataInicioCustom, dataFimCustom]);
 
   // Buscar dados do hook
   const { movimentos, resumo, agregado, empresas, isLoading, hasData } = useFluxoCaixa({
@@ -312,20 +328,60 @@ export default function FluxoCaixa() {
       subtitle="Visão consolidada de entradas, saídas e saldo de caixa"
       actions={
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Filtro de Período */}
-          <Select value={periodoSelecionado} onValueChange={setPeriodoSelecionado}>
-            <SelectTrigger className="w-[180px]">
-              <Calendar className="h-4 w-4 mr-2" />
+          {/* Modo de Período */}
+          <Select value={modoPeriodo} onValueChange={(v) => setModoPeriodo(v as ModoPeriodo)}>
+            <SelectTrigger className="w-[160px]">
+              <CalendarRange className="h-4 w-4 mr-2" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {opcoesPeriodo.map((op) => (
-                <SelectItem key={op.valor} value={op.valor}>
-                  {op.label}
-                </SelectItem>
-              ))}
+              <SelectItem value="mensal">Mensal</SelectItem>
+              <SelectItem value="personalizado">Personalizado</SelectItem>
             </SelectContent>
           </Select>
+
+          {/* Filtro de Período Mensal */}
+          {modoPeriodo === "mensal" && (
+            <Select value={periodoSelecionado} onValueChange={setPeriodoSelecionado}>
+              <SelectTrigger className="w-[180px]">
+                <Calendar className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {opcoesPeriodo.map((op) => (
+                  <SelectItem key={op.valor} value={op.valor}>
+                    {op.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {/* Filtro de Período Personalizado */}
+          {modoPeriodo === "personalizado" && (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <Label htmlFor="dataInicio" className="text-xs text-muted-foreground">De:</Label>
+                <Input
+                  id="dataInicio"
+                  type="date"
+                  value={dataInicioCustom}
+                  onChange={(e) => setDataInicioCustom(e.target.value)}
+                  className="w-[140px] h-9"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <Label htmlFor="dataFim" className="text-xs text-muted-foreground">Até:</Label>
+                <Input
+                  id="dataFim"
+                  type="date"
+                  value={dataFimCustom}
+                  onChange={(e) => setDataFimCustom(e.target.value)}
+                  className="w-[140px] h-9"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Filtro de Empresa */}
           <Select value={empresaSelecionada} onValueChange={setEmpresaSelecionada}>
