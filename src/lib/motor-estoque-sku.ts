@@ -448,3 +448,164 @@ export async function buscarMovimentacoesSKU(
 
   return data || [];
 }
+
+// ============= INTEGRAÇÃO COM COMPRAS =============
+
+export interface ItemCompraParaEstoque {
+  produtoId: string;
+  produtoNome?: string;
+  quantidade: number;
+  valorUnitario: number;
+  valorTotal: number;
+}
+
+export interface CompraParaEstoque {
+  id: string;
+  empresaId: string;
+  dataCompra: string;
+  numeroNF?: string;
+  itens: ItemCompraParaEstoque[];
+}
+
+/**
+ * Busca ou cria um SKU padrão para um produto
+ * (usado quando o produto não tem SKUs cadastrados)
+ */
+export async function buscarOuCriarSKUPadrao(
+  produtoId: string,
+  empresaId: string
+): Promise<string> {
+  // Buscar SKU padrão existente
+  const { data: existingSku, error: searchError } = await supabase
+    .from("produto_skus")
+    .select("id")
+    .eq("produto_id", produtoId)
+    .eq("empresa_id", empresaId)
+    .eq("codigo_sku", "PADRAO")
+    .maybeSingle();
+
+  if (searchError) {
+    throw new Error(`Erro ao buscar SKU padrão: ${searchError.message}`);
+  }
+
+  if (existingSku) {
+    return existingSku.id;
+  }
+
+  // Criar SKU padrão
+  const { data: newSku, error: createError } = await supabase
+    .from("produto_skus")
+    .insert({
+      produto_id: produtoId,
+      empresa_id: empresaId,
+      codigo_sku: "PADRAO",
+      variacao: {},
+      estoque_atual: 0,
+      custo_medio_atual: 0,
+      ativo: true,
+      observacoes: "SKU padrão criado automaticamente",
+    })
+    .select("id")
+    .single();
+
+  if (createError) {
+    throw new Error(`Erro ao criar SKU padrão: ${createError.message}`);
+  }
+
+  return newSku.id;
+}
+
+/**
+ * Verifica se já existem movimentações para uma compra (idempotência)
+ */
+async function verificarIdempotenciaCompra(compraId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("movimentacoes_estoque")
+    .select("id")
+    .eq("referencia_id", compraId)
+    .eq("origem", "compra")
+    .limit(1);
+
+  if (error) {
+    console.error("Erro ao verificar idempotência:", error);
+    return false;
+  }
+
+  return (data || []).length > 0;
+}
+
+/**
+ * Processa uma compra para atualizar o estoque
+ * 
+ * Fluxo:
+ * 1. Verifica idempotência (não duplica movimentos)
+ * 2. Para cada item mapeado:
+ *    - Busca ou cria SKU padrão
+ *    - Calcula custo unitário efetivo
+ *    - Registra entrada no estoque
+ * 3. Retorna resumo do processamento
+ */
+export async function processarCompraParaEstoque(
+  compra: CompraParaEstoque
+): Promise<{
+  success: boolean;
+  processados: number;
+  ignorados: number;
+  movimentacoes: string[];
+  erros: string[];
+}> {
+  const resultado = {
+    success: true,
+    processados: 0,
+    ignorados: 0,
+    movimentacoes: [] as string[],
+    erros: [] as string[],
+  };
+
+  // 1. Verificar idempotência
+  const jaProcessada = await verificarIdempotenciaCompra(compra.id);
+  if (jaProcessada) {
+    console.warn(`[Motor Estoque] Compra ${compra.id} já processada. Ignorando.`);
+    return {
+      ...resultado,
+      success: false,
+      erros: ["Compra já processada anteriormente"],
+    };
+  }
+
+  // 2. Processar cada item
+  for (const item of compra.itens) {
+    // Ignorar itens sem produto mapeado
+    if (!item.produtoId) {
+      resultado.ignorados++;
+      continue;
+    }
+
+    try {
+      // 2.1. Buscar ou criar SKU padrão
+      const skuId = await buscarOuCriarSKUPadrao(item.produtoId, compra.empresaId);
+
+      // 2.2. Registrar entrada no estoque
+      const movId = await registrarEntradaEstoqueSKU({
+        skuId,
+        empresaId: compra.empresaId,
+        quantidade: item.quantidade,
+        custoUnitario: item.valorUnitario,
+        origem: "compra",
+        referenciaId: compra.id,
+        documento: compra.numeroNF || undefined,
+        data: compra.dataCompra,
+        observacoes: `Entrada via compra NF ${compra.numeroNF || "s/n"} - ${item.produtoNome || "Produto"}`,
+      });
+
+      resultado.movimentacoes.push(movId);
+      resultado.processados++;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Erro desconhecido";
+      resultado.erros.push(`Item ${item.produtoNome || item.produtoId}: ${msg}`);
+      resultado.success = false;
+    }
+  }
+
+  return resultado;
+}
