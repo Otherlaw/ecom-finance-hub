@@ -42,6 +42,9 @@ type TransacaoPreview = {
   pedido_id: string | null;
   tipo_transacao: string;
   valor_bruto: number;
+  tarifas: number;
+  taxas: number;
+  outros_descontos: number;
   valor_liquido: number;
   tipo_lancamento: 'credito' | 'debito';
   referencia_externa: string;
@@ -70,6 +73,8 @@ export function ImportarMarketplaceModal({
   const [parsedData, setParsedData] = useState<TransacaoPreview[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>("");
+  const [step, setStep] = useState<"upload" | "preview">("upload");
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const resetForm = useCallback(() => {
     setEmpresaId("");
@@ -78,6 +83,8 @@ export function ImportarMarketplaceModal({
     setParsedData([]);
     setError(null);
     setFileName("");
+    setStep("upload");
+    setIsProcessing(false);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -105,6 +112,9 @@ export function ImportarMarketplaceModal({
       descricao: string[];
       valorBruto: string[];
       valorLiquido: string[];
+      tarifas: string[];
+      taxas: string[];
+      outrosDescontos: string[];
     }> = {
       mercado_livre: {
         data: ["date", "data", "fecha"],
@@ -113,6 +123,9 @@ export function ImportarMarketplaceModal({
         descricao: ["description", "descricao", "description_detail"],
         valorBruto: ["amount", "valor_bruto", "gross_amount"],
         valorLiquido: ["net_amount", "valor_liquido", "total"],
+        tarifas: ["tarifa", "comissao", "commission", "fee"],
+        taxas: ["taxa", "imposto", "tax"],
+        outrosDescontos: ["desconto", "discount", "outros"],
       },
       shopee: {
         data: ["data do pedido", "order date", "data"],
@@ -121,6 +134,9 @@ export function ImportarMarketplaceModal({
         descricao: ["descrição", "description", "observação"],
         valorBruto: ["valor bruto", "gross value", "total do pedido"],
         valorLiquido: ["valor líquido", "net value", "valor final"],
+        tarifas: ["comissão", "taxa de serviço", "fee"],
+        taxas: ["imposto", "tax"],
+        outrosDescontos: ["voucher", "desconto", "cupom"],
       },
       default: {
         data: ["data", "date", "data_transacao"],
@@ -129,6 +145,9 @@ export function ImportarMarketplaceModal({
         descricao: ["descricao", "description", "observacao"],
         valorBruto: ["valor_bruto", "gross", "bruto"],
         valorLiquido: ["valor_liquido", "net", "liquido", "valor"],
+        tarifas: ["tarifa", "comissao", "fee"],
+        taxas: ["taxa", "imposto", "tax"],
+        outrosDescontos: ["desconto", "outros", "discount"],
       },
     };
 
@@ -148,6 +167,9 @@ export function ImportarMarketplaceModal({
     const descricaoIdx = findColumn(mapping.descricao);
     const valorBrutoIdx = findColumn(mapping.valorBruto);
     const valorLiquidoIdx = findColumn(mapping.valorLiquido);
+    const tarifasIdx = findColumn(mapping.tarifas);
+    const taxasIdx = findColumn(mapping.taxas);
+    const outrosDescontosIdx = findColumn(mapping.outrosDescontos);
 
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(delimiter).map(v => v.trim().replace(/"/g, ""));
@@ -174,6 +196,9 @@ export function ImportarMarketplaceModal({
 
       const valorLiquido = valorLiquidoIdx >= 0 ? parseValue(values[valorLiquidoIdx]) : 0;
       const valorBruto = valorBrutoIdx >= 0 ? parseValue(values[valorBrutoIdx]) : valorLiquido;
+      const tarifas = tarifasIdx >= 0 ? parseValue(values[tarifasIdx]) : 0;
+      const taxas = taxasIdx >= 0 ? parseValue(values[taxasIdx]) : 0;
+      const outrosDescontos = outrosDescontosIdx >= 0 ? parseValue(values[outrosDescontosIdx]) : 0;
       const tipoTransacao = tipoIdx >= 0 ? values[tipoIdx] || "venda" : "venda";
 
       // Determinar se é crédito ou débito baseado no tipo e valor
@@ -197,8 +222,8 @@ export function ImportarMarketplaceModal({
       // Gerar hash para referencia_externa
       const hashStr = `${dataTransacao}|${pedidoIdValue || ''}|${tipoTransacao}|${valorLiquido}`;
       let hash = 0;
-      for (let i = 0; i < hashStr.length; i++) {
-        const char = hashStr.charCodeAt(i);
+      for (let j = 0; j < hashStr.length; j++) {
+        const char = hashStr.charCodeAt(j);
         hash = ((hash << 5) - hash) + char;
         hash = hash & hash;
       }
@@ -210,6 +235,9 @@ export function ImportarMarketplaceModal({
         tipo_transacao: tipoTransacao,
         descricao: descricaoValue,
         valor_bruto: Math.abs(valorBruto),
+        tarifas: Math.abs(tarifas),
+        taxas: Math.abs(taxas),
+        outros_descontos: Math.abs(outrosDescontos),
         valor_liquido: Math.abs(valorLiquido),
         tipo_lancamento: tipoLancamento,
         referencia_externa: referenciaExterna,
@@ -227,18 +255,23 @@ export function ImportarMarketplaceModal({
     setFileName(file.name);
 
     try {
+      setIsProcessing(true);
       const content = await file.text();
       const parsed = parseCSV(content, canal);
 
       if (parsed.length === 0) {
         setError("Nenhuma transação encontrada no arquivo. Verifique o formato.");
+        setIsProcessing(false);
         return;
       }
 
       setParsedData(parsed);
+      setStep("preview");
+      setIsProcessing(false);
     } catch (err) {
       console.error("Erro ao processar arquivo:", err);
       setError("Erro ao processar o arquivo. Verifique o formato.");
+      setIsProcessing(false);
     }
   }, [canal, parseCSV]);
 
