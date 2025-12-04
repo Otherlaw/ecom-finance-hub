@@ -60,7 +60,7 @@ const mainNavItems: NavItem[] = [
   { title: "Cartões de Crédito", href: "/cartao-credito", icon: CreditCardIcon },
   { title: "Fornecedores", href: "/fornecedores", icon: Truck },
   { title: "Precificação", href: "/precificacao", icon: Calculator },
-  { title: "Mov. Manuais", href: "/movimentos-manuais", icon: PenLine },
+  { title: "Movimentações Manuais", href: "/movimentacoes-manuais", icon: PenLine },
   { title: "Assis.Fin", href: "/assistant", icon: Bot, badge: "IA" },
 ];
 
