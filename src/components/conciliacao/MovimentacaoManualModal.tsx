@@ -25,7 +25,8 @@ import { useResponsaveis } from "@/hooks/useResponsaveis";
 import { criarOuAtualizarMovimentoManual, excluirMovimentoManual } from "@/lib/movimentos-manuais";
 import { toast } from "sonner";
 import { PenLine, Trash2, Save, Loader2 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
+import type { MovimentoManualPayload } from "@/lib/movimentos-manuais";
 
 type MovimentacaoManualModalProps = {
   open: boolean;
@@ -55,9 +56,6 @@ export function MovimentacaoManualModal({
   const { categorias } = useCategoriasFinanceiras();
   const { centrosCusto } = useCentrosCusto();
   const { responsaveis } = useResponsaveis();
-
-  const [isLoading, setIsLoading] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
 
   // Form state
   const [empresaId, setEmpresaId] = useState<string>("");
@@ -101,38 +99,16 @@ export function MovimentacaoManualModal({
     }
   }, [movimento, empresas, open]);
 
-  const handleSave = async () => {
-    // Validations
-    if (!empresaId) {
-      toast.error("Selecione uma empresa");
-      return;
-    }
-    if (!data) {
-      toast.error("Informe a data");
-      return;
-    }
-    if (!valor || parseFloat(valor) <= 0) {
-      toast.error("Informe um valor válido");
-      return;
-    }
-    if (!descricao.trim()) {
-      toast.error("Informe uma descrição");
-      return;
-    }
-    if (!categoriaId) {
-      toast.error("Selecione uma categoria");
-      return;
-    }
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!empresaId || !categoriaId || !data || !valor) {
+        throw new Error("Preencha os campos obrigatórios");
+      }
 
-    setIsLoading(true);
-
-    try {
       const categoriaSelecionada = categorias?.find((c) => c.id === categoriaId);
-      const centroSelecionado = centrosCusto?.find((c) => c.id === centroCustoId);
+      const centroSelecionado = centrosCusto?.find((c) => c.id === centroCustoId && centroCustoId !== "none");
 
-      await criarOuAtualizarMovimentoManual({
-        id: movimento?.id,
-        referenciaId: movimento?.referenciaId || movimento?.referencia_id,
+      const payload: MovimentoManualPayload = {
         empresaId,
         data,
         tipo,
@@ -145,40 +121,59 @@ export function MovimentacaoManualModal({
         responsavelId: responsavelId === "none" ? null : responsavelId,
         formaPagamento,
         observacoes: observacoes.trim() || undefined,
-      });
+        referenciaId: movimento?.referenciaId || movimento?.referencia_id,
+      };
 
-      toast.success(isEditing ? "Movimentação atualizada!" : "Movimentação criada!");
+      await criarOuAtualizarMovimentoManual(payload);
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-caixa"] });
+      queryClient.invalidateQueries({ queryKey: ["dre"] });
+      toast.success(isEditing ? "Movimentação atualizada!" : "Movimentação criada!");
       onSuccess?.();
       onOpenChange(false);
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error("Erro ao salvar movimentação:", error);
       toast.error("Erro ao salvar movimentação");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    },
+  });
 
-  const handleDelete = async () => {
-    if (!movimento?.referenciaId && !movimento?.referencia_id) {
-      toast.error("Não é possível excluir esta movimentação");
-      return;
-    }
-
-    setIsDeleting(true);
-
-    try {
-      await excluirMovimentoManual(movimento.referenciaId || movimento.referencia_id);
-      toast.success("Movimentação excluída!");
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const refId = movimento?.referenciaId || movimento?.referencia_id;
+      if (!refId) throw new Error("Não é possível excluir esta movimentação");
+      await excluirMovimentoManual(refId);
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-caixa"] });
+      queryClient.invalidateQueries({ queryKey: ["dre"] });
+      toast.success("Movimentação excluída!");
       onSuccess?.();
       onOpenChange(false);
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error("Erro ao excluir movimentação:", error);
       toast.error("Erro ao excluir movimentação");
-    } finally {
-      setIsDeleting(false);
+    },
+  });
+
+  const handleSave = () => {
+    if (!empresaId) return toast.error("Selecione uma empresa");
+    if (!data) return toast.error("Informe a data");
+    if (!valor || parseFloat(valor) <= 0) return toast.error("Informe um valor válido");
+    if (!descricao.trim()) return toast.error("Informe uma descrição");
+    if (!categoriaId) return toast.error("Selecione uma categoria");
+    saveMutation.mutate();
+  };
+
+  const handleDelete = () => {
+    if (!movimento?.referenciaId && !movimento?.referencia_id) {
+      return toast.error("Não é possível excluir esta movimentação");
     }
+    deleteMutation.mutate();
   };
 
   // Group categories by type
@@ -372,9 +367,9 @@ export function MovimentacaoManualModal({
               <Button
                 variant="destructive"
                 onClick={handleDelete}
-                disabled={isDeleting || isLoading}
+                disabled={deleteMutation.isPending || saveMutation.isPending}
               >
-                {isDeleting ? (
+                {deleteMutation.isPending ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
                   <Trash2 className="h-4 w-4 mr-2" />
@@ -387,8 +382,8 @@ export function MovimentacaoManualModal({
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleSave} disabled={isLoading || isDeleting}>
-              {isLoading ? (
+            <Button onClick={handleSave} disabled={saveMutation.isPending || deleteMutation.isPending}>
+              {saveMutation.isPending ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
                 <Save className="h-4 w-4 mr-2" />
