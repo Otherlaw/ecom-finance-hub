@@ -122,6 +122,11 @@ export function calcularNovoCustoMedio(
   quantidadeEntrada: number,
   custoUnitarioEntrada: number
 ): number {
+  // Caso especial: estoque zerado - custo médio = custo da entrada
+  if (estoqueAtual <= 0) {
+    return Math.round(custoUnitarioEntrada * 100) / 100;
+  }
+
   const valorEstoqueAtual = estoqueAtual * custoMedioAtual;
   const valorEntrada = quantidadeEntrada * custoUnitarioEntrada;
   const novoEstoque = estoqueAtual + quantidadeEntrada;
@@ -131,7 +136,7 @@ export function calcularNovoCustoMedio(
   }
   
   const novoCustoMedio = (valorEstoqueAtual + valorEntrada) / novoEstoque;
-  return Math.round(novoCustoMedio * 100) / 100; // Arredonda para 2 casas decimais
+  return Math.round(novoCustoMedio * 100) / 100;
 }
 
 /**
