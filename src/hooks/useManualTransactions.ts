@@ -82,7 +82,7 @@ export function useMovimentacoesManuais(params: UseMovimentacoesManuaisParams = 
         `)
         .order("data", { ascending: false });
 
-      if (empresaId) {
+      if (empresaId && empresaId !== "todas") {
         query = query.eq("empresa_id", empresaId);
       }
       if (periodoInicio) {
