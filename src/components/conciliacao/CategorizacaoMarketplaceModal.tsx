@@ -145,7 +145,7 @@ export function CategorizacaoMarketplaceModal({
 
         <div className="space-y-4">
           {/* Informações da transação */}
-          <div className="bg-muted/50 p-4 rounded-lg space-y-2">
+          <div className="bg-muted/50 p-4 rounded-lg space-y-3">
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-sm text-muted-foreground">
@@ -169,13 +169,37 @@ export function CategorizacaoMarketplaceModal({
                   {transaction.tipo_lancamento === "credito" ? "+" : "-"}
                   {formatCurrency(transaction.valor_liquido)}
                 </p>
-                {transaction.valor_bruto && transaction.valor_bruto !== transaction.valor_liquido && (
-                  <p className="text-xs text-muted-foreground">
-                    Bruto: {formatCurrency(transaction.valor_bruto)}
-                  </p>
-                )}
               </div>
             </div>
+
+            {/* Detalhes financeiros */}
+            <div className="grid grid-cols-2 gap-2 text-sm border-t pt-3">
+              <div>
+                <span className="text-muted-foreground">Canal:</span>{" "}
+                <span className="font-medium">{transaction.canal_venda || "—"}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Bruto:</span>{" "}
+                <span className="font-medium">{formatCurrency(transaction.valor_bruto || 0)}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Tarifas:</span>{" "}
+                <span className="font-medium text-red-600">{formatCurrency(transaction.tarifas || 0)}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Taxas:</span>{" "}
+                <span className="font-medium text-red-600">{formatCurrency(transaction.taxas || 0)}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Outros Desc.:</span>{" "}
+                <span className="font-medium text-red-600">{formatCurrency(transaction.outros_descontos || 0)}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Líquido:</span>{" "}
+                <span className="font-medium text-emerald-600">{formatCurrency(transaction.valor_liquido)}</span>
+              </div>
+            </div>
+
             <div className="flex gap-2 pt-2">
               {getStatusBadge(transaction.status)}
               <Badge variant="outline">
