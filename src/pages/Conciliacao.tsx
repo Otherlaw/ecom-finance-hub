@@ -40,7 +40,7 @@ import { CategorizacaoBancariaModal } from "@/components/conciliacao/Categorizac
 import { ImportarExtratoBancarioModal } from "@/components/conciliacao/ImportarExtratoBancarioModal";
 import { ImportarMarketplaceModal } from "@/components/conciliacao/ImportarMarketplaceModal";
 import { CategorizacaoMarketplaceModal } from "@/components/conciliacao/CategorizacaoMarketplaceModal";
-import { MovimentacaoManualModal } from "@/components/conciliacao/MovimentacaoManualModal";
+import { MovimentoManualFormModal } from "@/components/movimentos-manuais/MovimentoManualFormModal";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 
@@ -1092,6 +1092,7 @@ function MarketplaceTab() {
 }
 
 function ManualTab() {
+  const queryClient = useQueryClient();
   const [modalManualOpen, setModalManualOpen] = useState(false);
   const [movimentoEdicao, setMovimentoEdicao] = useState<any | null>(null);
   
@@ -1173,12 +1174,13 @@ function ManualTab() {
         </Table>
       </ModuleCard>
 
-      <MovimentacaoManualModal
+      <MovimentoManualFormModal
         open={modalManualOpen}
         onOpenChange={setModalManualOpen}
         movimento={movimentoEdicao}
         onSuccess={() => {
-          // TODO: refetch movimentações manuais quando implementar hook
+          queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
+          queryClient.invalidateQueries({ queryKey: ["movimentos_manuais"] });
         }}
       />
     </div>

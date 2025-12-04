@@ -73,7 +73,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
-import { MovimentacaoManualModal } from "@/components/conciliacao/MovimentacaoManualModal";
+import { MovimentoManualFormModal } from "@/components/movimentos-manuais/MovimentoManualFormModal";
 import { excluirMovimentoManual } from "@/lib/movimentos-manuais";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -1160,7 +1160,7 @@ export default function FluxoCaixa() {
         </TabsContent>
       </Tabs>
 
-      <MovimentacaoManualModal
+      <MovimentoManualFormModal
         open={modalManualOpen}
         onOpenChange={setModalManualOpen}
         movimento={movimentoEdicao}
