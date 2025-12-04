@@ -14,6 +14,95 @@ export type Database = {
   }
   public: {
     Tables: {
+      bank_transactions: {
+        Row: {
+          atualizado_em: string
+          categoria_id: string | null
+          centro_custo_id: string | null
+          conta_id: string | null
+          criado_em: string
+          data_competencia: string | null
+          data_transacao: string
+          descricao: string
+          documento: string | null
+          empresa_id: string
+          id: string
+          origem_extrato: string
+          referencia_externa: string | null
+          responsavel_id: string | null
+          status: string
+          tipo_lancamento: string
+          valor: number
+        }
+        Insert: {
+          atualizado_em?: string
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          conta_id?: string | null
+          criado_em?: string
+          data_competencia?: string | null
+          data_transacao: string
+          descricao: string
+          documento?: string | null
+          empresa_id: string
+          id?: string
+          origem_extrato: string
+          referencia_externa?: string | null
+          responsavel_id?: string | null
+          status?: string
+          tipo_lancamento: string
+          valor: number
+        }
+        Update: {
+          atualizado_em?: string
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          conta_id?: string | null
+          criado_em?: string
+          data_competencia?: string | null
+          data_transacao?: string
+          descricao?: string
+          documento?: string | null
+          empresa_id?: string
+          id?: string
+          origem_extrato?: string
+          referencia_externa?: string | null
+          responsavel_id?: string | null
+          status?: string
+          tipo_lancamento?: string
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_transactions_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_financeiras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_transactions_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_transactions_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_transactions_responsavel_id_fkey"
+            columns: ["responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "responsaveis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       categorias_financeiras: {
         Row: {
           ativo: boolean
