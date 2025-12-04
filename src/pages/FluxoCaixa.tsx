@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { ModuleCard } from "@/components/ModuleCard";
 import { KPICard } from "@/components/KPICard";
@@ -58,6 +58,8 @@ import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Link } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { toast } from "sonner";
+import * as XLSX from "xlsx";
 
 // Cores para gráficos
 const CHART_COLORS = [
@@ -220,6 +222,58 @@ export default function FluxoCaixa() {
     setFiltroCategoria("todas");
     setFiltroCentroCusto("todas");
   };
+
+  // Exportar para Excel
+  const exportarParaExcel = useCallback(() => {
+    if (movimentosFiltrados.length === 0) {
+      toast.error("Nenhum movimento para exportar");
+      return;
+    }
+
+    try {
+      // Preparar dados para exportação
+      const dadosExport = movimentosFiltrados.map((mov) => ({
+        Data: formatDateBR(mov.data),
+        Tipo: mov.tipo === "entrada" ? "Entrada" : "Saída",
+        Origem: getOrigemLabel(mov.origem),
+        Descrição: mov.descricao,
+        Categoria: mov.categoriaNome || "Não categorizado",
+        "Centro de Custo": mov.centroCustoNome || "-",
+        Valor: mov.tipo === "entrada" ? mov.valor : -mov.valor,
+        Empresa: mov.empresaNome || "-",
+      }));
+
+      // Criar workbook e worksheet
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(dadosExport);
+
+      // Ajustar largura das colunas
+      ws["!cols"] = [
+        { wch: 12 }, // Data
+        { wch: 10 }, // Tipo
+        { wch: 18 }, // Origem
+        { wch: 40 }, // Descrição
+        { wch: 25 }, // Categoria
+        { wch: 20 }, // Centro de Custo
+        { wch: 15 }, // Valor
+        { wch: 25 }, // Empresa
+      ];
+
+      // Adicionar worksheet ao workbook
+      XLSX.utils.book_append_sheet(wb, ws, "Movimentacoes");
+
+      // Gerar nome do arquivo
+      const nomeArquivo = `fluxo_caixa_${periodoInicio}_a_${periodoFim}.xlsx`;
+
+      // Salvar arquivo
+      XLSX.writeFile(wb, nomeArquivo);
+
+      toast.success(`Arquivo "${nomeArquivo}" exportado com sucesso!`);
+    } catch (error) {
+      console.error("Erro ao exportar:", error);
+      toast.error("Erro ao exportar arquivo");
+    }
+  }, [movimentosFiltrados, periodoInicio, periodoFim]);
 
   // Resumo calculado a partir dos dados filtrados (para KPIs)
   const resumoFiltrado = useMemo(() => {
@@ -416,7 +470,7 @@ export default function FluxoCaixa() {
           {/* Exportar */}
           <div className="flex flex-col gap-1">
             <Label className="text-xs font-medium text-muted-foreground invisible">Ação</Label>
-            <Button variant="outline" className="gap-2 h-9">
+            <Button variant="outline" className="gap-2 h-9" onClick={exportarParaExcel}>
               <Download className="h-4 w-4" />
               Exportar
             </Button>
