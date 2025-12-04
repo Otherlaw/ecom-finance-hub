@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { registrarMovimentoFinanceiro, excluirMovimentoPorReferencia } from "@/hooks/useMovimentosFinanceiros";
 
 export interface ContaReceber {
   id: string;
@@ -148,10 +149,14 @@ export const useContasReceber = (params: UseContasReceberParams = {}) => {
 
   const receberConta = useMutation({
     mutationFn: async ({ id, valorRecebido, dataRecebimento }: { id: string; valorRecebido: number; dataRecebimento: string }) => {
-      // Buscar conta atual
+      // Buscar conta atual com dados completos
       const { data: contaAtual, error: fetchError } = await supabase
         .from("contas_a_receber")
-        .select("valor_total, valor_recebido")
+        .select(`
+          *,
+          categoria:categorias_financeiras(id, nome),
+          centro_custo:centros_de_custo(id, nome)
+        `)
         .eq("id", id)
         .single();
 
@@ -174,11 +179,30 @@ export const useContasReceber = (params: UseContasReceberParams = {}) => {
         .single();
 
       if (error) throw error;
+
+      // Registrar movimento no MEU
+      await registrarMovimentoFinanceiro({
+        data: dataRecebimento,
+        tipo: "entrada",
+        origem: "contas_receber",
+        descricao: contaAtual.descricao,
+        valor: novoValorRecebido, // Valor total recebido consolidado
+        empresa_id: contaAtual.empresa_id,
+        referencia_id: id,
+        categoria_id: contaAtual.categoria_id || undefined,
+        categoria_nome: (contaAtual.categoria as any)?.nome || undefined,
+        centro_custo_id: contaAtual.centro_custo_id || undefined,
+        centro_custo_nome: (contaAtual.centro_custo as any)?.nome || undefined,
+        forma_pagamento: contaAtual.forma_recebimento || undefined,
+        cliente_nome: contaAtual.cliente_nome,
+        observacoes: "Recebimento de título a receber",
+      });
+
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["contas-a-receber"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo-caixa-contas-receber"] });
+      queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["dre-contas-receber"] });
       toast.success("Recebimento registrado com sucesso!");
     },
