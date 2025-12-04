@@ -256,7 +256,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       if (updateError) throw updateError;
 
       // Registrar no FLOW HUB
-      const tipo = transacao.tipo_lancamento === "credito" ? "entrada" : "saida";
+      const tipo = transacao.tipo_lancamento === "debito" ? "saida" : "entrada";
       
       await registrarMovimentoFinanceiro({
         data: transacao.data_transacao,
