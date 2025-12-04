@@ -123,6 +123,8 @@ const getOrigemIcon = (origem: string) => {
       return <FileText className="h-4 w-4 text-destructive" />;
     case "contas_receber":
       return <FileText className="h-4 w-4 text-success" />;
+    case "marketplace":
+      return <Building2 className="h-4 w-4 text-primary" />;
     default:
       return <Wallet className="h-4 w-4" />;
   }
@@ -139,13 +141,17 @@ const getOrigemLabel = (origem: string) => {
       return "Contas a Pagar";
     case "contas_receber":
       return "Contas a Receber";
-    default:
+    case "marketplace":
+      return "Marketplace";
+    case "manual":
       return "Manual";
+    default:
+      return origem;
   }
 };
 
 type TipoFiltro = "todos" | "entradas" | "saidas";
-type OrigemFiltro = "todas" | "cartao" | "banco" | "contas_pagar" | "contas_receber" | "manual";
+type OrigemFiltro = "todas" | "cartao" | "banco" | "contas_pagar" | "contas_receber" | "manual" | "marketplace";
 type ModoPeriodo = "mensal" | "personalizado";
 
 export default function FluxoCaixa() {
@@ -654,6 +660,7 @@ export default function FluxoCaixa() {
               <SelectItem value="banco">Banco</SelectItem>
               <SelectItem value="contas_pagar">Contas a Pagar</SelectItem>
               <SelectItem value="contas_receber">Contas a Receber</SelectItem>
+              <SelectItem value="marketplace">Marketplace</SelectItem>
               <SelectItem value="manual">Manual</SelectItem>
             </SelectContent>
           </Select>
