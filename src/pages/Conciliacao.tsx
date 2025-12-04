@@ -31,6 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFaturas, useTransacoes } from "@/hooks/useCartoes";
 import { useBankTransactions, BankTransaction } from "@/hooks/useBankTransactions";
+import { useMovimentacoesManuais, ManualTransaction } from "@/hooks/useManualTransactions";
 import { useMarketplaceTransactions, MarketplaceTransaction } from "@/hooks/useMarketplaceTransactions";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useNavigate } from "react-router-dom";
@@ -44,11 +45,7 @@ import { MovimentoManualFormModal } from "@/components/movimentos-manuais/Movime
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 
-const mockManual = [
-  { id: 1, data: "15/11", descricao: "Ajuste de Inventário", valor: -1200, tipo: "Despesa", status: "pendente", responsavel: "João Silva" },
-  { id: 2, data: "18/11", descricao: "Reembolso Cliente", valor: 350, tipo: "Receita", status: "aprovado", responsavel: "Maria Santos" },
-  { id: 3, data: "20/11", descricao: "Correção Lançamento Duplicado", valor: -2500, tipo: "Ajuste", status: "pendente", responsavel: "Admin" },
-];
+// Mock removido - usando dados reais de manual_transactions
 
 function calculateTotals(data: any[], statusField = "status") {
   return {
@@ -1094,19 +1091,74 @@ function MarketplaceTab() {
 function ManualTab() {
   const queryClient = useQueryClient();
   const [modalManualOpen, setModalManualOpen] = useState(false);
-  const [movimentoEdicao, setMovimentoEdicao] = useState<any | null>(null);
+  const [movimentoEdicao, setMovimentoEdicao] = useState<ManualTransaction | null>(null);
+  const [busca, setBusca] = useState("");
   
-  const totals = calculateTotals(mockManual);
+  // Hook com dados reais e mutations de aprovação/rejeição
+  const { 
+    movimentacoes, 
+    resumo, 
+    isLoading, 
+    refetch,
+    aprovarLancamento,
+    rejeitarLancamento,
+    reabrirLancamento,
+  } = useMovimentacoesManuais();
+  
+  // Filtro de busca local
+  const movimentacoesFiltradas = movimentacoes.filter((m) => {
+    if (!busca) return true;
+    const termo = busca.toLowerCase();
+    return (
+      m.descricao.toLowerCase().includes(termo) ||
+      m.responsavel?.nome?.toLowerCase().includes(termo)
+    );
+  });
+  
+  // Totals para SummaryCards
+  const totals = {
+    registros: movimentacoesFiltradas.length,
+    conciliados: resumo.aprovados,
+    divergencias: 0,
+    pendentes: resumo.pendentes,
+    totalDiferencas: 0,
+  };
 
   const handleNovoLancamento = () => {
     setMovimentoEdicao(null);
     setModalManualOpen(true);
   };
 
-  const handleEditarLancamento = (movimento: any) => {
+  const handleEditarLancamento = (movimento: ManualTransaction) => {
     setMovimentoEdicao(movimento);
     setModalManualOpen(true);
   };
+  
+  const handleAprovar = (lancamento: ManualTransaction) => {
+    aprovarLancamento.mutate(lancamento);
+  };
+  
+  const handleRejeitar = (lancamento: ManualTransaction) => {
+    rejeitarLancamento.mutate(lancamento);
+  };
+  
+  const handleReabrir = (lancamento: ManualTransaction) => {
+    reabrirLancamento.mutate(lancamento);
+  };
+  
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-16 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
+  }
   
   return (
     <div>
@@ -1116,11 +1168,16 @@ function ManualTab() {
       <div className="flex items-center gap-4 mb-6">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar por descrição..." className="pl-10" />
+          <Input 
+            placeholder="Buscar por descrição..." 
+            className="pl-10"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
         </div>
-        <Button variant="outline" className="gap-2">
-          <Filter className="h-4 w-4" />
-          Filtrar
+        <Button variant="outline" className="gap-2" onClick={() => refetch()}>
+          <RefreshCw className="h-4 w-4" />
+          Atualizar
         </Button>
         <Button className="gap-2" onClick={handleNovoLancamento}>
           <PenLine className="h-4 w-4" />
@@ -1129,49 +1186,134 @@ function ManualTab() {
       </div>
       
       <ModuleCard title="Lançamentos Manuais" description="Ajustes e correções manuais" icon={PenLine} noPadding>
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-secondary/30">
-              <TableHead className="w-[80px]">Data</TableHead>
-              <TableHead>Descrição</TableHead>
-              <TableHead>Tipo</TableHead>
-              <TableHead>Responsável</TableHead>
-              <TableHead className="text-right">Valor</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead className="text-center">Ação</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {mockManual.map((item) => (
-              <TableRow key={item.id} className={item.status === "pendente" ? "bg-warning/5" : ""}>
-                <TableCell className="font-medium">{item.data}</TableCell>
-                <TableCell>{item.descricao}</TableCell>
-                <TableCell>
-                  <Badge variant="outline" className={
-                    item.tipo === "Receita" ? "border-success text-success" :
-                    item.tipo === "Despesa" ? "border-destructive text-destructive" :
-                    ""
-                  }>
-                    {item.tipo}
-                  </Badge>
-                </TableCell>
-                <TableCell>{item.responsavel}</TableCell>
-                <TableCell className={`text-right font-medium ${item.valor < 0 ? "text-destructive" : "text-success"}`}>
-                  {formatCurrency(item.valor)}
-                </TableCell>
-                <TableCell className="text-center"><StatusBadge status={item.status} /></TableCell>
-                <TableCell className="text-center">
-                  {item.status === "pendente" && (
-                    <div className="flex gap-1 justify-center">
-                      <Button variant="ghost" size="sm" className="text-success">Aprovar</Button>
-                      <Button variant="ghost" size="sm" className="text-destructive">Rejeitar</Button>
-                    </div>
-                  )}
-                </TableCell>
+        {movimentacoesFiltradas.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground">
+            <PenLine className="h-12 w-12 mx-auto mb-4 opacity-30" />
+            <p className="font-medium">Nenhum lançamento manual encontrado</p>
+            <p className="text-sm mt-1">Crie um novo lançamento para iniciar</p>
+            <Button className="mt-4 gap-2" onClick={handleNovoLancamento}>
+              <PenLine className="h-4 w-4" />
+              Novo Lançamento
+            </Button>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-secondary/30">
+                <TableHead className="w-[100px]">Data</TableHead>
+                <TableHead>Descrição</TableHead>
+                <TableHead>Categoria</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Responsável</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-center">Ação</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {movimentacoesFiltradas.map((item) => (
+                <TableRow 
+                  key={item.id} 
+                  className={
+                    item.status === "pendente" ? "bg-warning/5" : 
+                    item.status === "aprovado" ? "bg-success/5" :
+                    item.status === "rejeitado" ? "bg-muted/30 opacity-60" : ""
+                  }
+                >
+                  <TableCell className="font-medium">
+                    {new Date(item.data).toLocaleDateString("pt-BR")}
+                  </TableCell>
+                  <TableCell>
+                    <div>
+                      <span className="font-medium">{item.descricao}</span>
+                      {item.observacoes && (
+                        <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                          {item.observacoes}
+                        </p>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {item.categoria ? (
+                      <Badge variant="outline" className="bg-primary/5 border-primary/30">
+                        {item.categoria.nome}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={
+                      item.tipo === "entrada" ? "border-success text-success" :
+                      "border-destructive text-destructive"
+                    }>
+                      {item.tipo === "entrada" ? "Receita" : "Despesa"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {item.responsavel?.nome || "-"}
+                  </TableCell>
+                  <TableCell className={`text-right font-medium ${
+                    item.tipo === "entrada" ? "text-success" : "text-destructive"
+                  }`}>
+                    {item.tipo === "entrada" ? "+" : "-"}{formatCurrency(item.valor)}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <StatusBadge status={item.status} />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {item.status === "pendente" && (
+                      <div className="flex gap-1 justify-center">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-success hover:text-success hover:bg-success/10"
+                          onClick={() => handleAprovar(item)}
+                          disabled={aprovarLancamento.isPending}
+                        >
+                          {aprovarLancamento.isPending ? "..." : "Aprovar"}
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleRejeitar(item)}
+                          disabled={rejeitarLancamento.isPending}
+                        >
+                          {rejeitarLancamento.isPending ? "..." : "Rejeitar"}
+                        </Button>
+                      </div>
+                    )}
+                    {item.status === "aprovado" && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        className="gap-1 text-muted-foreground"
+                        onClick={() => handleReabrir(item)}
+                        disabled={reabrirLancamento.isPending}
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        {reabrirLancamento.isPending ? "..." : "Reabrir"}
+                      </Button>
+                    )}
+                    {item.status === "rejeitado" && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        className="gap-1 text-muted-foreground"
+                        onClick={() => handleReabrir(item)}
+                        disabled={reabrirLancamento.isPending}
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        {reabrirLancamento.isPending ? "..." : "Reabrir"}
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </ModuleCard>
 
       <MovimentoManualFormModal
@@ -1179,6 +1321,7 @@ function ManualTab() {
         onOpenChange={setModalManualOpen}
         movimentacao={movimentoEdicao}
         onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ["manual_transactions"] });
           queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
           queryClient.invalidateQueries({ queryKey: ["movimentos_manuais"] });
         }}
