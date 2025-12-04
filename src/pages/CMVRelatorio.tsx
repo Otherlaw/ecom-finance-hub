@@ -72,7 +72,7 @@ export default function CMVRelatorio() {
 
   // Selecionar primeira empresa automaticamente
   useMemo(() => {
-    if (empresas.length > 0 && !empresaId) {
+    if (empresas && empresas.length > 0 && !empresaId) {
       setEmpresaId(empresas[0].id);
     }
   }, [empresas, empresaId]);
