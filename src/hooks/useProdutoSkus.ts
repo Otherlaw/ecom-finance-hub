@@ -317,3 +317,22 @@ export async function listarSkusDoProduto(produtoId: string): Promise<ProdutoSKU
 
   return (data || []) as ProdutoSKU[];
 }
+
+// ============= ALIAS PARA ESTOQUE =============
+
+export type FiltroEstoque = {
+  produtoId?: string;
+  empresaId?: string;
+  ativo?: boolean;
+};
+
+/**
+ * Alias para useProdutoSkus com interface simplificada para estoque
+ */
+export function useEstoqueSkus(filtros?: FiltroEstoque) {
+  return useProdutoSkus({
+    produtoId: filtros?.produtoId,
+    empresaId: filtros?.empresaId,
+    apenasAtivos: filtros?.ativo ?? true,
+  });
+}
