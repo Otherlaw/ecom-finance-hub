@@ -193,7 +193,7 @@ export default function MovimentosManuais() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Movimentações</p>
-                  <p className="text-2xl font-bold">{resumo.quantidade}</p>
+                  <p className="text-2xl font-bold">{resumo.total}</p>
                 </div>
                 <FileText className="h-8 w-8 text-primary/20" />
               </div>
