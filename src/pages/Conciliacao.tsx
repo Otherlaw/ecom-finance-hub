@@ -706,11 +706,6 @@ function MarketplaceTab() {
     resumo,
     isLoading,
     refetch,
-    importarTransacoes,
-    atualizarTransacao,
-    conciliarTransacao,
-    ignorarTransacao,
-    reabrirTransacao,
   } = useMarketplaceTransactions({
     empresaId: empresaId || undefined,
     canal: canal || undefined,
@@ -732,10 +727,6 @@ function MarketplaceTab() {
   
   const handleCategorizar = (transacao: MarketplaceTransaction) => {
     setCategorizacaoModal({ open: true, transacao });
-  };
-  
-  const handleCategorizacaoSuccess = () => {
-    refetch();
   };
   
   const CANAL_LABELS: Record<string, string> = {
@@ -1018,8 +1009,7 @@ function MarketplaceTab() {
       <ImportarMarketplaceModal
         open={importModalOpen}
         onOpenChange={setImportModalOpen}
-        onImport={importarTransacoes.mutateAsync}
-        isImporting={importarTransacoes.isPending}
+        onSuccess={() => refetch()}
       />
       
       {/* Modal de Categorização */}
@@ -1027,11 +1017,7 @@ function MarketplaceTab() {
         open={categorizacaoModal.open}
         onOpenChange={(open) => setCategorizacaoModal({ ...categorizacaoModal, open })}
         transaction={categorizacaoModal.transacao}
-        onCategorizar={atualizarTransacao.mutateAsync}
-        onConciliar={conciliarTransacao.mutateAsync}
-        onIgnorar={ignorarTransacao.mutateAsync}
-        onReabrir={reabrirTransacao.mutateAsync}
-        isLoading={atualizarTransacao.isPending || conciliarTransacao.isPending || ignorarTransacao.isPending || reabrirTransacao.isPending}
+        onSuccess={() => refetch()}
       />
     </div>
   );

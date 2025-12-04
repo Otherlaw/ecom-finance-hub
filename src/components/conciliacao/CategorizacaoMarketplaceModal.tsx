@@ -19,23 +19,15 @@ import { Badge } from "@/components/ui/badge";
 import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { useResponsaveis } from "@/hooks/useResponsaveis";
-import { MarketplaceTransaction } from "@/hooks/useMarketplaceTransactions";
+import { useMarketplaceTransactions, MarketplaceTransaction } from "@/hooks/useMarketplaceTransactions";
 import { Store, Check, X, RotateCcw, Tag, Building2 } from "lucide-react";
+import { toast } from "sonner";
 
 interface CategorizacaoMarketplaceModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
   transaction: MarketplaceTransaction | null;
-  onCategorizar: (data: {
-    id: string;
-    categoriaId?: string;
-    centroCustoId?: string;
-    responsavelId?: string;
-  }) => Promise<any>;
-  onConciliar: (id: string) => Promise<any>;
-  onIgnorar: (id: string) => Promise<any>;
-  onReabrir: (id: string) => Promise<any>;
-  isLoading: boolean;
 }
 
 const CANAL_LABELS: Record<string, string> = {
@@ -50,16 +42,13 @@ const CANAL_LABELS: Record<string, string> = {
 export function CategorizacaoMarketplaceModal({
   open,
   onOpenChange,
+  onSuccess,
   transaction,
-  onCategorizar,
-  onConciliar,
-  onIgnorar,
-  onReabrir,
-  isLoading,
 }: CategorizacaoMarketplaceModalProps) {
   const { categorias } = useCategoriasFinanceiras();
   const { centrosCusto } = useCentrosCusto();
   const { responsaveis } = useResponsaveis();
+  const { atualizarTransacao, conciliarTransacao, ignorarTransacao, reabrirTransacao } = useMarketplaceTransactions();
 
   const [categoriaId, setCategoriaId] = useState<string>("");
   const [centroCustoId, setCentroCustoId] = useState<string>("");
@@ -82,19 +71,22 @@ export function CategorizacaoMarketplaceModal({
     }).format(value);
   };
 
+  const isLoading = atualizarTransacao.isPending || conciliarTransacao.isPending || ignorarTransacao.isPending || reabrirTransacao.isPending;
+
   const handleSalvar = async () => {
-    await onCategorizar({
+    await atualizarTransacao.mutateAsync({
       id: transaction.id,
       categoriaId: categoriaId || undefined,
       centroCustoId: centroCustoId || undefined,
       responsavelId: responsavelId || undefined,
     });
+    onSuccess?.();
     onOpenChange(false);
   };
 
   const handleConciliar = async () => {
     if (!categoriaId) {
-      alert("Selecione uma categoria antes de conciliar.");
+      toast.error("Selecione uma categoria antes de conciliar.");
       return;
     }
     // Salvar categoria primeiro se mudou
@@ -103,24 +95,27 @@ export function CategorizacaoMarketplaceModal({
       centroCustoId !== transaction.centro_custo_id ||
       responsavelId !== transaction.responsavel_id
     ) {
-      await onCategorizar({
+      await atualizarTransacao.mutateAsync({
         id: transaction.id,
         categoriaId: categoriaId || undefined,
         centroCustoId: centroCustoId || undefined,
         responsavelId: responsavelId || undefined,
       });
     }
-    await onConciliar(transaction.id);
+    await conciliarTransacao.mutateAsync(transaction.id);
+    onSuccess?.();
     onOpenChange(false);
   };
 
   const handleIgnorar = async () => {
-    await onIgnorar(transaction.id);
+    await ignorarTransacao.mutateAsync(transaction.id);
+    onSuccess?.();
     onOpenChange(false);
   };
 
   const handleReabrir = async () => {
-    await onReabrir(transaction.id);
+    await reabrirTransacao.mutateAsync(transaction.id);
+    onSuccess?.();
     onOpenChange(false);
   };
 
