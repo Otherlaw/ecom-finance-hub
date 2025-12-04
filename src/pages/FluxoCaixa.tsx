@@ -21,6 +21,8 @@ import {
   List,
   Info,
   ArrowRight,
+  Filter,
+  X,
 } from "lucide-react";
 import {
   Select,
@@ -46,15 +48,9 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
-  BarChart,
-  Bar,
-  Cell,
-  PieChart,
-  Pie,
-  Legend,
 } from "recharts";
-import { useFluxoCaixa, MovimentoCaixa } from "@/hooks/useFluxoCaixa";
-import { format, startOfMonth, endOfMonth, subMonths, parse } from "date-fns";
+import { useFluxoCaixa } from "@/hooks/useFluxoCaixa";
+import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Link } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -126,12 +122,20 @@ const getOrigemLabel = (origem: string) => {
   }
 };
 
+type TipoFiltro = "todos" | "entradas" | "saidas";
+type OrigemFiltro = "todas" | "cartao" | "banco" | "contas_pagar" | "contas_receber" | "manual";
+
 export default function FluxoCaixa() {
-  // Estado dos filtros
+  // Estado dos filtros principais
   const [periodoSelecionado, setPeriodoSelecionado] = useState(format(new Date(), "yyyy-MM"));
   const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
   const [visaoAtiva, setVisaoAtiva] = useState<"diario" | "dashboard">("diario");
-  const [tipoFiltro, setTipoFiltro] = useState<"todos" | "entradas" | "saidas">("todos");
+
+  // Estado dos filtros avançados
+  const [filtroTipo, setFiltroTipo] = useState<TipoFiltro>("todos");
+  const [filtroOrigem, setFiltroOrigem] = useState<OrigemFiltro>("todas");
+  const [filtroCategoria, setFiltroCategoria] = useState<string>("todas");
+  const [filtroCentroCusto, setFiltroCentroCusto] = useState<string>("todas");
 
   // Calcular datas do período
   const { periodoInicio, periodoFim } = useMemo(() => {
@@ -143,7 +147,7 @@ export default function FluxoCaixa() {
     };
   }, [periodoSelecionado]);
 
-  // Buscar dados
+  // Buscar dados do hook
   const { movimentos, resumo, agregado, empresas, isLoading, hasData } = useFluxoCaixa({
     periodoInicio,
     periodoFim,
@@ -152,28 +156,155 @@ export default function FluxoCaixa() {
 
   const opcoesPeriodo = useMemo(() => gerarOpcoesPeriodo(), []);
 
-  // Filtrar movimentos por tipo
-  const movimentosFiltrados = useMemo(() => {
-    if (tipoFiltro === "todos") return movimentos;
-    return movimentos.filter((m) =>
-      tipoFiltro === "entradas" ? m.tipo === "entrada" : m.tipo === "saida"
-    );
-  }, [movimentos, tipoFiltro]);
+  // Listas para popular selects de filtro
+  const categoriasDisponiveis = useMemo(() => {
+    const nomes = movimentos
+      .map((m) => m.categoriaNome)
+      .filter((nome): nome is string => !!nome);
+    return Array.from(new Set(nomes)).sort();
+  }, [movimentos]);
 
-  // Dados para gráfico de evolução
+  const centrosDisponiveis = useMemo(() => {
+    const nomes = movimentos
+      .map((m) => m.centroCustoNome)
+      .filter((nome): nome is string => !!nome);
+    return Array.from(new Set(nomes)).sort();
+  }, [movimentos]);
+
+  // Filtrar movimentos por todos os critérios
+  const movimentosFiltrados = useMemo(() => {
+    return movimentos.filter((m) => {
+      // filtro por tipo
+      if (filtroTipo === "entradas" && m.tipo !== "entrada") return false;
+      if (filtroTipo === "saidas" && m.tipo !== "saida") return false;
+
+      // filtro por origem
+      if (filtroOrigem !== "todas" && m.origem !== filtroOrigem) return false;
+
+      // filtro por categoria
+      if (filtroCategoria !== "todas" && m.categoriaNome !== filtroCategoria) return false;
+
+      // filtro por centro de custo
+      if (filtroCentroCusto !== "todas" && m.centroCustoNome !== filtroCentroCusto) return false;
+
+      return true;
+    });
+  }, [movimentos, filtroTipo, filtroOrigem, filtroCategoria, filtroCentroCusto]);
+
+  const hasDataFiltrado = movimentosFiltrados.length > 0;
+
+  // Verificar se há algum filtro ativo
+  const temFiltroAtivo = filtroTipo !== "todos" || filtroOrigem !== "todas" || filtroCategoria !== "todas" || filtroCentroCusto !== "todas";
+
+  // Limpar filtros
+  const limparFiltros = () => {
+    setFiltroTipo("todos");
+    setFiltroOrigem("todas");
+    setFiltroCategoria("todas");
+    setFiltroCentroCusto("todas");
+  };
+
+  // Resumo calculado a partir dos dados filtrados (para KPIs)
+  const resumoFiltrado = useMemo(() => {
+    const totalEntradas = movimentosFiltrados
+      .filter((m) => m.tipo === "entrada")
+      .reduce((acc, m) => acc + m.valor, 0);
+
+    const totalSaidas = movimentosFiltrados
+      .filter((m) => m.tipo === "saida")
+      .reduce((acc, m) => acc + m.valor, 0);
+
+    const saldoInicial = 0;
+    const saldoFinal = saldoInicial + totalEntradas - totalSaidas;
+
+    return {
+      saldoInicial,
+      totalEntradas,
+      totalSaidas,
+      saldoFinal,
+      projecao30Dias: saldoFinal, // Simplificado
+    };
+  }, [movimentosFiltrados]);
+
+  // Agregados calculados a partir dos dados filtrados (para gráficos)
+  const agregadoFiltrado = useMemo(() => {
+    // Agrupar por dia
+    const porDiaMap = new Map<string, { entradas: number; saidas: number }>();
+
+    movimentosFiltrados.forEach((m) => {
+      const existing = porDiaMap.get(m.data) || { entradas: 0, saidas: 0 };
+      if (m.tipo === "entrada") {
+        existing.entradas += m.valor;
+      } else {
+        existing.saidas += m.valor;
+      }
+      porDiaMap.set(m.data, existing);
+    });
+
+    let saldoAcumulado = 0;
+    const porDia = Array.from(porDiaMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([data, values]) => {
+        const saldo = values.entradas - values.saidas;
+        saldoAcumulado += saldo;
+        return {
+          data,
+          entradas: values.entradas,
+          saidas: values.saidas,
+          saldo,
+          saldoAcumulado,
+        };
+      });
+
+    // Agrupar por categoria (saídas)
+    const porCategoriaMap = new Map<string, { tipo: string; valor: number }>();
+    movimentosFiltrados
+      .filter((m) => m.tipo === "saida")
+      .forEach((m) => {
+        const key = m.categoriaNome || "Não categorizado";
+        const existing = porCategoriaMap.get(key) || { tipo: m.categoriaTipo || "", valor: 0 };
+        existing.valor += m.valor;
+        porCategoriaMap.set(key, existing);
+      });
+
+    const porCategoria = Array.from(porCategoriaMap.entries())
+      .map(([categoria, { tipo, valor }]) => ({ categoria, tipo, valor }))
+      .sort((a, b) => b.valor - a.valor);
+
+    // Agrupar por centro de custo
+    const porCCMap = new Map<string, number>();
+    movimentosFiltrados
+      .filter((m) => m.tipo === "saida")
+      .forEach((m) => {
+        const key = m.centroCustoNome || "Sem centro de custo";
+        porCCMap.set(key, (porCCMap.get(key) || 0) + m.valor);
+      });
+
+    const porCentroCusto = Array.from(porCCMap.entries())
+      .map(([centroCusto, valor]) => ({ centroCusto, valor }))
+      .sort((a, b) => b.valor - a.valor);
+
+    return {
+      porDia,
+      porCategoria,
+      porCentroCusto,
+    };
+  }, [movimentosFiltrados]);
+
+  // Dados para gráfico de evolução (usando agregadoFiltrado)
   const dadosEvolucao = useMemo(() => {
-    return agregado.porDia.map((d) => ({
+    return agregadoFiltrado.porDia.map((d) => ({
       data: formatDateBR(d.data).slice(0, 5), // DD/MM
       entradas: d.entradas,
       saidas: d.saidas,
       saldo: d.saldoAcumulado,
     }));
-  }, [agregado.porDia]);
+  }, [agregadoFiltrado.porDia]);
 
-  // Top categorias para gráfico
+  // Top categorias para gráfico (usando agregadoFiltrado)
   const topCategorias = useMemo(() => {
-    return agregado.porCategoria.slice(0, 8);
-  }, [agregado.porCategoria]);
+    return agregadoFiltrado.porCategoria.slice(0, 8);
+  }, [agregadoFiltrado.porCategoria]);
 
   return (
     <MainLayout
@@ -220,40 +351,40 @@ export default function FluxoCaixa() {
         </div>
       }
     >
-      {/* KPIs - sempre visíveis */}
+      {/* KPIs - usando resumoFiltrado */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <KPICard
           title="Saldo Inicial"
-          value={formatCurrency(resumo.saldoInicial)}
+          value={formatCurrency(resumoFiltrado.saldoInicial)}
           icon={Wallet}
           trend="neutral"
         />
         <KPICard
           title="Total Entradas"
-          value={formatCurrency(resumo.totalEntradas)}
+          value={formatCurrency(resumoFiltrado.totalEntradas)}
           icon={ArrowUpCircle}
           iconColor="text-success"
           trend="up"
         />
         <KPICard
           title="Total Saídas"
-          value={formatCurrency(resumo.totalSaidas)}
+          value={formatCurrency(resumoFiltrado.totalSaidas)}
           icon={ArrowDownCircle}
           iconColor="text-destructive"
           trend="down"
         />
         <KPICard
           title="Saldo Final"
-          value={formatCurrency(resumo.saldoFinal)}
+          value={formatCurrency(resumoFiltrado.saldoFinal)}
           icon={Wallet}
-          trend={resumo.saldoFinal >= 0 ? "up" : "down"}
+          trend={resumoFiltrado.saldoFinal >= 0 ? "up" : "down"}
         />
         <KPICard
           title="Projeção 30 dias"
-          value={formatCurrency(resumo.projecao30Dias)}
+          value={formatCurrency(resumoFiltrado.projecao30Dias)}
           changeLabel="Estimativa"
           icon={TrendingUp}
-          trend={resumo.projecao30Dias >= 0 ? "neutral" : "down"}
+          trend={resumoFiltrado.projecao30Dias >= 0 ? "neutral" : "down"}
         />
       </div>
 
@@ -270,20 +401,82 @@ export default function FluxoCaixa() {
               Dashboard
             </TabsTrigger>
           </TabsList>
+        </div>
 
-          {/* Filtro de Tipo de Movimento */}
-          {visaoAtiva === "diario" && (
-            <Select value={tipoFiltro} onValueChange={(v) => setTipoFiltro(v as any)}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="entradas">Somente Entradas</SelectItem>
-                <SelectItem value="saidas">Somente Saídas</SelectItem>
-              </SelectContent>
-            </Select>
+        {/* Filtros Avançados */}
+        <div className="flex flex-wrap items-center gap-2 p-3 bg-secondary/30 rounded-lg border">
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground mr-2">Filtros:</span>
+
+          {/* Filtro de Tipo */}
+          <Select value={filtroTipo} onValueChange={(v) => setFiltroTipo(v as TipoFiltro)}>
+            <SelectTrigger className="w-[140px] h-8">
+              <SelectValue placeholder="Tipo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os tipos</SelectItem>
+              <SelectItem value="entradas">Entradas</SelectItem>
+              <SelectItem value="saidas">Saídas</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Filtro de Origem */}
+          <Select value={filtroOrigem} onValueChange={(v) => setFiltroOrigem(v as OrigemFiltro)}>
+            <SelectTrigger className="w-[160px] h-8">
+              <SelectValue placeholder="Origem" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas as origens</SelectItem>
+              <SelectItem value="cartao">Cartão</SelectItem>
+              <SelectItem value="banco">Banco</SelectItem>
+              <SelectItem value="contas_pagar">Contas a Pagar</SelectItem>
+              <SelectItem value="contas_receber">Contas a Receber</SelectItem>
+              <SelectItem value="manual">Manual</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Filtro de Categoria */}
+          <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
+            <SelectTrigger className="w-[180px] h-8">
+              <SelectValue placeholder="Categoria" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas as categorias</SelectItem>
+              {categoriasDisponiveis.map((cat) => (
+                <SelectItem key={cat} value={cat}>
+                  {cat}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Filtro de Centro de Custo */}
+          <Select value={filtroCentroCusto} onValueChange={setFiltroCentroCusto}>
+            <SelectTrigger className="w-[180px] h-8">
+              <SelectValue placeholder="Centro de Custo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todos os centros</SelectItem>
+              {centrosDisponiveis.map((cc) => (
+                <SelectItem key={cc} value={cc}>
+                  {cc}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Botão Limpar Filtros */}
+          {temFiltroAtivo && (
+            <Button variant="ghost" size="sm" onClick={limparFiltros} className="h-8 gap-1">
+              <X className="h-3 w-3" />
+              Limpar filtros
+            </Button>
           )}
+
+          {/* Badge com contagem */}
+          <Badge variant="secondary" className="ml-auto">
+            {movimentosFiltrados.length} de {movimentos.length} movimentos
+          </Badge>
         </div>
 
         {/* VISÃO DIÁRIA */}
@@ -296,6 +489,17 @@ export default function FluxoCaixa() {
             </ModuleCard>
           ) : !hasData ? (
             <EmptyState />
+          ) : !hasDataFiltrado ? (
+            <ModuleCard title="Nenhuma movimentação encontrada" icon={Info}>
+              <div className="text-center py-8">
+                <p className="text-muted-foreground mb-4">
+                  Nenhuma movimentação corresponde aos filtros selecionados.
+                </p>
+                <Button variant="outline" onClick={limparFiltros}>
+                  Limpar filtros
+                </Button>
+              </div>
+            </ModuleCard>
           ) : (
             <ModuleCard
               title="Movimentações"
@@ -398,6 +602,17 @@ export default function FluxoCaixa() {
             </ModuleCard>
           ) : !hasData ? (
             <EmptyState />
+          ) : !hasDataFiltrado ? (
+            <ModuleCard title="Nenhuma movimentação encontrada" icon={Info}>
+              <div className="text-center py-8">
+                <p className="text-muted-foreground mb-4">
+                  Nenhuma movimentação corresponde aos filtros selecionados.
+                </p>
+                <Button variant="outline" onClick={limparFiltros}>
+                  Limpar filtros
+                </Button>
+              </div>
+            </ModuleCard>
           ) : (
             <>
               {/* Gráficos */}
@@ -495,8 +710,8 @@ export default function FluxoCaixa() {
                   <div className="py-4">
                     <p className="text-3xl font-bold text-destructive">
                       {formatCurrency(
-                        agregado.porDia.length > 0
-                          ? resumo.totalSaidas / agregado.porDia.length
+                        agregadoFiltrado.porDia.length > 0
+                          ? resumoFiltrado.totalSaidas / agregadoFiltrado.porDia.length
                           : 0
                       )}
                     </p>
@@ -512,14 +727,14 @@ export default function FluxoCaixa() {
                     <div className="flex items-center justify-center gap-4">
                       <div>
                         <p className="text-lg font-bold text-success">
-                          {formatCurrency(resumo.totalEntradas)}
+                          {formatCurrency(resumoFiltrado.totalEntradas)}
                         </p>
                         <p className="text-xs text-muted-foreground">Entradas</p>
                       </div>
                       <div className="text-muted-foreground">/</div>
                       <div>
                         <p className="text-lg font-bold text-destructive">
-                          {formatCurrency(resumo.totalSaidas)}
+                          {formatCurrency(resumoFiltrado.totalSaidas)}
                         </p>
                         <p className="text-xs text-muted-foreground">Saídas</p>
                       </div>
@@ -527,13 +742,13 @@ export default function FluxoCaixa() {
                     <p className="text-sm mt-2">
                       <span
                         className={
-                          resumo.totalEntradas >= resumo.totalSaidas
+                          resumoFiltrado.totalEntradas >= resumoFiltrado.totalSaidas
                             ? "text-success"
                             : "text-destructive"
                         }
                       >
-                        {resumo.totalEntradas >= resumo.totalSaidas ? "Superávit" : "Déficit"}:{" "}
-                        {formatCurrency(Math.abs(resumo.totalEntradas - resumo.totalSaidas))}
+                        {resumoFiltrado.totalEntradas >= resumoFiltrado.totalSaidas ? "Superávit" : "Déficit"}:{" "}
+                        {formatCurrency(Math.abs(resumoFiltrado.totalEntradas - resumoFiltrado.totalSaidas))}
                       </span>
                     </p>
                   </div>
@@ -542,14 +757,14 @@ export default function FluxoCaixa() {
                 {/* Runway estimado */}
                 <ModuleCard title="Runway Estimado" className="text-center">
                   <div className="py-4">
-                    {resumo.totalSaidas > 0 && agregado.porDia.length > 0 ? (
+                    {resumoFiltrado.totalSaidas > 0 && agregadoFiltrado.porDia.length > 0 ? (
                       <>
                         <p className="text-3xl font-bold">
                           {Math.max(
                             0,
                             Math.round(
-                              resumo.saldoFinal /
-                                (resumo.totalSaidas / agregado.porDia.length)
+                              resumoFiltrado.saldoFinal /
+                                (resumoFiltrado.totalSaidas / agregadoFiltrado.porDia.length)
                             )
                           )}{" "}
                           dias
