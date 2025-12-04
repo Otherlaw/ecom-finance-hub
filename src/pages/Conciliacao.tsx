@@ -702,20 +702,15 @@ function MarketplaceTab() {
   
   const { empresas } = useEmpresas();
   const {
-    transactions,
-    contadores,
+    transacoes,
+    resumo,
     isLoading,
     refetch,
-    importTransactions,
-    isImporting,
-    categorizar,
-    isCategorizando,
-    conciliar,
-    isConciliando,
-    ignorar,
-    isIgnorando,
-    reabrir,
-    isReabrindo,
+    importarTransacoes,
+    atualizarTransacao,
+    conciliarTransacao,
+    ignorarTransacao,
+    reabrirTransacao,
   } = useMarketplaceTransactions({
     empresaId: empresaId || undefined,
     canal: canal || undefined,
@@ -725,7 +720,7 @@ function MarketplaceTab() {
   });
   
   // Filtro de busca local
-  const transacoesFiltradas = transactions.filter((t) => {
+  const transacoesFiltradas = transacoes.filter((t) => {
     if (!busca) return true;
     const termo = busca.toLowerCase();
     return (
@@ -788,7 +783,7 @@ function MarketplaceTab() {
             </div>
             <span className="text-sm text-muted-foreground">Total</span>
           </div>
-          <p className="text-2xl font-bold">{contadores.total}</p>
+          <p className="text-2xl font-bold">{resumo.total}</p>
         </div>
 
         <div className="p-5 rounded-xl bg-primary/5 border border-primary/20">
@@ -798,7 +793,7 @@ function MarketplaceTab() {
             </div>
             <span className="text-sm text-muted-foreground">Importados</span>
           </div>
-          <p className="text-2xl font-bold text-primary">{contadores.importados}</p>
+          <p className="text-2xl font-bold text-primary">{resumo.importadas}</p>
         </div>
 
         <div className="p-5 rounded-xl bg-warning/5 border border-warning/20">
@@ -808,7 +803,7 @@ function MarketplaceTab() {
             </div>
             <span className="text-sm text-muted-foreground">Pendentes</span>
           </div>
-          <p className="text-2xl font-bold text-warning">{contadores.pendentes}</p>
+          <p className="text-2xl font-bold text-warning">{resumo.pendentes}</p>
         </div>
 
         <div className="p-5 rounded-xl bg-success/5 border border-success/20">
@@ -818,7 +813,7 @@ function MarketplaceTab() {
             </div>
             <span className="text-sm text-muted-foreground">Conciliados</span>
           </div>
-          <p className="text-2xl font-bold text-success">{contadores.conciliados}</p>
+          <p className="text-2xl font-bold text-success">{resumo.conciliadas}</p>
         </div>
 
         <div className="p-5 rounded-xl bg-muted/50 border border-border">
@@ -828,20 +823,20 @@ function MarketplaceTab() {
             </div>
             <span className="text-sm text-muted-foreground">Ignorados</span>
           </div>
-          <p className="text-2xl font-bold text-muted-foreground">{contadores.ignorados}</p>
+          <p className="text-2xl font-bold text-muted-foreground">{resumo.ignoradas}</p>
         </div>
       </div>
 
       {/* Progress */}
-      {contadores.total > 0 && (
+      {resumo.total > 0 && (
         <div className="mb-6 p-4 rounded-xl bg-card border border-border">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium">Progresso da Conciliação</span>
             <span className="text-sm text-muted-foreground">
-              {contadores.conciliados} de {contadores.total} registros
+              {resumo.conciliadas} de {resumo.total} registros
             </span>
           </div>
-          <Progress value={(contadores.conciliados / contadores.total) * 100} className="h-2" />
+          <Progress value={(resumo.conciliadas / resumo.total) * 100} className="h-2" />
         </div>
       )}
       
@@ -1023,8 +1018,8 @@ function MarketplaceTab() {
       <ImportarMarketplaceModal
         open={importModalOpen}
         onOpenChange={setImportModalOpen}
-        onImport={importTransactions}
-        isImporting={isImporting}
+        onImport={importarTransacoes.mutateAsync}
+        isImporting={importarTransacoes.isPending}
       />
       
       {/* Modal de Categorização */}
@@ -1032,11 +1027,11 @@ function MarketplaceTab() {
         open={categorizacaoModal.open}
         onOpenChange={(open) => setCategorizacaoModal({ ...categorizacaoModal, open })}
         transaction={categorizacaoModal.transacao}
-        onCategorizar={categorizar}
-        onConciliar={conciliar}
-        onIgnorar={ignorar}
-        onReabrir={reabrir}
-        isLoading={isCategorizando || isConciliando || isIgnorando || isReabrindo}
+        onCategorizar={atualizarTransacao.mutateAsync}
+        onConciliar={conciliarTransacao.mutateAsync}
+        onIgnorar={ignorarTransacao.mutateAsync}
+        onReabrir={reabrirTransacao.mutateAsync}
+        isLoading={atualizarTransacao.isPending || conciliarTransacao.isPending || ignorarTransacao.isPending || reabrirTransacao.isPending}
       />
     </div>
   );

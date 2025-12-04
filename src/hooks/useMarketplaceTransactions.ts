@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, UseMutationResult } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { registrarMovimentoFinanceiro, removerMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
@@ -69,10 +69,37 @@ interface UseMarketplaceTransactionsParams {
   status?: "todos" | "importado" | "pendente" | "conciliado" | "ignorado";
 }
 
-export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsParams) {
+interface MarketplaceResumo {
+  total: number;
+  importadas: number;
+  pendentes: number;
+  conciliadas: number;
+  ignoradas: number;
+  totalCreditos: number;
+  totalDebitos: number;
+}
+
+interface UseMarketplaceTransactionsReturn {
+  transacoes: MarketplaceTransaction[];
+  resumo: MarketplaceResumo;
+  isLoading: boolean;
+  refetch: () => void;
+  importarTransacoes: UseMutationResult<{ imported: number; skipped: number }, Error, MarketplaceTransactionInsert[], unknown>;
+  atualizarTransacao: UseMutationResult<MarketplaceTransaction, Error, {
+    id: string;
+    categoriaId?: string;
+    centroCustoId?: string;
+    responsavelId?: string;
+  }, unknown>;
+  conciliarTransacao: UseMutationResult<MarketplaceTransaction, Error, string, unknown>;
+  ignorarTransacao: UseMutationResult<void, Error, string, unknown>;
+  reabrirTransacao: UseMutationResult<void, Error, string, unknown>;
+}
+
+export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsParams): UseMarketplaceTransactionsReturn {
   const queryClient = useQueryClient();
 
-  const { data: transactions = [], isLoading, refetch } = useQuery({
+  const { data: transacoes = [], isLoading, refetch } = useQuery({
     queryKey: ["marketplace_transactions", params],
     queryFn: async () => {
       let query = supabase
@@ -112,7 +139,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     },
   });
 
-  const importTransactionsMutation = useMutation({
+  const importarTransacoes = useMutation({
     mutationFn: async (transactionsToImport: MarketplaceTransactionInsert[]) => {
       // Buscar referências existentes para evitar duplicatas
       const referencias = transactionsToImport
@@ -159,7 +186,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     },
   });
 
-  const categorizarMutation = useMutation({
+  const atualizarTransacao = useMutation({
     mutationFn: async ({
       id,
       categoriaId,
@@ -190,7 +217,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         .single();
 
       if (error) throw error;
-      return data;
+      return data as MarketplaceTransaction;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
@@ -202,7 +229,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     },
   });
 
-  const conciliarMutation = useMutation({
+  const conciliarTransacao = useMutation({
     mutationFn: async (id: string) => {
       // Buscar transação completa
       const { data: transacao, error: fetchError } = await supabase
@@ -247,7 +274,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         formaPagamento: "marketplace",
       });
 
-      return transacao;
+      return transacao as MarketplaceTransaction;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
@@ -261,7 +288,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     },
   });
 
-  const ignorarMutation = useMutation({
+  const ignorarTransacao = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
         .from("marketplace_transactions")
@@ -283,7 +310,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     },
   });
 
-  const reabrirMutation = useMutation({
+  const reabrirTransacao = useMutation({
     mutationFn: async (id: string) => {
       // Buscar transação para verificar status anterior
       const { data: transacao, error: fetchError } = await supabase
@@ -322,29 +349,30 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     },
   });
 
-  // Contadores
-  const contadores = {
-    total: transactions.length,
-    importados: transactions.filter(t => t.status === "importado").length,
-    pendentes: transactions.filter(t => t.status === "pendente").length,
-    conciliados: transactions.filter(t => t.status === "conciliado").length,
-    ignorados: transactions.filter(t => t.status === "ignorado").length,
+  // Resumo calculado
+  const resumo: MarketplaceResumo = {
+    total: transacoes.length,
+    importadas: transacoes.filter(t => t.status === "importado").length,
+    pendentes: transacoes.filter(t => t.status === "pendente").length,
+    conciliadas: transacoes.filter(t => t.status === "conciliado").length,
+    ignoradas: transacoes.filter(t => t.status === "ignorado").length,
+    totalCreditos: transacoes
+      .filter(t => t.tipo_lancamento === "credito")
+      .reduce((acc, t) => acc + t.valor_liquido, 0),
+    totalDebitos: transacoes
+      .filter(t => t.tipo_lancamento === "debito")
+      .reduce((acc, t) => acc + t.valor_liquido, 0),
   };
 
   return {
-    transactions,
+    transacoes,
+    resumo,
     isLoading,
     refetch,
-    contadores,
-    importTransactions: importTransactionsMutation.mutateAsync,
-    isImporting: importTransactionsMutation.isPending,
-    categorizar: categorizarMutation.mutateAsync,
-    isCategorizando: categorizarMutation.isPending,
-    conciliar: conciliarMutation.mutateAsync,
-    isConciliando: conciliarMutation.isPending,
-    ignorar: ignorarMutation.mutateAsync,
-    isIgnorando: ignorarMutation.isPending,
-    reabrir: reabrirMutation.mutateAsync,
-    isReabrindo: reabrirMutation.isPending,
+    importarTransacoes,
+    atualizarTransacao,
+    conciliarTransacao,
+    ignorarTransacao,
+    reabrirTransacao,
   };
 }
