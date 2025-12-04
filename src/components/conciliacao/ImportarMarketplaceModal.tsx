@@ -1,0 +1,427 @@
+import { useState, useCallback } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Upload, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useEmpresas } from "@/hooks/useEmpresas";
+import { MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+interface ImportarMarketplaceModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onImport: (transactions: MarketplaceTransactionInsert[]) => Promise<any>;
+  isImporting: boolean;
+}
+
+interface ParsedTransaction {
+  data_transacao: string;
+  pedido_id: string;
+  tipo_transacao: string;
+  descricao: string;
+  valor_bruto: number;
+  valor_liquido: number;
+  tipo_lancamento: string;
+}
+
+const CANAIS = [
+  { value: "mercado_livre", label: "Mercado Livre" },
+  { value: "shopee", label: "Shopee" },
+  { value: "amazon", label: "Amazon" },
+  { value: "tiktok", label: "TikTok Shop" },
+  { value: "shein", label: "Shein" },
+  { value: "outro", label: "Outro" },
+];
+
+export function ImportarMarketplaceModal({
+  open,
+  onOpenChange,
+  onImport,
+  isImporting,
+}: ImportarMarketplaceModalProps) {
+  const { empresas } = useEmpresas();
+  const [empresaId, setEmpresaId] = useState<string>("");
+  const [canal, setCanal] = useState<string>("");
+  const [contaNome, setContaNome] = useState<string>("");
+  const [parsedData, setParsedData] = useState<ParsedTransaction[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string>("");
+
+  const resetForm = useCallback(() => {
+    setEmpresaId("");
+    setCanal("");
+    setContaNome("");
+    setParsedData([]);
+    setError(null);
+    setFileName("");
+  }, []);
+
+  const handleClose = useCallback(() => {
+    resetForm();
+    onOpenChange(false);
+  }, [onOpenChange, resetForm]);
+
+  const generateHash = (row: ParsedTransaction): string => {
+    const str = `${row.data_transacao}|${row.pedido_id}|${row.tipo_transacao}|${row.valor_liquido}`;
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16);
+  };
+
+  const parseCSV = useCallback((content: string, selectedCanal: string): ParsedTransaction[] => {
+    const lines = content.split("\n").filter(line => line.trim());
+    if (lines.length < 2) return [];
+
+    const header = lines[0].toLowerCase();
+    const transactions: ParsedTransaction[] = [];
+
+    // Detectar delimitador
+    const delimiter = header.includes(";") ? ";" : ",";
+    const headers = header.split(delimiter).map(h => h.trim().replace(/"/g, ""));
+
+    // Mapeamento de colunas por canal
+    const columnMappings: Record<string, {
+      data: string[];
+      pedido: string[];
+      tipo: string[];
+      descricao: string[];
+      valorBruto: string[];
+      valorLiquido: string[];
+    }> = {
+      mercado_livre: {
+        data: ["date", "data", "fecha"],
+        pedido: ["order", "pedido", "pack_id", "order_id"],
+        tipo: ["type", "tipo", "reason"],
+        descricao: ["description", "descricao", "description_detail"],
+        valorBruto: ["amount", "valor_bruto", "gross_amount"],
+        valorLiquido: ["net_amount", "valor_liquido", "total"],
+      },
+      shopee: {
+        data: ["data do pedido", "order date", "data"],
+        pedido: ["nº do pedido", "order id", "pedido"],
+        tipo: ["tipo de transação", "transaction type", "tipo"],
+        descricao: ["descrição", "description", "observação"],
+        valorBruto: ["valor bruto", "gross value", "total do pedido"],
+        valorLiquido: ["valor líquido", "net value", "valor final"],
+      },
+      default: {
+        data: ["data", "date", "data_transacao"],
+        pedido: ["pedido", "order", "pedido_id"],
+        tipo: ["tipo", "type", "tipo_transacao"],
+        descricao: ["descricao", "description", "observacao"],
+        valorBruto: ["valor_bruto", "gross", "bruto"],
+        valorLiquido: ["valor_liquido", "net", "liquido", "valor"],
+      },
+    };
+
+    const mapping = columnMappings[selectedCanal] || columnMappings.default;
+
+    const findColumn = (possibleNames: string[]): number => {
+      for (const name of possibleNames) {
+        const idx = headers.findIndex(h => h.includes(name));
+        if (idx >= 0) return idx;
+      }
+      return -1;
+    };
+
+    const dataIdx = findColumn(mapping.data);
+    const pedidoIdx = findColumn(mapping.pedido);
+    const tipoIdx = findColumn(mapping.tipo);
+    const descricaoIdx = findColumn(mapping.descricao);
+    const valorBrutoIdx = findColumn(mapping.valorBruto);
+    const valorLiquidoIdx = findColumn(mapping.valorLiquido);
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(delimiter).map(v => v.trim().replace(/"/g, ""));
+      if (values.length < 3) continue;
+
+      const parseDate = (dateStr: string): string => {
+        if (!dateStr) return new Date().toISOString().split("T")[0];
+        // Tentar formatos comuns
+        const parts = dateStr.split(/[\/\-]/);
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
+          }
+          return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+        }
+        return new Date().toISOString().split("T")[0];
+      };
+
+      const parseValue = (val: string): number => {
+        if (!val) return 0;
+        const cleaned = val.replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", ".");
+        return parseFloat(cleaned) || 0;
+      };
+
+      const valorLiquido = valorLiquidoIdx >= 0 ? parseValue(values[valorLiquidoIdx]) : 0;
+      const valorBruto = valorBrutoIdx >= 0 ? parseValue(values[valorBrutoIdx]) : valorLiquido;
+      const tipoTransacao = tipoIdx >= 0 ? values[tipoIdx] || "venda" : "venda";
+
+      // Determinar se é crédito ou débito baseado no tipo e valor
+      let tipoLancamento = "credito";
+      const tipoLower = tipoTransacao.toLowerCase();
+      if (
+        tipoLower.includes("comiss") ||
+        tipoLower.includes("tarifa") ||
+        tipoLower.includes("taxa") ||
+        tipoLower.includes("frete") ||
+        tipoLower.includes("desconto") ||
+        valorLiquido < 0
+      ) {
+        tipoLancamento = "debito";
+      }
+
+      transactions.push({
+        data_transacao: dataIdx >= 0 ? parseDate(values[dataIdx]) : new Date().toISOString().split("T")[0],
+        pedido_id: pedidoIdx >= 0 ? values[pedidoIdx] || "" : "",
+        tipo_transacao: tipoTransacao,
+        descricao: descricaoIdx >= 0 ? values[descricaoIdx] || tipoTransacao : tipoTransacao,
+        valor_bruto: Math.abs(valorBruto),
+        valor_liquido: Math.abs(valorLiquido),
+        tipo_lancamento: tipoLancamento,
+      });
+    }
+
+    return transactions;
+  }, []);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setError(null);
+    setFileName(file.name);
+
+    try {
+      const content = await file.text();
+      const parsed = parseCSV(content, canal);
+
+      if (parsed.length === 0) {
+        setError("Nenhuma transação encontrada no arquivo. Verifique o formato.");
+        return;
+      }
+
+      setParsedData(parsed);
+    } catch (err) {
+      console.error("Erro ao processar arquivo:", err);
+      setError("Erro ao processar o arquivo. Verifique o formato.");
+    }
+  }, [canal, parseCSV]);
+
+  const handleImport = useCallback(async () => {
+    if (!empresaId || !canal || parsedData.length === 0) return;
+
+    const transactions: MarketplaceTransactionInsert[] = parsedData.map(row => ({
+      empresa_id: empresaId,
+      canal,
+      conta_nome: contaNome || undefined,
+      pedido_id: row.pedido_id || undefined,
+      referencia_externa: generateHash(row),
+      data_transacao: row.data_transacao,
+      tipo_transacao: row.tipo_transacao,
+      descricao: row.descricao,
+      valor_bruto: row.valor_bruto,
+      valor_liquido: row.valor_liquido,
+      tipo_lancamento: row.tipo_lancamento,
+      status: "importado",
+      origem_arquivo: canal,
+    }));
+
+    await onImport(transactions);
+    handleClose();
+  }, [empresaId, canal, contaNome, parsedData, onImport, handleClose]);
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    }).format(value);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="max-w-4xl max-h-[90vh]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileSpreadsheet className="h-5 w-5" />
+            Importar Relatório do Marketplace
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Seleção de Empresa e Canal */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Empresa *</Label>
+              <Select value={empresaId} onValueChange={setEmpresaId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a empresa" />
+                </SelectTrigger>
+                <SelectContent>
+                  {empresas.map((empresa) => (
+                    <SelectItem key={empresa.id} value={empresa.id}>
+                      {empresa.nome_fantasia || empresa.razao_social}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Canal *</Label>
+              <Select value={canal} onValueChange={setCanal}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o canal" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CANAIS.map((c) => (
+                    <SelectItem key={c.value} value={c.value}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Nome da Conta (opcional)</Label>
+              <Input
+                placeholder="Ex: ML Principal"
+                value={contaNome}
+                onChange={(e) => setContaNome(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Upload de Arquivo */}
+          {empresaId && canal && (
+            <div className="space-y-2">
+              <Label>Arquivo CSV</Label>
+              <div className="flex items-center gap-4">
+                <Input
+                  type="file"
+                  accept=".csv,.txt"
+                  onChange={handleFileChange}
+                  className="flex-1"
+                />
+                {fileName && (
+                  <span className="text-sm text-muted-foreground">
+                    {fileName}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Preview das transações */}
+          {parsedData.length > 0 && (
+            <div className="space-y-2">
+              <Label>
+                Preview ({parsedData.length} transações encontradas)
+              </Label>
+              <ScrollArea className="h-[300px] border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Pedido</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead className="text-right">Valor Bruto</TableHead>
+                      <TableHead className="text-right">Valor Líquido</TableHead>
+                      <TableHead>Lançamento</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {parsedData.slice(0, 50).map((row, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell>{row.data_transacao}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {row.pedido_id || "-"}
+                        </TableCell>
+                        <TableCell>{row.tipo_transacao}</TableCell>
+                        <TableCell className="max-w-[200px] truncate">
+                          {row.descricao}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatCurrency(row.valor_bruto)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatCurrency(row.valor_liquido)}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`px-2 py-1 rounded text-xs ${
+                              row.tipo_lancamento === "credito"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-red-100 text-red-700"
+                            }`}
+                          >
+                            {row.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {parsedData.length > 50 && (
+                  <p className="text-center text-sm text-muted-foreground py-2">
+                    Mostrando 50 de {parsedData.length} transações
+                  </p>
+                )}
+              </ScrollArea>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleImport}
+            disabled={!empresaId || !canal || parsedData.length === 0 || isImporting}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            {isImporting ? "Importando..." : `Importar ${parsedData.length} transações`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

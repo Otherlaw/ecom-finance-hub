@@ -648,6 +648,104 @@ export type Database = {
         }
         Relationships: []
       }
+      marketplace_transactions: {
+        Row: {
+          atualizado_em: string
+          canal: string
+          categoria_id: string | null
+          centro_custo_id: string | null
+          conta_nome: string | null
+          criado_em: string
+          data_repasse: string | null
+          data_transacao: string
+          descricao: string
+          empresa_id: string
+          id: string
+          origem_arquivo: string | null
+          pedido_id: string | null
+          referencia_externa: string | null
+          responsavel_id: string | null
+          status: string
+          tipo_lancamento: string
+          tipo_transacao: string
+          valor_bruto: number | null
+          valor_liquido: number
+        }
+        Insert: {
+          atualizado_em?: string
+          canal: string
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          conta_nome?: string | null
+          criado_em?: string
+          data_repasse?: string | null
+          data_transacao: string
+          descricao: string
+          empresa_id: string
+          id?: string
+          origem_arquivo?: string | null
+          pedido_id?: string | null
+          referencia_externa?: string | null
+          responsavel_id?: string | null
+          status?: string
+          tipo_lancamento: string
+          tipo_transacao: string
+          valor_bruto?: number | null
+          valor_liquido: number
+        }
+        Update: {
+          atualizado_em?: string
+          canal?: string
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          conta_nome?: string | null
+          criado_em?: string
+          data_repasse?: string | null
+          data_transacao?: string
+          descricao?: string
+          empresa_id?: string
+          id?: string
+          origem_arquivo?: string | null
+          pedido_id?: string | null
+          referencia_externa?: string | null
+          responsavel_id?: string | null
+          status?: string
+          tipo_lancamento?: string
+          tipo_transacao?: string
+          valor_bruto?: number | null
+          valor_liquido?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_transactions_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_financeiras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_transactions_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_transactions_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_transactions_responsavel_id_fkey"
+            columns: ["responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "responsaveis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       movimentos_financeiros: {
         Row: {
           atualizado_em: string
