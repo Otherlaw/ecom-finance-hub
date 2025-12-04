@@ -16,9 +16,9 @@ export interface MarketplaceTransaction {
   tipo_transacao: string;
   descricao: string;
   valor_bruto: number | null;
-  tarifas: number;
-  taxas: number;
-  outros_descontos: number;
+  tarifas: number | null;
+  taxas: number | null;
+  outros_descontos: number | null;
   valor_liquido: number;
   tipo_lancamento: string;
   status: string;
