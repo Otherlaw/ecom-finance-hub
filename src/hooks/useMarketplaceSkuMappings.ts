@@ -132,7 +132,60 @@ export function useMarketplaceSkuMappings(params?: UseMarketplaceSkuMappingsPara
 // ============= FUNÇÕES AUXILIARES PARA BUSCA =============
 
 /**
- * Busca mapeamento por SKU do marketplace
+ * Resolve SKU do marketplace para SKU/Produto interno.
+ * Tenta primeiro por sku_marketplace exato, depois por descrição (fallback).
+ */
+export async function resolverSkuMarketplace(params: {
+  empresaId: string;
+  canal: string;
+  skuMarketplace?: string | null;
+  descricaoItem?: string | null;
+}): Promise<{ skuId?: string; produtoId?: string } | null> {
+  const { empresaId, canal, skuMarketplace, descricaoItem } = params;
+
+  // 1. Tentar busca exata por sku_marketplace
+  if (skuMarketplace) {
+    const { data, error } = await supabase
+      .from("marketplace_sku_mappings")
+      .select("sku_id, produto_id")
+      .eq("empresa_id", empresaId)
+      .eq("canal", canal)
+      .eq("sku_marketplace", skuMarketplace)
+      .maybeSingle();
+
+    if (!error && data && (data.sku_id || data.produto_id)) {
+      return {
+        skuId: data.sku_id ?? undefined,
+        produtoId: data.produto_id ?? undefined,
+      };
+    }
+  }
+
+  // 2. Fallback: buscar por nome_produto_marketplace similar à descrição
+  if (descricaoItem) {
+    const { data, error } = await supabase
+      .from("marketplace_sku_mappings")
+      .select("sku_id, produto_id, nome_produto_marketplace")
+      .eq("empresa_id", empresaId)
+      .eq("canal", canal)
+      .or(`sku_id.not.is.null,produto_id.not.is.null`)
+      .ilike("nome_produto_marketplace", `%${descricaoItem.substring(0, 30)}%`)
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data && (data.sku_id || data.produto_id)) {
+      return {
+        skuId: data.sku_id ?? undefined,
+        produtoId: data.produto_id ?? undefined,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Busca mapeamento por SKU do marketplace (legacy, usa resolverSkuMarketplace internamente)
  */
 export async function buscarMapeamentoPorSkuMarketplace(
   empresaId: string,
