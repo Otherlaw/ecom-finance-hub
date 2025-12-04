@@ -62,8 +62,8 @@ export function CategorizacaoBancariaModal({
       {
         id: transacao.id,
         categoria_id: categoriaId || null,
-        centro_custo_id: centroCustoId || null,
-        responsavel_id: responsavelId || null,
+        centro_custo_id: centroCustoId === "none" ? null : (centroCustoId || null),
+        responsavel_id: responsavelId === "none" ? null : (responsavelId || null),
       },
       {
         onSuccess: () => {
@@ -82,8 +82,8 @@ export function CategorizacaoBancariaModal({
     const transacaoAtualizada = {
       ...transacao,
       categoria_id: categoriaId,
-      centro_custo_id: centroCustoId || null,
-      responsavel_id: responsavelId || null,
+      centro_custo_id: centroCustoId === "none" ? null : (centroCustoId || null),
+      responsavel_id: responsavelId === "none" ? null : (responsavelId || null),
     };
 
     conciliarTransacao.mutate(transacaoAtualizada, {
@@ -228,7 +228,7 @@ export function CategorizacaoBancariaModal({
                   <SelectValue placeholder="Selecione um centro de custo (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhum</SelectItem>
+                  <SelectItem value="none">Nenhum</SelectItem>
                   {centrosCusto?.filter((c) => c.ativo).map((cc) => (
                     <SelectItem key={cc.id} value={cc.id}>
                       {cc.codigo ? `${cc.codigo} - ` : ""}{cc.nome}
@@ -252,7 +252,7 @@ export function CategorizacaoBancariaModal({
                   <SelectValue placeholder="Selecione um responsável (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhum</SelectItem>
+                  <SelectItem value="none">Nenhum</SelectItem>
                   {responsaveis?.filter((r) => r.ativo).map((resp) => (
                     <SelectItem key={resp.id} value={resp.id}>
                       {resp.nome}

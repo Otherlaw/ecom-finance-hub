@@ -184,7 +184,7 @@ function BancariaTab() {
   }>({ open: false, transacao: null });
   
   // Filtros
-  const [empresaId, setEmpresaId] = useState<string>("");
+  const [empresaId, setEmpresaId] = useState<string>("all");
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
   const [busca, setBusca] = useState("");
   
@@ -195,7 +195,7 @@ function BancariaTab() {
   
   const { empresas } = useEmpresas();
   const { transacoes, resumo, isLoading, refetch } = useBankTransactions({
-    empresaId: empresaId || undefined,
+    empresaId: empresaId === "all" ? undefined : empresaId,
     periodoInicio,
     periodoFim,
     status: statusFiltro,
@@ -326,7 +326,7 @@ function BancariaTab() {
             <SelectValue placeholder="Todas as empresas" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Todas as empresas</SelectItem>
+            <SelectItem value="all">Todas as empresas</SelectItem>
             {empresas?.map((emp) => (
               <SelectItem key={emp.id} value={emp.id}>
                 {emp.nome_fantasia || emp.razao_social}
@@ -690,8 +690,8 @@ function MarketplaceTab() {
   }>({ open: false, transacao: null });
   
   // Filtros
-  const [empresaId, setEmpresaId] = useState<string>("");
-  const [canal, setCanal] = useState<string>("");
+  const [empresaId, setEmpresaId] = useState<string>("all");
+  const [canal, setCanal] = useState<string>("all");
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
   const [busca, setBusca] = useState("");
   
@@ -707,8 +707,8 @@ function MarketplaceTab() {
     isLoading,
     refetch,
   } = useMarketplaceTransactions({
-    empresaId: empresaId || undefined,
-    canal: canal || undefined,
+    empresaId: empresaId === "all" ? undefined : empresaId,
+    canal: canal === "all" ? undefined : canal,
     periodoInicio,
     periodoFim,
     status: statusFiltro as any,
@@ -848,7 +848,7 @@ function MarketplaceTab() {
             <SelectValue placeholder="Todas as empresas" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Todas as empresas</SelectItem>
+            <SelectItem value="all">Todas as empresas</SelectItem>
             {empresas?.map((emp) => (
               <SelectItem key={emp.id} value={emp.id}>
                 {emp.nome_fantasia || emp.razao_social}
@@ -862,7 +862,7 @@ function MarketplaceTab() {
             <SelectValue placeholder="Todos os canais" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Todos os canais</SelectItem>
+            <SelectItem value="all">Todos os canais</SelectItem>
             <SelectItem value="mercado_livre">Mercado Livre</SelectItem>
             <SelectItem value="shopee">Shopee</SelectItem>
             <SelectItem value="amazon">Amazon</SelectItem>
