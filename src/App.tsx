@@ -64,6 +64,7 @@ const App = () => (
             <Route path="/regras-categorizacao" element={<RegrasCategorizacao />} />
             <Route path="/assistant" element={<AssistantCenter />} />
             <Route path="/movimentos-manuais" element={<MovimentosManuais />} />
+            <Route path="/movimentacoes-manuais" element={<MovimentosManuais />} />
             <Route path="/empresas" element={<Empresas />} />
             <Route path="/usuarios" element={<Usuarios />} />
             <Route path="/configuracoes" element={<Configuracoes />} />
