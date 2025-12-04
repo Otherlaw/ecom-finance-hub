@@ -369,19 +369,7 @@ export default function MovimentosManuais() {
       <MovimentoManualFormModal
         open={modalOpen}
         onOpenChange={setModalOpen}
-        movimento={movimentoEditando ? {
-          id: movimentoEditando.id,
-          data: movimentoEditando.data,
-          tipo: movimentoEditando.tipo,
-          descricao: movimentoEditando.descricao,
-          valor: Number(movimentoEditando.valor),
-          empresaId: movimentoEditando.empresa_id,
-          referenciaId: movimentoEditando.id,
-          categoriaId: movimentoEditando.categoria_id,
-          centroCustoId: movimentoEditando.centro_custo_id,
-          responsavelId: movimentoEditando.responsavel_id,
-          observacoes: movimentoEditando.observacoes,
-        } : null}
+        movimentacao={movimentoEditando}
       />
 
       {/* Dialog de Exclusão */}

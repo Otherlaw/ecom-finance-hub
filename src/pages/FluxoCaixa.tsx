@@ -1163,7 +1163,7 @@ export default function FluxoCaixa() {
       <MovimentoManualFormModal
         open={modalManualOpen}
         onOpenChange={setModalManualOpen}
-        movimento={movimentoEdicao}
+        movimentacao={movimentoEdicao}
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
           queryClient.invalidateQueries({ queryKey: ["fluxo-caixa-meu"] });
