@@ -659,6 +659,7 @@ export type Database = {
           id: string
           observacoes: string | null
           responsavel_id: string | null
+          status: string
           tipo: string
           updated_at: string
           valor: number
@@ -673,6 +674,7 @@ export type Database = {
           id?: string
           observacoes?: string | null
           responsavel_id?: string | null
+          status?: string
           tipo: string
           updated_at?: string
           valor: number
@@ -687,6 +689,7 @@ export type Database = {
           id?: string
           observacoes?: string | null
           responsavel_id?: string | null
+          status?: string
           tipo?: string
           updated_at?: string
           valor?: number
