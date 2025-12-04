@@ -96,7 +96,7 @@ export function useMovimentosFinanceiros(params: UseMovimentosFinanceirosParams 
       if (error) throw error;
 
       // Mapeia para interface
-      return (data || []).map((m: any): MovimentoFinanceiro => ({
+      const movimentos = (data || []).map((m: any) => ({
         id: m.id,
         data: m.data,
         tipo: m.tipo,
@@ -121,6 +121,8 @@ export function useMovimentosFinanceiros(params: UseMovimentosFinanceirosParams 
         categoria: m.categoria,
         centro_custo: m.centro_custo,
       }));
+      
+      return movimentos as MovimentoFinanceiro[];
     },
   });
 
