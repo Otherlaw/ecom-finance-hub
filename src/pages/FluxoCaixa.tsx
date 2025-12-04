@@ -27,6 +27,8 @@ import {
   Filter,
   X,
   CalendarRange,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import {
   Select,
@@ -58,9 +60,22 @@ import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Link } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { MovimentacaoManualModal } from "@/components/conciliacao/MovimentacaoManualModal";
+import { excluirMovimentoManual } from "@/lib/movimentos-manuais";
+import { useQueryClient } from "@tanstack/react-query";
 
 // Cores para gráficos
 const CHART_COLORS = [
@@ -134,6 +149,8 @@ type OrigemFiltro = "todas" | "cartao" | "banco" | "contas_pagar" | "contas_rece
 type ModoPeriodo = "mensal" | "personalizado";
 
 export default function FluxoCaixa() {
+  const queryClient = useQueryClient();
+  
   // Estado dos filtros principais
   const [periodoSelecionado, setPeriodoSelecionado] = useState(format(new Date(), "yyyy-MM"));
   const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
@@ -153,6 +170,25 @@ export default function FluxoCaixa() {
   // Estado do modal de movimentação manual
   const [modalManualOpen, setModalManualOpen] = useState(false);
   const [movimentoEdicao, setMovimentoEdicao] = useState<any | null>(null);
+
+  // Handler para excluir movimentação manual
+  const handleExcluirManual = async (mov: any) => {
+    const refId = mov.referenciaId || mov.referencia_id;
+    if (!refId) {
+      toast.error("Não foi possível identificar a movimentação");
+      return;
+    }
+    try {
+      await excluirMovimentoManual(refId);
+      toast.success("Movimentação excluída com sucesso");
+      queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-caixa"] });
+      queryClient.invalidateQueries({ queryKey: ["dre"] });
+    } catch (error) {
+      console.error("Erro ao excluir:", error);
+      toast.error("Erro ao excluir movimentação");
+    }
+  };
 
   // Calcular datas do período (considerando modo mensal ou personalizado)
   const { periodoInicio, periodoFim } = useMemo(() => {
@@ -704,6 +740,7 @@ export default function FluxoCaixa() {
                     <TableHead>Categoria</TableHead>
                     <TableHead>Centro de Custo</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
+                    <TableHead className="w-[80px] text-center">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -770,6 +807,49 @@ export default function FluxoCaixa() {
                       >
                         {mov.tipo === "entrada" ? "+" : "-"}{" "}
                         {formatCurrency(mov.valor)}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {mov.isManual ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => {
+                                setMovimentoEdicao(mov);
+                                setModalManualOpen(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Excluir movimentação manual</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Essa operação removerá a movimentação do fluxo de caixa e da DRE. Deseja continuar?
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    onClick={() => handleExcluirManual(mov)}
+                                  >
+                                    Excluir
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
