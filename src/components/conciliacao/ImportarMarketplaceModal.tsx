@@ -24,11 +24,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Upload, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, Package } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
 
 interface ImportarMarketplaceModalProps {
   open: boolean;
@@ -48,6 +49,8 @@ type TransacaoPreview = {
   valor_liquido: number;
   tipo_lancamento: 'credito' | 'debito';
   referencia_externa: string;
+  // Itens associados (novo)
+  itens: ItemVendaMarketplace[];
 };
 
 const CANAIS = [
@@ -75,6 +78,7 @@ export function ImportarMarketplaceModal({
   const [fileName, setFileName] = useState<string>("");
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [totalItensDetectados, setTotalItensDetectados] = useState(0);
 
   const resetForm = useCallback(() => {
     setEmpresaId("");
@@ -85,6 +89,7 @@ export function ImportarMarketplaceModal({
     setFileName("");
     setStep("upload");
     setIsProcessing(false);
+    setTotalItensDetectados(0);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -93,12 +98,13 @@ export function ImportarMarketplaceModal({
   }, [onOpenChange, resetForm]);
 
 
-  const parseCSV = useCallback((content: string, selectedCanal: string): TransacaoPreview[] => {
+  const parseCSV = useCallback((content: string, selectedCanal: string): { transacoes: TransacaoPreview[]; totalItens: number } => {
     const lines = content.split("\n").filter(line => line.trim());
-    if (lines.length < 2) return [];
+    if (lines.length < 2) return { transacoes: [], totalItens: 0 };
 
     const header = lines[0].toLowerCase();
     const transactions: TransacaoPreview[] = [];
+    let totalItens = 0;
 
     // Detectar delimitador
     const delimiter = header.includes(";") ? ";" : ",";
@@ -171,6 +177,9 @@ export function ImportarMarketplaceModal({
     const taxasIdx = findColumn(mapping.taxas);
     const outrosDescontosIdx = findColumn(mapping.outrosDescontos);
 
+    // Detectar se tem granularidade de itens
+    const temItens = detectarGranularidadeItens(headers);
+
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(delimiter).map(v => v.trim().replace(/"/g, ""));
       if (values.length < 3) continue;
@@ -229,6 +238,16 @@ export function ImportarMarketplaceModal({
       }
       const referenciaExterna = Math.abs(hash).toString(16);
 
+      // Extrair item se houver granularidade
+      const itens: ItemVendaMarketplace[] = [];
+      if (temItens) {
+        const item = extrairItemDeLinhaCSV(selectedCanal, headers, values, pedidoIdValue);
+        if (item) {
+          itens.push(item);
+          totalItens++;
+        }
+      }
+
       transactions.push({
         data_transacao: dataTransacao,
         pedido_id: pedidoIdValue,
@@ -241,10 +260,11 @@ export function ImportarMarketplaceModal({
         valor_liquido: Math.abs(valorLiquido),
         tipo_lancamento: tipoLancamento,
         referencia_externa: referenciaExterna,
+        itens,
       });
     }
 
-    return transactions;
+    return { transacoes: transactions, totalItens };
   }, []);
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -257,15 +277,16 @@ export function ImportarMarketplaceModal({
     try {
       setIsProcessing(true);
       const content = await file.text();
-      const parsed = parseCSV(content, canal);
+      const { transacoes, totalItens } = parseCSV(content, canal);
 
-      if (parsed.length === 0) {
+      if (transacoes.length === 0) {
         setError("Nenhuma transação encontrada no arquivo. Verifique o formato.");
         setIsProcessing(false);
         return;
       }
 
-      setParsedData(parsed);
+      setParsedData(transacoes);
+      setTotalItensDetectados(totalItens);
       setStep("preview");
       setIsProcessing(false);
     } catch (err) {
@@ -278,27 +299,31 @@ export function ImportarMarketplaceModal({
   const handleImport = useCallback(async () => {
     if (!empresaId || !canal || parsedData.length === 0) return;
 
-    const transactions: MarketplaceTransactionInsert[] = parsedData.map(row => ({
-      empresa_id: empresaId,
-      canal,
-      conta_nome: canal, // por enquanto
-      pedido_id: row.pedido_id,
-      referencia_externa: row.referencia_externa,
-      data_transacao: row.data_transacao,
-      data_repasse: null,
-      tipo_transacao: row.tipo_transacao,
-      descricao: row.descricao,
-      valor_bruto: row.valor_bruto,
-      valor_liquido: row.valor_liquido,
-      tipo_lancamento: row.tipo_lancamento,
-      status: 'importado',
-      categoria_id: null,
-      centro_custo_id: null,
-      responsavel_id: null,
-      origem_arquivo: 'csv',
+    // Preparar transações com itens
+    const transactionsWithItems = parsedData.map(row => ({
+      transaction: {
+        empresa_id: empresaId,
+        canal,
+        conta_nome: contaNome || canal,
+        pedido_id: row.pedido_id,
+        referencia_externa: row.referencia_externa,
+        data_transacao: row.data_transacao,
+        data_repasse: null,
+        tipo_transacao: row.tipo_transacao,
+        descricao: row.descricao,
+        valor_bruto: row.valor_bruto,
+        valor_liquido: row.valor_liquido,
+        tipo_lancamento: row.tipo_lancamento,
+        status: 'importado',
+        categoria_id: null,
+        centro_custo_id: null,
+        responsavel_id: null,
+        origem_arquivo: 'csv',
+      } as MarketplaceTransactionInsert,
+      itens: row.itens,
     }));
 
-    await importarTransacoes.mutateAsync(transactions);
+    await importarTransacoes.mutateAsync(transactionsWithItems);
     onSuccess?.();
     handleClose();
   }, [empresaId, canal, contaNome, parsedData, importarTransacoes, onSuccess, handleClose]);
@@ -395,9 +420,17 @@ export function ImportarMarketplaceModal({
           {/* Preview das transações */}
           {parsedData.length > 0 && (
             <div className="space-y-2">
-              <Label>
-                Preview ({parsedData.length} transações encontradas)
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label>
+                  Preview ({parsedData.length} transações encontradas)
+                </Label>
+                {totalItensDetectados > 0 && (
+                  <span className="flex items-center gap-1 text-sm text-emerald-600">
+                    <Package className="h-4 w-4" />
+                    {totalItensDetectados} itens de produto detectados
+                  </span>
+                )}
+              </div>
               <ScrollArea className="h-[300px] border rounded-md">
                 <Table>
                   <TableHeader>
