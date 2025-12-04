@@ -254,7 +254,7 @@ export function ImportarExtratoBancarioModal({
                 <Input
                   ref={fileInputRef}
                   type="file"
-                  accept=".ofx,.csv"
+                  accept=".ofx,.csv,.xlsx"
                   onChange={handleFileSelect}
                   className="hidden"
                   id="file-upload"
@@ -262,10 +262,10 @@ export function ImportarExtratoBancarioModal({
                 <label htmlFor="file-upload" className="cursor-pointer">
                   <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-4" />
                   <p className="text-sm text-muted-foreground mb-2">
-                    Clique ou arraste um arquivo OFX ou CSV
+                    Clique ou arraste um arquivo OFX, CSV ou XLSX
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Formatos aceitos: .ofx (Open Financial Exchange) ou .csv
+                    Formatos aceitos: .ofx, .csv ou .xlsx
                   </p>
                 </label>
                 {arquivo && (
