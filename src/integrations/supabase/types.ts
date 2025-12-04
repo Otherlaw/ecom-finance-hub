@@ -648,6 +648,80 @@ export type Database = {
         }
         Relationships: []
       }
+      manual_transactions: {
+        Row: {
+          categoria_id: string | null
+          centro_custo_id: string | null
+          created_at: string
+          data: string
+          descricao: string
+          empresa_id: string
+          id: string
+          observacoes: string | null
+          responsavel_id: string | null
+          tipo: string
+          updated_at: string
+          valor: number
+        }
+        Insert: {
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          created_at?: string
+          data: string
+          descricao: string
+          empresa_id: string
+          id?: string
+          observacoes?: string | null
+          responsavel_id?: string | null
+          tipo: string
+          updated_at?: string
+          valor: number
+        }
+        Update: {
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          created_at?: string
+          data?: string
+          descricao?: string
+          empresa_id?: string
+          id?: string
+          observacoes?: string | null
+          responsavel_id?: string | null
+          tipo?: string
+          updated_at?: string
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "manual_transactions_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_financeiras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "manual_transactions_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "manual_transactions_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "manual_transactions_responsavel_id_fkey"
+            columns: ["responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "responsaveis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       marketplace_transactions: {
         Row: {
           atualizado_em: string

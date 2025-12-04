@@ -2,7 +2,7 @@
  * Modal para criar/editar Movimentação Manual
  * 
  * Modal auto-contido que gerencia criação/edição de movimentos manuais.
- * Integra diretamente com o FLOW HUB via useMovimentosManuais.
+ * Integra com manual_transactions + sync automático ao FLOW HUB via useManualTransactions.
  */
 
 import { useState, useEffect } from "react";
@@ -32,7 +32,7 @@ import { useEmpresas } from "@/hooks/useEmpresas";
 import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { useResponsaveis } from "@/hooks/useResponsaveis";
-import { useMovimentosManuais } from "@/hooks/useMovimentosManuais";
+import { useManualTransactions } from "@/hooks/useManualTransactions";
 import { Loader2 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -96,7 +96,7 @@ export function MovimentoManualFormModal({
   const { categorias } = useCategoriasFinanceiras();
   const { centrosFlat } = useCentrosCusto();
   const { responsaveis } = useResponsaveis();
-  const { createMovimento, updateMovimento } = useMovimentosManuais({});
+  const { createTransaction, updateTransaction } = useManualTransactions({});
   const [submitting, setSubmitting] = useState(false);
 
   const isEditing = !!movimento;
@@ -169,29 +169,22 @@ export function MovimentoManualFormModal({
   const handleFormSubmit = async (data: FormData) => {
     setSubmitting(true);
     try {
-      const categoriaNome = categorias?.find((c) => c.id === data.categoriaId)?.nome;
-      const centroCustoNome = centrosFlat?.find((c) => c.id === data.centroCustoId)?.nome;
-
       const payload = {
-        referenciaId: movimento?.referenciaId || undefined,
-        empresaId: data.empresaId,
+        empresa_id: data.empresaId,
         data: data.data,
         tipo: data.tipo as "entrada" | "saida",
         valor: data.valor,
         descricao: data.descricao,
-        categoriaId: data.categoriaId,
-        categoriaNome,
-        centroCustoId: data.centroCustoId || null,
-        centroCustoNome: centroCustoNome || null,
-        responsavelId: data.responsavelId || null,
-        formaPagamento: data.formaPagamento || undefined,
-        observacoes: data.observacoes || undefined,
+        categoria_id: data.categoriaId || null,
+        centro_custo_id: data.centroCustoId || null,
+        responsavel_id: data.responsavelId || null,
+        observacoes: data.observacoes || null,
       };
 
-      if (isEditing && movimento?.referenciaId) {
-        await updateMovimento.mutateAsync(payload);
+      if (isEditing && movimento?.id) {
+        await updateTransaction.mutateAsync({ id: movimento.id, ...payload });
       } else {
-        await createMovimento.mutateAsync(payload);
+        await createTransaction.mutateAsync(payload);
       }
 
       onOpenChange(false);
@@ -201,7 +194,7 @@ export function MovimentoManualFormModal({
     }
   };
 
-  const isLoading = submitting || createMovimento.isPending || updateMovimento.isPending;
+  const isLoading = submitting || createTransaction.isPending || updateTransaction.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
