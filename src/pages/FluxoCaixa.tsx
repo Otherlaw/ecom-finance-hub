@@ -131,6 +131,7 @@ export default function FluxoCaixa() {
   const [periodoSelecionado, setPeriodoSelecionado] = useState(format(new Date(), "yyyy-MM"));
   const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
   const [visaoAtiva, setVisaoAtiva] = useState<"diario" | "dashboard">("diario");
+  const [tipoFiltro, setTipoFiltro] = useState<"todos" | "entradas" | "saidas">("todos");
 
   // Calcular datas do período
   const { periodoInicio, periodoFim } = useMemo(() => {
@@ -150,6 +151,14 @@ export default function FluxoCaixa() {
   });
 
   const opcoesPeriodo = useMemo(() => gerarOpcoesPeriodo(), []);
+
+  // Filtrar movimentos por tipo
+  const movimentosFiltrados = useMemo(() => {
+    if (tipoFiltro === "todos") return movimentos;
+    return movimentos.filter((m) =>
+      tipoFiltro === "entradas" ? m.tipo === "entrada" : m.tipo === "saida"
+    );
+  }, [movimentos, tipoFiltro]);
 
   // Dados para gráfico de evolução
   const dadosEvolucao = useMemo(() => {
@@ -250,16 +259,32 @@ export default function FluxoCaixa() {
 
       {/* Tabs de Visão */}
       <Tabs value={visaoAtiva} onValueChange={(v) => setVisaoAtiva(v as any)} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="diario" className="gap-2">
-            <List className="h-4 w-4" />
-            Visão Diária
-          </TabsTrigger>
-          <TabsTrigger value="dashboard" className="gap-2">
-            <LayoutDashboard className="h-4 w-4" />
-            Dashboard
-          </TabsTrigger>
-        </TabsList>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <TabsList>
+            <TabsTrigger value="diario" className="gap-2">
+              <List className="h-4 w-4" />
+              Visão Diária
+            </TabsTrigger>
+            <TabsTrigger value="dashboard" className="gap-2">
+              <LayoutDashboard className="h-4 w-4" />
+              Dashboard
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Filtro de Tipo de Movimento */}
+          {visaoAtiva === "diario" && (
+            <Select value={tipoFiltro} onValueChange={(v) => setTipoFiltro(v as any)}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="entradas">Somente Entradas</SelectItem>
+                <SelectItem value="saidas">Somente Saídas</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </div>
 
         {/* VISÃO DIÁRIA */}
         <TabsContent value="diario" className="space-y-4">
@@ -274,7 +299,7 @@ export default function FluxoCaixa() {
           ) : (
             <ModuleCard
               title="Movimentações"
-              description={`${movimentos.length} transações no período`}
+              description={`${movimentosFiltrados.length} transações no período`}
               icon={Wallet}
               noPadding
             >
@@ -291,7 +316,7 @@ export default function FluxoCaixa() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {movimentos.map((mov) => (
+                  {movimentosFiltrados.map((mov) => (
                     <TableRow key={mov.id}>
                       <TableCell className="font-medium">
                         {formatDateBR(mov.data)}
@@ -321,7 +346,12 @@ export default function FluxoCaixa() {
                               {mov.cartaoNome}
                             </span>
                           )}
-                          {mov.fornecedorNome && (
+                          {mov.origem === "contas_receber" && mov.clienteNome && (
+                            <span className="text-xs text-muted-foreground">
+                              Cliente: {mov.clienteNome}
+                            </span>
+                          )}
+                          {mov.origem === "contas_pagar" && mov.fornecedorNome && (
                             <span className="text-xs text-muted-foreground">
                               Fornecedor: {mov.fornecedorNome}
                             </span>

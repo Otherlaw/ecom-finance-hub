@@ -19,6 +19,7 @@ export interface MovimentoCaixa {
   empresaNome: string | null;
   cartaoNome?: string | null;
   fornecedorNome?: string | null;
+  clienteNome?: string | null;
   status: string;
 }
 
@@ -286,7 +287,7 @@ export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxo
         valor: Math.abs(conta.valor_recebido), // Valor efetivamente recebido
         empresaId: conta.empresa_id,
         empresaNome: conta.empresa?.nome_fantasia || conta.empresa?.razao_social || null,
-        fornecedorNome: conta.cliente_nome, // Usamos como "cliente" aqui
+        clienteNome: conta.cliente_nome,
         status: conta.status,
       });
     });
