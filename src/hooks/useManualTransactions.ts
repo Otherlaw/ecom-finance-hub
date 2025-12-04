@@ -137,11 +137,11 @@ export function useMovimentacoesManuais(params: UseMovimentacoesManuaisParams = 
         empresaId: data.empresa_id,
         referenciaId: data.id,
         categoriaId: data.categoria_id || undefined,
-        categoriaNome: data.categoria?.nome,
+        categoriaNome: data.categoria?.nome || null,
         centroCustoId: data.centro_custo_id || undefined,
-        centroCustoNome: data.centro_custo?.nome,
+        centroCustoNome: data.centro_custo?.nome || undefined,
         responsavelId: data.responsavel_id || undefined,
-        observacoes: data.observacoes || undefined,
+        formaPagamento: "manual",
       });
 
       return data;
@@ -194,11 +194,11 @@ export function useMovimentacoesManuais(params: UseMovimentacoesManuaisParams = 
         empresaId: data.empresa_id,
         referenciaId: data.id,
         categoriaId: data.categoria_id || undefined,
-        categoriaNome: data.categoria?.nome,
+        categoriaNome: data.categoria?.nome || null,
         centroCustoId: data.centro_custo_id || undefined,
-        centroCustoNome: data.centro_custo?.nome,
+        centroCustoNome: data.centro_custo?.nome || undefined,
         responsavelId: data.responsavel_id || undefined,
-        observacoes: data.observacoes || undefined,
+        formaPagamento: "manual",
       });
 
       return data;
