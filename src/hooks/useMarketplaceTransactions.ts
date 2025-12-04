@@ -256,23 +256,26 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       if (updateError) throw updateError;
 
       // Registrar no FLOW HUB
-      const tipo = transacao.tipo_lancamento === "debito" ? "saida" : "entrada";
+      const tipoMovimento = transacao.tipo_lancamento === "debito" ? "saida" : "entrada";
       const descricao = transacao.pedido_id
         ? `${transacao.descricao || transacao.tipo_transacao} - Pedido ${transacao.pedido_id}`
         : (transacao.descricao || transacao.tipo_transacao);
+      const valor = Math.abs(transacao.valor_liquido);
+      const categoriaNome = transacao.categoria?.nome;
+      const centroCustoNome = transacao.centro_custo?.nome;
       
       await registrarMovimentoFinanceiro({
         data: transacao.data_transacao,
-        tipo,
+        tipo: tipoMovimento,
         origem: "marketplace",
-        descricao: `[${transacao.canal?.toUpperCase()}] ${descricao}`,
-        valor: Math.abs(transacao.valor_liquido),
+        descricao,
+        valor,
         empresaId: transacao.empresa_id,
         referenciaId: transacao.id,
         categoriaId: transacao.categoria_id || undefined,
-        categoriaNome: transacao.categoria?.nome,
+        categoriaNome,
         centroCustoId: transacao.centro_custo_id || undefined,
-        centroCustoNome: transacao.centro_custo?.nome,
+        centroCustoNome: centroCustoNome || undefined,
         responsavelId: transacao.responsavel_id || undefined,
         formaPagamento: "marketplace",
       });
