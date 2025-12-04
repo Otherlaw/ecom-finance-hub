@@ -268,6 +268,158 @@ export function ImportarMarketplaceModal({
     return { transacoes: transactions, totalItens };
   }, []);
 
+  // Mapeia linhas do relatório (CSV/XLSX) para TransacaoPreview[]
+  const mapLinhasRelatorioParaTransacoes = useCallback((linhas: any[], selectedCanal: string): { transacoes: TransacaoPreview[]; totalItens: number } => {
+    if (linhas.length === 0) return { transacoes: [], totalItens: 0 };
+
+    const transactions: TransacaoPreview[] = [];
+    let totalItens = 0;
+
+    // Obter headers (chaves do primeiro objeto)
+    const headers = Object.keys(linhas[0]).map(h => h.toLowerCase().trim());
+
+    // Mapeamento de colunas por canal
+    const columnMappings: Record<string, {
+      data: string[];
+      pedido: string[];
+      tipo: string[];
+      descricao: string[];
+      valorBruto: string[];
+      valorLiquido: string[];
+      tarifas: string[];
+      taxas: string[];
+      outrosDescontos: string[];
+    }> = {
+      mercado_livre: {
+        data: ["date", "data", "fecha"],
+        pedido: ["order", "pedido", "pack_id", "order_id"],
+        tipo: ["type", "tipo", "reason"],
+        descricao: ["description", "descricao", "description_detail"],
+        valorBruto: ["amount", "valor_bruto", "gross_amount"],
+        valorLiquido: ["net_amount", "valor_liquido", "total"],
+        tarifas: ["tarifa", "comissao", "commission", "fee"],
+        taxas: ["taxa", "imposto", "tax"],
+        outrosDescontos: ["desconto", "discount", "outros"],
+      },
+      shopee: {
+        data: ["data do pedido", "order date", "data"],
+        pedido: ["nº do pedido", "order id", "pedido"],
+        tipo: ["tipo de transação", "transaction type", "tipo"],
+        descricao: ["descrição", "description", "observação"],
+        valorBruto: ["valor bruto", "gross value", "total do pedido"],
+        valorLiquido: ["valor líquido", "net value", "valor final"],
+        tarifas: ["comissão", "taxa de serviço", "fee"],
+        taxas: ["imposto", "tax"],
+        outrosDescontos: ["voucher", "desconto", "cupom"],
+      },
+      default: {
+        data: ["data", "date", "data_transacao"],
+        pedido: ["pedido", "order", "pedido_id"],
+        tipo: ["tipo", "type", "tipo_transacao"],
+        descricao: ["descricao", "description", "observacao"],
+        valorBruto: ["valor_bruto", "gross", "bruto"],
+        valorLiquido: ["valor_liquido", "net", "liquido", "valor"],
+        tarifas: ["tarifa", "comissao", "fee"],
+        taxas: ["taxa", "imposto", "tax"],
+        outrosDescontos: ["desconto", "outros", "discount"],
+      },
+    };
+
+    const mapping = columnMappings[selectedCanal] || columnMappings.default;
+
+    const findColumn = (possibleNames: string[]): string | null => {
+      for (const name of possibleNames) {
+        const found = headers.find(h => h.includes(name));
+        if (found) return found;
+      }
+      return null;
+    };
+
+    const dataCol = findColumn(mapping.data);
+    const pedidoCol = findColumn(mapping.pedido);
+    const tipoCol = findColumn(mapping.tipo);
+    const descricaoCol = findColumn(mapping.descricao);
+    const valorBrutoCol = findColumn(mapping.valorBruto);
+    const valorLiquidoCol = findColumn(mapping.valorLiquido);
+    const tarifasCol = findColumn(mapping.tarifas);
+    const taxasCol = findColumn(mapping.taxas);
+    const outrosDescontosCol = findColumn(mapping.outrosDescontos);
+
+    // Detectar se tem granularidade de itens
+    const temItens = detectarGranularidadeItens(headers);
+
+    const parseDate = (dateStr: string): string => {
+      if (!dateStr) return new Date().toISOString().split("T")[0];
+      const parts = String(dateStr).split(/[\/\-]/);
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
+        }
+        return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+      }
+      return new Date().toISOString().split("T")[0];
+    };
+
+    const parseValue = (val: any): number => {
+      if (typeof val === "number") return val;
+      if (!val) return 0;
+      const str = String(val).replace(/[^\d,.\-]/g, "").replace(",", ".");
+      return parseFloat(str) || 0;
+    };
+
+    const getVal = (linha: any, col: string | null): any => {
+      if (!col) return null;
+      // Procura a chave original (case-insensitive)
+      const key = Object.keys(linha).find(k => k.toLowerCase().trim() === col);
+      return key ? linha[key] : null;
+    };
+
+    for (const linha of linhas) {
+      const dataTransacao = parseDate(getVal(linha, dataCol) || "");
+      const pedidoId = getVal(linha, pedidoCol) || null;
+      const tipoTransacao = getVal(linha, tipoCol) || "venda";
+      const descricao = getVal(linha, descricaoCol) || `Transação ${selectedCanal}`;
+      const valorBruto = parseValue(getVal(linha, valorBrutoCol));
+      const valorLiquido = parseValue(getVal(linha, valorLiquidoCol)) || valorBruto;
+      const tarifas = parseValue(getVal(linha, tarifasCol));
+      const taxas = parseValue(getVal(linha, taxasCol));
+      const outrosDescontos = parseValue(getVal(linha, outrosDescontosCol));
+
+      if (valorLiquido === 0 && valorBruto === 0) continue;
+
+      const hash = `${dataTransacao}_${pedidoId || ""}_${valorLiquido}_${descricao}`.substring(0, 100);
+
+      // Extrair itens se disponível
+      let itens: ItemVendaMarketplace[] = [];
+      if (temItens) {
+        const headersArray = Object.keys(linha);
+        const valuesArray = headersArray.map(h => String(linha[h] ?? ""));
+        const item = extrairItemDeLinhaCSV(selectedCanal, headersArray, valuesArray, pedidoId);
+        if (item) {
+          itens = [item];
+          totalItens += 1;
+        }
+      }
+
+      transactions.push({
+        data_transacao: dataTransacao,
+        descricao: String(descricao),
+        pedido_id: pedidoId ? String(pedidoId) : null,
+        tipo_transacao: String(tipoTransacao),
+        valor_bruto: valorBruto,
+        tarifas,
+        taxas,
+        outros_descontos: outrosDescontos,
+        valor_liquido: valorLiquido,
+        tipo_lancamento: valorLiquido >= 0 ? "credito" : "debito",
+        referencia_externa: hash,
+        itens,
+      });
+    }
+
+    return { transacoes: transactions, totalItens };
+  }, []);
+
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -278,30 +430,19 @@ export function ImportarMarketplaceModal({
     try {
       setIsProcessing(true);
       const tipo = detectarTipoArquivo(file);
-      
-      let content: string;
-      
-      if (tipo === "xlsx") {
-        // Converte linhas XLSX para formato CSV para reaproveitar parseCSV
-        const linhas = await parseXLSXFile(file);
-        if (linhas.length === 0) {
-          setError("Nenhum dado encontrado no arquivo XLSX.");
-          setIsProcessing(false);
-          return;
-        }
-        // Converter para CSV string
-        const headers = Object.keys(linhas[0]);
-        const csvLines = [headers.join(";")];
-        for (const linha of linhas) {
-          const values = headers.map(h => String(linha[h] ?? "").replace(/;/g, ","));
-          csvLines.push(values.join(";"));
-        }
-        content = csvLines.join("\n");
+      let linhas: any[] = [];
+
+      if (tipo === "csv") {
+        linhas = await parseCSVFile(file);
+      } else if (tipo === "xlsx") {
+        linhas = await parseXLSXFile(file);
       } else {
-        content = await file.text();
+        setError("Formato não suportado. Use CSV ou XLSX.");
+        setIsProcessing(false);
+        return;
       }
-      
-      const { transacoes, totalItens } = parseCSV(content, canal);
+
+      const { transacoes, totalItens } = mapLinhasRelatorioParaTransacoes(linhas, canal);
 
       if (transacoes.length === 0) {
         setError("Nenhuma transação encontrada no arquivo. Verifique o formato.");
@@ -318,7 +459,7 @@ export function ImportarMarketplaceModal({
       setError("Erro ao processar o arquivo. Verifique o formato.");
       setIsProcessing(false);
     }
-  }, [canal, parseCSV]);
+  }, [canal, mapLinhasRelatorioParaTransacoes]);
 
   const handleImport = useCallback(async () => {
     if (!empresaId || !canal || parsedData.length === 0) return;
