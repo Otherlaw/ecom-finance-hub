@@ -652,6 +652,7 @@ export type Database = {
         Row: {
           atualizado_em: string
           canal: string
+          canal_venda: string | null
           categoria_id: string | null
           centro_custo_id: string | null
           conta_nome: string | null
@@ -661,11 +662,14 @@ export type Database = {
           descricao: string
           empresa_id: string
           id: string
-          origem_arquivo: string | null
+          origem_extrato: string | null
+          outros_descontos: number | null
           pedido_id: string | null
           referencia_externa: string | null
           responsavel_id: string | null
           status: string
+          tarifas: number | null
+          taxas: number | null
           tipo_lancamento: string
           tipo_transacao: string
           valor_bruto: number | null
@@ -674,6 +678,7 @@ export type Database = {
         Insert: {
           atualizado_em?: string
           canal: string
+          canal_venda?: string | null
           categoria_id?: string | null
           centro_custo_id?: string | null
           conta_nome?: string | null
@@ -683,11 +688,14 @@ export type Database = {
           descricao: string
           empresa_id: string
           id?: string
-          origem_arquivo?: string | null
+          origem_extrato?: string | null
+          outros_descontos?: number | null
           pedido_id?: string | null
           referencia_externa?: string | null
           responsavel_id?: string | null
           status?: string
+          tarifas?: number | null
+          taxas?: number | null
           tipo_lancamento: string
           tipo_transacao: string
           valor_bruto?: number | null
@@ -696,6 +704,7 @@ export type Database = {
         Update: {
           atualizado_em?: string
           canal?: string
+          canal_venda?: string | null
           categoria_id?: string | null
           centro_custo_id?: string | null
           conta_nome?: string | null
@@ -705,11 +714,14 @@ export type Database = {
           descricao?: string
           empresa_id?: string
           id?: string
-          origem_arquivo?: string | null
+          origem_extrato?: string | null
+          outros_descontos?: number | null
           pedido_id?: string | null
           referencia_externa?: string | null
           responsavel_id?: string | null
           status?: string
+          tarifas?: number | null
+          taxas?: number | null
           tipo_lancamento?: string
           tipo_transacao?: string
           valor_bruto?: number | null

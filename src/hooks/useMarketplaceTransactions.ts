@@ -7,6 +7,7 @@ export interface MarketplaceTransaction {
   id: string;
   empresa_id: string;
   canal: string;
+  canal_venda: string | null;
   conta_nome: string | null;
   pedido_id: string | null;
   referencia_externa: string | null;
@@ -15,13 +16,16 @@ export interface MarketplaceTransaction {
   tipo_transacao: string;
   descricao: string;
   valor_bruto: number | null;
+  tarifas: number;
+  taxas: number;
+  outros_descontos: number;
   valor_liquido: number;
   tipo_lancamento: string;
   status: string;
   categoria_id: string | null;
   centro_custo_id: string | null;
   responsavel_id: string | null;
-  origem_arquivo: string | null;
+  origem_extrato: string | null;
   criado_em: string;
   atualizado_em: string;
   categoria?: {
@@ -44,6 +48,7 @@ export interface MarketplaceTransaction {
 export interface MarketplaceTransactionInsert {
   empresa_id: string;
   canal: string;
+  canal_venda?: string;
   conta_nome?: string;
   pedido_id?: string;
   referencia_externa?: string;
@@ -52,13 +57,16 @@ export interface MarketplaceTransactionInsert {
   tipo_transacao: string;
   descricao: string;
   valor_bruto?: number;
+  tarifas?: number;
+  taxas?: number;
+  outros_descontos?: number;
   valor_liquido: number;
   tipo_lancamento: string;
   status?: string;
   categoria_id?: string;
   centro_custo_id?: string;
   responsavel_id?: string;
-  origem_arquivo?: string;
+  origem_extrato?: string;
 }
 
 interface UseMarketplaceTransactionsParams {
