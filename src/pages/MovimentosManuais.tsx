@@ -49,7 +49,7 @@ import {
   TrendingDown,
   Wallet,
 } from "lucide-react";
-import { useMovimentosManuais, MovimentoManual } from "@/hooks/useMovimentosManuais";
+import { useManualTransactions, ManualTransaction } from "@/hooks/useManualTransactions";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { MovimentoManualFormModal } from "@/components/movimentos-manuais/MovimentoManualFormModal";
 import { format, startOfMonth, endOfMonth } from "date-fns";
@@ -75,18 +75,18 @@ export default function MovimentosManuais() {
 
   // Estados de modal
   const [modalOpen, setModalOpen] = useState(false);
-  const [movimentoEditando, setMovimentoEditando] = useState<MovimentoManual | null>(null);
+  const [movimentoEditando, setMovimentoEditando] = useState<ManualTransaction | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [movimentoExcluindo, setMovimentoExcluindo] = useState<MovimentoManual | null>(null);
+  const [movimentoExcluindo, setMovimentoExcluindo] = useState<ManualTransaction | null>(null);
 
   // Hooks
   const { empresas } = useEmpresas();
   const {
-    movimentos,
+    transacoes,
     resumo,
     isLoading,
-    deleteMovimento,
-  } = useMovimentosManuais({
+    deleteTransaction,
+  } = useManualTransactions({
     empresaId: empresaId === "todas" ? undefined : empresaId,
     periodoInicio,
     periodoFim,
@@ -95,15 +95,15 @@ export default function MovimentosManuais() {
 
   // Filtrar por termo de busca
   const movimentosFiltrados = useMemo(() => {
-    if (!searchTerm.trim()) return movimentos;
+    if (!searchTerm.trim()) return transacoes;
     const termo = searchTerm.toLowerCase();
-    return movimentos.filter(
+    return transacoes.filter(
       (m) =>
         m.descricao.toLowerCase().includes(termo) ||
-        m.categoriaNome?.toLowerCase().includes(termo) ||
-        m.centroCustoNome?.toLowerCase().includes(termo)
+        m.categoria?.nome?.toLowerCase().includes(termo) ||
+        m.centro_custo?.nome?.toLowerCase().includes(termo)
     );
-  }, [movimentos, searchTerm]);
+  }, [transacoes, searchTerm]);
 
   // Handlers
   const handleNovoMovimento = () => {
@@ -111,19 +111,19 @@ export default function MovimentosManuais() {
     setModalOpen(true);
   };
 
-  const handleEditarMovimento = (movimento: MovimentoManual) => {
+  const handleEditarMovimento = (movimento: ManualTransaction) => {
     setMovimentoEditando(movimento);
     setModalOpen(true);
   };
 
-  const handleExcluirMovimento = (movimento: MovimentoManual) => {
+  const handleExcluirMovimento = (movimento: ManualTransaction) => {
     setMovimentoExcluindo(movimento);
     setDeleteDialogOpen(true);
   };
 
   const handleConfirmarExclusao = async () => {
-    if (!movimentoExcluindo?.referenciaId) return;
-    await deleteMovimento.mutateAsync(movimentoExcluindo.referenciaId);
+    if (!movimentoExcluindo?.id) return;
+    await deleteTransaction.mutateAsync(movimentoExcluindo.id);
     setDeleteDialogOpen(false);
     setMovimentoExcluindo(null);
   };
@@ -321,10 +321,10 @@ export default function MovimentosManuais() {
                           {movimento.descricao}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {movimento.categoriaNome || "—"}
+                          {movimento.categoria?.nome || "—"}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {movimento.centroCustoNome || "—"}
+                          {movimento.centro_custo?.nome || "—"}
                         </TableCell>
                         <TableCell
                           className={`text-right font-medium ${
@@ -369,7 +369,19 @@ export default function MovimentosManuais() {
       <MovimentoManualFormModal
         open={modalOpen}
         onOpenChange={setModalOpen}
-        movimento={movimentoEditando}
+        movimento={movimentoEditando ? {
+          id: movimentoEditando.id,
+          data: movimentoEditando.data,
+          tipo: movimentoEditando.tipo,
+          descricao: movimentoEditando.descricao,
+          valor: Number(movimentoEditando.valor),
+          empresaId: movimentoEditando.empresa_id,
+          referenciaId: movimentoEditando.id,
+          categoriaId: movimentoEditando.categoria_id,
+          centroCustoId: movimentoEditando.centro_custo_id,
+          responsavelId: movimentoEditando.responsavel_id,
+          observacoes: movimentoEditando.observacoes,
+        } : null}
       />
 
       {/* Dialog de Exclusão */}
@@ -390,7 +402,7 @@ export default function MovimentosManuais() {
               onClick={handleConfirmarExclusao}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleteMovimento.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {deleteTransaction.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>
