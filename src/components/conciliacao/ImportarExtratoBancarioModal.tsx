@@ -26,6 +26,11 @@ import { useEmpresas } from "@/hooks/useEmpresas";
 import { useBankTransactions, BankTransaction } from "@/hooks/useBankTransactions";
 import { formatCurrency } from "@/lib/mock-data";
 import { toast } from "sonner";
+import {
+  detectarTipoArquivo,
+  parseCSVFile,
+  parseXLSXFile,
+} from "@/lib/parsers/arquivoFinanceiro";
 
 interface ImportarExtratoBancarioModalProps {
   open: boolean;
@@ -69,32 +74,65 @@ export function ImportarExtratoBancarioModal({
     }
   };
 
+  // Mapeia linhas do CSV/XLSX para TransacaoPreview[]
+  const mapLinhasParaTransacoesPreview = (linhas: any[]): TransacaoPreview[] => {
+    const transacoes: TransacaoPreview[] = [];
+
+    for (const linha of linhas) {
+      // Tenta detectar colunas comuns: data, descricao, valor, documento
+      const data = linha.data || linha.Data || linha.DATA || linha["Data Transação"] || linha.date || "";
+      const descricao = linha.descricao || linha.Descricao || linha.DESCRICAO || linha["Descrição"] || linha.description || "";
+      const valorStr = String(linha.valor || linha.Valor || linha.VALOR || linha.amount || linha.Amount || "0");
+      const documento = linha.documento || linha.Documento || linha.DOCUMENTO || linha.doc || null;
+
+      const valor = parseFloat(valorStr.replace(",", ".").replace(/[^\d.-]/g, ""));
+
+      if (!isNaN(valor) && data && descricao) {
+        // Normaliza data para YYYY-MM-DD
+        let dataFormatada = String(data);
+        if (dataFormatada.includes("/")) {
+          const parts = dataFormatada.split("/");
+          if (parts.length === 3) {
+            const ano = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+            dataFormatada = `${ano}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+          }
+        }
+
+        const hash = `${dataFormatada}_${valor}_${descricao}_${documento || ""}`;
+
+        transacoes.push({
+          data_transacao: dataFormatada,
+          descricao: String(descricao),
+          documento: documento ? String(documento) : null,
+          valor: Math.abs(valor),
+          tipo_lancamento: valor < 0 ? "debito" : "credito",
+          referencia_externa: hash,
+        });
+      }
+    }
+
+    return transacoes;
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const extension = file.name.split(".").pop()?.toLowerCase();
-    
-    if (extension !== "ofx" && extension !== "csv") {
-      toast.error("Formato não suportado. Use arquivos .ofx ou .csv");
-      return;
-    }
-
-    setArquivo(file);
-    setTipoArquivo(extension as "ofx" | "csv");
-
     try {
-      setIsProcessing(true);
-      const content = await file.text();
+      const tipo = detectarTipoArquivo(file);
+      setArquivo(file);
+      setTipoArquivo(tipo);
 
-      if (extension === "ofx") {
-        if (!isValidOFX(content)) {
+      setIsProcessing(true);
+      const contentText = tipo === "csv" || tipo === "ofx" ? await file.text() : null;
+
+      if (tipo === "ofx") {
+        if (!isValidOFX(contentText!)) {
           toast.error("Arquivo OFX inválido");
           return;
         }
 
-        const result = parseOFX(content);
-        
+        const result = parseOFX(contentText!);
         const transacoes: TransacaoPreview[] = result.transactions.map((t) => {
           const hash = `${t.date}_${t.amount}_${t.description}_${t.fitid || ""}`;
           return {
@@ -109,55 +147,26 @@ export function ImportarExtratoBancarioModal({
 
         setTransacoesPreview(transacoes);
         setStep("preview");
-      } else if (extension === "csv") {
-        // Parse CSV simples
-        const lines = content.split("\n").filter((l) => l.trim());
-        const transacoes: TransacaoPreview[] = [];
-        
-        // Pula header se existir
-        const startIndex = lines[0]?.includes("data") || lines[0]?.includes("Data") ? 1 : 0;
+      }
 
-        for (let i = startIndex; i < lines.length; i++) {
-          const cols = lines[i].split(";").map((c) => c.trim().replace(/"/g, ""));
-          
-          // Tenta detectar formato: Data, Descrição, Valor ou Data, Descrição, Documento, Valor
-          if (cols.length >= 3) {
-            const data = cols[0];
-            const descricao = cols[1];
-            const valorStr = cols[cols.length - 1].replace(",", ".").replace(/[^\d.-]/g, "");
-            const documento = cols.length >= 4 ? cols[2] : null;
-            const valor = parseFloat(valorStr);
-
-            if (!isNaN(valor) && data && descricao) {
-              // Normaliza data para YYYY-MM-DD
-              let dataFormatada = data;
-              if (data.includes("/")) {
-                const parts = data.split("/");
-                if (parts.length === 3) {
-                  const ano = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
-                  dataFormatada = `${ano}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
-                }
-              }
-
-              const hash = `${dataFormatada}_${valor}_${descricao}_${documento || ""}`;
-              
-              transacoes.push({
-                data_transacao: dataFormatada,
-                descricao,
-                documento,
-                valor: Math.abs(valor),
-                tipo_lancamento: valor < 0 ? "debito" : "credito",
-                referencia_externa: hash,
-              });
-            }
-          }
-        }
-
-        if (transacoes.length === 0) {
+      if (tipo === "csv") {
+        const linhas = await parseCSVFile(file);
+        const transacoes = mapLinhasParaTransacoesPreview(linhas);
+        if (!transacoes.length) {
           toast.error("Nenhuma transação encontrada no arquivo CSV");
           return;
         }
+        setTransacoesPreview(transacoes);
+        setStep("preview");
+      }
 
+      if (tipo === "xlsx") {
+        const linhas = await parseXLSXFile(file);
+        const transacoes = mapLinhasParaTransacoesPreview(linhas);
+        if (!transacoes.length) {
+          toast.error("Nenhuma transação encontrada no arquivo XLSX");
+          return;
+        }
         setTransacoesPreview(transacoes);
         setStep("preview");
       }
