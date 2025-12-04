@@ -27,14 +27,13 @@ import {
 import { Upload, FileSpreadsheet, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useEmpresas } from "@/hooks/useEmpresas";
-import { MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
+import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface ImportarMarketplaceModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onImport: (transactions: MarketplaceTransactionInsert[]) => Promise<any>;
-  isImporting: boolean;
+  onSuccess?: () => void;
 }
 
 interface ParsedTransaction {
@@ -59,10 +58,11 @@ const CANAIS = [
 export function ImportarMarketplaceModal({
   open,
   onOpenChange,
-  onImport,
-  isImporting,
+  onSuccess,
 }: ImportarMarketplaceModalProps) {
   const { empresas } = useEmpresas();
+  const { importarTransacoes } = useMarketplaceTransactions();
+  
   const [empresaId, setEmpresaId] = useState<string>("");
   const [canal, setCanal] = useState<string>("");
   const [contaNome, setContaNome] = useState<string>("");
@@ -255,9 +255,10 @@ export function ImportarMarketplaceModal({
       origem_arquivo: canal,
     }));
 
-    await onImport(transactions);
+    await importarTransacoes.mutateAsync(transactions);
+    onSuccess?.();
     handleClose();
-  }, [empresaId, canal, contaNome, parsedData, onImport, handleClose]);
+  }, [empresaId, canal, contaNome, parsedData, importarTransacoes, onSuccess, handleClose]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -415,10 +416,10 @@ export function ImportarMarketplaceModal({
           </Button>
           <Button
             onClick={handleImport}
-            disabled={!empresaId || !canal || parsedData.length === 0 || isImporting}
+            disabled={!empresaId || !canal || parsedData.length === 0 || importarTransacoes.isPending}
           >
             <Upload className="h-4 w-4 mr-2" />
-            {isImporting ? "Importando..." : `Importar ${parsedData.length} transações`}
+            {importarTransacoes.isPending ? "Importando..." : `Importar ${parsedData.length} transações`}
           </Button>
         </DialogFooter>
       </DialogContent>
