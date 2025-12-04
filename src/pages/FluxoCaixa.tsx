@@ -166,12 +166,40 @@ export default function FluxoCaixa() {
     };
   }, [modoPeriodo, periodoSelecionado, dataInicioCustom, dataFimCustom]);
 
-  // Buscar dados do hook
+  // Buscar dados do hook (período atual)
   const { movimentos, resumo, agregado, empresas, isLoading, hasData } = useFluxoCaixa({
     periodoInicio,
     periodoFim,
     empresaId: empresaSelecionada,
   });
+
+  // Calcular período do mês anterior para comparativo
+  const { periodoAnteriorInicio, periodoAnteriorFim, mesAnteriorLabel } = useMemo(() => {
+    const [ano, mes] = periodoSelecionado.split("-").map(Number);
+    const dataRef = new Date(ano, mes - 1, 1);
+    const dataRefAnterior = subMonths(dataRef, 1);
+    const label = format(dataRefAnterior, "MMMM yyyy", { locale: ptBR });
+    return {
+      periodoAnteriorInicio: format(startOfMonth(dataRefAnterior), "yyyy-MM-dd"),
+      periodoAnteriorFim: format(endOfMonth(dataRefAnterior), "yyyy-MM-dd"),
+      mesAnteriorLabel: label.charAt(0).toUpperCase() + label.slice(1),
+    };
+  }, [periodoSelecionado]);
+
+  // Buscar dados do mês anterior para comparativo
+  const { resumo: resumoAnterior, hasData: hasDataAnterior } = useFluxoCaixa({
+    periodoInicio: periodoAnteriorInicio,
+    periodoFim: periodoAnteriorFim,
+    empresaId: empresaSelecionada,
+  });
+
+  // Label do mês atual
+  const mesAtualLabel = useMemo(() => {
+    const [ano, mes] = periodoSelecionado.split("-").map(Number);
+    const dataRef = new Date(ano, mes - 1, 1);
+    const label = format(dataRef, "MMMM yyyy", { locale: ptBR });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }, [periodoSelecionado]);
 
   const opcoesPeriodo = useMemo(() => gerarOpcoesPeriodo(), []);
 
@@ -376,6 +404,21 @@ export default function FluxoCaixa() {
   const topCategorias = useMemo(() => {
     return agregadoFiltrado.porCategoria.slice(0, 8);
   }, [agregadoFiltrado.porCategoria]);
+
+  // Comparativo mensal
+  const comparativo = useMemo(() => {
+    const calcularVariacao = (atual: number, anterior: number) => {
+      const diferenca = atual - anterior;
+      const variacaoPercentual = anterior === 0 ? null : (diferenca / anterior) * 100;
+      return { valorAtual: atual, valorAnterior: anterior, diferenca, variacaoPercentual };
+    };
+
+    return {
+      entradas: calcularVariacao(resumoFiltrado.totalEntradas, resumoAnterior?.totalEntradas || 0),
+      saidas: calcularVariacao(resumoFiltrado.totalSaidas, resumoAnterior?.totalSaidas || 0),
+      saldo: calcularVariacao(resumoFiltrado.saldoFinal, resumoAnterior?.saldoFinal || 0),
+    };
+  }, [resumoFiltrado, resumoAnterior]);
 
   return (
     <MainLayout
@@ -906,6 +949,108 @@ export default function FluxoCaixa() {
                   </div>
                 </ModuleCard>
               </div>
+              {/* Comparativo Mensal */}
+              <ModuleCard
+                title="Comparativo Mensal"
+                description={`Comparando ${mesAtualLabel} x ${mesAnteriorLabel}`}
+                icon={TrendingUp}
+              >
+                {!hasDataAnterior ? (
+                  <div className="text-center py-6">
+                    <p className="text-muted-foreground">
+                      Sem dados para o mês anterior para comparar.
+                    </p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-secondary/30">
+                        <TableHead>Métrica</TableHead>
+                        <TableHead className="text-right">{mesAtualLabel}</TableHead>
+                        <TableHead className="text-right">{mesAnteriorLabel}</TableHead>
+                        <TableHead className="text-right">Variação</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {/* Entradas */}
+                      <TableRow>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <ArrowUpCircle className="h-4 w-4 text-success" />
+                            Entradas
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right text-success font-medium">
+                          {formatCurrency(comparativo.entradas.valorAtual)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatCurrency(comparativo.entradas.valorAnterior)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className={`font-medium ${comparativo.entradas.diferenca >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {comparativo.entradas.diferenca >= 0 ? "+" : ""}{formatCurrency(comparativo.entradas.diferenca)}
+                            {comparativo.entradas.variacaoPercentual !== null && (
+                              <span className="text-xs ml-1">
+                                ({comparativo.entradas.variacaoPercentual >= 0 ? "+" : ""}{comparativo.entradas.variacaoPercentual.toFixed(1)}%)
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {/* Saídas */}
+                      <TableRow>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <ArrowDownCircle className="h-4 w-4 text-destructive" />
+                            Saídas
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right text-destructive font-medium">
+                          {formatCurrency(comparativo.saidas.valorAtual)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatCurrency(comparativo.saidas.valorAnterior)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className={`font-medium ${comparativo.saidas.diferenca <= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {comparativo.saidas.diferenca >= 0 ? "+" : ""}{formatCurrency(comparativo.saidas.diferenca)}
+                            {comparativo.saidas.variacaoPercentual !== null && (
+                              <span className="text-xs ml-1">
+                                ({comparativo.saidas.variacaoPercentual >= 0 ? "+" : ""}{comparativo.saidas.variacaoPercentual.toFixed(1)}%)
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {/* Saldo */}
+                      <TableRow className="bg-secondary/20">
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <Wallet className="h-4 w-4" />
+                            Saldo Final
+                          </div>
+                        </TableCell>
+                        <TableCell className={`text-right font-bold ${comparativo.saldo.valorAtual >= 0 ? "text-success" : "text-destructive"}`}>
+                          {formatCurrency(comparativo.saldo.valorAtual)}
+                        </TableCell>
+                        <TableCell className={`text-right text-muted-foreground`}>
+                          {formatCurrency(comparativo.saldo.valorAnterior)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className={`font-bold ${comparativo.saldo.diferenca >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {comparativo.saldo.diferenca >= 0 ? "+" : ""}{formatCurrency(comparativo.saldo.diferenca)}
+                            {comparativo.saldo.variacaoPercentual !== null && (
+                              <span className="text-xs ml-1">
+                                ({comparativo.saldo.variacaoPercentual >= 0 ? "+" : ""}{comparativo.saldo.variacaoPercentual.toFixed(1)}%)
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                )}
+              </ModuleCard>
             </>
           )}
         </TabsContent>
