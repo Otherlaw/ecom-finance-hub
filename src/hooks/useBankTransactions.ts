@@ -17,7 +17,7 @@ export interface BankTransaction {
   categoria_id: string | null;
   centro_custo_id: string | null;
   responsavel_id: string | null;
-  origem_extrato: "arquivo_ofx" | "arquivo_csv" | "manual";
+  origem_extrato: "arquivo_ofx" | "arquivo_csv" | "arquivo_xlsx" | "manual";
   referencia_externa: string | null;
   criado_em: string;
   atualizado_em: string;

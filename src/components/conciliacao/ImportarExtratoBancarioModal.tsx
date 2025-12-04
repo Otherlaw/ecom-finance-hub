@@ -202,7 +202,7 @@ export function ImportarExtratoBancarioModal({
       categoria_id: null,
       centro_custo_id: null,
       responsavel_id: null,
-      origem_extrato: tipoArquivo === "ofx" ? "arquivo_ofx" as const : "arquivo_csv" as const,
+      origem_extrato: (tipoArquivo === "ofx" ? "arquivo_ofx" : tipoArquivo === "csv" ? "arquivo_csv" : "arquivo_xlsx") as "arquivo_ofx" | "arquivo_csv" | "arquivo_xlsx",
       referencia_externa: t.referencia_externa,
     }));
 
