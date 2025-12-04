@@ -36,21 +36,7 @@ import { useMovimentacoesManuais } from "@/hooks/useManualTransactions";
 import { Loader2 } from "lucide-react";
 import { format } from "date-fns";
 
-// Interface flexível que aceita tanto MovimentoFinanceiro quanto MovimentoManual
-interface MovimentoBase {
-  id?: string;
-  data: string;
-  tipo: "entrada" | "saida";
-  descricao: string;
-  valor: number;
-  empresaId: string;
-  referenciaId?: string | null;
-  categoriaId?: string | null;
-  centroCustoId?: string | null;
-  responsavelId?: string | null;
-  formaPagamento?: string | null;
-  observacoes?: string | null;
-}
+import { ManualTransaction } from "@/hooks/useManualTransactions";
 
 const formSchema = z.object({
   data: z.string().min(1, "Data é obrigatória"),
@@ -67,11 +53,10 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
-interface MovimentoManualModalProps {
+interface MovimentacaoManualModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  movimento?: MovimentoBase | null; // aceita qualquer movimento com campos base
-  empresaIdDefault?: string;
+  movimentacao?: ManualTransaction | null;
   onSuccess?: () => void;
 }
 
@@ -88,10 +73,9 @@ const FORMAS_PAGAMENTO = [
 export function MovimentoManualFormModal({
   open,
   onOpenChange,
-  movimento,
-  empresaIdDefault,
+  movimentacao,
   onSuccess,
-}: MovimentoManualModalProps) {
+}: MovimentacaoManualModalProps) {
   const { empresas } = useEmpresas();
   const { categorias } = useCategoriasFinanceiras();
   const { centrosFlat } = useCentrosCusto();
@@ -99,7 +83,7 @@ export function MovimentoManualFormModal({
   const { createMovimentacao, updateMovimentacao } = useMovimentacoesManuais({});
   const [submitting, setSubmitting] = useState(false);
 
-  const isEditing = !!movimento;
+  const isEditing = !!movimentacao;
 
   const {
     register,
@@ -129,26 +113,26 @@ export function MovimentoManualFormModal({
 
   // Preencher form ao abrir
   useEffect(() => {
-    if (movimento && open) {
+    if (movimentacao && open) {
       reset({
-        data: movimento.data,
-        tipo: movimento.tipo,
-        valor: movimento.valor,
-        descricao: movimento.descricao,
-        empresaId: movimento.empresaId,
-        categoriaId: movimento.categoriaId || "",
-        centroCustoId: movimento.centroCustoId || "",
-        responsavelId: movimento.responsavelId || "",
-        formaPagamento: movimento.formaPagamento || "",
-        observacoes: movimento.observacoes || "",
+        data: movimentacao.data,
+        tipo: movimentacao.tipo as "entrada" | "saida",
+        valor: movimentacao.valor,
+        descricao: movimentacao.descricao,
+        empresaId: movimentacao.empresa_id,
+        categoriaId: movimentacao.categoria_id || "",
+        centroCustoId: movimentacao.centro_custo_id || "",
+        responsavelId: movimentacao.responsavel_id || "",
+        formaPagamento: "",
+        observacoes: movimentacao.observacoes || "",
       });
-    } else if (!movimento && open) {
+    } else if (!movimentacao && open) {
       reset({
         data: format(new Date(), "yyyy-MM-dd"),
         tipo: "saida",
         valor: 0,
         descricao: "",
-        empresaId: empresaIdDefault || empresas?.[0]?.id || "",
+        empresaId: empresas?.[0]?.id || "",
         categoriaId: "",
         centroCustoId: "",
         responsavelId: "",
@@ -156,7 +140,7 @@ export function MovimentoManualFormModal({
         observacoes: "",
       });
     }
-  }, [movimento, open, reset, empresas, empresaIdDefault]);
+  }, [movimentacao, open, reset, empresas]);
 
   // Filtrar categorias por tipo (receitas para entrada, despesas para saída)
   const categoriasDisponiveis = categorias?.filter((cat) => {
@@ -181,8 +165,8 @@ export function MovimentoManualFormModal({
         observacoes: data.observacoes || null,
       };
 
-      if (isEditing && movimento?.id) {
-        await updateMovimentacao.mutateAsync({ id: movimento.id, ...payload });
+      if (isEditing && movimentacao?.id) {
+        await updateMovimentacao.mutateAsync({ id: movimentacao.id, ...payload });
       } else {
         await createMovimentacao.mutateAsync(payload);
       }
