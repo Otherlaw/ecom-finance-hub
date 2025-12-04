@@ -6,7 +6,7 @@ interface LancamentoDRE {
   id: string;
   data: string;
   valor: number;
-  origem: "cartao" | "contas_pagar" | "contas_receber";
+  origem: "cartao" | "banco" | "contas_pagar" | "contas_receber" | "marketplace" | "manual";
   categoria_id: string | null;
   categoria_tipo: string | null;
   categoria_nome: string | null;
@@ -43,108 +43,39 @@ export function useDREData(mes?: string, ano?: number) {
   const selectedMonth = mes || String(currentDate.getMonth() + 1).padStart(2, "0");
   const selectedYear = ano || currentDate.getFullYear();
 
-  // Busca transações de cartão categorizadas do período
-  const { data: transacoesCartao, isLoading: isLoadingCartao } = useQuery({
-    queryKey: ["dre-transacoes-cartao", selectedMonth, selectedYear],
+  // Busca movimentos financeiros da tabela unificada (MEU)
+  const { data: movimentosMEU, isLoading: isLoadingMEU } = useQuery({
+    queryKey: ["dre-movimentos-meu", selectedMonth, selectedYear],
     queryFn: async () => {
       const startDate = `${selectedYear}-${selectedMonth}-01`;
       const endDate = new Date(selectedYear, parseInt(selectedMonth), 0).toISOString().split("T")[0];
 
       const { data, error } = await supabase
-        .from("credit_card_transactions")
+        .from("movimentos_financeiros")
         .select(`
           id,
+          data,
           valor,
-          data_transacao,
-          tipo_movimento,
+          tipo,
+          origem,
           categoria_id,
+          categoria_nome,
           categoria:categorias_financeiras(id, nome, tipo)
         `)
-        .gte("data_transacao", startDate)
-        .lte("data_transacao", endDate)
-        .eq("status", "conciliado");
+        .gte("data", startDate)
+        .lte("data", endDate);
 
       if (error) throw error;
       
       // Normaliza para LancamentoDRE
-      return (data || []).map((t): LancamentoDRE => ({
-        id: t.id,
-        data: t.data_transacao,
-        valor: Math.abs(t.valor),
-        origem: "cartao",
-        categoria_id: t.categoria_id,
-        categoria_tipo: (t.categoria as any)?.tipo || null,
-        categoria_nome: (t.categoria as any)?.nome || null,
-      }));
-    },
-  });
-
-  // Busca contas a pagar pagas no período
-  const { data: contasPagas, isLoading: isLoadingContas } = useQuery({
-    queryKey: ["dre-contas-pagar", selectedMonth, selectedYear],
-    queryFn: async () => {
-      const startDate = `${selectedYear}-${selectedMonth}-01`;
-      const endDate = new Date(selectedYear, parseInt(selectedMonth), 0).toISOString().split("T")[0];
-
-      const { data, error } = await supabase
-        .from("contas_a_pagar")
-        .select(`
-          id,
-          valor_pago,
-          data_pagamento,
-          categoria_id,
-          categoria:categorias_financeiras(id, nome, tipo)
-        `)
-        .in("status", ["pago", "parcialmente_pago"])
-        .gte("data_pagamento", startDate)
-        .lte("data_pagamento", endDate);
-
-      if (error) throw error;
-      
-      // Normaliza para LancamentoDRE
-      return (data || []).map((c): LancamentoDRE => ({
-        id: c.id,
-        data: c.data_pagamento || "",
-        valor: c.valor_pago,
-        origem: "contas_pagar",
-        categoria_id: c.categoria_id,
-        categoria_tipo: (c.categoria as any)?.tipo || null,
-        categoria_nome: (c.categoria as any)?.nome || null,
-      }));
-    },
-  });
-
-  // Busca contas a receber recebidas no período (RECEITAS)
-  const { data: contasRecebidas, isLoading: isLoadingReceber } = useQuery({
-    queryKey: ["dre-contas-receber", selectedMonth, selectedYear],
-    queryFn: async () => {
-      const startDate = `${selectedYear}-${selectedMonth}-01`;
-      const endDate = new Date(selectedYear, parseInt(selectedMonth), 0).toISOString().split("T")[0];
-
-      const { data, error } = await supabase
-        .from("contas_a_receber")
-        .select(`
-          id,
-          valor_recebido,
-          data_recebimento,
-          categoria_id,
-          categoria:categorias_financeiras(id, nome, tipo)
-        `)
-        .in("status", ["recebido", "parcialmente_recebido"])
-        .gte("data_recebimento", startDate)
-        .lte("data_recebimento", endDate);
-
-      if (error) throw error;
-      
-      // Normaliza para LancamentoDRE
-      return (data || []).map((c): LancamentoDRE => ({
-        id: c.id,
-        data: c.data_recebimento || "",
-        valor: c.valor_recebido,
-        origem: "contas_receber",
-        categoria_id: c.categoria_id,
-        categoria_tipo: (c.categoria as any)?.tipo || null,
-        categoria_nome: (c.categoria as any)?.nome || null,
+      return (data || []).map((m: any): LancamentoDRE => ({
+        id: m.id,
+        data: m.data,
+        valor: Math.abs(m.valor),
+        origem: m.origem,
+        categoria_id: m.categoria_id,
+        categoria_tipo: (m.categoria as any)?.tipo || null,
+        categoria_nome: m.categoria_nome || (m.categoria as any)?.nome || null,
       }));
     },
   });
@@ -165,10 +96,10 @@ export function useDREData(mes?: string, ano?: number) {
     },
   });
 
-  // Combina todas as transações
+  // Usa os movimentos da tabela unificada
   const lancamentos = useMemo(() => {
-    return [...(transacoesCartao || []), ...(contasPagas || []), ...(contasRecebidas || [])];
-  }, [transacoesCartao, contasPagas, contasRecebidas]);
+    return movimentosMEU || [];
+  }, [movimentosMEU]);
 
   // Processa dados do DRE
   const dreData = useMemo<DREData | null>(() => {
@@ -295,10 +226,10 @@ export function useDREData(mes?: string, ano?: number) {
   }, [dreData]);
 
   // Contagem por origem
-  const transacoesCartaoCount = transacoesCartao?.length || 0;
-  const contasPagasCount = contasPagas?.length || 0;
-  const contasRecebidasCount = contasRecebidas?.length || 0;
   const totalLancamentos = lancamentos.length;
+  const transacoesCartaoCount = lancamentos.filter((l) => l.origem === "cartao").length;
+  const contasPagasCount = lancamentos.filter((l) => l.origem === "contas_pagar").length;
+  const contasRecebidasCount = lancamentos.filter((l) => l.origem === "contas_receber").length;
 
   return {
     dreData,
@@ -307,7 +238,7 @@ export function useDREData(mes?: string, ano?: number) {
     transacoesCartaoCount,
     contasPagasCount,
     contasRecebidasCount,
-    isLoading: isLoadingCartao || isLoadingContas || isLoadingReceber || isLoadingCategorias,
+    isLoading: isLoadingMEU || isLoadingCategorias,
     hasData: totalLancamentos > 0,
   };
 }
@@ -317,38 +248,20 @@ export function usePeridosDisponiveis() {
   return useQuery({
     queryKey: ["periodos-dre"],
     queryFn: async () => {
-      // Busca períodos de transações de cartão
-      const { data: cartaoData, error: cartaoError } = await supabase
-        .from("credit_card_transactions")
-        .select("data_transacao")
-        .eq("status", "conciliado")
-        .order("data_transacao", { ascending: false });
+      // Busca períodos da tabela unificada (MEU)
+      const { data: movimentosData, error } = await supabase
+        .from("movimentos_financeiros")
+        .select("data")
+        .order("data", { ascending: false });
 
-      if (cartaoError) throw cartaoError;
+      if (error) throw error;
 
-      // Busca períodos de contas pagas
-      const { data: contasData, error: contasError } = await supabase
-        .from("contas_a_pagar")
-        .select("data_pagamento")
-        .in("status", ["pago", "parcialmente_pago"])
-        .not("data_pagamento", "is", null)
-        .order("data_pagamento", { ascending: false });
-
-      if (contasError) throw contasError;
-
-      // Combina e extrai meses únicos
+      // Extrai meses únicos
       const periodos = new Set<string>();
       
-      cartaoData?.forEach((t) => {
-        const date = new Date(t.data_transacao);
+      movimentosData?.forEach((m) => {
+        const date = new Date(m.data);
         periodos.add(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`);
-      });
-
-      contasData?.forEach((c) => {
-        if (c.data_pagamento) {
-          const date = new Date(c.data_pagamento);
-          periodos.add(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`);
-        }
       });
 
       // Ordena decrescente e limita a 12 meses

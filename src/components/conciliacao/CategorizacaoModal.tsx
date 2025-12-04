@@ -21,6 +21,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Tag, Building2 } from "lucide-react";
 import { formatCurrency } from "@/lib/mock-data";
+import { registrarMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface CategorizacaoModalProps {
   open: boolean;
@@ -48,8 +50,9 @@ export function CategorizacaoModal({
   const [categoriaId, setCategoriaId] = useState<string>("");
   const [centroCustoId, setCentroCustoId] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
+  const queryClient = useQueryClient();
 
-  const { categoriasPorTipo, isLoading: loadingCategorias } = useCategoriasFinanceiras();
+  const { categoriasPorTipo, categorias, isLoading: loadingCategorias } = useCategoriasFinanceiras();
   const { centrosFlat, isLoading: loadingCentros } = useCentrosCusto();
 
   // Carrega valores atuais quando a transação muda
@@ -71,6 +74,26 @@ export function CategorizacaoModal({
     setIsSaving(true);
     try {
       if (tipo === "cartao") {
+        // Buscar dados completos da transação para o MEU
+        const { data: txCompleta, error: fetchError } = await supabase
+          .from("credit_card_transactions")
+          .select(`
+            *,
+            fatura:credit_card_invoices(
+              id,
+              cartao:credit_cards(
+                id,
+                nome,
+                empresa:empresas(id, razao_social, nome_fantasia)
+              )
+            )
+          `)
+          .eq("id", transacao.id)
+          .single();
+
+        if (fetchError) throw fetchError;
+
+        // Atualizar a transação
         const { error } = await supabase
           .from("credit_card_transactions")
           .update({
@@ -81,6 +104,37 @@ export function CategorizacaoModal({
           .eq("id", transacao.id);
 
         if (error) throw error;
+
+        // Buscar nome da categoria e centro de custo
+        const categoriaSelecionada = categorias?.find((c) => c.id === categoriaId);
+        const centroSelecionado = centrosFlat?.find((c) => c.id === centroCustoId);
+        const empresaId = (txCompleta?.fatura as any)?.cartao?.empresa?.id;
+
+        // Registrar no Motor de Entrada Unificada (MEU)
+        if (empresaId) {
+          try {
+            await registrarMovimentoFinanceiro({
+              data: txCompleta.data_transacao,
+              tipo: "saida",
+              origem: "cartao",
+              descricao: txCompleta.descricao,
+              valor: Math.abs(txCompleta.valor),
+              empresaId: empresaId,
+              referenciaId: transacao.id,
+              categoriaId: categoriaId,
+              categoriaNome: categoriaSelecionada?.nome || undefined,
+              centroCustoId: centroCustoId || undefined,
+              centroCustoNome: centroSelecionado?.nome || undefined,
+              observacoes: txCompleta.observacoes || undefined,
+            });
+          } catch (meuError) {
+            console.error("Erro ao registrar no MEU:", meuError);
+            // Não interrompe o fluxo principal
+          }
+        }
+
+        // Invalidar queries
+        queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
         toast.success("Transação categorizada com sucesso!");
       } else if (tipo === "bancaria") {
         // Transações bancárias ainda usam mock data
