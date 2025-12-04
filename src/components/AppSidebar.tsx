@@ -28,6 +28,7 @@ import {
   FolderTree,
   List,
   Sparkles,
+  PenLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -59,6 +60,7 @@ const mainNavItems: NavItem[] = [
   { title: "Cartões de Crédito", href: "/cartao-credito", icon: CreditCardIcon },
   { title: "Fornecedores", href: "/fornecedores", icon: Truck },
   { title: "Precificação", href: "/precificacao", icon: Calculator },
+  { title: "Mov. Manuais", href: "/movimentos-manuais", icon: PenLine },
   { title: "Assis.Fin", href: "/assistant", icon: Bot, badge: "IA" },
 ];
 
