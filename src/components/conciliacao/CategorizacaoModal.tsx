@@ -59,7 +59,7 @@ export function CategorizacaoModal({
   useEffect(() => {
     if (transacao) {
       setCategoriaId(transacao.categoria_id || "");
-      setCentroCustoId(transacao.centro_custo_id || "");
+      setCentroCustoId(transacao.centro_custo_id || "none");
     }
   }, [transacao]);
 
@@ -98,7 +98,7 @@ export function CategorizacaoModal({
           .from("credit_card_transactions")
           .update({
             categoria_id: categoriaId,
-            centro_custo_id: centroCustoId || null,
+            centro_custo_id: centroCustoId === "none" ? null : (centroCustoId || null),
             status: "conciliado",
           })
           .eq("id", transacao.id);
@@ -123,7 +123,7 @@ export function CategorizacaoModal({
               referenciaId: transacao.id,
               categoriaId: categoriaId,
               categoriaNome: categoriaSelecionada?.nome || undefined,
-              centroCustoId: centroCustoId || undefined,
+              centroCustoId: centroCustoId === "none" ? undefined : (centroCustoId || undefined),
               centroCustoNome: centroSelecionado?.nome || undefined,
               observacoes: txCompleta.observacoes || undefined,
             });
