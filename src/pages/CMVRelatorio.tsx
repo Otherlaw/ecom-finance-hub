@@ -154,7 +154,7 @@ export default function CMVRelatorio() {
                       <SelectValue placeholder="Selecione..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {empresas.map((e) => (
+                      {(empresas || []).map((e) => (
                         <SelectItem key={e.id} value={e.id}>
                           {e.nome_fantasia || e.razao_social}
                         </SelectItem>
