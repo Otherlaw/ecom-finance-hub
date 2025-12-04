@@ -20,24 +20,24 @@ import {
   PenLine,
   Eye,
   Tag,
+  RotateCcw,
+  Ban,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFaturas, useTransacoes } from "@/hooks/useCartoes";
+import { useBankTransactions, BankTransaction } from "@/hooks/useBankTransactions";
+import { useEmpresas } from "@/hooks/useEmpresas";
 import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CategorizacaoModal } from "@/components/conciliacao/CategorizacaoModal";
+import { CategorizacaoBancariaModal } from "@/components/conciliacao/CategorizacaoBancariaModal";
+import { ImportarExtratoBancarioModal } from "@/components/conciliacao/ImportarExtratoBancarioModal";
 import { useQueryClient } from "@tanstack/react-query";
-
-// Mock data for non-integrated tabs
-const mockBancaria = [
-  { id: 1, data: "01/11", descricao: "TED Recebido - Cliente ABC", valorExtrato: 15000, valorSistema: 15000, status: "ok", conta: "Itaú 1234" },
-  { id: 2, data: "03/11", descricao: "Pagamento Boleto Fornecedor", valorExtrato: -8500, valorSistema: -8500, status: "ok", conta: "Itaú 1234" },
-  { id: 3, data: "05/11", descricao: "PIX Recebido", valorExtrato: 3200, valorSistema: 0, status: "faltando", conta: "Nubank", diferenca: 3200 },
-  { id: 4, data: "08/11", descricao: "Tarifa Bancária", valorExtrato: -45, valorSistema: -45, status: "ok", conta: "Itaú 1234" },
-];
+import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 
 const mockMarketplace = [
   { id: 1, data: "01/11", descricao: "Repasse ML - Lote #12345", valorRepasse: 45000, valorVendas: 45000, status: "ok", canal: "Mercado Livre" },
@@ -180,91 +180,309 @@ function FilterBar({ showExport = true }: { showExport?: boolean }) {
 
 // Tab content components
 function BancariaTab() {
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [categorizacaoModal, setCategorizacaoModal] = useState<{
     open: boolean;
-    transacao: any | null;
+    transacao: BankTransaction | null;
   }>({ open: false, transacao: null });
   
-  const totals = calculateTotals(mockBancaria);
+  // Filtros
+  const [empresaId, setEmpresaId] = useState<string>("");
+  const [statusFiltro, setStatusFiltro] = useState<string>("todos");
+  const [busca, setBusca] = useState("");
   
-  const handleCategorizar = (item: typeof mockBancaria[0]) => {
-    setCategorizacaoModal({
-      open: true,
-      transacao: {
-        id: item.id.toString(),
-        descricao: item.descricao,
-        valor: Math.abs(item.valorExtrato),
-        data: `2024-11-${item.data.split("/")[0]}`,
-        estabelecimento: item.conta,
-        categoria_id: null,
-        centro_custo_id: null,
-      },
-    });
+  // Período padrão: mês atual
+  const hoje = new Date();
+  const periodoInicio = format(startOfMonth(hoje), "yyyy-MM-dd");
+  const periodoFim = format(endOfMonth(hoje), "yyyy-MM-dd");
+  
+  const { empresas } = useEmpresas();
+  const { transacoes, resumo, isLoading, refetch } = useBankTransactions({
+    empresaId: empresaId || undefined,
+    periodoInicio,
+    periodoFim,
+    status: statusFiltro,
+  });
+  
+  // Filtro de busca local
+  const transacoesFiltradas = transacoes.filter((t) => {
+    if (!busca) return true;
+    const termo = busca.toLowerCase();
+    return (
+      t.descricao.toLowerCase().includes(termo) ||
+      t.documento?.toLowerCase().includes(termo)
+    );
+  });
+  
+  const totals = {
+    registros: transacoesFiltradas.length,
+    conciliados: resumo.conciliadas,
+    divergencias: 0,
+    pendentes: resumo.importadas + resumo.pendentes,
+    totalDiferencas: 0,
+  };
+  
+  const handleCategorizar = (transacao: BankTransaction) => {
+    setCategorizacaoModal({ open: true, transacao });
   };
   
   const handleCategorizacaoSuccess = () => {
-    // TODO: Quando houver tabela de transações bancárias, fazer refetch
+    refetch();
   };
+  
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-16 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
+  }
   
   return (
     <div>
-      <SummaryCards totals={totals} />
-      <ProgressBar totals={totals} />
-      <FilterBar />
+      {/* Summary Cards customizado para banco */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+        <div className="p-5 rounded-xl bg-card border border-border">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-secondary">
+              <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <span className="text-sm text-muted-foreground">Total</span>
+          </div>
+          <p className="text-2xl font-bold">{resumo.total}</p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-primary/5 border border-primary/20">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Upload className="h-4 w-4 text-primary" />
+            </div>
+            <span className="text-sm text-muted-foreground">Importadas</span>
+          </div>
+          <p className="text-2xl font-bold text-primary">{resumo.importadas}</p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-warning/5 border border-warning/20">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-warning/10">
+              <AlertTriangle className="h-4 w-4 text-warning" />
+            </div>
+            <span className="text-sm text-muted-foreground">Pendentes</span>
+          </div>
+          <p className="text-2xl font-bold text-warning">{resumo.pendentes}</p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-success/5 border border-success/20">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-success/10">
+              <Check className="h-4 w-4 text-success" />
+            </div>
+            <span className="text-sm text-muted-foreground">Conciliadas</span>
+          </div>
+          <p className="text-2xl font-bold text-success">{resumo.conciliadas}</p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-muted/50 border border-border">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-muted">
+              <Ban className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <span className="text-sm text-muted-foreground">Ignoradas</span>
+          </div>
+          <p className="text-2xl font-bold text-muted-foreground">{resumo.ignoradas}</p>
+        </div>
+      </div>
+
+      {/* Progress */}
+      {resumo.total > 0 && (
+        <div className="mb-6 p-4 rounded-xl bg-card border border-border">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium">Progresso da Conciliação</span>
+            <span className="text-sm text-muted-foreground">
+              {resumo.conciliadas} de {resumo.total} registros
+            </span>
+          </div>
+          <Progress value={(resumo.conciliadas / resumo.total) * 100} className="h-2" />
+        </div>
+      )}
       
-      <ModuleCard title="Conciliação Bancária" description="Extrato vs Sistema" icon={Building} noPadding>
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-secondary/30">
-              <TableHead className="w-[80px]">Data</TableHead>
-              <TableHead>Descrição</TableHead>
-              <TableHead>Conta</TableHead>
-              <TableHead className="text-right">Extrato</TableHead>
-              <TableHead className="text-right">Sistema</TableHead>
-              <TableHead className="text-right">Diferença</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead className="text-center">Ação</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {mockBancaria.map((item) => (
-              <TableRow key={item.id} className={item.status !== "ok" ? "bg-warning/5" : ""}>
-                <TableCell className="font-medium">{item.data}</TableCell>
-                <TableCell>{item.descricao}</TableCell>
-                <TableCell><Badge variant="outline">{item.conta}</Badge></TableCell>
-                <TableCell className={`text-right ${item.valorExtrato < 0 ? "text-destructive" : ""}`}>
-                  {formatCurrency(item.valorExtrato)}
-                </TableCell>
-                <TableCell className={`text-right ${item.valorSistema < 0 ? "text-destructive" : ""}`}>
-                  {item.valorSistema !== 0 ? formatCurrency(item.valorSistema) : "-"}
-                </TableCell>
-                <TableCell className="text-right font-medium text-destructive">
-                  {item.diferenca ? formatCurrency(item.diferenca) : "-"}
-                </TableCell>
-                <TableCell className="text-center"><StatusBadge status={item.status} /></TableCell>
-                <TableCell className="text-center">
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    className="gap-1"
-                    onClick={() => handleCategorizar(item)}
-                  >
-                    <Tag className="h-3 w-3" />
-                    {item.status === "ok" ? "Editar" : "Categorizar"}
-                  </Button>
-                </TableCell>
-              </TableRow>
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-4 mb-6">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input 
+            placeholder="Buscar por descrição..." 
+            className="pl-10" 
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        </div>
+        
+        <Select value={empresaId} onValueChange={setEmpresaId}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Todas as empresas" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">Todas as empresas</SelectItem>
+            {empresas?.map((emp) => (
+              <SelectItem key={emp.id} value={emp.id}>
+                {emp.nome_fantasia || emp.razao_social}
+              </SelectItem>
             ))}
-          </TableBody>
-        </Table>
+          </SelectContent>
+        </Select>
+        
+        <Select value={statusFiltro} onValueChange={setStatusFiltro}>
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos</SelectItem>
+            <SelectItem value="importado">Importados</SelectItem>
+            <SelectItem value="pendente">Pendentes</SelectItem>
+            <SelectItem value="conciliado">Conciliados</SelectItem>
+            <SelectItem value="ignorado">Ignorados</SelectItem>
+          </SelectContent>
+        </Select>
+        
+        <Button variant="outline" className="gap-2" onClick={() => refetch()}>
+          <RefreshCw className="h-4 w-4" />
+          Atualizar
+        </Button>
+        
+        <Button className="gap-2 ml-auto" onClick={() => setImportModalOpen(true)}>
+          <Upload className="h-4 w-4" />
+          Importar Extrato
+        </Button>
+      </div>
+      
+      <ModuleCard title="Conciliação Bancária" description="Transações importadas de extratos" icon={Building} noPadding>
+        {transacoesFiltradas.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground">
+            <Building className="h-12 w-12 mx-auto mb-4 opacity-30" />
+            <p className="font-medium">Nenhuma transação bancária encontrada</p>
+            <p className="text-sm mt-1">Importe um extrato bancário para iniciar a conciliação</p>
+            <Button className="mt-4 gap-2" onClick={() => setImportModalOpen(true)}>
+              <Upload className="h-4 w-4" />
+              Importar Extrato
+            </Button>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-secondary/30">
+                <TableHead className="w-[100px]">Data</TableHead>
+                <TableHead>Descrição</TableHead>
+                <TableHead>Categoria</TableHead>
+                <TableHead>Centro Custo</TableHead>
+                <TableHead className="text-center">Tipo</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-center">Ação</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {transacoesFiltradas.map((t) => (
+                <TableRow 
+                  key={t.id} 
+                  className={
+                    t.status === "conciliado" ? "bg-success/5" :
+                    t.status === "ignorado" ? "bg-muted/30 opacity-60" :
+                    t.status === "pendente" ? "bg-warning/5" : ""
+                  }
+                >
+                  <TableCell className="font-medium">
+                    {new Date(t.data_transacao).toLocaleDateString("pt-BR")}
+                  </TableCell>
+                  <TableCell>
+                    <div>
+                      <span className="font-medium">{t.descricao}</span>
+                      {t.documento && (
+                        <p className="text-xs text-muted-foreground">Doc: {t.documento}</p>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {t.categoria ? (
+                      <Badge variant="outline" className="bg-success/5 border-success/30 text-success">
+                        {t.categoria.nome}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-muted-foreground">
+                        Não categorizado
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {t.centro_custo ? (
+                      <Badge variant="secondary">{t.centro_custo.nome}</Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Badge variant={t.tipo_lancamento === "credito" ? "default" : "destructive"}>
+                      {t.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className={`text-right font-medium ${
+                    t.tipo_lancamento === "credito" ? "text-success" : "text-destructive"
+                  }`}>
+                    {t.tipo_lancamento === "credito" ? "+" : "-"}{formatCurrency(t.valor)}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <StatusBadge status={t.status} />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => handleCategorizar(t)}
+                    >
+                      {t.status === "conciliado" ? (
+                        <>
+                          <Eye className="h-3 w-3" />
+                          Ver
+                        </>
+                      ) : t.status === "ignorado" ? (
+                        <>
+                          <RotateCcw className="h-3 w-3" />
+                          Reabrir
+                        </>
+                      ) : (
+                        <>
+                          <Tag className="h-3 w-3" />
+                          Categorizar
+                        </>
+                      )}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </ModuleCard>
       
+      {/* Modal de Importação */}
+      <ImportarExtratoBancarioModal
+        open={importModalOpen}
+        onOpenChange={setImportModalOpen}
+        onSuccess={handleCategorizacaoSuccess}
+      />
+      
       {/* Modal de Categorização */}
-      <CategorizacaoModal
+      <CategorizacaoBancariaModal
         open={categorizacaoModal.open}
         onOpenChange={(open) => setCategorizacaoModal({ ...categorizacaoModal, open })}
         transacao={categorizacaoModal.transacao}
-        tipo="bancaria"
         onSuccess={handleCategorizacaoSuccess}
       />
     </div>
