@@ -241,13 +241,12 @@ export function useMovimentacoesManuais(params: UseMovimentacoesManuaisParams = 
 
   // Resumo
   const resumo = {
-    totalEntradas: transacoes?.filter((t) => t.tipo === "entrada").reduce((acc, t) => acc + Number(t.valor), 0) || 0,
-    totalSaidas: transacoes?.filter((t) => t.tipo === "saida").reduce((acc, t) => acc + Number(t.valor), 0) || 0,
-    saldo: 
-      (transacoes?.filter((t) => t.tipo === "entrada").reduce((acc, t) => acc + Number(t.valor), 0) || 0) -
-      (transacoes?.filter((t) => t.tipo === "saida").reduce((acc, t) => acc + Number(t.valor), 0) || 0),
-    quantidade: transacoes?.length || 0,
+    total: transacoes?.length || 0,
+    totalEntradas: transacoes?.filter((m) => m.tipo === "entrada").reduce((acc, m) => acc + Number(m.valor), 0) || 0,
+    totalSaidas: transacoes?.filter((m) => m.tipo === "saida").reduce((acc, m) => acc + Number(m.valor), 0) || 0,
+    saldo: 0,
   };
+  resumo.saldo = resumo.totalEntradas - resumo.totalSaidas;
 
   return {
     movimentacoes: transacoes || [],
