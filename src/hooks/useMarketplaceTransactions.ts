@@ -64,6 +64,7 @@ export interface MarketplaceTransactionInsert {
 interface UseMarketplaceTransactionsParams {
   empresaId?: string;
   canal?: string;
+  marketplace?: string; // alias para canal
   periodoInicio?: string;
   periodoFim?: string;
   status?: "todos" | "importado" | "pendente" | "conciliado" | "ignorado";
@@ -116,8 +117,10 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         query = query.eq("empresa_id", params.empresaId);
       }
 
-      if (params?.canal) {
-        query = query.eq("canal", params.canal);
+      // Aceita tanto 'canal' quanto 'marketplace' como parâmetro
+      const canalFiltro = params?.canal || params?.marketplace;
+      if (canalFiltro) {
+        query = query.eq("canal", canalFiltro);
       }
 
       if (params?.periodoInicio) {
