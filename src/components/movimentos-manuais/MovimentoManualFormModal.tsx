@@ -32,7 +32,7 @@ import { useEmpresas } from "@/hooks/useEmpresas";
 import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { useResponsaveis } from "@/hooks/useResponsaveis";
-import { useManualTransactions } from "@/hooks/useManualTransactions";
+import { useMovimentacoesManuais } from "@/hooks/useManualTransactions";
 import { Loader2 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -96,7 +96,7 @@ export function MovimentoManualFormModal({
   const { categorias } = useCategoriasFinanceiras();
   const { centrosFlat } = useCentrosCusto();
   const { responsaveis } = useResponsaveis();
-  const { createTransaction, updateTransaction } = useManualTransactions({});
+  const { createMovimentacao, updateMovimentacao } = useMovimentacoesManuais({});
   const [submitting, setSubmitting] = useState(false);
 
   const isEditing = !!movimento;
@@ -182,9 +182,9 @@ export function MovimentoManualFormModal({
       };
 
       if (isEditing && movimento?.id) {
-        await updateTransaction.mutateAsync({ id: movimento.id, ...payload });
+        await updateMovimentacao.mutateAsync({ id: movimento.id, ...payload });
       } else {
-        await createTransaction.mutateAsync(payload);
+        await createMovimentacao.mutateAsync(payload);
       }
 
       onOpenChange(false);
@@ -194,7 +194,7 @@ export function MovimentoManualFormModal({
     }
   };
 
-  const isLoading = submitting || createTransaction.isPending || updateTransaction.isPending;
+  const isLoading = submitting || createMovimentacao.isPending || updateMovimentacao.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
