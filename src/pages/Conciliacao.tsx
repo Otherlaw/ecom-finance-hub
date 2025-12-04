@@ -40,6 +40,7 @@ import { CategorizacaoBancariaModal } from "@/components/conciliacao/Categorizac
 import { ImportarExtratoBancarioModal } from "@/components/conciliacao/ImportarExtratoBancarioModal";
 import { ImportarMarketplaceModal } from "@/components/conciliacao/ImportarMarketplaceModal";
 import { CategorizacaoMarketplaceModal } from "@/components/conciliacao/CategorizacaoMarketplaceModal";
+import { MovimentacaoManualModal } from "@/components/conciliacao/MovimentacaoManualModal";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 
@@ -1024,7 +1025,20 @@ function MarketplaceTab() {
 }
 
 function ManualTab() {
+  const [modalManualOpen, setModalManualOpen] = useState(false);
+  const [movimentoEdicao, setMovimentoEdicao] = useState<any | null>(null);
+  
   const totals = calculateTotals(mockManual);
+
+  const handleNovoLancamento = () => {
+    setMovimentoEdicao(null);
+    setModalManualOpen(true);
+  };
+
+  const handleEditarLancamento = (movimento: any) => {
+    setMovimentoEdicao(movimento);
+    setModalManualOpen(true);
+  };
   
   return (
     <div>
@@ -1040,7 +1054,7 @@ function ManualTab() {
           <Filter className="h-4 w-4" />
           Filtrar
         </Button>
-        <Button className="gap-2">
+        <Button className="gap-2" onClick={handleNovoLancamento}>
           <PenLine className="h-4 w-4" />
           Novo Lançamento
         </Button>
@@ -1091,6 +1105,15 @@ function ManualTab() {
           </TableBody>
         </Table>
       </ModuleCard>
+
+      <MovimentacaoManualModal
+        open={modalManualOpen}
+        onOpenChange={setModalManualOpen}
+        movimento={movimentoEdicao}
+        onSuccess={() => {
+          // TODO: refetch movimentações manuais quando implementar hook
+        }}
+      />
     </div>
   );
 }
