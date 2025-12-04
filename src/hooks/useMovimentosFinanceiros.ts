@@ -25,6 +25,8 @@ export interface MovimentoFinanceiro {
   observacoes: string | null;
   criadoEm: string;
   atualizadoEm: string;
+  // Computed
+  isManual: boolean;
   // Join opcional
   empresa?: { id: string; razao_social: string; nome_fantasia: string | null };
   categoria?: { id: string; nome: string; tipo: string };
@@ -114,6 +116,7 @@ export function useMovimentosFinanceiros(params: UseMovimentosFinanceirosParams 
         observacoes: m.observacoes,
         criadoEm: m.criado_em,
         atualizadoEm: m.atualizado_em,
+        isManual: m.origem === 'manual',
         empresa: m.empresa,
         categoria: m.categoria,
         centro_custo: m.centro_custo,
