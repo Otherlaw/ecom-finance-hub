@@ -30,6 +30,7 @@ import { useEmpresas } from "@/hooks/useEmpresas";
 import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
+import { detectarTipoArquivo, parseCSVFile, parseXLSXFile } from "@/lib/parsers/arquivoFinanceiro";
 
 interface ImportarMarketplaceModalProps {
   open: boolean;
@@ -276,7 +277,30 @@ export function ImportarMarketplaceModal({
 
     try {
       setIsProcessing(true);
-      const content = await file.text();
+      const tipo = detectarTipoArquivo(file);
+      
+      let content: string;
+      
+      if (tipo === "xlsx") {
+        // Converte linhas XLSX para formato CSV para reaproveitar parseCSV
+        const linhas = await parseXLSXFile(file);
+        if (linhas.length === 0) {
+          setError("Nenhum dado encontrado no arquivo XLSX.");
+          setIsProcessing(false);
+          return;
+        }
+        // Converter para CSV string
+        const headers = Object.keys(linhas[0]);
+        const csvLines = [headers.join(";")];
+        for (const linha of linhas) {
+          const values = headers.map(h => String(linha[h] ?? "").replace(/;/g, ","));
+          csvLines.push(values.join(";"));
+        }
+        content = csvLines.join("\n");
+      } else {
+        content = await file.text();
+      }
+      
       const { transacoes, totalItens } = parseCSV(content, canal);
 
       if (transacoes.length === 0) {
@@ -393,11 +417,11 @@ export function ImportarMarketplaceModal({
           {/* Upload de Arquivo */}
           {empresaId && canal && (
             <div className="space-y-2">
-              <Label>Arquivo CSV</Label>
+              <Label>Arquivo CSV ou XLSX</Label>
               <div className="flex items-center gap-4">
                 <Input
                   type="file"
-                  accept=".csv,.txt"
+                  accept=".csv,.xlsx"
                   onChange={handleFileChange}
                   className="flex-1"
                 />
