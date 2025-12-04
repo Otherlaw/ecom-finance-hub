@@ -328,25 +328,37 @@ export default function FluxoCaixa() {
       title="Fluxo de Caixa"
       subtitle="Visão consolidada de entradas, saídas e saldo de caixa"
       actions={
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Modo de Período */}
-          <Select value={modoPeriodo} onValueChange={(v) => setModoPeriodo(v as ModoPeriodo)}>
-            <SelectTrigger className="w-[160px]">
-              <CalendarRange className="h-4 w-4 mr-2" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="mensal">Mensal</SelectItem>
-              <SelectItem value="personalizado">Personalizado</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 flex-wrap">
+          {/* Modo de período */}
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs font-medium text-muted-foreground">Modo de período</Label>
+            <RadioGroup
+              className="flex items-center gap-3"
+              value={modoPeriodo}
+              onValueChange={(value) => setModoPeriodo(value as ModoPeriodo)}
+            >
+              <div className="flex items-center gap-1">
+                <RadioGroupItem value="mensal" id="periodo-mensal" />
+                <Label htmlFor="periodo-mensal" className="text-xs cursor-pointer">Mensal</Label>
+              </div>
+              <div className="flex items-center gap-1">
+                <RadioGroupItem value="personalizado" id="periodo-personalizado" />
+                <Label htmlFor="periodo-personalizado" className="text-xs cursor-pointer">Personalizado</Label>
+              </div>
+            </RadioGroup>
+          </div>
 
-          {/* Filtro de Período Mensal */}
-          {modoPeriodo === "mensal" && (
-            <Select value={periodoSelecionado} onValueChange={setPeriodoSelecionado}>
+          {/* Select de Período (só faz sentido no modo mensal) */}
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs font-medium text-muted-foreground">Período</Label>
+            <Select
+              value={periodoSelecionado}
+              onValueChange={setPeriodoSelecionado}
+              disabled={modoPeriodo === "personalizado"}
+            >
               <SelectTrigger className="w-[180px]">
                 <Calendar className="h-4 w-4 mr-2" />
-                <SelectValue />
+                <SelectValue placeholder="Selecione o mês" />
               </SelectTrigger>
               <SelectContent>
                 {opcoesPeriodo.map((op) => (
@@ -356,55 +368,59 @@ export default function FluxoCaixa() {
                 ))}
               </SelectContent>
             </Select>
-          )}
+          </div>
 
-          {/* Filtro de Período Personalizado */}
+          {/* Datas personalizadas */}
           {modoPeriodo === "personalizado" && (
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1">
-                <Label htmlFor="dataInicio" className="text-xs text-muted-foreground">De:</Label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-2">
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs font-medium text-muted-foreground">Data inicial</Label>
                 <Input
-                  id="dataInicio"
                   type="date"
                   value={dataInicioCustom}
                   onChange={(e) => setDataInicioCustom(e.target.value)}
-                  className="w-[140px] h-9"
+                  className="w-[150px] h-9"
                 />
               </div>
-              <div className="flex items-center gap-1">
-                <Label htmlFor="dataFim" className="text-xs text-muted-foreground">Até:</Label>
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs font-medium text-muted-foreground">Data final</Label>
                 <Input
-                  id="dataFim"
                   type="date"
                   value={dataFimCustom}
                   onChange={(e) => setDataFimCustom(e.target.value)}
-                  className="w-[140px] h-9"
+                  className="w-[150px] h-9"
                 />
               </div>
             </div>
           )}
 
           {/* Filtro de Empresa */}
-          <Select value={empresaSelecionada} onValueChange={setEmpresaSelecionada}>
-            <SelectTrigger className="w-[180px]">
-              <Building2 className="h-4 w-4 mr-2" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todas">Todas as empresas</SelectItem>
-              {empresas?.map((emp) => (
-                <SelectItem key={emp.id} value={emp.id}>
-                  {emp.nome_fantasia || emp.razao_social}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs font-medium text-muted-foreground">Empresa</Label>
+            <Select value={empresaSelecionada} onValueChange={setEmpresaSelecionada}>
+              <SelectTrigger className="w-[180px]">
+                <Building2 className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas as empresas</SelectItem>
+                {empresas?.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {emp.nome_fantasia || emp.razao_social}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Exportar */}
-          <Button variant="outline" className="gap-2">
-            <Download className="h-4 w-4" />
-            Exportar
-          </Button>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs font-medium text-muted-foreground invisible">Ação</Label>
+            <Button variant="outline" className="gap-2 h-9">
+              <Download className="h-4 w-4" />
+              Exportar
+            </Button>
+          </div>
         </div>
       }
     >
