@@ -186,3 +186,122 @@ export async function contarItensSemVinculacao(transactionId: string): Promise<n
   if (error) return 0;
   return data?.length ?? 0;
 }
+
+/**
+ * Valida estoque antes de conciliar transação de marketplace.
+ * Retorna ok=true se todos os itens têm estoque suficiente.
+ */
+export async function validarEstoqueMarketplaceAntesConciliar(params: {
+  transactionId: string;
+  empresaId: string;
+}): Promise<{
+  ok: boolean;
+  erros: {
+    itemId: string;
+    motivo: string;
+    skuMarketplace?: string | null;
+    produtoId?: string | null;
+    skuId?: string | null;
+    estoqueAtual?: number;
+    quantidadeNecessaria?: number;
+  }[];
+}> {
+  const { transactionId } = params;
+  const erros: {
+    itemId: string;
+    motivo: string;
+    skuMarketplace?: string | null;
+    produtoId?: string | null;
+    skuId?: string | null;
+    estoqueAtual?: number;
+    quantidadeNecessaria?: number;
+  }[] = [];
+
+  // 1. Buscar itens da transação
+  const { data: itens, error: itensError } = await supabase
+    .from("marketplace_transaction_items")
+    .select("id, sku_marketplace, produto_id, sku_id, quantidade, descricao_item")
+    .eq("transaction_id", transactionId);
+
+  if (itensError) {
+    return { ok: false, erros: [{ itemId: "", motivo: `Erro ao buscar itens: ${itensError.message}` }] };
+  }
+
+  if (!itens || itens.length === 0) {
+    return { ok: true, erros: [] };
+  }
+
+  // 2. Validar cada item com produto/sku vinculado
+  for (const item of itens) {
+    const quantidade = Number(item.quantidade) || 1;
+
+    if (!item.produto_id && !item.sku_id) {
+      // Sem vinculação = não valida estoque (item informativo)
+      continue;
+    }
+
+    if (item.sku_id) {
+      // Validar por SKU
+      const { data: sku, error: skuError } = await supabase
+        .from("produto_skus")
+        .select("estoque_atual")
+        .eq("id", item.sku_id)
+        .maybeSingle();
+
+      if (skuError || !sku) {
+        erros.push({
+          itemId: item.id,
+          motivo: "SKU não encontrado",
+          skuMarketplace: item.sku_marketplace,
+          skuId: item.sku_id,
+          quantidadeNecessaria: quantidade,
+        });
+        continue;
+      }
+
+      const estoqueAtual = Number(sku.estoque_atual) || 0;
+      if (estoqueAtual < quantidade) {
+        erros.push({
+          itemId: item.id,
+          motivo: "Estoque insuficiente",
+          skuMarketplace: item.sku_marketplace,
+          skuId: item.sku_id,
+          estoqueAtual,
+          quantidadeNecessaria: quantidade,
+        });
+      }
+    } else if (item.produto_id) {
+      // Validar por Produto
+      const { data: produto, error: prodError } = await supabase
+        .from("produtos")
+        .select("estoque_atual")
+        .eq("id", item.produto_id)
+        .maybeSingle();
+
+      if (prodError || !produto) {
+        erros.push({
+          itemId: item.id,
+          motivo: "Produto não encontrado",
+          skuMarketplace: item.sku_marketplace,
+          produtoId: item.produto_id,
+          quantidadeNecessaria: quantidade,
+        });
+        continue;
+      }
+
+      const estoqueAtual = Number(produto.estoque_atual) || 0;
+      if (estoqueAtual < quantidade) {
+        erros.push({
+          itemId: item.id,
+          motivo: "Estoque insuficiente",
+          skuMarketplace: item.sku_marketplace,
+          produtoId: item.produto_id,
+          estoqueAtual,
+          quantidadeNecessaria: quantidade,
+        });
+      }
+    }
+  }
+
+  return { ok: erros.length === 0, erros };
+}
