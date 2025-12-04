@@ -34,8 +34,9 @@ export type MovimentoManualPayload = {
  * @returns { referenciaId } - ID de referência usado
  */
 export async function criarOuAtualizarMovimentoManual(payload: MovimentoManualPayload) {
+  // Gera UUID puro (sem prefixo) pois a coluna referencia_id é do tipo UUID
   const referenciaId =
-    payload.referenciaId || `manual-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
+    payload.referenciaId || (crypto.randomUUID?.() || crypto.getRandomValues(new Uint8Array(16)).reduce((s, b) => s + b.toString(16).padStart(2, '0'), '').replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5'));
 
   await registrarMovimentoFinanceiro({
     data: payload.data,
