@@ -257,12 +257,15 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
       // Registrar no FLOW HUB
       const tipo = transacao.tipo_lancamento === "debito" ? "saida" : "entrada";
+      const descricao = transacao.pedido_id
+        ? `${transacao.descricao || transacao.tipo_transacao} - Pedido ${transacao.pedido_id}`
+        : (transacao.descricao || transacao.tipo_transacao);
       
       await registrarMovimentoFinanceiro({
         data: transacao.data_transacao,
         tipo,
         origem: "marketplace",
-        descricao: `[${transacao.canal?.toUpperCase()}] ${transacao.descricao}${transacao.pedido_id ? ` - Pedido: ${transacao.pedido_id}` : ""}`,
+        descricao: `[${transacao.canal?.toUpperCase()}] ${descricao}`,
         valor: Math.abs(transacao.valor_liquido),
         empresaId: transacao.empresa_id,
         referenciaId: transacao.id,
