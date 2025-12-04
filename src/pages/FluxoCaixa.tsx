@@ -1158,7 +1158,9 @@ export default function FluxoCaixa() {
         onOpenChange={setModalManualOpen}
         movimento={movimentoEdicao}
         onSuccess={() => {
-          // Dados serão atualizados automaticamente via invalidateQueries no modal
+          queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
+          queryClient.invalidateQueries({ queryKey: ["fluxo-caixa-meu"] });
+          queryClient.invalidateQueries({ queryKey: ["dre"] });
         }}
       />
     </MainLayout>
