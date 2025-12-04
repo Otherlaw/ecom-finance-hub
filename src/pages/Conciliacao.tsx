@@ -22,6 +22,7 @@ import {
   Tag,
   RotateCcw,
   Ban,
+  Store,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
@@ -30,21 +31,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFaturas, useTransacoes } from "@/hooks/useCartoes";
 import { useBankTransactions, BankTransaction } from "@/hooks/useBankTransactions";
+import { useMarketplaceTransactions, MarketplaceTransaction } from "@/hooks/useMarketplaceTransactions";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CategorizacaoModal } from "@/components/conciliacao/CategorizacaoModal";
 import { CategorizacaoBancariaModal } from "@/components/conciliacao/CategorizacaoBancariaModal";
 import { ImportarExtratoBancarioModal } from "@/components/conciliacao/ImportarExtratoBancarioModal";
+import { ImportarMarketplaceModal } from "@/components/conciliacao/ImportarMarketplaceModal";
+import { CategorizacaoMarketplaceModal } from "@/components/conciliacao/CategorizacaoMarketplaceModal";
 import { useQueryClient } from "@tanstack/react-query";
-import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
-
-const mockMarketplace = [
-  { id: 1, data: "01/11", descricao: "Repasse ML - Lote #12345", valorRepasse: 45000, valorVendas: 45000, status: "ok", canal: "Mercado Livre" },
-  { id: 2, data: "05/11", descricao: "Repasse Shopee - Lote #67890", valorRepasse: 12500, valorVendas: 12800, status: "divergencia", canal: "Shopee", diferenca: 300 },
-  { id: 3, data: "08/11", descricao: "Repasse TikTok - Lote #11111", valorRepasse: 8900, valorVendas: 8900, status: "ok", canal: "TikTok Shop" },
-  { id: 4, data: "12/11", descricao: "Repasse Shein - Lote #22222", valorRepasse: 0, valorVendas: 5600, status: "faltando", canal: "Shein", diferenca: 5600 },
-];
+import { format, startOfMonth, endOfMonth } from "date-fns";
 
 const mockManual = [
   { id: 1, data: "15/11", descricao: "Ajuste de Inventário", valor: -1200, tipo: "Despesa", status: "pendente", responsavel: "João Silva" },
@@ -686,59 +683,361 @@ function CartoesTab() {
 }
 
 function MarketplaceTab() {
-  const totals = calculateTotals(mockMarketplace);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [categorizacaoModal, setCategorizacaoModal] = useState<{
+    open: boolean;
+    transacao: MarketplaceTransaction | null;
+  }>({ open: false, transacao: null });
+  
+  // Filtros
+  const [empresaId, setEmpresaId] = useState<string>("");
+  const [canal, setCanal] = useState<string>("");
+  const [statusFiltro, setStatusFiltro] = useState<string>("todos");
+  const [busca, setBusca] = useState("");
+  
+  // Período padrão: mês atual
+  const hoje = new Date();
+  const periodoInicio = format(startOfMonth(hoje), "yyyy-MM-dd");
+  const periodoFim = format(endOfMonth(hoje), "yyyy-MM-dd");
+  
+  const { empresas } = useEmpresas();
+  const {
+    transactions,
+    contadores,
+    isLoading,
+    refetch,
+    importTransactions,
+    isImporting,
+    categorizar,
+    isCategorizando,
+    conciliar,
+    isConciliando,
+    ignorar,
+    isIgnorando,
+    reabrir,
+    isReabrindo,
+  } = useMarketplaceTransactions({
+    empresaId: empresaId || undefined,
+    canal: canal || undefined,
+    periodoInicio,
+    periodoFim,
+    status: statusFiltro as any,
+  });
+  
+  // Filtro de busca local
+  const transacoesFiltradas = transactions.filter((t) => {
+    if (!busca) return true;
+    const termo = busca.toLowerCase();
+    return (
+      t.descricao.toLowerCase().includes(termo) ||
+      t.pedido_id?.toLowerCase().includes(termo) ||
+      t.canal.toLowerCase().includes(termo)
+    );
+  });
+  
+  const handleCategorizar = (transacao: MarketplaceTransaction) => {
+    setCategorizacaoModal({ open: true, transacao });
+  };
+  
+  const handleCategorizacaoSuccess = () => {
+    refetch();
+  };
+  
+  const CANAL_LABELS: Record<string, string> = {
+    mercado_livre: "Mercado Livre",
+    shopee: "Shopee",
+    amazon: "Amazon",
+    tiktok: "TikTok Shop",
+    shein: "Shein",
+    outro: "Outro",
+  };
+  
+  const getCanalBadgeClass = (canalValue: string) => {
+    switch (canalValue) {
+      case "mercado_livre": return "border-yellow-500 text-yellow-600";
+      case "shopee": return "border-orange-500 text-orange-600";
+      case "tiktok": return "border-pink-500 text-pink-600";
+      case "shein": return "border-purple-500 text-purple-600";
+      case "amazon": return "border-amber-500 text-amber-600";
+      default: return "border-gray-500 text-gray-600";
+    }
+  };
+  
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          {[...Array(5)].map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-16 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
+  }
   
   return (
     <div>
-      <SummaryCards totals={totals} />
-      <ProgressBar totals={totals} />
-      <FilterBar />
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+        <div className="p-5 rounded-xl bg-card border border-border">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-secondary">
+              <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <span className="text-sm text-muted-foreground">Total</span>
+          </div>
+          <p className="text-2xl font-bold">{contadores.total}</p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-primary/5 border border-primary/20">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Upload className="h-4 w-4 text-primary" />
+            </div>
+            <span className="text-sm text-muted-foreground">Importados</span>
+          </div>
+          <p className="text-2xl font-bold text-primary">{contadores.importados}</p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-warning/5 border border-warning/20">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-warning/10">
+              <AlertTriangle className="h-4 w-4 text-warning" />
+            </div>
+            <span className="text-sm text-muted-foreground">Pendentes</span>
+          </div>
+          <p className="text-2xl font-bold text-warning">{contadores.pendentes}</p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-success/5 border border-success/20">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-success/10">
+              <Check className="h-4 w-4 text-success" />
+            </div>
+            <span className="text-sm text-muted-foreground">Conciliados</span>
+          </div>
+          <p className="text-2xl font-bold text-success">{contadores.conciliados}</p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-muted/50 border border-border">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-muted">
+              <Ban className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <span className="text-sm text-muted-foreground">Ignorados</span>
+          </div>
+          <p className="text-2xl font-bold text-muted-foreground">{contadores.ignorados}</p>
+        </div>
+      </div>
+
+      {/* Progress */}
+      {contadores.total > 0 && (
+        <div className="mb-6 p-4 rounded-xl bg-card border border-border">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium">Progresso da Conciliação</span>
+            <span className="text-sm text-muted-foreground">
+              {contadores.conciliados} de {contadores.total} registros
+            </span>
+          </div>
+          <Progress value={(contadores.conciliados / contadores.total) * 100} className="h-2" />
+        </div>
+      )}
       
-      <ModuleCard title="Conciliação de Marketplace" description="Repasses vs Vendas" icon={ShoppingBag} noPadding>
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-secondary/30">
-              <TableHead className="w-[80px]">Data</TableHead>
-              <TableHead>Descrição</TableHead>
-              <TableHead>Canal</TableHead>
-              <TableHead className="text-right">Repasse</TableHead>
-              <TableHead className="text-right">Vendas</TableHead>
-              <TableHead className="text-right">Diferença</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead className="text-center">Ação</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {mockMarketplace.map((item) => (
-              <TableRow key={item.id} className={item.status !== "ok" ? "bg-warning/5" : ""}>
-                <TableCell className="font-medium">{item.data}</TableCell>
-                <TableCell>{item.descricao}</TableCell>
-                <TableCell>
-                  <Badge variant="outline" className={
-                    item.canal === "Mercado Livre" ? "border-yellow-500 text-yellow-600" :
-                    item.canal === "Shopee" ? "border-orange-500 text-orange-600" :
-                    item.canal === "TikTok Shop" ? "border-pink-500 text-pink-600" :
-                    "border-purple-500 text-purple-600"
-                  }>
-                    {item.canal}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  {item.valorRepasse > 0 ? formatCurrency(item.valorRepasse) : "-"}
-                </TableCell>
-                <TableCell className="text-right">{formatCurrency(item.valorVendas)}</TableCell>
-                <TableCell className="text-right font-medium text-destructive">
-                  {item.diferenca ? formatCurrency(item.diferenca) : "-"}
-                </TableCell>
-                <TableCell className="text-center"><StatusBadge status={item.status} /></TableCell>
-                <TableCell className="text-center">
-                  {item.status !== "ok" && <Button variant="ghost" size="sm">Resolver</Button>}
-                </TableCell>
-              </TableRow>
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-4 mb-6">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input 
+            placeholder="Buscar por descrição ou pedido..." 
+            className="pl-10" 
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        </div>
+        
+        <Select value={empresaId} onValueChange={setEmpresaId}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Todas as empresas" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">Todas as empresas</SelectItem>
+            {empresas?.map((emp) => (
+              <SelectItem key={emp.id} value={emp.id}>
+                {emp.nome_fantasia || emp.razao_social}
+              </SelectItem>
             ))}
-          </TableBody>
-        </Table>
+          </SelectContent>
+        </Select>
+        
+        <Select value={canal} onValueChange={setCanal}>
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="Todos os canais" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">Todos os canais</SelectItem>
+            <SelectItem value="mercado_livre">Mercado Livre</SelectItem>
+            <SelectItem value="shopee">Shopee</SelectItem>
+            <SelectItem value="amazon">Amazon</SelectItem>
+            <SelectItem value="tiktok">TikTok Shop</SelectItem>
+            <SelectItem value="shein">Shein</SelectItem>
+            <SelectItem value="outro">Outro</SelectItem>
+          </SelectContent>
+        </Select>
+        
+        <Select value={statusFiltro} onValueChange={setStatusFiltro}>
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos</SelectItem>
+            <SelectItem value="importado">Importados</SelectItem>
+            <SelectItem value="pendente">Pendentes</SelectItem>
+            <SelectItem value="conciliado">Conciliados</SelectItem>
+            <SelectItem value="ignorado">Ignorados</SelectItem>
+          </SelectContent>
+        </Select>
+        
+        <Button variant="outline" className="gap-2" onClick={() => refetch()}>
+          <RefreshCw className="h-4 w-4" />
+          Atualizar
+        </Button>
+        
+        <Button className="gap-2 ml-auto" onClick={() => setImportModalOpen(true)}>
+          <Upload className="h-4 w-4" />
+          Importar Relatório
+        </Button>
+      </div>
+      
+      <ModuleCard title="Conciliação de Marketplace" description="Transações de vendas e taxas" icon={Store} noPadding>
+        {transacoesFiltradas.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground">
+            <Store className="h-12 w-12 mx-auto mb-4 opacity-30" />
+            <p className="font-medium">Nenhuma transação de marketplace encontrada</p>
+            <p className="text-sm mt-1">Importe um relatório CSV do marketplace para iniciar a conciliação</p>
+            <Button className="mt-4 gap-2" onClick={() => setImportModalOpen(true)}>
+              <Upload className="h-4 w-4" />
+              Importar Relatório
+            </Button>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-secondary/30">
+                <TableHead className="w-[100px]">Data</TableHead>
+                <TableHead>Descrição</TableHead>
+                <TableHead>Canal</TableHead>
+                <TableHead>Pedido</TableHead>
+                <TableHead>Categoria</TableHead>
+                <TableHead className="text-center">Tipo</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-center">Ação</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {transacoesFiltradas.map((t) => (
+                <TableRow 
+                  key={t.id} 
+                  className={
+                    t.status === "conciliado" ? "bg-success/5" :
+                    t.status === "ignorado" ? "bg-muted/30 opacity-60" :
+                    t.status === "pendente" ? "bg-warning/5" : ""
+                  }
+                >
+                  <TableCell className="font-medium">
+                    {new Date(t.data_transacao).toLocaleDateString("pt-BR")}
+                  </TableCell>
+                  <TableCell>
+                    <div>
+                      <span className="font-medium">{t.descricao}</span>
+                      <p className="text-xs text-muted-foreground">{t.tipo_transacao}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={getCanalBadgeClass(t.canal)}>
+                      {CANAL_LABELS[t.canal] || t.canal}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {t.pedido_id || "-"}
+                  </TableCell>
+                  <TableCell>
+                    {t.categoria ? (
+                      <Badge variant="outline" className="bg-success/5 border-success/30 text-success">
+                        {t.categoria.nome}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-muted-foreground">
+                        Não categorizado
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Badge variant={t.tipo_lancamento === "credito" ? "default" : "destructive"}>
+                      {t.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className={`text-right font-medium ${
+                    t.tipo_lancamento === "credito" ? "text-success" : "text-destructive"
+                  }`}>
+                    {t.tipo_lancamento === "credito" ? "+" : "-"}{formatCurrency(t.valor_liquido)}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <StatusBadge status={t.status} />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => handleCategorizar(t)}
+                    >
+                      {t.status === "conciliado" ? (
+                        <>
+                          <Eye className="h-3 w-3" />
+                          Ver
+                        </>
+                      ) : t.status === "ignorado" ? (
+                        <>
+                          <RotateCcw className="h-3 w-3" />
+                          Reabrir
+                        </>
+                      ) : (
+                        <>
+                          <Tag className="h-3 w-3" />
+                          Categorizar
+                        </>
+                      )}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </ModuleCard>
+      
+      {/* Modal de Importação */}
+      <ImportarMarketplaceModal
+        open={importModalOpen}
+        onOpenChange={setImportModalOpen}
+        onImport={importTransactions}
+        isImporting={isImporting}
+      />
+      
+      {/* Modal de Categorização */}
+      <CategorizacaoMarketplaceModal
+        open={categorizacaoModal.open}
+        onOpenChange={(open) => setCategorizacaoModal({ ...categorizacaoModal, open })}
+        transaction={categorizacaoModal.transacao}
+        onCategorizar={categorizar}
+        onConciliar={conciliar}
+        onIgnorar={ignorar}
+        onReabrir={reabrir}
+        isLoading={isCategorizando || isConciliando || isIgnorando || isReabrindo}
+      />
     </div>
   );
 }
