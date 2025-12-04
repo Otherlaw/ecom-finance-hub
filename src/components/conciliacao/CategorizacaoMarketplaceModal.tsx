@@ -27,7 +27,9 @@ import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { useResponsaveis } from "@/hooks/useResponsaveis";
 import { useMarketplaceTransactions, MarketplaceTransaction } from "@/hooks/useMarketplaceTransactions";
-import { Store, Check, X, RotateCcw, Tag, Building2, Receipt } from "lucide-react";
+import { useMarketplaceTransactionItems } from "@/hooks/useMarketplaceTransactionItems";
+import { useProdutos } from "@/hooks/useProdutos";
+import { Store, Check, X, RotateCcw, Tag, Building2, Receipt, Package, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface CategorizacaoMarketplaceModalProps {
@@ -65,6 +67,10 @@ export function CategorizacaoMarketplaceModal({
   const { centrosCusto } = useCentrosCusto();
   const { responsaveis } = useResponsaveis();
   const { atualizarTransacao, conciliarTransacao, ignorarTransacao, reabrirTransacao } = useMarketplaceTransactions();
+  const { produtos } = useProdutos();
+  const { itens, resumo: itensResumo, adicionarItem, removerItem, isLoading: isLoadingItens } = useMarketplaceTransactionItems({
+    transactionId: transaction?.id,
+  });
 
   const [categoriaId, setCategoriaId] = useState<string>("");
   const [centroCustoId, setCentroCustoId] = useState<string>("");
@@ -75,6 +81,11 @@ export function CategorizacaoMarketplaceModal({
   const [tarifas, setTarifas] = useState<string>("");
   const [taxas, setTaxas] = useState<string>("");
   const [outrosDescontos, setOutrosDescontos] = useState<string>("");
+
+  // Estado para adicionar novo item
+  const [novoProdutoId, setNovoProdutoId] = useState<string>("");
+  const [novaQuantidade, setNovaQuantidade] = useState<string>("1");
+  const [novoPrecoUnitario, setNovoPrecoUnitario] = useState<string>("");
 
   useEffect(() => {
     if (transaction) {
@@ -87,6 +98,15 @@ export function CategorizacaoMarketplaceModal({
       setOutrosDescontos(transaction.outros_descontos?.toString() || "");
     }
   }, [transaction]);
+
+  // Limpar formulário de novo item quando modal fecha
+  useEffect(() => {
+    if (!open) {
+      setNovoProdutoId("");
+      setNovaQuantidade("1");
+      setNovoPrecoUnitario("");
+    }
+  }, [open]);
 
   if (!transaction) return null;
 
@@ -104,7 +124,7 @@ export function CategorizacaoMarketplaceModal({
     return parseFloat(cleaned) || 0;
   };
 
-  const isLoading = atualizarTransacao.isPending || conciliarTransacao.isPending || ignorarTransacao.isPending || reabrirTransacao.isPending;
+  const isLoading = atualizarTransacao.isPending || conciliarTransacao.isPending || ignorarTransacao.isPending || reabrirTransacao.isPending || adicionarItem.isPending || removerItem.isPending;
 
   const getUpdatePayload = () => ({
     id: transaction.id,
@@ -156,6 +176,33 @@ export function CategorizacaoMarketplaceModal({
     await reabrirTransacao.mutateAsync(transaction.id);
     onSuccess?.();
     onOpenChange(false);
+  };
+
+  const handleAdicionarItem = async () => {
+    if (!novoProdutoId || !transaction) {
+      toast.error("Selecione um produto");
+      return;
+    }
+    const quantidade = parseFloat(novaQuantidade) || 1;
+    const precoUnitario = parseNumber(novoPrecoUnitario) || null;
+    const precoTotal = precoUnitario ? precoUnitario * quantidade : null;
+
+    await adicionarItem.mutateAsync({
+      transaction_id: transaction.id,
+      produto_id: novoProdutoId,
+      quantidade,
+      preco_unitario: precoUnitario,
+      preco_total: precoTotal,
+    });
+
+    // Limpar formulário
+    setNovoProdutoId("");
+    setNovaQuantidade("1");
+    setNovoPrecoUnitario("");
+  };
+
+  const handleRemoverItem = async (itemId: string) => {
+    await removerItem.mutateAsync(itemId);
   };
 
   const getStatusBadge = (status: string) => {
@@ -311,6 +358,124 @@ export function CategorizacaoMarketplaceModal({
               <span className="text-sm text-muted-foreground">Total de Descontos:</span>
               <span className="font-medium text-destructive">{formatCurrency(totalDescontos)}</span>
             </div>
+          </div>
+
+          {/* Seção de Itens/Produtos (para controle de estoque e CMV) */}
+          <div className="space-y-4 p-4 bg-primary/5 rounded-lg border border-primary/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                <Package className="h-4 w-4" />
+                Itens Vendidos (Estoque/CMV)
+              </div>
+              {itensResumo.totalItens > 0 && (
+                <Badge variant="secondary">
+                  {itensResumo.totalItens} {itensResumo.totalItens === 1 ? "item" : "itens"}
+                </Badge>
+              )}
+            </div>
+
+            {/* Lista de itens existentes */}
+            {itens.length > 0 && (
+              <div className="space-y-2">
+                {itens.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between p-2 bg-background rounded border"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {item.produto?.nome || item.sku?.codigo_sku || item.sku_marketplace || "Produto não vinculado"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Qtd: {item.quantidade}
+                        {item.preco_unitario && ` × ${formatCurrency(item.preco_unitario)}`}
+                        {item.preco_total && ` = ${formatCurrency(item.preco_total)}`}
+                      </p>
+                    </div>
+                    {!isReadOnly && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => handleRemoverItem(item.id)}
+                        disabled={isLoading}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+
+                {/* Resumo de CMV estimado */}
+                {itensResumo.custoEstimado > 0 && (
+                  <div className="text-xs text-muted-foreground pt-2 border-t">
+                    CMV Estimado: {formatCurrency(itensResumo.custoEstimado)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Formulário para adicionar item */}
+            {!isReadOnly && (
+              <div className="space-y-2 pt-2 border-t border-primary/20">
+                <Label className="text-xs">Adicionar Produto</Label>
+                <div className="flex gap-2">
+                  <Select
+                    value={novoProdutoId}
+                    onValueChange={setNovoProdutoId}
+                  >
+                    <SelectTrigger className="flex-1 h-9">
+                      <SelectValue placeholder="Selecione produto" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {produtos
+                        .filter((p) => p.status === "ativo")
+                        .map((produto) => (
+                          <SelectItem key={produto.id} value={produto.id}>
+                            [{produto.codigo_interno}] {produto.nome}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="Qtd"
+                    value={novaQuantidade}
+                    onChange={(e) => setNovaQuantidade(e.target.value)}
+                    className="w-16 h-9"
+                  />
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Preço"
+                    value={novoPrecoUnitario}
+                    onChange={(e) => setNovoPrecoUnitario(e.target.value)}
+                    className="w-24 h-9"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9"
+                    onClick={handleAdicionarItem}
+                    disabled={isLoading || !novoProdutoId}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Vincule produtos para baixa automática de estoque e cálculo de CMV ao conciliar.
+                </p>
+              </div>
+            )}
+
+            {itens.length === 0 && isReadOnly && (
+              <p className="text-sm text-muted-foreground text-center py-2">
+                Nenhum produto vinculado a esta transação
+              </p>
+            )}
           </div>
 
           {/* Campos de categorização */}
