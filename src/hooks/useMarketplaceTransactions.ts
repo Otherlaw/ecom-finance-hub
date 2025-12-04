@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, UseMutationResult } from "@tanst
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { registrarMovimentoFinanceiro, removerMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
+import { processarSaidaEstoqueMarketplace, reverterSaidaEstoqueMarketplace } from "@/lib/motor-saida-marketplace";
 
 export interface MarketplaceTransaction {
   id: string;
@@ -306,12 +307,35 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         formaPagamento: "marketplace",
       });
 
+      // MOTOR DE SAÍDA DE ESTOQUE - Processar itens vinculados
+      const estoqueResult = await processarSaidaEstoqueMarketplace({
+        transactionId: transacao.id,
+        empresaId: transacao.empresa_id,
+        dataVenda: transacao.data_transacao,
+        canal: transacao.canal,
+        pedidoId: transacao.pedido_id,
+      });
+
+      // Log do resultado (não bloqueia conciliação se não houver itens)
+      if (estoqueResult.processados > 0) {
+        console.log(`[Conciliação Marketplace] ${estoqueResult.processados} itens de estoque processados`);
+      }
+      if (estoqueResult.erros > 0) {
+        console.warn(`[Conciliação Marketplace] ${estoqueResult.erros} erros no processamento de estoque`);
+      }
+
       return transacao as MarketplaceTransaction;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      // Invalidar queries de estoque e CMV
+      queryClient.invalidateQueries({ queryKey: ["produtos"] });
+      queryClient.invalidateQueries({ queryKey: ["produto_skus"] });
+      queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });
+      queryClient.invalidateQueries({ queryKey: ["cmv_registros"] });
+      queryClient.invalidateQueries({ queryKey: ["cmv_resumo"] });
       toast.success("Transação conciliada com sucesso");
     },
     onError: (error) => {
@@ -353,9 +377,20 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
       if (fetchError) throw fetchError;
 
-      // Se estava conciliada, remover do FLOW HUB
+      // Se estava conciliada, remover do FLOW HUB e reverter estoque
       if (transacao.status === "conciliado") {
+        // Remover movimento financeiro
         await removerMovimentoFinanceiro(id, "marketplace");
+
+        // MOTOR DE SAÍDA DE ESTOQUE - Reverter saídas
+        const estoqueResult = await reverterSaidaEstoqueMarketplace(id);
+        
+        if (estoqueResult.revertidos > 0) {
+          console.log(`[Reabertura Marketplace] ${estoqueResult.revertidos} movimentações de estoque revertidas`);
+        }
+        if (estoqueResult.erros.length > 0) {
+          console.warn(`[Reabertura Marketplace] Erros na reversão:`, estoqueResult.erros);
+        }
       }
 
       // Atualizar status
@@ -373,6 +408,12 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      // Invalidar queries de estoque e CMV
+      queryClient.invalidateQueries({ queryKey: ["produtos"] });
+      queryClient.invalidateQueries({ queryKey: ["produto_skus"] });
+      queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });
+      queryClient.invalidateQueries({ queryKey: ["cmv_registros"] });
+      queryClient.invalidateQueries({ queryKey: ["cmv_resumo"] });
       toast.success("Transação reaberta");
     },
     onError: (error) => {

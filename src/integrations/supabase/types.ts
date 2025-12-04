@@ -807,6 +807,70 @@ export type Database = {
           },
         ]
       }
+      marketplace_transaction_items: {
+        Row: {
+          created_at: string
+          descricao_item: string | null
+          id: string
+          preco_total: number | null
+          preco_unitario: number | null
+          produto_id: string | null
+          quantidade: number
+          sku_id: string | null
+          sku_marketplace: string | null
+          transaction_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          descricao_item?: string | null
+          id?: string
+          preco_total?: number | null
+          preco_unitario?: number | null
+          produto_id?: string | null
+          quantidade?: number
+          sku_id?: string | null
+          sku_marketplace?: string | null
+          transaction_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          descricao_item?: string | null
+          id?: string
+          preco_total?: number | null
+          preco_unitario?: number | null
+          produto_id?: string | null
+          quantidade?: number
+          sku_id?: string | null
+          sku_marketplace?: string | null
+          transaction_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_transaction_items_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_transaction_items_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "produto_skus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_transaction_items_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "marketplace_transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       marketplace_transactions: {
         Row: {
           atualizado_em: string
