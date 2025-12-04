@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { registrarMovimentoFinanceiro, removerMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
 import { processarSaidaEstoqueMarketplace, reverterSaidaEstoqueMarketplace } from "@/lib/motor-saida-marketplace";
+import { validarEstoqueParaConciliacao } from "@/lib/validacao-estoque-marketplace";
 
 export interface MarketplaceTransaction {
   id: string;
@@ -51,10 +52,10 @@ export interface MarketplaceTransactionInsert {
   canal: string;
   canal_venda?: string;
   conta_nome?: string;
-  pedido_id?: string;
+  pedido_id?: string | null;
   referencia_externa?: string;
   data_transacao: string;
-  data_repasse?: string;
+  data_repasse?: string | null;
   tipo_transacao: string;
   descricao: string;
   valor_bruto?: number;
@@ -64,10 +65,23 @@ export interface MarketplaceTransactionInsert {
   valor_liquido: number;
   tipo_lancamento: string;
   status?: string;
-  categoria_id?: string;
-  centro_custo_id?: string;
-  responsavel_id?: string;
+  categoria_id?: string | null;
+  centro_custo_id?: string | null;
+  responsavel_id?: string | null;
   origem_extrato?: string;
+  origem_arquivo?: string;
+}
+
+export interface TransactionWithItems {
+  transaction: MarketplaceTransactionInsert;
+  itens: Array<{
+    sku_marketplace: string;
+    descricao_item: string;
+    quantidade: number;
+    preco_unitario: number | null;
+    preco_total: number | null;
+    pedido_id: string | null;
+  }>;
 }
 
 interface UseMarketplaceTransactionsParams {
@@ -98,14 +112,14 @@ interface UseMarketplaceTransactionsReturn {
   resumo: MarketplaceResumo;
   isLoading: boolean;
   refetch: () => void;
-  importarTransacoes: UseMutationResult<{ imported: number; skipped: number }, Error, MarketplaceTransactionInsert[], unknown>;
+  importarTransacoes: UseMutationResult<{ imported: number; skipped: number; itensCreated: number }, Error, TransactionWithItems[], unknown>;
   atualizarTransacao: UseMutationResult<MarketplaceTransaction, Error, {
     id: string;
     categoriaId?: string;
     centroCustoId?: string;
     responsavelId?: string;
   }, unknown>;
-  conciliarTransacao: UseMutationResult<MarketplaceTransaction, Error, string, unknown>;
+  conciliarTransacao: UseMutationResult<MarketplaceTransaction, Error, string | { id: string; forcarConciliacao?: boolean }, unknown>;
   ignorarTransacao: UseMutationResult<void, Error, string, unknown>;
   reabrirTransacao: UseMutationResult<void, Error, string, unknown>;
 }
@@ -156,7 +170,9 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
   });
 
   const importarTransacoes = useMutation({
-    mutationFn: async (transactionsToImport: MarketplaceTransactionInsert[]) => {
+    mutationFn: async (transactionsWithItems: TransactionWithItems[]) => {
+      const transactionsToImport = transactionsWithItems.map(t => t.transaction);
+      
       // Buscar referências existentes para evitar duplicatas
       const referencias = transactionsToImport
         .filter(t => t.referencia_externa)
@@ -173,28 +189,72 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       }
 
       // Filtrar transações que não são duplicatas
-      const newTransactions = transactionsToImport.filter(
-        t => !t.referencia_externa || !existingRefs.includes(t.referencia_externa)
+      const newTransactionsWithItems = transactionsWithItems.filter(
+        t => !t.transaction.referencia_externa || !existingRefs.includes(t.transaction.referencia_externa)
       );
 
-      if (newTransactions.length === 0) {
-        return { imported: 0, skipped: transactionsToImport.length };
+      if (newTransactionsWithItems.length === 0) {
+        return { imported: 0, skipped: transactionsToImport.length, itensCreated: 0 };
       }
 
-      const { error } = await supabase
+      // Inserir transações
+      const { data: insertedTransactions, error } = await supabase
         .from("marketplace_transactions")
-        .insert(newTransactions);
+        .insert(newTransactionsWithItems.map(t => t.transaction))
+        .select("id, referencia_externa");
 
       if (error) throw error;
 
+      // Criar mapa de referência -> id
+      const refToIdMap = new Map<string, string>();
+      for (const t of insertedTransactions || []) {
+        if (t.referencia_externa) {
+          refToIdMap.set(t.referencia_externa, t.id);
+        }
+      }
+
+      // Inserir itens para cada transação
+      let itensCreated = 0;
+      for (const twi of newTransactionsWithItems) {
+        if (twi.itens.length === 0) continue;
+        
+        const transactionId = twi.transaction.referencia_externa 
+          ? refToIdMap.get(twi.transaction.referencia_externa)
+          : null;
+          
+        if (!transactionId) continue;
+
+        const itensToInsert = twi.itens.map(item => ({
+          transaction_id: transactionId,
+          sku_marketplace: item.sku_marketplace,
+          descricao_item: item.descricao_item,
+          quantidade: item.quantidade,
+          preco_unitario: item.preco_unitario,
+          preco_total: item.preco_total,
+        }));
+
+        const { error: itensError } = await supabase
+          .from("marketplace_transaction_items")
+          .insert(itensToInsert);
+
+        if (!itensError) {
+          itensCreated += itensToInsert.length;
+        }
+      }
+
       return { 
-        imported: newTransactions.length, 
-        skipped: transactionsToImport.length - newTransactions.length 
+        imported: newTransactionsWithItems.length, 
+        skipped: transactionsToImport.length - newTransactionsWithItems.length,
+        itensCreated,
       };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
-      toast.success(`${result.imported} transações importadas. ${result.skipped} duplicadas ignoradas.`);
+      queryClient.invalidateQueries({ queryKey: ["marketplace_transaction_items"] });
+      let msg = `${result.imported} transações importadas.`;
+      if (result.skipped > 0) msg += ` ${result.skipped} duplicadas ignoradas.`;
+      if (result.itensCreated > 0) msg += ` ${result.itensCreated} itens de produto criados.`;
+      toast.success(msg);
     },
     onError: (error) => {
       console.error("Erro ao importar transações:", error);
@@ -262,7 +322,10 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
   });
 
   const conciliarTransacao = useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async (params: string | { id: string; forcarConciliacao?: boolean }) => {
+      const id = typeof params === 'string' ? params : params.id;
+      const forcarConciliacao = typeof params === 'string' ? false : params.forcarConciliacao ?? false;
+      
       // Buscar transação completa
       const { data: transacao, error: fetchError } = await supabase
         .from("marketplace_transactions")
@@ -275,6 +338,16 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         .single();
 
       if (fetchError) throw fetchError;
+
+      // VALIDAÇÃO DE ESTOQUE (a menos que forçada)
+      if (!forcarConciliacao) {
+        const validacao = await validarEstoqueParaConciliacao(id, transacao.empresa_id);
+        if (!validacao.valido) {
+          const error = new Error(`Estoque insuficiente: ${validacao.mensagem_geral}`);
+          (error as any).validacao = validacao;
+          throw error;
+        }
+      }
 
       // Atualizar status
       const { error: updateError } = await supabase
@@ -336,6 +409,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });
       queryClient.invalidateQueries({ queryKey: ["cmv_registros"] });
       queryClient.invalidateQueries({ queryKey: ["cmv_resumo"] });
+      queryClient.invalidateQueries({ queryKey: ["marketplace_sku_mappings"] });
       toast.success("Transação conciliada com sucesso");
     },
     onError: (error) => {

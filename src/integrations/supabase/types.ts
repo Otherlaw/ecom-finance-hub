@@ -807,6 +807,67 @@ export type Database = {
           },
         ]
       }
+      marketplace_sku_mappings: {
+        Row: {
+          canal: string
+          created_at: string | null
+          empresa_id: string
+          id: string
+          mapeado_automaticamente: boolean | null
+          nome_produto_marketplace: string | null
+          produto_id: string | null
+          sku_id: string | null
+          sku_marketplace: string
+          updated_at: string | null
+        }
+        Insert: {
+          canal: string
+          created_at?: string | null
+          empresa_id: string
+          id?: string
+          mapeado_automaticamente?: boolean | null
+          nome_produto_marketplace?: string | null
+          produto_id?: string | null
+          sku_id?: string | null
+          sku_marketplace: string
+          updated_at?: string | null
+        }
+        Update: {
+          canal?: string
+          created_at?: string | null
+          empresa_id?: string
+          id?: string
+          mapeado_automaticamente?: boolean | null
+          nome_produto_marketplace?: string | null
+          produto_id?: string | null
+          sku_id?: string | null
+          sku_marketplace?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_sku_mappings_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_sku_mappings_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_sku_mappings_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "produto_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       marketplace_transaction_items: {
         Row: {
           created_at: string

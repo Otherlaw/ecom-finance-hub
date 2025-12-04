@@ -8,6 +8,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { registrarSaidaEstoque, type SaidaEstoqueInput } from "./motor-custos";
 import { registrarSaidaEstoqueSKU, type SaidaEstoqueSKUInput } from "./motor-estoque-sku";
+import { buscarMapeamentoPorSkuMarketplace } from "@/hooks/useMarketplaceSkuMappings";
 
 // ============= TIPOS =============
 
@@ -62,8 +63,13 @@ async function verificarIdempotencia(transactionId: string): Promise<boolean> {
 
 /**
  * Busca itens vinculados a uma transação de marketplace
+ * e tenta vincular automaticamente via mapeamento de SKU
  */
-async function buscarItensTransacao(transactionId: string): Promise<MarketplaceTransactionItem[]> {
+async function buscarItensTransacao(
+  transactionId: string,
+  empresaId: string,
+  canal: string
+): Promise<MarketplaceTransactionItem[]> {
   const { data, error } = await supabase
     .from("marketplace_transaction_items")
     .select("*")
@@ -74,17 +80,55 @@ async function buscarItensTransacao(transactionId: string): Promise<MarketplaceT
     return [];
   }
 
-  return (data || []).map(item => ({
-    id: item.id,
-    transaction_id: item.transaction_id,
-    produto_id: item.produto_id,
-    sku_id: item.sku_id,
-    quantidade: Number(item.quantidade) || 1,
-    preco_unitario: item.preco_unitario ? Number(item.preco_unitario) : null,
-    preco_total: item.preco_total ? Number(item.preco_total) : null,
-    sku_marketplace: item.sku_marketplace,
-    descricao_item: item.descricao_item,
-  }));
+  const itens: MarketplaceTransactionItem[] = [];
+  
+  for (const item of data || []) {
+    const itemProcessado: MarketplaceTransactionItem = {
+      id: item.id,
+      transaction_id: item.transaction_id,
+      produto_id: item.produto_id,
+      sku_id: item.sku_id,
+      quantidade: Number(item.quantidade) || 1,
+      preco_unitario: item.preco_unitario ? Number(item.preco_unitario) : null,
+      preco_total: item.preco_total ? Number(item.preco_total) : null,
+      sku_marketplace: item.sku_marketplace,
+      descricao_item: item.descricao_item,
+    };
+
+    // Se não tem vinculação mas tem sku_marketplace, tentar buscar mapeamento
+    if (!itemProcessado.produto_id && !itemProcessado.sku_id && itemProcessado.sku_marketplace) {
+      const mapeamento = await buscarMapeamentoPorSkuMarketplace(
+        empresaId,
+        canal,
+        itemProcessado.sku_marketplace
+      );
+
+      if (mapeamento) {
+        itemProcessado.sku_id = mapeamento.skuId;
+        itemProcessado.produto_id = mapeamento.produtoId;
+
+        // Atualizar o item no banco com a vinculação encontrada
+        if (mapeamento.skuId || mapeamento.produtoId) {
+          await supabase
+            .from("marketplace_transaction_items")
+            .update({
+              sku_id: mapeamento.skuId,
+              produto_id: mapeamento.produtoId,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", item.id);
+
+          console.log(
+            `[Motor Saída Marketplace] Item ${item.id} vinculado automaticamente via mapeamento SKU ${itemProcessado.sku_marketplace}`
+          );
+        }
+      }
+    }
+
+    itens.push(itemProcessado);
+  }
+
+  return itens;
 }
 
 // ============= FUNÇÃO PRINCIPAL =============
@@ -93,6 +137,7 @@ async function buscarItensTransacao(transactionId: string): Promise<MarketplaceT
  * Processa saída de estoque para uma transação de marketplace conciliada.
  * 
  * Para cada item da transação:
+ * - Tenta vincular automaticamente via mapeamento de SKU
  * - Se tiver sku_id: usa registrarSaidaEstoqueSKU
  * - Se tiver apenas produto_id: usa registrarSaidaEstoque
  * - Se não tiver vinculação: ignora com log
@@ -120,8 +165,8 @@ export async function processarSaidaEstoqueMarketplace(
     return result;
   }
 
-  // 2. Buscar itens da transação
-  const itens = await buscarItensTransacao(transactionId);
+  // 2. Buscar itens da transação (com auto-vinculação via mapeamento)
+  const itens = await buscarItensTransacao(transactionId, empresaId, canal);
   
   if (itens.length === 0) {
     result.mensagens.push("Nenhum item de produto vinculado a esta transação. Saída de estoque não processada.");
