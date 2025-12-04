@@ -49,7 +49,7 @@ import {
   TrendingDown,
   Wallet,
 } from "lucide-react";
-import { useManualTransactions, ManualTransaction } from "@/hooks/useManualTransactions";
+import { useMovimentacoesManuais, ManualTransaction } from "@/hooks/useManualTransactions";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { MovimentoManualFormModal } from "@/components/movimentos-manuais/MovimentoManualFormModal";
 import { format, startOfMonth, endOfMonth } from "date-fns";
@@ -82,28 +82,28 @@ export default function MovimentosManuais() {
   // Hooks
   const { empresas } = useEmpresas();
   const {
-    transacoes,
+    movimentacoes,
     resumo,
     isLoading,
-    deleteTransaction,
-  } = useManualTransactions({
+    deleteMovimentacao,
+  } = useMovimentacoesManuais({
     empresaId: empresaId === "todas" ? undefined : empresaId,
     periodoInicio,
     periodoFim,
-    tipo: tipoFiltro === "todos" ? undefined : tipoFiltro,
+    tipo: tipoFiltro === "todos" ? "todos" : tipoFiltro,
   });
 
   // Filtrar por termo de busca
   const movimentosFiltrados = useMemo(() => {
-    if (!searchTerm.trim()) return transacoes;
+    if (!searchTerm.trim()) return movimentacoes;
     const termo = searchTerm.toLowerCase();
-    return transacoes.filter(
+    return movimentacoes.filter(
       (m) =>
         m.descricao.toLowerCase().includes(termo) ||
         m.categoria?.nome?.toLowerCase().includes(termo) ||
         m.centro_custo?.nome?.toLowerCase().includes(termo)
     );
-  }, [transacoes, searchTerm]);
+  }, [movimentacoes, searchTerm]);
 
   // Handlers
   const handleNovoMovimento = () => {
@@ -123,7 +123,7 @@ export default function MovimentosManuais() {
 
   const handleConfirmarExclusao = async () => {
     if (!movimentoExcluindo?.id) return;
-    await deleteTransaction.mutateAsync(movimentoExcluindo.id);
+    await deleteMovimentacao.mutateAsync(movimentoExcluindo.id);
     setDeleteDialogOpen(false);
     setMovimentoExcluindo(null);
   };
@@ -402,7 +402,7 @@ export default function MovimentosManuais() {
               onClick={handleConfirmarExclusao}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleteTransaction.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {deleteMovimentacao.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>

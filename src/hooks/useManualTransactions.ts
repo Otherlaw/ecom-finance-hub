@@ -56,14 +56,14 @@ export interface ManualTransactionInput {
   observacoes?: string | null;
 }
 
-export interface UseManualTransactionsParams {
+export interface UseMovimentacoesManuaisParams {
   empresaId?: string;
-  periodoInicio?: string;
-  periodoFim?: string;
-  tipo?: "entrada" | "saida";
+  periodoInicio?: string; // yyyy-MM-dd
+  periodoFim?: string;    // yyyy-MM-dd
+  tipo?: "todos" | "entrada" | "saida";
 }
 
-export function useManualTransactions(params: UseManualTransactionsParams = {}) {
+export function useMovimentacoesManuais(params: UseMovimentacoesManuaisParams = {}) {
   const queryClient = useQueryClient();
   const { empresaId, periodoInicio, periodoFim, tipo } = params;
 
@@ -91,7 +91,7 @@ export function useManualTransactions(params: UseManualTransactionsParams = {}) 
       if (periodoFim) {
         query = query.lte("data", periodoFim);
       }
-      if (tipo) {
+      if (tipo && tipo !== "todos") {
         query = query.eq("tipo", tipo);
       }
 
@@ -250,14 +250,17 @@ export function useManualTransactions(params: UseManualTransactionsParams = {}) 
   };
 
   return {
-    transacoes: transacoes || [],
+    movimentacoes: transacoes || [],
     resumo,
     isLoading,
     error,
     refetch,
     hasData: (transacoes?.length || 0) > 0,
-    createTransaction,
-    updateTransaction,
-    deleteTransaction,
+    createMovimentacao: createTransaction,
+    updateMovimentacao: updateTransaction,
+    deleteMovimentacao: deleteTransaction,
   };
 }
+
+// Alias para compatibilidade
+export const useManualTransactions = useMovimentacoesManuais;
