@@ -180,10 +180,10 @@ export default function FluxoCaixa() {
     }
     try {
       await excluirMovimentoManual(refId);
-      toast.success("Movimentação excluída com sucesso");
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo-caixa"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-caixa-meu"] });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
+      toast.success("Movimentação excluída com sucesso");
     } catch (error) {
       console.error("Erro ao excluir:", error);
       toast.error("Erro ao excluir movimentação");
