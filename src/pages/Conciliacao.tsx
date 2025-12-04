@@ -767,55 +767,86 @@ function MarketplaceTab() {
   return (
     <div>
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-        <div className="p-5 rounded-xl bg-card border border-border">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 rounded-lg bg-secondary">
-              <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-6">
+        <div className="p-4 rounded-xl bg-card border border-border">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="p-1.5 rounded-lg bg-secondary">
+              <FileSpreadsheet className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
-            <span className="text-sm text-muted-foreground">Total</span>
+            <span className="text-xs text-muted-foreground">Total</span>
           </div>
-          <p className="text-2xl font-bold">{resumo.total}</p>
+          <p className="text-xl font-bold">{resumo.total}</p>
         </div>
 
-        <div className="p-5 rounded-xl bg-primary/5 border border-primary/20">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <Upload className="h-4 w-4 text-primary" />
+        <div className="p-4 rounded-xl bg-primary/5 border border-primary/20">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="p-1.5 rounded-lg bg-primary/10">
+              <Upload className="h-3.5 w-3.5 text-primary" />
             </div>
-            <span className="text-sm text-muted-foreground">Importados</span>
+            <span className="text-xs text-muted-foreground">Importados</span>
           </div>
-          <p className="text-2xl font-bold text-primary">{resumo.importadas}</p>
+          <p className="text-xl font-bold text-primary">{resumo.importadas}</p>
         </div>
 
-        <div className="p-5 rounded-xl bg-warning/5 border border-warning/20">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 rounded-lg bg-warning/10">
-              <AlertTriangle className="h-4 w-4 text-warning" />
+        <div className="p-4 rounded-xl bg-warning/5 border border-warning/20">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="p-1.5 rounded-lg bg-warning/10">
+              <AlertTriangle className="h-3.5 w-3.5 text-warning" />
             </div>
-            <span className="text-sm text-muted-foreground">Pendentes</span>
+            <span className="text-xs text-muted-foreground">Pendentes</span>
           </div>
-          <p className="text-2xl font-bold text-warning">{resumo.pendentes}</p>
+          <p className="text-xl font-bold text-warning">{resumo.pendentes}</p>
         </div>
 
-        <div className="p-5 rounded-xl bg-success/5 border border-success/20">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 rounded-lg bg-success/10">
-              <Check className="h-4 w-4 text-success" />
+        <div className="p-4 rounded-xl bg-success/5 border border-success/20">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="p-1.5 rounded-lg bg-success/10">
+              <Check className="h-3.5 w-3.5 text-success" />
             </div>
-            <span className="text-sm text-muted-foreground">Conciliados</span>
+            <span className="text-xs text-muted-foreground">Conciliados</span>
           </div>
-          <p className="text-2xl font-bold text-success">{resumo.conciliadas}</p>
+          <p className="text-xl font-bold text-success">{resumo.conciliadas}</p>
         </div>
 
-        <div className="p-5 rounded-xl bg-muted/50 border border-border">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 rounded-lg bg-muted">
-              <Ban className="h-4 w-4 text-muted-foreground" />
+        <div className="p-4 rounded-xl bg-muted/50 border border-border">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="p-1.5 rounded-lg bg-muted">
+              <Ban className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
-            <span className="text-sm text-muted-foreground">Ignorados</span>
+            <span className="text-xs text-muted-foreground">Ignorados</span>
           </div>
-          <p className="text-2xl font-bold text-muted-foreground">{resumo.ignoradas}</p>
+          <p className="text-xl font-bold text-muted-foreground">{resumo.ignoradas}</p>
+        </div>
+
+        {/* Novo card: Tarifas do Período */}
+        <div className="p-4 rounded-xl bg-destructive/5 border border-destructive/20">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="p-1.5 rounded-lg bg-destructive/10">
+              <CreditCard className="h-3.5 w-3.5 text-destructive" />
+            </div>
+            <span className="text-xs text-muted-foreground">Tarifas/Taxas</span>
+          </div>
+          <p className="text-xl font-bold text-destructive">{formatCurrency(resumo.totalDescontos)}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            Tar: {formatCurrency(resumo.totalTarifas)} | Tax: {formatCurrency(resumo.totalTaxas)}
+          </p>
+        </div>
+
+        {/* Novo card: % Tarifas sobre Vendas */}
+        <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="p-1.5 rounded-lg bg-amber-500/10">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+            </div>
+            <span className="text-xs text-muted-foreground">% Tarifas</span>
+          </div>
+          <p className="text-xl font-bold text-amber-600">
+            {resumo.totalCreditos > 0 
+              ? ((resumo.totalDescontos / resumo.totalCreditos) * 100).toFixed(1) + "%"
+              : "–"
+            }
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">sobre vendas</p>
         </div>
       </div>
 
@@ -912,10 +943,11 @@ function MarketplaceTab() {
           <Table>
             <TableHeader>
               <TableRow className="bg-secondary/30">
-                <TableHead className="w-[100px]">Data</TableHead>
+                <TableHead className="w-[90px]">Data</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead>Canal</TableHead>
                 <TableHead>Pedido</TableHead>
+                <TableHead className="text-right">Tarifas</TableHead>
                 <TableHead>Categoria</TableHead>
                 <TableHead className="text-center">Tipo</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
@@ -924,83 +956,118 @@ function MarketplaceTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transacoesFiltradas.map((t) => (
-                <TableRow 
-                  key={t.id} 
-                  className={
-                    t.status === "conciliado" ? "bg-success/5" :
-                    t.status === "ignorado" ? "bg-muted/30 opacity-60" :
-                    t.status === "pendente" ? "bg-warning/5" : ""
-                  }
-                >
-                  <TableCell className="font-medium">
-                    {new Date(t.data_transacao).toLocaleDateString("pt-BR")}
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <span className="font-medium">{t.descricao}</span>
-                      <p className="text-xs text-muted-foreground">{t.tipo_transacao}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={getCanalBadgeClass(t.canal)}>
-                      {CANAL_LABELS[t.canal] || t.canal}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {t.pedido_id || "-"}
-                  </TableCell>
-                  <TableCell>
-                    {t.categoria ? (
-                      <Badge variant="outline" className="bg-success/5 border-success/30 text-success">
-                        {t.categoria.nome}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-muted-foreground">
-                        Não categorizado
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Badge variant={t.tipo_lancamento === "credito" ? "default" : "destructive"}>
-                      {t.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className={`text-right font-medium ${
-                    t.tipo_lancamento === "credito" ? "text-success" : "text-destructive"
-                  }`}>
-                    {t.tipo_lancamento === "credito" ? "+" : "-"}{formatCurrency(t.valor_liquido)}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <StatusBadge status={t.status} />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      className="gap-1"
-                      onClick={() => handleCategorizar(t)}
-                    >
-                      {t.status === "conciliado" ? (
-                        <>
-                          <Eye className="h-3 w-3" />
-                          Ver
-                        </>
-                      ) : t.status === "ignorado" ? (
-                        <>
-                          <RotateCcw className="h-3 w-3" />
-                          Reabrir
-                        </>
+              {transacoesFiltradas.map((t) => {
+                const totalTarifas = (t.tarifas || 0) + (t.taxas || 0) + (t.outros_descontos || 0);
+                return (
+                  <TableRow 
+                    key={t.id} 
+                    className={
+                      t.status === "conciliado" ? "bg-success/5" :
+                      t.status === "ignorado" ? "bg-muted/30 opacity-60" :
+                      t.status === "pendente" ? "bg-warning/5" : ""
+                    }
+                  >
+                    <TableCell className="font-medium">
+                      {new Date(t.data_transacao).toLocaleDateString("pt-BR")}
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <span className="font-medium">{t.descricao}</span>
+                        <p className="text-xs text-muted-foreground">{t.tipo_transacao}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        <Badge variant="outline" className={getCanalBadgeClass(t.canal)}>
+                          {CANAL_LABELS[t.canal] || t.canal}
+                        </Badge>
+                        {t.canal_venda && t.canal_venda !== t.canal && (
+                          <span className="text-[10px] text-muted-foreground">{t.canal_venda}</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {t.pedido_id || "-"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {totalTarifas > 0 ? (
+                        <div className="group relative">
+                          <span className="text-destructive font-medium text-sm cursor-help">
+                            {formatCurrency(totalTarifas)}
+                          </span>
+                          <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block bg-popover border border-border rounded-md shadow-lg p-2 text-xs whitespace-nowrap">
+                            <div className="space-y-1">
+                              <div className="flex justify-between gap-4">
+                                <span className="text-muted-foreground">Tarifas:</span>
+                                <span>{formatCurrency(t.tarifas || 0)}</span>
+                              </div>
+                              <div className="flex justify-between gap-4">
+                                <span className="text-muted-foreground">Taxas:</span>
+                                <span>{formatCurrency(t.taxas || 0)}</span>
+                              </div>
+                              <div className="flex justify-between gap-4">
+                                <span className="text-muted-foreground">Outros:</span>
+                                <span>{formatCurrency(t.outros_descontos || 0)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       ) : (
-                        <>
-                          <Tag className="h-3 w-3" />
-                          Categorizar
-                        </>
+                        <span className="text-muted-foreground text-sm">-</span>
                       )}
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+                    </TableCell>
+                    <TableCell>
+                      {t.categoria ? (
+                        <Badge variant="outline" className="bg-success/5 border-success/30 text-success">
+                          {t.categoria.nome}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          Não categorizado
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant={t.tipo_lancamento === "credito" ? "default" : "destructive"}>
+                        {t.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className={`text-right font-medium ${
+                      t.tipo_lancamento === "credito" ? "text-success" : "text-destructive"
+                    }`}>
+                      {t.tipo_lancamento === "credito" ? "+" : "-"}{formatCurrency(t.valor_liquido)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <StatusBadge status={t.status} />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => handleCategorizar(t)}
+                      >
+                        {t.status === "conciliado" ? (
+                          <>
+                            <Eye className="h-3 w-3" />
+                            Ver
+                          </>
+                        ) : t.status === "ignorado" ? (
+                          <>
+                            <RotateCcw className="h-3 w-3" />
+                            Reabrir
+                          </>
+                        ) : (
+                          <>
+                            <Tag className="h-3 w-3" />
+                            Categorizar
+                          </>
+                        )}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
