@@ -36,15 +36,16 @@ interface ImportarMarketplaceModalProps {
   onSuccess?: () => void;
 }
 
-interface ParsedTransaction {
+type TransacaoPreview = {
   data_transacao: string;
-  pedido_id: string;
-  tipo_transacao: string;
   descricao: string;
+  pedido_id: string | null;
+  tipo_transacao: string;
   valor_bruto: number;
   valor_liquido: number;
-  tipo_lancamento: string;
-}
+  tipo_lancamento: 'credito' | 'debito';
+  referencia_externa: string;
+};
 
 const CANAIS = [
   { value: "mercado_livre", label: "Mercado Livre" },
@@ -66,7 +67,7 @@ export function ImportarMarketplaceModal({
   const [empresaId, setEmpresaId] = useState<string>("");
   const [canal, setCanal] = useState<string>("");
   const [contaNome, setContaNome] = useState<string>("");
-  const [parsedData, setParsedData] = useState<ParsedTransaction[]>([]);
+  const [parsedData, setParsedData] = useState<TransacaoPreview[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>("");
 
@@ -84,23 +85,13 @@ export function ImportarMarketplaceModal({
     onOpenChange(false);
   }, [onOpenChange, resetForm]);
 
-  const generateHash = (row: ParsedTransaction): string => {
-    const str = `${row.data_transacao}|${row.pedido_id}|${row.tipo_transacao}|${row.valor_liquido}`;
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return Math.abs(hash).toString(16);
-  };
 
-  const parseCSV = useCallback((content: string, selectedCanal: string): ParsedTransaction[] => {
+  const parseCSV = useCallback((content: string, selectedCanal: string): TransacaoPreview[] => {
     const lines = content.split("\n").filter(line => line.trim());
     if (lines.length < 2) return [];
 
     const header = lines[0].toLowerCase();
-    const transactions: ParsedTransaction[] = [];
+    const transactions: TransacaoPreview[] = [];
 
     // Detectar delimitador
     const delimiter = header.includes(";") ? ";" : ",";
@@ -186,7 +177,7 @@ export function ImportarMarketplaceModal({
       const tipoTransacao = tipoIdx >= 0 ? values[tipoIdx] || "venda" : "venda";
 
       // Determinar se é crédito ou débito baseado no tipo e valor
-      let tipoLancamento = "credito";
+      let tipoLancamento: 'credito' | 'debito' = "credito";
       const tipoLower = tipoTransacao.toLowerCase();
       if (
         tipoLower.includes("comiss") ||
@@ -199,14 +190,29 @@ export function ImportarMarketplaceModal({
         tipoLancamento = "debito";
       }
 
+      const pedidoIdValue = pedidoIdx >= 0 && values[pedidoIdx] ? values[pedidoIdx] : null;
+      const dataTransacao = dataIdx >= 0 ? parseDate(values[dataIdx]) : new Date().toISOString().split("T")[0];
+      const descricaoValue = descricaoIdx >= 0 ? values[descricaoIdx] || tipoTransacao : tipoTransacao;
+      
+      // Gerar hash para referencia_externa
+      const hashStr = `${dataTransacao}|${pedidoIdValue || ''}|${tipoTransacao}|${valorLiquido}`;
+      let hash = 0;
+      for (let i = 0; i < hashStr.length; i++) {
+        const char = hashStr.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      const referenciaExterna = Math.abs(hash).toString(16);
+
       transactions.push({
-        data_transacao: dataIdx >= 0 ? parseDate(values[dataIdx]) : new Date().toISOString().split("T")[0],
-        pedido_id: pedidoIdx >= 0 ? values[pedidoIdx] || "" : "",
+        data_transacao: dataTransacao,
+        pedido_id: pedidoIdValue,
         tipo_transacao: tipoTransacao,
-        descricao: descricaoIdx >= 0 ? values[descricaoIdx] || tipoTransacao : tipoTransacao,
+        descricao: descricaoValue,
         valor_bruto: Math.abs(valorBruto),
         valor_liquido: Math.abs(valorLiquido),
         tipo_lancamento: tipoLancamento,
+        referencia_externa: referenciaExterna,
       });
     }
 
@@ -244,7 +250,7 @@ export function ImportarMarketplaceModal({
       canal,
       conta_nome: contaNome || undefined,
       pedido_id: row.pedido_id || undefined,
-      referencia_externa: generateHash(row),
+      referencia_externa: row.referencia_externa,
       data_transacao: row.data_transacao,
       tipo_transacao: row.tipo_transacao,
       descricao: row.descricao,
