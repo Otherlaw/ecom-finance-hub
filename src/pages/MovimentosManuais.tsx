@@ -87,9 +87,9 @@ export default function MovimentosManuais() {
     movimentos,
     resumo,
     isLoading,
-    criarMovimento,
-    atualizarMovimento,
-    excluirMovimento,
+    createMovimento,
+    updateMovimento,
+    deleteMovimento,
   } = useMovimentosManuais({
     empresaId: empresaId === "todas" ? undefined : empresaId,
     periodoInicio,
@@ -127,16 +127,16 @@ export default function MovimentosManuais() {
 
   const handleConfirmarExclusao = async () => {
     if (!movimentoExcluindo?.referenciaId) return;
-    await excluirMovimento.mutateAsync(movimentoExcluindo.referenciaId);
+    await deleteMovimento.mutateAsync(movimentoExcluindo.referenciaId);
     setDeleteDialogOpen(false);
     setMovimentoExcluindo(null);
   };
 
   const handleSubmitForm = async (data: MovimentoManualPayload) => {
     if (movimentoEditando) {
-      await atualizarMovimento.mutateAsync(data);
+      await updateMovimento.mutateAsync(data);
     } else {
-      await criarMovimento.mutateAsync(data);
+      await createMovimento.mutateAsync(data);
     }
   };
 
@@ -383,7 +383,7 @@ export default function MovimentosManuais() {
         onOpenChange={setModalOpen}
         movimento={movimentoEditando}
         onSubmit={handleSubmitForm}
-        isLoading={criarMovimento.isPending || atualizarMovimento.isPending}
+        isLoading={createMovimento.isPending || updateMovimento.isPending}
       />
 
       {/* Dialog de Exclusão */}
@@ -404,7 +404,7 @@ export default function MovimentosManuais() {
               onClick={handleConfirmarExclusao}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {excluirMovimento.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {deleteMovimento.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>

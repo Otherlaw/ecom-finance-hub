@@ -135,7 +135,7 @@ export function useMovimentosManuais(params: UseMovimentosManuaisParams = {}) {
   });
 
   // Mutation para criar movimento manual
-  const criarMovimento = useMutation({
+  const createMovimento = useMutation({
     mutationFn: async (payload: Omit<MovimentoManualPayload, "id" | "referenciaId">) => {
       return criarOuAtualizarMovimentoManual(payload);
     },
@@ -151,7 +151,7 @@ export function useMovimentosManuais(params: UseMovimentosManuaisParams = {}) {
   });
 
   // Mutation para atualizar movimento manual
-  const atualizarMovimento = useMutation({
+  const updateMovimento = useMutation({
     mutationFn: async (payload: MovimentoManualPayload) => {
       if (!payload.referenciaId) {
         throw new Error("referenciaId é obrigatório para atualização");
@@ -170,7 +170,7 @@ export function useMovimentosManuais(params: UseMovimentosManuaisParams = {}) {
   });
 
   // Mutation para excluir movimento manual
-  const excluirMovimento = useMutation({
+  const deleteMovimento = useMutation({
     mutationFn: async (referenciaId: string) => {
       return excluirMovimentoManual(referenciaId);
     },
@@ -202,8 +202,8 @@ export function useMovimentosManuais(params: UseMovimentosManuaisParams = {}) {
     error,
     refetch,
     hasData: (movimentos?.length || 0) > 0,
-    criarMovimento,
-    atualizarMovimento,
-    excluirMovimento,
+    createMovimento,
+    updateMovimento,
+    deleteMovimento,
   };
 }
