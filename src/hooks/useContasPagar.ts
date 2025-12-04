@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { registrarMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
 
 export interface ContaPagar {
   id: string;
@@ -147,10 +148,14 @@ export const useContasPagar = (params: UseContasPagarParams = {}) => {
 
   const pagarConta = useMutation({
     mutationFn: async ({ id, valorPago, dataPagamento }: { id: string; valorPago: number; dataPagamento: string }) => {
-      // Buscar conta atual
+      // Buscar conta atual com todos os dados necessários
       const { data: contaAtual, error: fetchError } = await supabase
         .from("contas_a_pagar")
-        .select("valor_total, valor_pago")
+        .select(`
+          *,
+          categoria:categorias_financeiras(id, nome, tipo),
+          centro_custo:centros_de_custo(id, nome)
+        `)
         .eq("id", id)
         .single();
 
@@ -173,11 +178,36 @@ export const useContasPagar = (params: UseContasPagarParams = {}) => {
         .single();
 
       if (error) throw error;
+
+      // Registrar no Motor de Entrada Unificada (MEU)
+      try {
+        await registrarMovimentoFinanceiro({
+          data: dataPagamento,
+          tipo: "saida",
+          origem: "contas_pagar",
+          descricao: contaAtual.descricao,
+          valor: valorPago,
+          empresaId: contaAtual.empresa_id,
+          referenciaId: id,
+          categoriaId: contaAtual.categoria_id || undefined,
+          categoriaNome: (contaAtual.categoria as any)?.nome || undefined,
+          centroCustoId: contaAtual.centro_custo_id || undefined,
+          centroCustoNome: (contaAtual.centro_custo as any)?.nome || undefined,
+          formaPagamento: contaAtual.forma_pagamento || undefined,
+          fornecedorNome: contaAtual.fornecedor_nome,
+          observacoes: contaAtual.observacoes || undefined,
+        });
+      } catch (meuError) {
+        console.error("Erro ao registrar no MEU:", meuError);
+        // Não interrompe o fluxo principal
+      }
+
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["contas-a-pagar"] });
       queryClient.invalidateQueries({ queryKey: ["fluxo-caixa-contas-pagar"] });
+      queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       toast.success("Pagamento registrado com sucesso!");
     },
     onError: (error: any) => {
