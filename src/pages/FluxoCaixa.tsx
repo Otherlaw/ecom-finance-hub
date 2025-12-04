@@ -224,7 +224,7 @@ export default function FluxoCaixa() {
   };
 
   // Exportar para Excel
-  const exportarParaExcel = useCallback(() => {
+  const exportarExcel = useCallback(() => {
     if (movimentosFiltrados.length === 0) {
       toast.error("Nenhum movimento para exportar");
       return;
@@ -470,7 +470,7 @@ export default function FluxoCaixa() {
           {/* Exportar */}
           <div className="flex flex-col gap-1">
             <Label className="text-xs font-medium text-muted-foreground invisible">Ação</Label>
-            <Button variant="outline" className="gap-2 h-9" onClick={exportarParaExcel}>
+            <Button variant="outline" className="gap-2 h-9" onClick={exportarExcel}>
               <Download className="h-4 w-4" />
               Exportar
             </Button>
