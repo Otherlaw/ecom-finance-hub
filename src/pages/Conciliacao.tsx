@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
@@ -699,6 +699,10 @@ function MarketplaceTab() {
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
   const [busca, setBusca] = useState("");
   
+  // Paginação
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const itensPorPagina = 100;
+  
   // Filtro de período opcional
   const [periodoAtivo, setPeriodoAtivo] = useState(false);
   const [dataInicio, setDataInicio] = useState<Date | undefined>(startOfMonth(new Date()));
@@ -729,6 +733,18 @@ function MarketplaceTab() {
       t.canal.toLowerCase().includes(termo)
     );
   });
+  
+  // Paginação das transações filtradas
+  const totalPaginas = Math.ceil(transacoesFiltradas.length / itensPorPagina);
+  const transacoesPaginadas = transacoesFiltradas.slice(
+    (paginaAtual - 1) * itensPorPagina,
+    paginaAtual * itensPorPagina
+  );
+  
+  // Reset página ao mudar filtros
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [empresaId, canal, statusFiltro, busca, periodoAtivo, dataInicio, dataFim]);
   
   const handleCategorizar = (transacao: MarketplaceTransaction) => {
     setCategorizacaoModal({ open: true, transacao });
@@ -1089,7 +1105,8 @@ function MarketplaceTab() {
             </Button>
           </div>
         ) : (
-          <Table>
+          <>
+            <Table>
             <TableHeader>
               <TableRow className="bg-secondary/30">
                 <TableHead className="w-[90px]">Data</TableHead>
@@ -1105,7 +1122,7 @@ function MarketplaceTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transacoesFiltradas.map((t) => {
+              {transacoesPaginadas.map((t) => {
                 const totalTarifas = (t.tarifas || 0) + (t.taxas || 0) + (t.outros_descontos || 0);
                 return (
                   <TableRow 
@@ -1219,6 +1236,53 @@ function MarketplaceTab() {
               })}
             </TableBody>
           </Table>
+          
+          {/* Paginação */}
+          {totalPaginas > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <div className="text-sm text-muted-foreground">
+                Mostrando {((paginaAtual - 1) * itensPorPagina) + 1} a {Math.min(paginaAtual * itensPorPagina, transacoesFiltradas.length)} de {transacoesFiltradas.length}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPaginaAtual(1)}
+                  disabled={paginaAtual === 1}
+                >
+                  Primeira
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
+                  disabled={paginaAtual === 1}
+                >
+                  Anterior
+                </Button>
+                <span className="text-sm px-3">
+                  Página {paginaAtual} de {totalPaginas}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
+                  disabled={paginaAtual === totalPaginas}
+                >
+                  Próxima
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPaginaAtual(totalPaginas)}
+                  disabled={paginaAtual === totalPaginas}
+                >
+                  Última
+                </Button>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </ModuleCard>
       
