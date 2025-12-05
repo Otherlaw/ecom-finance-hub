@@ -491,6 +491,9 @@ export function ImportarMarketplaceModal({
   const handleImport = useCallback(async () => {
     if (!empresaId || !canal || parsedData.length === 0) return;
 
+    // Determinar origem do arquivo (csv ou xlsx)
+    const origemExtrato = fileName.toLowerCase().endsWith('.xlsx') ? 'arquivo_xlsx' : 'arquivo_csv';
+
     // Preparar transações para importação
     const transacoes = parsedData.map(row => ({
       empresa_id: empresaId,
@@ -509,13 +512,13 @@ export function ImportarMarketplaceModal({
       categoria_id: null,
       centro_custo_id: null,
       responsavel_id: null,
-      origem_extrato: 'csv',
+      origem_extrato: origemExtrato,
     } as MarketplaceTransactionInsert));
 
     await importarTransacoes.mutateAsync(transacoes);
     onSuccess?.();
     handleClose();
-  }, [empresaId, canal, contaNome, parsedData, importarTransacoes, onSuccess, handleClose]);
+  }, [empresaId, canal, contaNome, parsedData, fileName, importarTransacoes, onSuccess, handleClose]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
