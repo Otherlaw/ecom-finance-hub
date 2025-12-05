@@ -210,20 +210,57 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
   const BATCH_SIZE = 500;
 
-  // Função auxiliar para inserir transações em lotes com callback de progresso
+  // Função para gerar hash de duplicidade
+  const gerarHashDuplicidade = (t: MarketplaceTransactionInsert): string => {
+    const partes = [
+      t.empresa_id,
+      t.canal,
+      t.data_transacao,
+      t.descricao?.substring(0, 100) || "",
+      String(t.valor_liquido || 0),
+      t.pedido_id || "",
+    ];
+    // Usar uma string simples como "hash" - concatenação normalizada
+    return partes.map(p => String(p).toLowerCase().trim()).join("|");
+  };
+
+  // Função auxiliar para inserir transações em lotes com verificação de duplicidade
   const insertMarketplaceTransactionsInBatches = async (
     registros: MarketplaceTransactionInsert[],
     onProgress?: (percent: number) => void
-  ): Promise<{ importadas: number }> => {
+  ): Promise<{ importadas: number; duplicadas: number }> => {
     if (!registros.length) {
-      return { importadas: 0 };
+      return { importadas: 0, duplicadas: 0 };
+    }
+
+    // 1. Gerar hashes para todos os registros
+    const registrosComHash = registros.map(r => ({
+      ...r,
+      hash_duplicidade: gerarHashDuplicidade(r),
+    }));
+
+    // 2. Buscar hashes existentes no banco
+    const hashes = registrosComHash.map(r => r.hash_duplicidade);
+    const { data: hashesExistentes } = await supabase
+      .from("marketplace_transactions")
+      .select("hash_duplicidade")
+      .in("hash_duplicidade", hashes);
+
+    const hashesSet = new Set(hashesExistentes?.map(h => h.hash_duplicidade) || []);
+
+    // 3. Filtrar apenas registros novos
+    const registrosNovos = registrosComHash.filter(r => !hashesSet.has(r.hash_duplicidade));
+    const duplicadas = registrosComHash.length - registrosNovos.length;
+
+    if (registrosNovos.length === 0) {
+      return { importadas: 0, duplicadas };
     }
 
     let importadas = 0;
-    const total = registros.length;
+    const total = registrosNovos.length;
 
-    for (let i = 0; i < registros.length; i += BATCH_SIZE) {
-      const batch = registros.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < registrosNovos.length; i += BATCH_SIZE) {
+      const batch = registrosNovos.slice(i, i + BATCH_SIZE);
 
       const { data, error } = await supabase
         .from("marketplace_transactions")
@@ -231,6 +268,11 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         .select();
 
       if (error) {
+        // Se for erro de duplicidade, ignorar e continuar
+        if (error.code === "23505") {
+          console.warn("[Importação Marketplace] Algumas duplicidades ignoradas no lote", Math.floor(i / BATCH_SIZE) + 1);
+          continue;
+        }
         console.error(
           "[Importação Marketplace] Erro ao inserir lote",
           Math.floor(i / BATCH_SIZE) + 1,
@@ -249,13 +291,13 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       }
     }
 
-    return { importadas };
+    return { importadas, duplicadas };
   };
 
   const importarTransacoes = useMutation({
     mutationFn: async ({ transacoes, onProgress }: { transacoes: MarketplaceTransactionInsert[]; onProgress?: (percent: number) => void }) => {
       if (!transacoes || transacoes.length === 0) {
-        return { importadas: 0 };
+        return { importadas: 0, duplicadas: 0 };
       }
 
       console.log(
@@ -267,20 +309,22 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       // 5% inicial só pra barra não começar em zero
       if (onProgress) onProgress(5);
 
-      const { importadas } = await insertMarketplaceTransactionsInBatches(
+      const { importadas, duplicadas } = await insertMarketplaceTransactionsInBatches(
         transacoes,
         onProgress
       );
 
       console.log(
         "[Importação Marketplace] Finalizado. Registros importados:",
-        importadas
+        importadas,
+        "| Duplicados ignorados:",
+        duplicadas
       );
 
       // Garante 100% no final
       if (onProgress) onProgress(100);
 
-      return { importadas };
+      return { importadas, duplicadas };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
@@ -288,9 +332,17 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
 
-      if (result?.importadas) {
+      if (result?.importadas && result?.duplicadas) {
+        toast.success(
+          `${result.importadas} transações importadas (${result.duplicadas} duplicadas ignoradas)`
+        );
+      } else if (result?.importadas) {
         toast.success(
           `${result.importadas} transações de marketplace importadas com sucesso`
+        );
+      } else if (result?.duplicadas) {
+        toast.info(
+          `Nenhuma transação nova - ${result.duplicadas} duplicadas ignoradas`
         );
       } else {
         toast.success("Nenhuma transação nova para importar");
