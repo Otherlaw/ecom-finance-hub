@@ -193,51 +193,51 @@ export function ImportarMarketplaceModal({
 
     console.log('[Verificação Duplicatas] Duplicatas internas no arquivo:', duplicatasInternas.size);
 
-    // Buscar hashes existentes no banco em lotes de 10.000 para arquivos grandes
+    // Buscar referências externas existentes no banco em lotes de 10.000 para arquivos grandes
     const BATCH_SIZE = 10000;
-    const hashesExistentesBanco = new Set<string>();
+    const refsExistentesBanco = new Set<string>();
     
-    // Buscar apenas hashes únicos para economizar queries
-    const hashesParaBuscar = Array.from(hashesUnicos);
+    // Buscar apenas refs únicos para economizar queries
+    const refsParaBuscar = Array.from(hashesUnicos);
     
-    for (let i = 0; i < hashesParaBuscar.length; i += BATCH_SIZE) {
-      const batch = hashesParaBuscar.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < refsParaBuscar.length; i += BATCH_SIZE) {
+      const batch = refsParaBuscar.slice(i, i + BATCH_SIZE);
       
       const { data: existentes, error } = await supabase
         .from('marketplace_transactions')
-        .select('hash_duplicidade')
+        .select('referencia_externa')
         .eq('empresa_id', empId)
         .eq('canal', canalVal)
-        .in('hash_duplicidade', batch);
+        .in('referencia_externa', batch);
       
       if (error) {
-        console.error('[Verificação Duplicatas] Erro ao buscar hashes:', error);
+        console.error('[Verificação Duplicatas] Erro ao buscar refs:', error);
         continue;
       }
       
       (existentes || []).forEach(e => {
-        if (e.hash_duplicidade) {
-          hashesExistentesBanco.add(e.hash_duplicidade);
+        if (e.referencia_externa) {
+          refsExistentesBanco.add(e.referencia_externa);
         }
       });
       
       // Log de progresso a cada 10 batches
       if ((i / BATCH_SIZE) % 10 === 0) {
-        console.log(`[Verificação Duplicatas] Verificando batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(hashesParaBuscar.length / BATCH_SIZE)}`);
+        console.log(`[Verificação Duplicatas] Verificando batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(refsParaBuscar.length / BATCH_SIZE)}`);
       }
     }
 
-    console.log('[Verificação Duplicatas] Hashes encontrados no banco:', hashesExistentesBanco.size);
+    console.log('[Verificação Duplicatas] Refs encontrados no banco:', refsExistentesBanco.size);
 
     // Identificar quais transações são duplicatas (por índice)
     const indicesDuplicados = new Set<number>();
     hashesArquivo.forEach((hash, idx) => {
-      if (hashesExistentesBanco.has(hash) || duplicatasInternas.has(idx)) {
+      if (refsExistentesBanco.has(hash) || duplicatasInternas.has(idx)) {
         indicesDuplicados.add(idx);
       }
     });
 
-    setHashesDuplicados(hashesExistentesBanco);
+    setHashesDuplicados(refsExistentesBanco);
     setTransacoesDuplicadasIndices(indicesDuplicados);
     
     const totalDuplicadas = indicesDuplicados.size;
@@ -249,7 +249,7 @@ export function ImportarMarketplaceModal({
 
     console.log('[Verificação Duplicatas] RESULTADO:', {
       totalTransacoes: transacoes.length,
-      duplicatasBanco: hashesExistentesBanco.size,
+      duplicatasBanco: refsExistentesBanco.size,
       duplicatasInternas: duplicatasInternas.size,
       totalDuplicadas,
       totalNovas,
