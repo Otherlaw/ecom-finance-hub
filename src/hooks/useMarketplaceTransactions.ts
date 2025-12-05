@@ -135,18 +135,17 @@ interface MarketplaceResumo {
   totalDescontos: number; // soma de tarifas + taxas + outros_descontos
 }
 
-// Payload aceito pela mutation (transações + callback opcional de progresso)
-export type ImportMarketplacePayload = {
-  transacoes: MarketplaceTransactionInsert[];
-  onProgress?: (percent: number) => void;
-};
-
 interface UseMarketplaceTransactionsReturn {
   transacoes: MarketplaceTransaction[];
   resumo: MarketplaceResumo;
   isLoading: boolean;
   refetch: () => void;
-  importarTransacoes: UseMutationResult<{ importadas: number }, Error, ImportMarketplacePayload, unknown>;
+  importarTransacoes: UseMutationResult<
+    { importadas: number },
+    Error,
+    { transacoes: MarketplaceTransactionInsert[]; onProgress?: (percent: number) => void },
+    unknown
+  >;
   atualizarTransacao: UseMutationResult<MarketplaceTransaction, Error, {
     id: string;
     categoriaId?: string;
@@ -248,7 +247,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
   };
 
   const importarTransacoes = useMutation({
-    mutationFn: async ({ transacoes, onProgress }: ImportMarketplacePayload) => {
+    mutationFn: async ({ transacoes, onProgress }: { transacoes: MarketplaceTransactionInsert[]; onProgress?: (percent: number) => void }) => {
       if (!transacoes || transacoes.length === 0) {
         return { importadas: 0 };
       }
