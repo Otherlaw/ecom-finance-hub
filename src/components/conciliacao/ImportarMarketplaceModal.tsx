@@ -30,7 +30,7 @@ import { useEmpresas } from "@/hooks/useEmpresas";
 import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
-import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre } from "@/lib/parsers/arquivoFinanceiro";
+import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago } from "@/lib/parsers/arquivoFinanceiro";
 
 interface ImportarMarketplaceModalProps {
   open: boolean;
@@ -56,6 +56,7 @@ type TransacaoPreview = {
 
 const CANAIS = [
   { value: "mercado_livre", label: "Mercado Livre" },
+  { value: "mercado_pago", label: "Mercado Pago" },
   { value: "shopee", label: "Shopee" },
   { value: "amazon", label: "Amazon" },
   { value: "tiktok", label: "TikTok Shop" },
@@ -133,6 +134,17 @@ export function ImportarMarketplaceModal({
         tarifas: ["tarifa", "comissao", "commission", "fee"],
         taxas: ["taxa", "imposto", "tax"],
         outrosDescontos: ["desconto", "discount", "outros"],
+      },
+      mercado_pago: {
+        data: ["date_created", "data de criação", "data", "money_release_date", "date_approved"],
+        pedido: ["order_id", "external_reference", "referência externa", "merchant_order_id", "id"],
+        tipo: ["operation_type", "tipo de operação", "tipo", "payment_type", "transaction_type"],
+        descricao: ["description", "descrição", "reason", "item_title", "motivo"],
+        valorBruto: ["transaction_amount", "valor da transação", "valor bruto", "amount", "total_paid_amount"],
+        valorLiquido: ["net_received_amount", "valor líquido", "net_amount", "valor_liquido"],
+        tarifas: ["fee_amount", "marketplace_fee", "tarifa", "mercadopago_fee", "mp_fee"],
+        taxas: ["taxes_amount", "imposto", "tax"],
+        outrosDescontos: ["financing_fee_amount", "desconto", "coupon_amount"],
       },
       shopee: {
         data: ["data do pedido", "order date", "data"],
@@ -301,6 +313,17 @@ export function ImportarMarketplaceModal({
         taxas: ["taxa", "imposto", "tax"],
         outrosDescontos: ["desconto", "discount", "outros"],
       },
+      mercado_pago: {
+        data: ["date_created", "data de criação", "data", "money_release_date", "date_approved"],
+        pedido: ["order_id", "external_reference", "referência externa", "merchant_order_id", "id"],
+        tipo: ["operation_type", "tipo de operação", "tipo", "payment_type", "transaction_type"],
+        descricao: ["description", "descrição", "reason", "item_title", "motivo"],
+        valorBruto: ["transaction_amount", "valor da transação", "valor bruto", "amount", "total_paid_amount"],
+        valorLiquido: ["net_received_amount", "valor líquido", "net_amount", "valor_liquido"],
+        tarifas: ["fee_amount", "marketplace_fee", "tarifa", "mercadopago_fee", "mp_fee"],
+        taxas: ["taxes_amount", "imposto", "tax"],
+        outrosDescontos: ["financing_fee_amount", "desconto", "coupon_amount"],
+      },
       shopee: {
         data: ["data do pedido", "order date", "data"],
         pedido: ["nº do pedido", "order id", "pedido"],
@@ -456,6 +479,26 @@ export function ImportarMarketplaceModal({
               valor_liquido: t.valor_liquido,
               tipo_lancamento: t.valor_liquido >= 0 ? "credito" as const : "debito" as const,
               referencia_externa: hash,
+              itens: [],
+            };
+          });
+        } else if (canal === "mercado_pago") {
+          // Parser específico Mercado Pago
+          const linhasMP = await parseXLSXMercadoPago(file);
+          transacoes = linhasMP.map(t => {
+            const hash = `${t.data_transacao}_${t.pedido_id || t.referencia_externa || ""}_${t.valor_liquido}_${t.descricao}`.substring(0, 100);
+            return {
+              data_transacao: t.data_transacao,
+              descricao: t.descricao,
+              pedido_id: t.pedido_id,
+              tipo_transacao: t.tipo_transacao || "payment",
+              valor_bruto: t.valor_bruto,
+              tarifas: t.tarifas || 0,
+              taxas: 0,
+              outros_descontos: 0,
+              valor_liquido: t.valor_liquido,
+              tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
+              referencia_externa: t.referencia_externa || hash,
               itens: [],
             };
           });
