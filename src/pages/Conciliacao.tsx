@@ -46,6 +46,7 @@ import { CategorizacaoBancariaModal } from "@/components/conciliacao/Categorizac
 import { ImportarExtratoBancarioModal } from "@/components/conciliacao/ImportarExtratoBancarioModal";
 import { ImportarMarketplaceModal } from "@/components/conciliacao/ImportarMarketplaceModal";
 import { CategorizacaoMarketplaceModal } from "@/components/conciliacao/CategorizacaoMarketplaceModal";
+import { MarketplaceImportJobsPanel } from "@/components/conciliacao/MarketplaceImportJobsPanel";
 import { MovimentoManualFormModal } from "@/components/movimentos-manuais/MovimentoManualFormModal";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, subDays, subMonths } from "date-fns";
@@ -826,6 +827,9 @@ function MarketplaceTab() {
   
   return (
     <div>
+      {/* Painel de Importações em Andamento */}
+      <MarketplaceImportJobsPanel empresaId={empresaId === "all" ? undefined : empresaId} />
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-6">
         <div className="p-4 rounded-xl bg-card border border-border">

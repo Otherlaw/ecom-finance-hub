@@ -807,6 +807,65 @@ export type Database = {
           },
         ]
       }
+      marketplace_import_jobs: {
+        Row: {
+          arquivo_nome: string
+          atualizado_em: string
+          canal: string
+          criado_em: string
+          empresa_id: string
+          finalizado_em: string | null
+          id: string
+          linhas_com_erro: number
+          linhas_duplicadas: number
+          linhas_importadas: number
+          linhas_processadas: number
+          mensagem_erro: string | null
+          status: string
+          total_linhas: number
+        }
+        Insert: {
+          arquivo_nome: string
+          atualizado_em?: string
+          canal: string
+          criado_em?: string
+          empresa_id: string
+          finalizado_em?: string | null
+          id?: string
+          linhas_com_erro?: number
+          linhas_duplicadas?: number
+          linhas_importadas?: number
+          linhas_processadas?: number
+          mensagem_erro?: string | null
+          status?: string
+          total_linhas?: number
+        }
+        Update: {
+          arquivo_nome?: string
+          atualizado_em?: string
+          canal?: string
+          criado_em?: string
+          empresa_id?: string
+          finalizado_em?: string | null
+          id?: string
+          linhas_com_erro?: number
+          linhas_duplicadas?: number
+          linhas_importadas?: number
+          linhas_processadas?: number
+          mensagem_erro?: string | null
+          status?: string
+          total_linhas?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_import_jobs_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       marketplace_rules: {
         Row: {
           ativo: boolean
