@@ -724,6 +724,40 @@ async function gerarHashDuplicidade(params: {
   return hashHex.substring(0, 64); // Retornar hash completo (64 chars)
 }
 
+// Função auxiliar para atualizar progresso com garantia de persistência
+async function atualizarProgressoComRetry(
+  jobId: string, 
+  updates: { 
+    linhas_processadas: number; 
+    linhas_importadas?: number; 
+    linhas_duplicadas?: number;
+    linhas_com_erro?: number;
+  }
+): Promise<void> {
+  const maxRetries = 3;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const { error } = await supabase
+        .from("marketplace_import_jobs")
+        .update({
+          ...updates,
+          atualizado_em: new Date().toISOString(),
+        })
+        .eq("id", jobId);
+      
+      if (!error) {
+        console.log('[Job Progress] Atualizado:', updates);
+        return;
+      }
+      console.warn('[Job Progress] Retry', i + 1, 'de', maxRetries, error);
+    } catch (err) {
+      console.warn('[Job Progress] Erro no retry', i + 1, err);
+    }
+    // Pequeno delay antes de retry
+    await new Promise(r => setTimeout(r, 100));
+  }
+}
+
 async function processarImportacaoBackground(
   jobId: string,
   transacoesParaImportar: MarketplaceTransactionInsert[],
@@ -733,19 +767,31 @@ async function processarImportacaoBackground(
   processarTransacoesImportadas: any,
   queryClient: any
 ) {
-  const BATCH_SIZE = 1000; // Aumentado para 1000 conforme solicitado
+  const BATCH_SIZE = 1000;
   const TOTAL = transacoesParaImportar.length;
-  let processadas = 0;
-  let importadas = 0;
-  let duplicadas = 0;
+  
+  // Contadores REAIS de progresso
+  let processados = 0;   // Total de registros já analisados (novos + duplicados)
+  let importados = 0;    // Registros inseridos com sucesso
+  let duplicados = 0;    // Registros ignorados por já existirem
   let erros = 0;
   const insertedIds: string[] = [];
 
+  console.log('[Background Import] ========================================');
+  console.log('[Background Import] Iniciando processamento de', TOTAL, 'transações');
+  console.log('[Background Import] Job ID:', jobId);
+  
+  // Atualização inicial para confirmar que o job começou
+  await atualizarProgressoComRetry(jobId, {
+    linhas_processadas: 0,
+    linhas_importadas: 0,
+    linhas_duplicadas: 0,
+    linhas_com_erro: 0,
+  });
+
   try {
-    console.log('[Background Import] Iniciando processamento de', TOTAL, 'transações');
-    
-    // PASSO 1: Gerar hashes SHA256 para todas as transações
-    console.log('[Background Import] Gerando hashes SHA256...');
+    // PASSO 1: Gerar hashes SHA256 em batches
+    console.log('[Background Import] Passo 1/3: Gerando hashes SHA256...');
     
     const transacoesComHash: (MarketplaceTransactionInsert & { hash_duplicidade: string })[] = [];
     
@@ -763,84 +809,75 @@ async function processarImportacaoBackground(
         ...t,
         hash_duplicidade: hash,
       });
-      
-      // Atualizar progresso a cada 1000 hashes (10% do progresso total)
-      if (i % 1000 === 0) {
-        const progressoHash = Math.floor((i / TOTAL) * 0.1 * TOTAL);
-        await atualizarProgressoJob(jobId, {
-          linhas_processadas: progressoHash,
-        });
-      }
     }
     
-    // PASSO 2: Verificar duplicatas no banco usando hash_duplicidade
-    console.log('[Background Import] Verificando duplicatas no banco...');
+    console.log('[Background Import] Hashes gerados:', transacoesComHash.length);
+
+    // PASSO 2: Verificar duplicatas no banco por hash
+    console.log('[Background Import] Passo 2/3: Verificando duplicatas no banco...');
     
-    const hashesParaVerificar = transacoesComHash.map(t => t.hash_duplicidade);
     const hashesExistentes = new Set<string>();
+    const hashesParaVerificar = transacoesComHash.map(t => t.hash_duplicidade);
     
-    // Buscar hashes existentes no banco em lotes de 10k
-    for (let i = 0; i < hashesParaVerificar.length; i += 10000) {
-      const batch = hashesParaVerificar.slice(i, i + 10000);
-      if (batch.length === 0) continue;
+    // Verificar em lotes de 5000 hashes
+    for (let i = 0; i < hashesParaVerificar.length; i += 5000) {
+      const batchHashes = hashesParaVerificar.slice(i, i + 5000);
       
       const { data: existentes } = await supabase
         .from('marketplace_transactions')
         .select('hash_duplicidade')
         .eq('empresa_id', empresaId)
-        .in('hash_duplicidade', batch);
+        .in('hash_duplicidade', batchHashes);
       
       (existentes || []).forEach(e => {
         if (e.hash_duplicidade) hashesExistentes.add(e.hash_duplicidade);
       });
-      
-      // Atualizar progresso (20% do total para verificação)
-      processadas = Math.min(i + batch.length, hashesParaVerificar.length);
-      const progressoVerificacao = Math.floor(TOTAL * 0.1) + Math.floor((processadas / TOTAL) * 0.2 * TOTAL);
-      await atualizarProgressoJob(jobId, {
-        linhas_processadas: progressoVerificacao,
-      });
     }
     
-    console.log('[Background Import] Hashes existentes no banco:', hashesExistentes.size);
-    
-    // PASSO 3: Filtrar transações novas (não existem no banco)
-    const transacoesNovas = transacoesComHash.filter(t => !hashesExistentes.has(t.hash_duplicidade));
-    
-    // Também filtrar duplicatas internas do arquivo
+    console.log('[Background Import] Hashes já existentes no banco:', hashesExistentes.size);
+
+    // PASSO 3: Filtrar e remover duplicatas (internas e do banco)
     const hashesVistas = new Set<string>();
-    const transacoesUnicas: (MarketplaceTransactionInsert & { hash_duplicidade: string })[] = [];
+    const transacoesParaInserir: (MarketplaceTransactionInsert & { hash_duplicidade: string })[] = [];
     
-    for (const t of transacoesNovas) {
-      if (hashesVistas.has(t.hash_duplicidade)) {
-        duplicadas++;
+    for (const t of transacoesComHash) {
+      processados++;
+      
+      // Duplicata no banco?
+      if (hashesExistentes.has(t.hash_duplicidade)) {
+        duplicados++;
         continue;
       }
+      
+      // Duplicata interna no arquivo?
+      if (hashesVistas.has(t.hash_duplicidade)) {
+        duplicados++;
+        continue;
+      }
+      
       hashesVistas.add(t.hash_duplicidade);
-      transacoesUnicas.push(t);
+      transacoesParaInserir.push(t);
+      
+      // Atualizar progresso a cada 500 registros analisados
+      if (processados % 500 === 0 || processados === TOTAL) {
+        await atualizarProgressoComRetry(jobId, {
+          linhas_processadas: processados,
+          linhas_duplicadas: duplicados,
+        });
+      }
     }
-    
-    // Contar duplicatas do banco
-    duplicadas += (transacoesComHash.length - transacoesNovas.length);
-    
-    console.log('[Background Import] Após deduplicação:', {
-      total: transacoesParaImportar.length,
-      duplicadasBanco: transacoesComHash.length - transacoesNovas.length,
-      duplicadasInternas: transacoesNovas.length - transacoesUnicas.length,
-      paraInserir: transacoesUnicas.length,
+
+    console.log('[Background Import] Análise de duplicatas concluída:', {
+      total: TOTAL,
+      duplicados,
+      paraInserir: transacoesParaInserir.length,
     });
 
-    // Atualizar progresso com contagem de duplicadas
-    await atualizarProgressoJob(jobId, {
-      linhas_processadas: Math.floor(TOTAL * 0.3),
-      linhas_duplicadas: duplicadas,
-    });
-
-    // PASSO 4: Inserir transações únicas em batches de 1000 (70% restante do progresso)
-    const totalUnicas = transacoesUnicas.length;
+    // PASSO 4: Inserir transações únicas em batches
+    console.log('[Background Import] Passo 3/3: Inserindo', transacoesParaInserir.length, 'transações...');
     
-    for (let i = 0; i < transacoesUnicas.length; i += BATCH_SIZE) {
-      const batch = transacoesUnicas.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < transacoesParaInserir.length; i += BATCH_SIZE) {
+      const batch = transacoesParaInserir.slice(i, i + BATCH_SIZE);
       
       try {
         const { data, error } = await supabase
@@ -850,14 +887,14 @@ async function processarImportacaoBackground(
 
         if (error) {
           if (error.code === "23505") {
-            // Duplicidade no banco (edge case) - contar e continuar
-            duplicadas += batch.length;
+            // Duplicidade no banco (edge case por concorrência)
+            duplicados += batch.length;
           } else {
             erros += batch.length;
             console.error("[Background Import] Erro no batch:", error);
           }
         } else {
-          importadas += data?.length ?? 0;
+          importados += data?.length ?? 0;
           if (data) {
             insertedIds.push(...data.map(d => d.id));
           }
@@ -867,33 +904,34 @@ async function processarImportacaoBackground(
         console.error("[Background Import] Erro no batch:", err);
       }
 
-      // Calcular progresso: 30% verificação + 70% da inserção
-      const progressoInsercao = totalUnicas > 0 
-        ? Math.floor(((i + batch.length) / totalUnicas) * 0.7 * TOTAL)
-        : Math.floor(0.7 * TOTAL);
-      const progressoTotal = Math.floor(TOTAL * 0.3) + progressoInsercao;
-      
-      // Atualizar progresso no banco após cada batch
-      await atualizarProgressoJob(jobId, {
-        linhas_processadas: Math.min(progressoTotal, TOTAL),
-        linhas_importadas: importadas,
-        linhas_duplicadas: duplicadas,
+      // Atualizar progresso após cada batch de inserção
+      await atualizarProgressoComRetry(jobId, {
+        linhas_processadas: processados,
+        linhas_importadas: importados,
+        linhas_duplicadas: duplicados,
         linhas_com_erro: erros,
       });
     }
 
-    // Se não há transações para inserir (todas duplicadas), marcar como 100%
-    if (transacoesUnicas.length === 0) {
-      await atualizarProgressoJob(jobId, {
-        linhas_processadas: TOTAL,
-        linhas_importadas: 0,
-        linhas_duplicadas: duplicadas,
-        linhas_com_erro: 0,
-      });
+    // Se não há transações para inserir (todas duplicadas)
+    if (transacoesParaInserir.length === 0) {
+      console.log('[Background Import] Todas as transações são duplicadas');
     }
+
+    // Garantir que processados = TOTAL ao final
+    processados = TOTAL;
+    
+    await atualizarProgressoComRetry(jobId, {
+      linhas_processadas: TOTAL,
+      linhas_importadas: importados,
+      linhas_duplicadas: duplicados,
+      linhas_com_erro: erros,
+    });
 
     // PASSO 5: Auto-categorização
     if (insertedIds.length > 0) {
+      console.log('[Background Import] Passo 4/4: Auto-categorizando', insertedIds.length, 'transações...');
+      
       try {
         await processarTransacoesImportadas.mutateAsync({
           transactionIds: insertedIds,
@@ -906,9 +944,15 @@ async function processarImportacaoBackground(
       // PASSO 6: Criar itens de venda
       // Mapear transações inseridas para os dados originais via hash
       const hashToId = new Map<string, string>();
-      transacoesUnicas.slice(0, insertedIds.length).forEach((t, idx) => {
-        hashToId.set(t.hash_duplicidade, insertedIds[idx]);
-      });
+      
+      // Precisamos reconstruir a lista de transações inseridas
+      // usando os hashes que foram efetivamente inseridos
+      for (let idx = 0; idx < insertedIds.length; idx++) {
+        const t = transacoesParaInserir[idx];
+        if (t) {
+          hashToId.set(t.hash_duplicidade, insertedIds[idx]);
+        }
+      }
       
       const transacoesComItens = parsedData
         .filter(t => t.itens && t.itens.length > 0)
@@ -940,11 +984,19 @@ async function processarImportacaoBackground(
       }
     }
 
-    // PASSO 7: Finalizar job com sucesso
+    // PASSO FINAL: Finalizar job com sucesso
+    console.log('[Background Import] ========================================');
+    console.log('[Background Import] CONCLUÍDO:', {
+      total: TOTAL,
+      importados,
+      duplicados,
+      erros,
+    });
+    
     await finalizarJob(jobId, {
       status: 'concluido',
-      linhas_importadas: importadas,
-      linhas_duplicadas: duplicadas,
+      linhas_importadas: importados,
+      linhas_duplicadas: duplicados,
       linhas_com_erro: erros,
     });
 
@@ -953,7 +1005,7 @@ async function processarImportacaoBackground(
     queryClient.invalidateQueries({ queryKey: ["marketplace_import_jobs"] });
 
     toast.success(`Importação concluída!`, {
-      description: `${importadas.toLocaleString()} novas · ${duplicadas.toLocaleString()} duplicadas · ${TOTAL.toLocaleString()} processadas`,
+      description: `${importados.toLocaleString()} novas · ${duplicados.toLocaleString()} duplicadas · ${TOTAL.toLocaleString()} processadas`,
       duration: 8000,
     });
 
@@ -962,8 +1014,8 @@ async function processarImportacaoBackground(
     
     await finalizarJob(jobId, {
       status: 'erro',
-      linhas_importadas: importadas,
-      linhas_duplicadas: duplicadas,
+      linhas_importadas: importados,
+      linhas_duplicadas: duplicados,
       linhas_com_erro: erros,
       mensagem_erro: err instanceof Error ? err.message : "Erro desconhecido",
     });
