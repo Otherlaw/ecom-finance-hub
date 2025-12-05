@@ -25,6 +25,7 @@ import { ProductDetailModal } from "@/components/products/ProductDetailModal";
 import { ImportarProdutosModal } from "@/components/products/ImportarProdutosModal";
 import { ExportarProdutosModal } from "@/components/products/ExportarProdutosModal";
 import { ExcluirProdutoModal } from "@/components/products/ExcluirProdutoModal";
+import { ProdutoImportJobsPanel } from "@/components/products/ProdutoImportJobsPanel";
 import { useProdutos, ProdutoInsert, ProdutoUpdate } from "@/hooks/useProdutos";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -185,6 +186,9 @@ export default function Produtos() {
               </Button>
             </div>
           </div>
+
+          {/* Painel de Jobs de Importação */}
+          <ProdutoImportJobsPanel empresaId={empresaSelecionada} />
 
           {/* Stats Cards */}
           <div className="grid grid-cols-4 gap-4">

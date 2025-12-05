@@ -1489,6 +1489,65 @@ export type Database = {
           },
         ]
       }
+      produto_import_jobs: {
+        Row: {
+          arquivo_nome: string
+          atualizado_em: string
+          criado_em: string
+          empresa_id: string
+          finalizado_em: string | null
+          id: string
+          linhas_atualizadas: number
+          linhas_com_erro: number
+          linhas_importadas: number
+          linhas_processadas: number
+          mapeamentos_criados: number
+          mensagem_erro: string | null
+          status: string
+          total_linhas: number
+        }
+        Insert: {
+          arquivo_nome: string
+          atualizado_em?: string
+          criado_em?: string
+          empresa_id: string
+          finalizado_em?: string | null
+          id?: string
+          linhas_atualizadas?: number
+          linhas_com_erro?: number
+          linhas_importadas?: number
+          linhas_processadas?: number
+          mapeamentos_criados?: number
+          mensagem_erro?: string | null
+          status?: string
+          total_linhas?: number
+        }
+        Update: {
+          arquivo_nome?: string
+          atualizado_em?: string
+          criado_em?: string
+          empresa_id?: string
+          finalizado_em?: string | null
+          id?: string
+          linhas_atualizadas?: number
+          linhas_com_erro?: number
+          linhas_importadas?: number
+          linhas_processadas?: number
+          mapeamentos_criados?: number
+          mensagem_erro?: string | null
+          status?: string
+          total_linhas?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "produto_import_jobs_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       produto_sku_map: {
         Row: {
           anuncio_id: string | null
