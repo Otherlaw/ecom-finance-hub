@@ -35,7 +35,7 @@ interface UseMarketplaceImportJobsReturn {
 export function useMarketplaceImportJobs(params?: UseMarketplaceImportJobsParams): UseMarketplaceImportJobsReturn {
   const queryClient = useQueryClient();
 
-  // Query inicial
+  // Query com polling agressivo para jobs em andamento
   const { data: jobs = [], isLoading, refetch } = useQuery({
     queryKey: ["marketplace_import_jobs", params?.empresaId],
     queryFn: async () => {
@@ -54,6 +54,14 @@ export function useMarketplaceImportJobs(params?: UseMarketplaceImportJobsParams
       if (error) throw error;
       return (data || []) as MarketplaceImportJob[];
     },
+    // Polling a cada 2s quando há jobs em processamento
+    refetchInterval: (query) => {
+      const jobs = query.state.data as MarketplaceImportJob[] | undefined;
+      const temJobsEmAndamento = jobs?.some(j => j.status === 'processando');
+      return temJobsEmAndamento ? 2000 : false;
+    },
+    refetchIntervalInBackground: true,
+    staleTime: 1000,
   });
 
   // Realtime subscription para atualizações em tempo real
@@ -196,7 +204,10 @@ export async function atualizarProgressoJob(jobId: string, updates: {
 }): Promise<void> {
   const { error } = await supabase
     .from("marketplace_import_jobs")
-    .update(updates)
+    .update({
+      ...updates,
+      atualizado_em: new Date().toISOString(),
+    })
     .eq("id", jobId);
 
   if (error) {
