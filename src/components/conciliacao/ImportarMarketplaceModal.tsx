@@ -514,6 +514,13 @@ export function ImportarMarketplaceModal({
         return;
       }
 
+      console.log('[Importação Marketplace] Prévia', {
+        tipo,
+        canal,
+        totalTransacoes: transacoes.length,
+        totalItens,
+      });
+
       if (transacoes.length === 0) {
         setError("Nenhuma transação encontrada no arquivo. Verifique o formato.");
         setIsProcessing(false);
