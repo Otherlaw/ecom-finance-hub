@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { X, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,8 +18,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useEmpresas } from "@/hooks/useEmpresas";
-import { useProdutos, ProdutoInsert, ProdutoUpdate } from "@/hooks/useProdutos";
 import {
   Product,
   ChannelMapping,
@@ -33,7 +31,7 @@ interface ProductFormModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product?: Product | null;
-  onSave: (product?: Product) => void;
+  onSave: (product: Product) => void;
 }
 
 export function ProductFormModal({
@@ -43,11 +41,7 @@ export function ProductFormModal({
   onSave,
 }: ProductFormModalProps) {
   const { toast } = useToast();
-  const { empresas } = useEmpresas();
   const isEditing = !!product;
-
-  const [empresaId, setEmpresaId] = useState<string>("");
-  const { criarProduto, atualizarProduto } = useProdutos({ empresaId });
 
   const [formData, setFormData] = useState<Partial<Product>>({
     codigoInterno: "",
@@ -69,12 +63,10 @@ export function ProductFormModal({
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [newChannel, setNewChannel] = useState({ channel: "", sku: "", anuncioId: "" });
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (product) {
       setFormData(product);
-      // Tentar detectar empresa do produto (se tiver)
     } else {
       setFormData({
         codigoInterno: "",
@@ -96,13 +88,6 @@ export function ProductFormModal({
     }
     setErrors({});
   }, [product, open]);
-
-  // Selecionar primeira empresa se nenhuma estiver selecionada
-  useEffect(() => {
-    if (!empresaId && empresas.length > 0) {
-      setEmpresaId(empresas[0].id);
-    }
-  }, [empresas, empresaId]);
 
   const handleChange = (field: keyof Product, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -149,7 +134,7 @@ export function ProductFormModal({
     }));
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     const validation = validateProduct(formData);
     if (!validation.isValid) {
       setErrors(validation.errors);
@@ -161,83 +146,34 @@ export function ProductFormModal({
       return;
     }
 
-    if (!empresaId && !isEditing) {
-      toast({
-        title: "Empresa obrigatória",
-        description: "Selecione uma empresa para o produto",
-        variant: "destructive",
-      });
-      return;
-    }
+    const now = new Date().toISOString().split("T")[0];
+    const savedProduct: Product = {
+      id: product?.id || `prod-${Date.now()}`,
+      codigoInterno: formData.codigoInterno!,
+      nome: formData.nome!,
+      descricao: formData.descricao || "",
+      categoria: formData.categoria!,
+      subcategoria: formData.subcategoria,
+      unidadeMedida: formData.unidadeMedida!,
+      ncm: formData.ncm!,
+      cfopVenda: formData.cfopVenda,
+      cfopCompra: formData.cfopCompra,
+      fornecedorPrincipalNome: formData.fornecedorPrincipalNome,
+      custoMedio: formData.custoMedio || 0,
+      precoVendaSugerido: formData.precoVendaSugerido,
+      canais: formData.canais || [],
+      status: formData.status as 'ativo' | 'inativo',
+      observacoes: formData.observacoes,
+      dataCadastro: product?.dataCadastro || now,
+      dataAtualizacao: now,
+    };
 
-    setIsSubmitting(true);
-
-    try {
-      if (isEditing && product) {
-        // Atualizar produto existente
-        const updateData: ProdutoUpdate = {
-          id: product.id,
-          codigo_interno: formData.codigoInterno,
-          nome: formData.nome,
-          descricao: formData.descricao || undefined,
-          categoria: formData.categoria || undefined,
-          subcategoria: formData.subcategoria || undefined,
-          unidade_medida: formData.unidadeMedida,
-          ncm: formData.ncm || undefined,
-          cfop_venda: formData.cfopVenda || undefined,
-          cfop_compra: formData.cfopCompra || undefined,
-          fornecedor_principal_nome: formData.fornecedorPrincipalNome || undefined,
-          custo_medio_atual: formData.custoMedio || 0,
-          preco_venda_sugerido: formData.precoVendaSugerido || 0,
-          canais: formData.canais || [],
-          status: formData.status as "ativo" | "inativo",
-          observacoes: formData.observacoes || undefined,
-        };
-
-        await atualizarProduto.mutateAsync(updateData);
-        toast({
-          title: "Produto atualizado",
-          description: `${formData.nome} foi atualizado com sucesso.`,
-        });
-      } else {
-        // Criar novo produto
-        const insertData: ProdutoInsert = {
-          empresa_id: empresaId,
-          codigo_interno: formData.codigoInterno!,
-          nome: formData.nome!,
-          descricao: formData.descricao || undefined,
-          categoria: formData.categoria || undefined,
-          subcategoria: formData.subcategoria || undefined,
-          unidade_medida: formData.unidadeMedida,
-          ncm: formData.ncm || undefined,
-          cfop_venda: formData.cfopVenda || undefined,
-          cfop_compra: formData.cfopCompra || undefined,
-          fornecedor_principal_nome: formData.fornecedorPrincipalNome || undefined,
-          custo_medio_atual: formData.custoMedio || 0,
-          preco_venda_sugerido: formData.precoVendaSugerido || 0,
-          canais: formData.canais || [],
-          status: formData.status as "ativo" | "inativo",
-          observacoes: formData.observacoes || undefined,
-        };
-
-        await criarProduto.mutateAsync(insertData);
-        toast({
-          title: "Produto cadastrado",
-          description: `${formData.nome} foi cadastrado com sucesso.`,
-        });
-      }
-
-      onSave();
-      onOpenChange(false);
-    } catch (err: any) {
-      toast({
-        title: "Erro",
-        description: err.message || "Erro ao salvar produto",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+    onSave(savedProduct);
+    toast({
+      title: isEditing ? "Produto atualizado" : "Produto cadastrado",
+      description: `${savedProduct.nome} foi ${isEditing ? "atualizado" : "cadastrado"} com sucesso.`,
+    });
+    onOpenChange(false);
   };
 
   const getChannelName = (channelId: string) => {
@@ -254,25 +190,6 @@ export function ProductFormModal({
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {/* Empresa (só para novo produto) */}
-          {!isEditing && (
-            <div className="space-y-2">
-              <Label htmlFor="empresa">Empresa *</Label>
-              <Select value={empresaId} onValueChange={setEmpresaId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a empresa" />
-                </SelectTrigger>
-                <SelectContent>
-                  {empresas.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nome_fantasia || e.razao_social}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
           {/* Basic Info */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -379,14 +296,18 @@ export function ProductFormModal({
           {/* Fiscal Info */}
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="ncm">NCM</Label>
+              <Label htmlFor="ncm">NCM *</Label>
               <Input
                 id="ncm"
                 value={formData.ncm}
                 onChange={(e) => handleChange("ncm", e.target.value)}
                 placeholder="00000000"
                 maxLength={8}
+                className={errors.ncm ? "border-destructive" : ""}
               />
+              {errors.ncm && (
+                <span className="text-xs text-destructive">{errors.ncm}</span>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -527,11 +448,11 @@ export function ProductFormModal({
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? "Salvando..." : isEditing ? "Salvar Alterações" : "Cadastrar Produto"}
+          <Button onClick={handleSubmit}>
+            {isEditing ? "Salvar Alterações" : "Cadastrar Produto"}
           </Button>
         </div>
       </DialogContent>
