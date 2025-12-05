@@ -24,6 +24,8 @@ import {
   Ban,
   Store,
   CalendarIcon,
+  Trash2,
+  Copy,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
@@ -33,7 +35,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useFaturas, useTransacoes } from "@/hooks/useCartoes";
 import { useBankTransactions, BankTransaction } from "@/hooks/useBankTransactions";
 import { useMovimentacoesManuais, ManualTransaction } from "@/hooks/useManualTransactions";
-import { useMarketplaceTransactions, MarketplaceTransaction } from "@/hooks/useMarketplaceTransactions";
+import { useMarketplaceTransactions, MarketplaceTransaction, DuplicateGroup } from "@/hooks/useMarketplaceTransactions";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,6 +52,9 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
 
 // Mock removido - usando dados reais de manual_transactions
 
@@ -692,6 +697,8 @@ function MarketplaceTab() {
     open: boolean;
     transacao: MarketplaceTransaction | null;
   }>({ open: false, transacao: null });
+  const [duplicatesModalOpen, setDuplicatesModalOpen] = useState(false);
+  const [selectedDuplicates, setSelectedDuplicates] = useState<Set<string>>(new Set());
   
   // Filtros
   const [empresaId, setEmpresaId] = useState<string>("all");
@@ -715,6 +722,9 @@ function MarketplaceTab() {
     resumo,
     isLoading,
     refetch,
+    duplicatas,
+    isDuplicatesLoading,
+    excluirDuplicatas,
   } = useMarketplaceTransactions({
     empresaId: empresaId === "all" ? undefined : empresaId,
     canal: canal === "all" ? undefined : canal,
@@ -722,6 +732,9 @@ function MarketplaceTab() {
     periodoInicio: periodoAtivo && dataInicio ? format(dataInicio, "yyyy-MM-dd") : undefined,
     periodoFim: periodoAtivo && dataFim ? format(dataFim, "yyyy-MM-dd") : undefined,
   });
+  
+  // Total de transações duplicadas
+  const totalDuplicatas = duplicatas.reduce((acc, g) => acc + g.count - 1, 0); // -1 porque mantemos 1 de cada grupo
   
   // Filtro de busca local
   const transacoesFiltradas = transacoes.filter((t) => {
@@ -1087,7 +1100,19 @@ function MarketplaceTab() {
           <span>de {transacoes.length} transações</span>
         </div>
         
-        <Button className="gap-2 ml-auto" onClick={() => setImportModalOpen(true)}>
+        {/* Botão de Duplicatas */}
+        {totalDuplicatas > 0 && (
+          <Button 
+            variant="outline" 
+            className="gap-2 ml-auto border-warning text-warning hover:bg-warning/10" 
+            onClick={() => setDuplicatesModalOpen(true)}
+          >
+            <Copy className="h-4 w-4" />
+            {totalDuplicatas} Duplicatas
+          </Button>
+        )}
+        
+        <Button className={cn("gap-2", totalDuplicatas === 0 && "ml-auto")} onClick={() => setImportModalOpen(true)}>
           <Upload className="h-4 w-4" />
           Importar Relatório
         </Button>
@@ -1322,6 +1347,159 @@ function MarketplaceTab() {
         transaction={categorizacaoModal.transacao}
         onSuccess={() => refetch()}
       />
+      
+      {/* Modal de Duplicatas */}
+      <Dialog open={duplicatesModalOpen} onOpenChange={setDuplicatesModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="h-5 w-5 text-warning" />
+              Transações Duplicadas
+            </DialogTitle>
+            <DialogDescription>
+              Foram encontradas {duplicatas.length} grupo(s) com transações duplicadas ({totalDuplicatas} duplicatas no total).
+              Selecione as transações que deseja remover. A primeira de cada grupo é mantida por padrão.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <ScrollArea className="max-h-[50vh] pr-4">
+            {isDuplicatesLoading ? (
+              <div className="space-y-4">
+                {[1,2,3].map(i => <Skeleton key={i} className="h-24 w-full" />)}
+              </div>
+            ) : duplicatas.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Check className="h-12 w-12 mx-auto mb-4 text-success" />
+                <p className="font-medium">Nenhuma duplicata encontrada</p>
+                <p className="text-sm">Todas as transações são únicas.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {duplicatas.map((grupo) => (
+                  <div key={grupo.hash} className="border rounded-lg p-4 bg-muted/30">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="bg-warning/10 text-warning border-warning">
+                          {grupo.count} transações iguais
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {grupo.transactions[0]?.canal} • {grupo.transactions[0]?.data_transacao}
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => {
+                          const idsToSelect = grupo.transactions.slice(1).map(t => t.id);
+                          setSelectedDuplicates(prev => {
+                            const newSet = new Set(prev);
+                            idsToSelect.forEach(id => newSet.add(id));
+                            return newSet;
+                          });
+                        }}
+                      >
+                        Selecionar duplicatas
+                      </Button>
+                    </div>
+                    
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="text-xs">
+                          <TableHead className="w-8"></TableHead>
+                          <TableHead className="w-20">Data</TableHead>
+                          <TableHead>Descrição</TableHead>
+                          <TableHead className="text-right w-24">Valor</TableHead>
+                          <TableHead className="w-20">Status</TableHead>
+                          <TableHead className="w-32">Criado em</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {grupo.transactions.map((t, idx) => (
+                          <TableRow 
+                            key={t.id} 
+                            className={cn(
+                              idx === 0 && "bg-success/5",
+                              selectedDuplicates.has(t.id) && "bg-destructive/10"
+                            )}
+                          >
+                            <TableCell>
+                              {idx === 0 ? (
+                                <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success">
+                                  Original
+                                </Badge>
+                              ) : (
+                                <Checkbox
+                                  checked={selectedDuplicates.has(t.id)}
+                                  onCheckedChange={(checked) => {
+                                    setSelectedDuplicates(prev => {
+                                      const newSet = new Set(prev);
+                                      if (checked) {
+                                        newSet.add(t.id);
+                                      } else {
+                                        newSet.delete(t.id);
+                                      }
+                                      return newSet;
+                                    });
+                                  }}
+                                />
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs">{t.data_transacao}</TableCell>
+                            <TableCell className="text-xs max-w-[200px] truncate">{t.descricao}</TableCell>
+                            <TableCell className="text-xs text-right font-medium">
+                              {formatCurrency(t.valor_liquido)}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-[10px]">{t.status}</Badge>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {t.criado_em ? format(new Date(t.criado_em), "dd/MM HH:mm") : "-"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+          
+          <DialogFooter className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              {selectedDuplicates.size > 0 && (
+                <span>{selectedDuplicates.size} transação(ões) selecionada(s) para remoção</span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => {
+                setDuplicatesModalOpen(false);
+                setSelectedDuplicates(new Set());
+              }}>
+                Cancelar
+              </Button>
+              <Button 
+                variant="destructive" 
+                className="gap-2"
+                disabled={selectedDuplicates.size === 0 || excluirDuplicatas.isPending}
+                onClick={() => {
+                  if (selectedDuplicates.size === 0) return;
+                  excluirDuplicatas.mutate(Array.from(selectedDuplicates), {
+                    onSuccess: () => {
+                      setSelectedDuplicates(new Set());
+                      setDuplicatesModalOpen(false);
+                    }
+                  });
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+                {excluirDuplicatas.isPending ? "Removendo..." : `Remover ${selectedDuplicates.size} Duplicata(s)`}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

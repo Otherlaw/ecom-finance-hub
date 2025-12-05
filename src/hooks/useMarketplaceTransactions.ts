@@ -56,6 +56,7 @@ export interface MarketplaceTransaction {
   centro_custo_id: string | null;
   responsavel_id: string | null;
   origem_extrato: string | null;
+  hash_duplicidade: string | null;
   criado_em: string;
   atualizado_em: string;
   categoria?: {
@@ -73,6 +74,12 @@ export interface MarketplaceTransaction {
     razao_social: string;
     nome_fantasia: string | null;
   } | null;
+}
+
+export interface DuplicateGroup {
+  hash: string;
+  count: number;
+  transactions: MarketplaceTransaction[];
 }
 
 export interface MarketplaceTransactionInsert {
@@ -141,7 +148,7 @@ interface UseMarketplaceTransactionsReturn {
   isLoading: boolean;
   refetch: () => void;
   importarTransacoes: UseMutationResult<
-    { importadas: number },
+    { importadas: number; duplicadas?: number },
     Error,
     { transacoes: MarketplaceTransactionInsert[]; onProgress?: (percent: number) => void },
     unknown
@@ -155,6 +162,10 @@ interface UseMarketplaceTransactionsReturn {
   conciliarTransacao: UseMutationResult<MarketplaceTransaction, Error, string | { id: string; forcarConciliacao?: boolean }, unknown>;
   ignorarTransacao: UseMutationResult<void, Error, string, unknown>;
   reabrirTransacao: UseMutationResult<void, Error, string, unknown>;
+  duplicatas: DuplicateGroup[];
+  isDuplicatesLoading: boolean;
+  refetchDuplicates: () => void;
+  excluirDuplicatas: UseMutationResult<{ deleted: number }, Error, string[], unknown>;
 }
 
 export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsParams): UseMarketplaceTransactionsReturn {
@@ -613,6 +624,76 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     totalDescontos: totalTarifas + totalTaxas + totalOutrosDescontos,
   };
 
+  // Query para buscar transações duplicadas (mesmo hash)
+  const duplicatesQuery = useQuery({
+    queryKey: ["marketplace_duplicates", params.empresaId],
+    queryFn: async () => {
+      // Buscar todas as transações com hash
+      let query = supabase
+        .from("marketplace_transactions")
+        .select("id, hash_duplicidade, data_transacao, descricao, valor_liquido, canal, pedido_id, status, criado_em")
+        .not("hash_duplicidade", "is", null)
+        .order("hash_duplicidade")
+        .order("criado_em", { ascending: true });
+
+      if (params.empresaId) {
+        query = query.eq("empresa_id", params.empresaId);
+      }
+
+      const { data, error } = await query.limit(50000);
+      if (error) throw error;
+
+      // Agrupar por hash e identificar duplicatas
+      const hashGroups = new Map<string, typeof data>();
+      
+      for (const t of data || []) {
+        if (!t.hash_duplicidade) continue;
+        const existing = hashGroups.get(t.hash_duplicidade) || [];
+        existing.push(t);
+        hashGroups.set(t.hash_duplicidade, existing);
+      }
+
+      // Retornar apenas grupos com mais de 1 transação
+      const duplicates: DuplicateGroup[] = [];
+      hashGroups.forEach((transactions, hash) => {
+        if (transactions.length > 1) {
+          duplicates.push({
+            hash,
+            count: transactions.length,
+            transactions: transactions as unknown as MarketplaceTransaction[],
+          });
+        }
+      });
+
+      return duplicates;
+    },
+    enabled: true,
+  });
+
+  // Mutation para excluir transações duplicadas
+  const excluirDuplicatas = useMutation({
+    mutationFn: async (ids: string[]) => {
+      if (ids.length === 0) return { deleted: 0 };
+
+      const { error } = await supabase
+        .from("marketplace_transactions")
+        .delete()
+        .in("id", ids);
+
+      if (error) throw error;
+      return { deleted: ids.length };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["marketplace_duplicates"] });
+      toast.success(`${result.deleted} transações duplicadas removidas`);
+    },
+    onError: (error) => {
+      console.error("Erro ao excluir duplicatas:", error);
+      toast.error("Erro ao excluir transações duplicadas");
+    },
+  });
+
   return {
     transacoes,
     resumo,
@@ -623,5 +704,9 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     conciliarTransacao,
     ignorarTransacao,
     reabrirTransacao,
+    duplicatas: duplicatesQuery.data || [],
+    isDuplicatesLoading: duplicatesQuery.isLoading,
+    refetchDuplicates: duplicatesQuery.refetch,
+    excluirDuplicatas,
   };
 }
