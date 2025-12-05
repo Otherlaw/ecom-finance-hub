@@ -185,3 +185,31 @@ export async function finalizarJob(jobId: string, resultado: {
     console.error("[Job] Erro ao finalizar job:", error);
   }
 }
+
+export async function cancelarJob(jobId: string): Promise<void> {
+  const { error } = await supabase
+    .from("marketplace_import_jobs")
+    .update({
+      status: 'erro',
+      mensagem_erro: 'Importação cancelada pelo usuário',
+      finalizado_em: new Date().toISOString(),
+    })
+    .eq("id", jobId);
+
+  if (error) {
+    console.error("[Job] Erro ao cancelar job:", error);
+    throw error;
+  }
+}
+
+export async function excluirJob(jobId: string): Promise<void> {
+  const { error } = await supabase
+    .from("marketplace_import_jobs")
+    .delete()
+    .eq("id", jobId);
+
+  if (error) {
+    console.error("[Job] Erro ao excluir job:", error);
+    throw error;
+  }
+}
