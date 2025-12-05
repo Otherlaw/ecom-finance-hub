@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -34,8 +34,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
 import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago, parseShopee, type ParseResult, type ItemVendaParser } from "@/lib/parsers/arquivoFinanceiro";
 import { criarItensEmLote, limparCacheMapeamentos } from "@/lib/marketplace-items-service";
+import { criarJobImportacao, atualizarProgressoJob, finalizarJob } from "@/hooks/useMarketplaceImportJobs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface ImportarMarketplaceModalProps {
   open: boolean;
@@ -55,11 +57,9 @@ type TransacaoPreview = {
   valor_liquido: number;
   tipo_lancamento: 'credito' | 'debito';
   referencia_externa: string;
-  // Itens associados (extraídos do relatório)
   itens: ItemVendaParser[];
 };
 
-// Interface para estatísticas de importação
 interface ImportStats {
   totalLinhasArquivo: number;
   totalTransacoesGeradas: number;
@@ -80,6 +80,19 @@ const CANAIS = [
   { value: "outro", label: "Outro" },
 ];
 
+// Função para gerar referência única conforme especificado
+// Formato: canal_data_pedido_descricao_valor (max 120 chars)
+function buildMarketplaceRef(
+  canal: string,
+  data_transacao: string,
+  pedido_id: string | null,
+  descricao: string,
+  valor_liquido: number
+): string {
+  const ref = `${canal}_${data_transacao}_${pedido_id || ''}_${descricao}_${Number(valor_liquido || 0).toFixed(2)}`;
+  return ref.substring(0, 120);
+}
+
 export function ImportarMarketplaceModal({
   open,
   onOpenChange,
@@ -88,6 +101,7 @@ export function ImportarMarketplaceModal({
   const { empresas } = useEmpresas();
   const { importarTransacoes } = useMarketplaceTransactions();
   const { processarTransacoesImportadas } = useMarketplaceAutoCategorizacao();
+  const queryClient = useQueryClient();
   
   const [empresaId, setEmpresaId] = useState<string>("");
   const [canal, setCanal] = useState<string>("");
@@ -98,13 +112,11 @@ export function ImportarMarketplaceModal({
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [isProcessing, setIsProcessing] = useState(false);
   const [totalItensDetectados, setTotalItensDetectados] = useState(0);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [uploadLabel, setUploadLabel] = useState<string>("");
   const [duplicatasPrevia, setDuplicatasPrevia] = useState<number>(0);
   const [transacoesNovas, setTransacoesNovas] = useState<number>(0);
-  const [hashesDuplicados, setHashesDuplicados] = useState<Set<string>>(new Set());
+  const [transacoesDuplicadasIndices, setTransacoesDuplicadasIndices] = useState<Set<number>>(new Set());
+  const [isVerificandoDuplicatas, setIsVerificandoDuplicatas] = useState(false);
   
-  // Estatísticas de parse
   const [importStats, setImportStats] = useState<ImportStats>({
     totalLinhasArquivo: 0,
     totalTransacoesGeradas: 0,
@@ -125,11 +137,8 @@ export function ImportarMarketplaceModal({
     setStep("upload");
     setIsProcessing(false);
     setTotalItensDetectados(0);
-    setUploadProgress(null);
-    setUploadLabel("");
     setDuplicatasPrevia(0);
     setTransacoesNovas(0);
-    setHashesDuplicados(new Set());
     setTransacoesDuplicadasIndices(new Set());
     setIsVerificandoDuplicatas(false);
     setImportStats({
@@ -143,33 +152,11 @@ export function ImportarMarketplaceModal({
     });
   }, []);
 
-  // Função determinística para gerar referência única de duplicidade
-  // Combina: empresa, canal, data, pedido, tipo_lancamento, valor e descrição truncada
-  // DEVE SER IDÊNTICA À DO HOOK useMarketplaceTransactions
-  const buildMarketplaceRef = useCallback((t: TransacaoPreview, empId: string, canalVal: string): string => {
-    const base = [
-      empId,
-      canalVal,
-      t.data_transacao || '',
-      t.pedido_id || '',
-      t.tipo_lancamento || '',
-      Number(t.valor_liquido || 0).toFixed(2),
-      (t.descricao || '').substring(0, 60),
-    ].join('|');
-    
-    return base.substring(0, 100);
-  }, []);
-
-  // Estado para armazenar quais transações são duplicadas (por índice)
-  const [transacoesDuplicadasIndices, setTransacoesDuplicadasIndices] = useState<Set<number>>(new Set());
-  const [isVerificandoDuplicatas, setIsVerificandoDuplicatas] = useState(false);
-
-  // Verificar duplicatas no banco durante prévia - BUSCA REAL NO BANCO
+  // Verificar duplicatas no banco usando referencia_externa
   const verificarDuplicatasPrevia = useCallback(async (transacoes: TransacaoPreview[], empId: string, canalVal: string) => {
     if (transacoes.length === 0) {
       setDuplicatasPrevia(0);
       setTransacoesNovas(0);
-      setHashesDuplicados(new Set());
       setTransacoesDuplicadasIndices(new Set());
       return 0;
     }
@@ -177,28 +164,28 @@ export function ImportarMarketplaceModal({
     setIsVerificandoDuplicatas(true);
     console.log('[Verificação Duplicatas] Iniciando verificação para', transacoes.length, 'transações');
 
-    // Gerar hashes para as transações do arquivo
-    const hashesArquivo = transacoes.map(t => buildMarketplaceRef(t, empId, canalVal));
+    // Gerar referências para as transações do arquivo
+    const refsArquivo = transacoes.map(t => 
+      buildMarketplaceRef(canalVal, t.data_transacao, t.pedido_id, t.descricao, t.valor_liquido)
+    );
     
-    // Também verificar duplicatas internas (dentro do próprio arquivo)
-    const hashesUnicos = new Set<string>();
+    // Verificar duplicatas internas
+    const refsUnicos = new Set<string>();
     const duplicatasInternas = new Set<number>();
-    hashesArquivo.forEach((hash, idx) => {
-      if (hashesUnicos.has(hash)) {
+    refsArquivo.forEach((ref, idx) => {
+      if (refsUnicos.has(ref)) {
         duplicatasInternas.add(idx);
       } else {
-        hashesUnicos.add(hash);
+        refsUnicos.add(ref);
       }
     });
 
     console.log('[Verificação Duplicatas] Duplicatas internas no arquivo:', duplicatasInternas.size);
 
-    // Buscar referências externas existentes no banco em lotes de 10.000 para arquivos grandes
+    // Buscar refs existentes no banco em lotes
     const BATCH_SIZE = 10000;
     const refsExistentesBanco = new Set<string>();
-    
-    // Buscar apenas refs únicos para economizar queries
-    const refsParaBuscar = Array.from(hashesUnicos);
+    const refsParaBuscar = Array.from(refsUnicos);
     
     for (let i = 0; i < refsParaBuscar.length; i += BATCH_SIZE) {
       const batch = refsParaBuscar.slice(i, i + BATCH_SIZE);
@@ -220,24 +207,18 @@ export function ImportarMarketplaceModal({
           refsExistentesBanco.add(e.referencia_externa);
         }
       });
-      
-      // Log de progresso a cada 10 batches
-      if ((i / BATCH_SIZE) % 10 === 0) {
-        console.log(`[Verificação Duplicatas] Verificando batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(refsParaBuscar.length / BATCH_SIZE)}`);
-      }
     }
 
     console.log('[Verificação Duplicatas] Refs encontrados no banco:', refsExistentesBanco.size);
 
-    // Identificar quais transações são duplicatas (por índice)
+    // Identificar quais transações são duplicatas
     const indicesDuplicados = new Set<number>();
-    hashesArquivo.forEach((hash, idx) => {
-      if (refsExistentesBanco.has(hash) || duplicatasInternas.has(idx)) {
+    refsArquivo.forEach((ref, idx) => {
+      if (refsExistentesBanco.has(ref) || duplicatasInternas.has(idx)) {
         indicesDuplicados.add(idx);
       }
     });
 
-    setHashesDuplicados(refsExistentesBanco);
     setTransacoesDuplicadasIndices(indicesDuplicados);
     
     const totalDuplicadas = indicesDuplicados.size;
@@ -256,7 +237,7 @@ export function ImportarMarketplaceModal({
     });
     
     return totalDuplicadas;
-  }, [buildMarketplaceRef]);
+  }, []);
 
   const handleClose = useCallback(() => {
     resetForm();
@@ -285,85 +266,59 @@ export function ImportarMarketplaceModal({
         totalInseridas: 0,
       };
 
-      // Parser específico para Mercado Pago (CSV ou XLSX)
+      // Parser específico para Mercado Pago
       if (canal === "mercado_pago") {
         const result: ParseResult = await parseXLSXMercadoPago(file);
-        stats = {
-          ...stats,
-          ...result.estatisticas,
-        };
-        transacoes = result.transacoes.map(t => {
-          // Usar referencia_externa se disponível, senão gerar hash
-          const hash = t.referencia_externa || 
-            `${t.data_transacao}_${t.pedido_id || ""}_${t.valor_bruto}_${t.valor_liquido}_${t.descricao}`.substring(0, 120);
-          return {
-            data_transacao: t.data_transacao,
-            descricao: t.descricao,
-            pedido_id: t.pedido_id,
-            tipo_transacao: t.tipo_transacao || "payment",
-            valor_bruto: t.valor_bruto,
-            tarifas: t.tarifas || 0,
-            taxas: 0,
-            outros_descontos: 0,
-            valor_liquido: t.valor_liquido,
-            tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
-            referencia_externa: t.referencia_externa || hash,
-            itens: [],
-          };
-        });
+        stats = { ...stats, ...result.estatisticas };
+        transacoes = result.transacoes.map(t => ({
+          data_transacao: t.data_transacao,
+          descricao: t.descricao,
+          pedido_id: t.pedido_id,
+          tipo_transacao: t.tipo_transacao || "payment",
+          valor_bruto: t.valor_bruto,
+          tarifas: t.tarifas || 0,
+          taxas: 0,
+          outros_descontos: 0,
+          valor_liquido: t.valor_liquido,
+          tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
+          referencia_externa: buildMarketplaceRef(canal, t.data_transacao, t.pedido_id, t.descricao, t.valor_liquido),
+          itens: [],
+        }));
       } else if (canal === "mercado_livre" && (tipo === "xlsx" || tipo === "csv")) {
-        // Parser específico ML retorna objetos já mapeados COM ESTATÍSTICAS E ITENS
         const result: ParseResult = await parseXLSXMercadoLivre(file);
-        stats = {
-          ...stats,
-          ...result.estatisticas,
-        };
-        transacoes = result.transacoes.map(t => {
-          // Usar referencia_externa se disponível (ID único do relatório), senão gerar hash
-          const hash = t.referencia_externa || 
-            `${t.data_transacao}_${t.pedido_id || ""}_${t.valor_bruto}_${t.valor_liquido}_${t.descricao}`.substring(0, 120);
-          return {
-            data_transacao: t.data_transacao,
-            descricao: t.descricao,
-            pedido_id: t.pedido_id,
-            tipo_transacao: t.tipo_transacao || t.descricao || "venda",
-            valor_bruto: t.valor_bruto,
-            tarifas: t.tarifas || 0,
-            taxas: t.taxas || 0,
-            outros_descontos: t.outros_descontos || 0,
-            valor_liquido: t.valor_liquido,
-            tipo_lancamento: t.tipo_lancamento || (t.valor_liquido >= 0 ? "credito" as const : "debito" as const),
-            referencia_externa: t.referencia_externa || hash,
-            // Passar itens extraídos do relatório
-            itens: t.itens || [],
-          };
-        });
-        // Contar total de itens detectados
+        stats = { ...stats, ...result.estatisticas };
+        transacoes = result.transacoes.map(t => ({
+          data_transacao: t.data_transacao,
+          descricao: t.descricao,
+          pedido_id: t.pedido_id,
+          tipo_transacao: t.tipo_transacao || t.descricao || "venda",
+          valor_bruto: t.valor_bruto,
+          tarifas: t.tarifas || 0,
+          taxas: t.taxas || 0,
+          outros_descontos: t.outros_descontos || 0,
+          valor_liquido: t.valor_liquido,
+          tipo_lancamento: t.tipo_lancamento || (t.valor_liquido >= 0 ? "credito" as const : "debito" as const),
+          referencia_externa: buildMarketplaceRef(canal, t.data_transacao, t.pedido_id, t.descricao, t.valor_liquido),
+          itens: t.itens || [],
+        }));
         totalItens = transacoes.reduce((sum, t) => sum + (t.itens?.length || 0), 0);
       } else if (canal === "shopee" && (tipo === "xlsx" || tipo === "csv")) {
-        // Parser específico Shopee retorna objetos já mapeados COM ESTATÍSTICAS
         const result: ParseResult = await parseShopee(file);
-        stats = {
-          ...stats,
-          ...result.estatisticas,
-        };
-        transacoes = result.transacoes.map(t => {
-          return {
-            data_transacao: t.data_transacao,
-            descricao: t.descricao,
-            pedido_id: t.pedido_id,
-            tipo_transacao: t.tipo_transacao || "venda",
-            valor_bruto: t.valor_bruto,
-            tarifas: t.tarifas || 0,
-            taxas: t.taxas || 0,
-            outros_descontos: t.outros_descontos || 0,
-            valor_liquido: t.valor_liquido,
-            tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
-            referencia_externa: t.referencia_externa,
-            // Shopee pode ter itens no futuro
-            itens: t.itens || [],
-          };
-        });
+        stats = { ...stats, ...result.estatisticas };
+        transacoes = result.transacoes.map(t => ({
+          data_transacao: t.data_transacao,
+          descricao: t.descricao,
+          pedido_id: t.pedido_id,
+          tipo_transacao: t.tipo_transacao || "venda",
+          valor_bruto: t.valor_bruto,
+          tarifas: t.tarifas || 0,
+          taxas: t.taxas || 0,
+          outros_descontos: t.outros_descontos || 0,
+          valor_liquido: t.valor_liquido,
+          tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
+          referencia_externa: buildMarketplaceRef(canal, t.data_transacao, t.pedido_id, t.descricao, t.valor_liquido),
+          itens: t.itens || [],
+        }));
         totalItens = transacoes.reduce((sum, t) => sum + (t.itens?.length || 0), 0);
       } else if (tipo === "csv") {
         const linhas = await parseCSVFile(file);
@@ -416,17 +371,15 @@ export function ImportarMarketplaceModal({
     }
   }, [canal, empresaId, verificarDuplicatasPrevia]);
 
-  // Mapeia linhas do relatório (CSV/XLSX) para TransacaoPreview[] (parser genérico)
+  // Parser genérico para CSV/XLSX
   const mapLinhasRelatorioParaTransacoes = useCallback((linhas: any[], selectedCanal: string): { transacoes: TransacaoPreview[]; totalItens: number } => {
     if (linhas.length === 0) return { transacoes: [], totalItens: 0 };
 
     const transactions: TransacaoPreview[] = [];
     let totalItens = 0;
 
-    // Obter headers (chaves do primeiro objeto)
     const headers = Object.keys(linhas[0]).map(h => h.toLowerCase().trim());
 
-    // Mapeamento de colunas por canal
     const columnMappings: Record<string, {
       data: string[];
       pedido: string[];
@@ -450,30 +403,6 @@ export function ImportarMarketplaceModal({
         taxas: ["taxa", "imposto", "tax"],
         outrosDescontos: ["desconto", "discount", "outros"],
         idUnico: ["id da tarifa", "id tarifa", "id da transação", "id transacao", "id"],
-      },
-      mercado_pago: {
-        data: ["date_created", "data de criação", "data", "money_release_date", "date_approved"],
-        pedido: ["order_id", "external_reference", "referência externa", "merchant_order_id", "id"],
-        tipo: ["operation_type", "tipo de operação", "tipo", "payment_type", "transaction_type"],
-        descricao: ["description", "descrição", "reason", "item_title", "motivo"],
-        valorBruto: ["transaction_amount", "valor da transação", "valor bruto", "amount", "total_paid_amount"],
-        valorLiquido: ["net_received_amount", "valor líquido", "net_amount", "valor_liquido"],
-        tarifas: ["fee_amount", "marketplace_fee", "tarifa", "mercadopago_fee", "mp_fee"],
-        taxas: ["taxes_amount", "imposto", "tax"],
-        outrosDescontos: ["financing_fee_amount", "desconto", "coupon_amount"],
-        idUnico: ["id", "operation_id", "id da operação"],
-      },
-      shopee: {
-        data: ["data do pedido", "order date", "data"],
-        pedido: ["nº do pedido", "order id", "pedido"],
-        tipo: ["tipo de transação", "transaction type", "tipo"],
-        descricao: ["descrição", "description", "observação"],
-        valorBruto: ["valor bruto", "gross value", "total do pedido"],
-        valorLiquido: ["valor líquido", "net value", "valor final"],
-        tarifas: ["comissão", "taxa de serviço", "fee"],
-        taxas: ["imposto", "tax"],
-        outrosDescontos: ["voucher", "desconto", "cupom"],
-        idUnico: ["id", "order id"],
       },
       default: {
         data: ["data", "date", "data_transacao"],
@@ -508,23 +437,19 @@ export function ImportarMarketplaceModal({
     const tarifasCol = findColumn(mapping.tarifas);
     const taxasCol = findColumn(mapping.taxas);
     const outrosDescontosCol = findColumn(mapping.outrosDescontos);
-    const idUnicoCol = findColumn(mapping.idUnico);
 
-    // Detectar se tem granularidade de itens
     const temItens = detectarGranularidadeItens(headers);
 
     for (const linha of linhas) {
       const keys = Object.keys(linha);
       const getValue = (col: string | null): any => {
         if (!col) return null;
-        // Buscar por correspondência exata ou parcial
         const matchKey = keys.find(k => k.toLowerCase().trim() === col || k.toLowerCase().trim().includes(col));
         return matchKey ? linha[matchKey] : null;
       };
 
       const parseDate = (dateStr: string): string => {
         if (!dateStr) return "";
-        // Tentar formatos comuns
         const parts = String(dateStr).split(/[\/\-]/);
         if (parts.length === 3) {
           if (parts[0].length === 4) {
@@ -551,20 +476,14 @@ export function ImportarMarketplaceModal({
       const dataTransacao = parseDate(getValue(dataCol));
       const descricao = getValue(descricaoCol) || tipoTransacao;
       const pedidoId = getValue(pedidoCol)?.toString().trim() || null;
-      const idUnico = getValue(idUnicoCol)?.toString().trim() || null;
 
-      // Verificar se linha é válida (novo filtro menos restritivo)
       const temData = !!dataTransacao;
       const temDescricao = !!descricao && descricao !== "venda";
       const temValor = valorLiquido !== 0 || valorBruto !== 0;
 
-      // Só descartar se não tiver NADA
       if (!temData && !temDescricao && !temValor) continue;
-
-      // Se não tem data, pular (necessário para ordenação)
       if (!temData) continue;
 
-      // Determinar se é crédito ou débito baseado no tipo e valor
       let tipoLancamento: 'credito' | 'debito' = "credito";
       const tipoLower = String(tipoTransacao).toLowerCase();
       if (
@@ -578,18 +497,6 @@ export function ImportarMarketplaceModal({
         tipoLancamento = "debito";
       }
 
-      // Gerar hash para referencia_externa usando ID único se disponível
-      const baseRef = idUnico || pedidoId || "";
-      const hashStr = `${dataTransacao}|${baseRef}|${tipoTransacao}|${valorBruto}|${valorLiquido}`;
-      let hash = 0;
-      for (let j = 0; j < hashStr.length; j++) {
-        const char = hashStr.charCodeAt(j);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-      }
-      const referenciaExterna = idUnico || Math.abs(hash).toString(16);
-
-      // Extrair item se houver granularidade
       const itens: ItemVendaMarketplace[] = [];
       if (temItens) {
         const item = extrairItemDeLinhaCSV(selectedCanal, headers, Object.values(linha).map(String), pedidoId);
@@ -610,7 +517,7 @@ export function ImportarMarketplaceModal({
         outros_descontos: Math.abs(outrosDescontos),
         valor_liquido: Math.abs(valorLiquido),
         tipo_lancamento: tipoLancamento,
-        referencia_externa: referenciaExterna,
+        referencia_externa: buildMarketplaceRef(selectedCanal, dataTransacao, pedidoId, descricao, valorLiquido),
         itens,
       });
     }
@@ -618,14 +525,11 @@ export function ImportarMarketplaceModal({
     return { transacoes: transactions, totalItens };
   }, []);
 
+  // IMPORTAÇÃO EM SEGUNDO PLANO
   const handleImport = useCallback(async () => {
     if (!empresaId || !canal || parsedData.length === 0) return;
 
-    // Determinar origem do arquivo (csv ou xlsx)
-    const origemExtrato = fileName.toLowerCase().endsWith('.xlsx') ? 'arquivo_xlsx' : 'arquivo_csv';
-
-    // FILTRAR APENAS TRANSAÇÕES NOVAS (não duplicadas)
-    // Isso evita enviar duplicatas para o banco novamente
+    // Filtrar apenas transações novas
     const transacoesParaImportar = parsedData
       .filter((_, idx) => !transacoesDuplicadasIndices.has(idx))
       .map(row => ({
@@ -640,7 +544,6 @@ export function ImportarMarketplaceModal({
         descricao: row.descricao,
         valor_bruto: row.valor_bruto,
         valor_liquido: row.valor_liquido,
-        // NOVOS: Tarifas, taxas e descontos extraídos do relatório
         tarifas: row.tarifas || 0,
         taxas: row.taxas || 0,
         outros_descontos: row.outros_descontos || 0,
@@ -649,10 +552,10 @@ export function ImportarMarketplaceModal({
         categoria_id: null,
         centro_custo_id: null,
         responsavel_id: null,
-        origem_extrato: origemExtrato,
+        origem_extrato: fileName.toLowerCase().endsWith('.xlsx') ? 'arquivo_xlsx' : 'arquivo_csv',
       } as MarketplaceTransactionInsert));
 
-    console.log('[Importação] Transações filtradas:', {
+    console.log('[Importação Background] Iniciando...', {
       total: parsedData.length,
       duplicadas: transacoesDuplicadasIndices.size,
       paraImportar: transacoesParaImportar.length,
@@ -660,107 +563,57 @@ export function ImportarMarketplaceModal({
 
     if (transacoesParaImportar.length === 0) {
       toast.info("Todas as transações já existem no banco. Nenhuma importação necessária.");
-      setUploadLabel("");
-      setUploadProgress(null);
       handleClose();
       return;
     }
 
-    // seta info pra UI
-    setUploadLabel(`Importando ${transacoesParaImportar.length} transações novas...`);
-    setUploadProgress(0);
-
-    const result = await importarTransacoes.mutateAsync({
-      transacoes: transacoesParaImportar,
-      onProgress: (percent) => {
-        setUploadProgress(percent * 0.6); // 60% para importação
-      },
-    });
-
-    // Atualizar estatísticas finais
-    const finalStats = {
-      ...importStats,
-      // Usar o número de duplicadas identificadas no PREVIEW (antes da importação)
-      totalDuplicadas: transacoesDuplicadasIndices.size,
-      totalInseridas: result.importadas,
-    };
-    setImportStats(finalStats);
-
-    // Log completo para debug
-    console.log('[Importação Marketplace] RESULTADO FINAL:', {
-      arquivo: fileName,
-      ...finalStats,
-      duplicadasNoPreview: transacoesDuplicadasIndices.size,
-      duplicadasNaImportacao: result.duplicadas,
-    });
-
-    // Auto-categorização e conciliação automática após importação
-    if (result.insertedIds && result.insertedIds.length > 0) {
-      setUploadLabel("Categorizando e conciliando automaticamente...");
-      setUploadProgress(65);
-      
-      try {
-        await processarTransacoesImportadas.mutateAsync({
-          transactionIds: result.insertedIds,
-          empresaId,
-        });
-        setUploadProgress(80);
-      } catch (err) {
-        console.error("[Importação] Erro na auto-categorização:", err);
-        // Continua mesmo se a auto-categorização falhar
-      }
-
-      // Criar itens de venda para transações com itens
-      // Mapeamos os índices das transações novas com os IDs inseridos
-      const transacoesNovasComIndice = parsedData
-        .map((t, idx) => ({ transacao: t, indiceOriginal: idx }))
-        .filter(({ indiceOriginal }) => !transacoesDuplicadasIndices.has(indiceOriginal));
-
-      const transacoesComItens = transacoesNovasComIndice
-        .map(({ transacao }, idx) => ({
-          transactionId: result.insertedIds[idx],
-          itens: transacao.itens || [],
-        }))
-        .filter(t => t.itens.length > 0);
-
-      if (transacoesComItens.length > 0) {
-        setUploadLabel("Criando registros de itens vendidos...");
-        setUploadProgress(85);
-        
-        try {
-          limparCacheMapeamentos();
-          const resultadoItens = await criarItensEmLote(transacoesComItens, empresaId, canal);
-          console.log("[Importação] Itens criados:", resultadoItens);
-          
-          if (resultadoItens.itensVinculados > 0) {
-            toast.info(
-              `${resultadoItens.itensVinculados} itens vinculados automaticamente a produtos`,
-              { duration: 5000 }
-            );
-          }
-        } catch (err) {
-          console.error("[Importação] Erro ao criar itens:", err);
-        }
-      }
-
-      setUploadProgress(100);
+    // Criar job no banco
+    let jobId: string;
+    try {
+      jobId = await criarJobImportacao({
+        empresa_id: empresaId,
+        canal,
+        arquivo_nome: fileName,
+        total_linhas: transacoesParaImportar.length,
+      });
+    } catch (err) {
+      console.error('[Job] Erro ao criar job:', err);
+      toast.error("Erro ao iniciar importação");
+      return;
     }
 
-    // Toast com resumo detalhado
-    toast.success(
-      `Importação concluída! Arquivo: ${finalStats.totalLinhasArquivo} linhas | ` +
-      `Geradas: ${finalStats.totalTransacoesGeradas} | ` +
-      `Inseridas: ${finalStats.totalInseridas} | ` +
-      `Duplicadas: ${finalStats.totalDuplicadas} | ` +
-      `Ignoradas: ${finalStats.totalDescartadasPorFormato + finalStats.totalLinhasVazias}`,
-      { duration: 8000 }
+    // Fechar modal imediatamente
+    toast.success(`Importação iniciada — ${transacoesParaImportar.length.toLocaleString()} transações serão processadas em segundo plano`, {
+      description: "Acompanhe o progresso na tela de Conciliação do Marketplace",
+      duration: 5000,
+    });
+    
+    // Guardar referências antes de fechar
+    const savedEmpresaId = empresaId;
+    const savedCanal = canal;
+    const savedParsedData = [...parsedData];
+    const savedTransacoesDuplicadasIndices = new Set(transacoesDuplicadasIndices);
+    
+    handleClose();
+    onSuccess?.();
+    
+    // Invalidar queries para mostrar job em andamento
+    queryClient.invalidateQueries({ queryKey: ["marketplace_import_jobs"] });
+
+    // Processar em background (não bloqueia UI)
+    processarImportacaoBackground(
+      jobId,
+      transacoesParaImportar,
+      savedParsedData,
+      savedTransacoesDuplicadasIndices,
+      savedEmpresaId,
+      savedCanal,
+      importarTransacoes,
+      processarTransacoesImportadas,
+      queryClient
     );
 
-    setUploadLabel("");
-    setUploadProgress(null);
-    onSuccess?.();
-    handleClose();
-  }, [empresaId, canal, contaNome, parsedData, fileName, transacoesDuplicadasIndices, importStats, importarTransacoes, processarTransacoesImportadas, onSuccess, handleClose]);
+  }, [empresaId, canal, contaNome, parsedData, fileName, transacoesDuplicadasIndices, importarTransacoes, processarTransacoesImportadas, handleClose, onSuccess, queryClient]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -866,27 +719,21 @@ export function ImportarMarketplaceModal({
                 )}
               </div>
 
-              {/* Estatísticas detalhadas de parse */}
+              {/* Estatísticas */}
               {importStats.totalLinhasArquivo > 0 && (
                 <div className="text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md flex items-center gap-2">
                   <Info className="h-3.5 w-3.5" />
                   <span>
                     Arquivo: <strong>{importStats.totalLinhasArquivo.toLocaleString()}</strong> linhas | 
-                    Geradas: <strong>{importStats.totalTransacoesGeradas.toLocaleString()}</strong> | 
-                    {importStats.totalComValorZero > 0 && (
-                      <>Valor zero: <strong>{importStats.totalComValorZero.toLocaleString()}</strong> | </>
-                    )}
+                    Geradas: <strong>{importStats.totalTransacoesGeradas.toLocaleString()}</strong>
                     {importStats.totalDescartadasPorFormato > 0 && (
-                      <>Formato inválido: <strong>{importStats.totalDescartadasPorFormato.toLocaleString()}</strong> | </>
-                    )}
-                    {importStats.totalLinhasVazias > 0 && (
-                      <>Vazias: <strong>{importStats.totalLinhasVazias.toLocaleString()}</strong></>
+                      <> | Formato inválido: <strong>{importStats.totalDescartadasPorFormato.toLocaleString()}</strong></>
                     )}
                   </span>
                 </div>
               )}
 
-              {/* Aviso de duplicatas na prévia */}
+              {/* Status de duplicatas */}
               {isVerificandoDuplicatas && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">
                   <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -903,68 +750,62 @@ export function ImportarMarketplaceModal({
                   {duplicatasPrevia > 0 && (
                     <span className="flex items-center gap-1 text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 rounded-md">
                       <AlertTriangle className="h-4 w-4" />
-                      {duplicatasPrevia.toLocaleString()} duplicadas (já existem no banco)
+                      {duplicatasPrevia.toLocaleString()} duplicadas (serão ignoradas)
                     </span>
                   )}
                 </div>
               )}
 
-              <div className="h-[300px] border rounded-md overflow-auto">
-                <Table className="min-w-[900px]">
+              <ScrollArea className="max-h-64 border rounded-md mt-2">
+                <Table>
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="bg-secondary/50">
                       <TableHead className="w-24">Data</TableHead>
-                      <TableHead className="w-28">Pedido</TableHead>
-                      <TableHead className="w-24">Tipo</TableHead>
-                      <TableHead className="min-w-[180px]">Descrição</TableHead>
-                      <TableHead className="w-28 text-right">Valor Bruto</TableHead>
-                      <TableHead className="w-28 text-right">Valor Líquido</TableHead>
-                      <TableHead className="w-24">Lançamento</TableHead>
-                      <TableHead className="w-28">Status</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead>Pedido</TableHead>
+                      <TableHead className="text-right">Valor Bruto</TableHead>
+                      <TableHead className="text-right">Tarifas</TableHead>
+                      <TableHead className="text-right">Valor Líquido</TableHead>
+                      <TableHead className="text-center">Tipo</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {parsedData.slice(0, 50).map((row, idx) => {
-                      // Usar o índice para verificar se é duplicada (mais eficiente)
+                    {parsedData.slice(0, 100).map((t, idx) => {
                       const isDuplicada = transacoesDuplicadasIndices.has(idx);
                       return (
-                        <TableRow key={idx} className={isDuplicada ? "bg-amber-50 dark:bg-amber-950/30" : ""}>
-                          <TableCell className={isDuplicada ? "text-muted-foreground" : ""}>{row.data_transacao}</TableCell>
-                          <TableCell className={`font-mono text-xs ${isDuplicada ? "text-muted-foreground" : ""}`}>
-                            {row.pedido_id || "-"}
+                        <TableRow 
+                          key={idx} 
+                          className={isDuplicada ? "opacity-50 bg-amber-50/50 dark:bg-amber-950/20" : ""}
+                        >
+                          <TableCell className="text-xs">
+                            {t.data_transacao ? new Date(t.data_transacao + "T00:00:00").toLocaleDateString("pt-BR") : "-"}
                           </TableCell>
-                          <TableCell className={isDuplicada ? "text-muted-foreground" : ""}>{row.tipo_transacao}</TableCell>
-                          <TableCell className={`max-w-[200px] truncate ${isDuplicada ? "text-muted-foreground" : ""}`}>
-                            {row.descricao}
+                          <TableCell className="text-xs max-w-[200px] truncate" title={t.descricao}>
+                            {t.descricao}
                           </TableCell>
-                          <TableCell className={`text-right ${isDuplicada ? "text-muted-foreground" : ""}`}>
-                            {formatCurrency(row.valor_bruto)}
+                          <TableCell className="text-xs text-muted-foreground">
+                            {t.pedido_id || "-"}
                           </TableCell>
-                          <TableCell className={`text-right ${isDuplicada ? "text-muted-foreground" : ""}`}>
-                            {formatCurrency(row.valor_liquido)}
+                          <TableCell className="text-xs text-right">
+                            {formatCurrency(t.valor_bruto)}
                           </TableCell>
-                          <TableCell>
-                            <span
-                              className={`px-2 py-1 rounded text-xs font-medium ${
-                                row.tipo_lancamento === "credito"
-                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                              }`}
-                            >
-                              {row.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
+                          <TableCell className="text-xs text-right text-destructive">
+                            {t.tarifas > 0 ? formatCurrency(t.tarifas) : "-"}
+                          </TableCell>
+                          <TableCell className={`text-xs text-right font-medium ${t.tipo_lancamento === 'credito' ? 'text-success' : 'text-destructive'}`}>
+                            {t.tipo_lancamento === 'credito' ? '+' : '-'}{formatCurrency(t.valor_liquido)}
+                          </TableCell>
+                          <TableCell className="text-xs text-center">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${t.tipo_lancamento === 'credito' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
+                              {t.tipo_lancamento === 'credito' ? 'C' : 'D'}
                             </span>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="text-center">
                             {isDuplicada ? (
-                              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-xs font-medium whitespace-nowrap">
-                                <AlertTriangle className="h-3 w-3 flex-shrink-0" />
-                                Duplicada
-                              </span>
+                              <span className="text-[10px] text-amber-600">Duplicada</span>
                             ) : (
-                              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs font-medium whitespace-nowrap">
-                                <Sparkles className="h-3 w-3 flex-shrink-0" />
-                                Nova
-                              </span>
+                              <span className="text-[10px] text-emerald-600">Nova</span>
                             )}
                           </TableCell>
                         </TableRow>
@@ -972,47 +813,155 @@ export function ImportarMarketplaceModal({
                     })}
                   </TableBody>
                 </Table>
-                {parsedData.length > 50 && (
-                  <p className="text-center text-sm text-muted-foreground py-2">
-                    Mostrando 50 de {parsedData.length.toLocaleString()} transações
-                  </p>
+                {parsedData.length > 100 && (
+                  <div className="p-2 text-center text-xs text-muted-foreground bg-muted/50">
+                    Exibindo 100 de {parsedData.length.toLocaleString()} transações
+                  </div>
                 )}
-              </div>
+              </ScrollArea>
             </div>
           )}
         </div>
 
-        {uploadProgress !== null && (
-          <div className="mt-4 mb-2">
-            <p className="text-xs text-muted-foreground mb-1">
-              {uploadLabel || "Processando arquivo..."}
-            </p>
-            <Progress value={uploadProgress} className="h-1.5" />
-          </div>
-        )}
-
-        <DialogFooter>
+        <DialogFooter className="mt-4">
           <Button variant="outline" onClick={handleClose}>
             Cancelar
           </Button>
           <Button
             onClick={handleImport}
-            disabled={!empresaId || !canal || parsedData.length === 0 || transacoesNovas === 0 || importarTransacoes.isPending || isVerificandoDuplicatas}
+            disabled={parsedData.length === 0 || isProcessing || isVerificandoDuplicatas || transacoesNovas === 0}
+            className="gap-2"
           >
-            <Upload className="h-4 w-4 mr-2" />
-            {isVerificandoDuplicatas
-              ? "Verificando duplicatas..."
-              : importarTransacoes.isPending 
-                ? "Importando..." 
-                : transacoesNovas > 0 
-                  ? `Importar ${transacoesNovas.toLocaleString()} transações novas`
-                  : parsedData.length > 0 
-                    ? "Todas duplicadas"
-                    : `Importar ${parsedData.length.toLocaleString()} transações`
-            }
+            <Upload className="h-4 w-4" />
+            Iniciar Importação ({transacoesNovas.toLocaleString()} transações)
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+// Função que processa em background (fora do componente para não ser afetada pelo unmount)
+async function processarImportacaoBackground(
+  jobId: string,
+  transacoesParaImportar: MarketplaceTransactionInsert[],
+  parsedData: TransacaoPreview[],
+  transacoesDuplicadasIndices: Set<number>,
+  empresaId: string,
+  canal: string,
+  importarTransacoes: any,
+  processarTransacoesImportadas: any,
+  queryClient: any
+) {
+  const BATCH_SIZE = 500;
+  let importadas = 0;
+  let duplicadas = transacoesDuplicadasIndices.size;
+  let erros = 0;
+  const insertedIds: string[] = [];
+
+  try {
+    // Processar em batches
+    for (let i = 0; i < transacoesParaImportar.length; i += BATCH_SIZE) {
+      const batch = transacoesParaImportar.slice(i, i + BATCH_SIZE);
+      
+      try {
+        const { data, error } = await supabase
+          .from("marketplace_transactions")
+          .insert(batch)
+          .select("id");
+
+        if (error) {
+          if (error.code === "23505") {
+            // Duplicidade - contar e continuar
+            duplicadas += batch.length;
+          } else {
+            erros += batch.length;
+            console.error("[Background Import] Erro no batch:", error);
+          }
+        } else {
+          importadas += data?.length ?? 0;
+          if (data) {
+            insertedIds.push(...data.map(d => d.id));
+          }
+        }
+      } catch (err) {
+        erros += batch.length;
+        console.error("[Background Import] Erro no batch:", err);
+      }
+
+      // Atualizar progresso no banco após cada batch
+      await atualizarProgressoJob(jobId, {
+        linhas_processadas: Math.min(i + batch.length, transacoesParaImportar.length),
+        linhas_importadas: importadas,
+        linhas_duplicadas: duplicadas,
+        linhas_com_erro: erros,
+      });
+    }
+
+    // Auto-categorização
+    if (insertedIds.length > 0) {
+      try {
+        await processarTransacoesImportadas.mutateAsync({
+          transactionIds: insertedIds,
+          empresaId,
+        });
+      } catch (err) {
+        console.error("[Background Import] Erro na auto-categorização:", err);
+      }
+
+      // Criar itens de venda
+      const transacoesNovasComIndice = parsedData
+        .map((t, idx) => ({ transacao: t, indiceOriginal: idx }))
+        .filter(({ indiceOriginal }) => !transacoesDuplicadasIndices.has(indiceOriginal));
+
+      const transacoesComItens = transacoesNovasComIndice
+        .map(({ transacao }, idx) => ({
+          transactionId: insertedIds[idx],
+          itens: transacao.itens || [],
+        }))
+        .filter(t => t.itens && t.itens.length > 0);
+
+      if (transacoesComItens.length > 0) {
+        try {
+          limparCacheMapeamentos();
+          await criarItensEmLote(transacoesComItens, empresaId, canal);
+        } catch (err) {
+          console.error("[Background Import] Erro ao criar itens:", err);
+        }
+      }
+    }
+
+    // Finalizar job com sucesso
+    await finalizarJob(jobId, {
+      status: 'concluido',
+      linhas_importadas: importadas,
+      linhas_duplicadas: duplicadas,
+      linhas_com_erro: erros,
+    });
+
+    // Invalidar queries
+    queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
+    queryClient.invalidateQueries({ queryKey: ["marketplace_import_jobs"] });
+
+    toast.success(`Importação concluída: ${importadas.toLocaleString()} transações importadas`, {
+      description: duplicadas > 0 ? `${duplicadas.toLocaleString()} duplicadas ignoradas` : undefined,
+    });
+
+  } catch (err) {
+    console.error("[Background Import] Erro fatal:", err);
+    
+    await finalizarJob(jobId, {
+      status: 'erro',
+      linhas_importadas: importadas,
+      linhas_duplicadas: duplicadas,
+      linhas_com_erro: erros,
+      mensagem_erro: err instanceof Error ? err.message : "Erro desconhecido",
+    });
+
+    queryClient.invalidateQueries({ queryKey: ["marketplace_import_jobs"] });
+    
+    toast.error("Erro na importação", {
+      description: err instanceof Error ? err.message : "Erro desconhecido",
+    });
+  }
 }
