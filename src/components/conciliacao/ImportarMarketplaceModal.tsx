@@ -563,7 +563,7 @@ export function ImportarMarketplaceModal({
       valor_bruto: row.valor_bruto,
       valor_liquido: row.valor_liquido,
       tipo_lancamento: row.tipo_lancamento,
-      status: 'importado',
+      status: 'pendente',
       categoria_id: null,
       centro_custo_id: null,
       responsavel_id: null,
