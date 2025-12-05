@@ -294,8 +294,8 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       hash_duplicidade: gerarHashDuplicidade(r),
     }));
 
-    // 2. Buscar hashes existentes no banco em lotes (Supabase tem limite de IN clause)
-    const HASH_BATCH_SIZE = 500;
+    // 2. Buscar hashes existentes no banco em lotes de 10.000 para arquivos grandes
+    const HASH_BATCH_SIZE = 10000;
     const hashesSet = new Set<string>();
     const allHashes = registrosComHash.map(r => r.hash_duplicidade);
     
