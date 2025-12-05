@@ -31,6 +31,7 @@ import {
   PenLine,
   BarChart3,
   Store,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -74,6 +75,7 @@ const settingsNavItems: NavItem[] = [
   { title: "Plano de Contas", href: "/plano-contas", icon: List },
   { title: "Regras Categorização", href: "/regras-categorizacao", icon: Sparkles },
   { title: "Regras Marketplace", href: "/regras-marketplace", icon: Store },
+  { title: "Mapeamentos MLB ↔ SKU", href: "/mapeamentos-marketplace", icon: Link2 },
   { title: "Usuários", href: "/usuarios", icon: Users },
   { title: "Configurações", href: "/configuracoes", icon: Settings },
 ];
