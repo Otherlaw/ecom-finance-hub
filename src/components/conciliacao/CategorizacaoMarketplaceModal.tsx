@@ -119,9 +119,41 @@ export function CategorizacaoMarketplaceModal({
 
   const parseNumber = (value: string): number => {
     if (!value) return 0;
-    // Remove R$ e espaços, troca vírgula por ponto
-    const cleaned = value.replace(/[R$\s]/g, "").replace(",", ".");
-    return parseFloat(cleaned) || 0;
+    const str = String(value).trim();
+    
+    // Rejeitar datas
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(str) || /^\d{4}-\d{1,2}-\d{1,2}/.test(str)) {
+      return 0;
+    }
+    
+    // Remove R$, espaços
+    let cleaned = str.replace(/[R$€£¥\s]/gi, "");
+    
+    // Lógica brasileiro vs americano
+    const numPontos = (cleaned.match(/\./g) || []).length;
+    const numVirgulas = (cleaned.match(/,/g) || []).length;
+    
+    if (numPontos > 1) {
+      cleaned = cleaned.replace(/\./g, "").replace(",", ".");
+    } else if (numVirgulas === 1 && numPontos === 1) {
+      const posVirgula = cleaned.lastIndexOf(",");
+      const posPonto = cleaned.lastIndexOf(".");
+      if (posVirgula > posPonto) {
+        cleaned = cleaned.replace(/\./g, "").replace(",", ".");
+      } else {
+        cleaned = cleaned.replace(/,/g, "");
+      }
+    } else if (numVirgulas === 1) {
+      cleaned = cleaned.replace(",", ".");
+    }
+    
+    cleaned = cleaned.replace(/[^\d.\-]/g, "");
+    const num = parseFloat(cleaned);
+    
+    // Rejeitar números absurdos (possível data mal interpretada)
+    if (isNaN(num) || Math.abs(num) > 100000000) return 0;
+    
+    return num;
   };
 
   const isLoading = atualizarTransacao.isPending || conciliarTransacao.isPending || ignorarTransacao.isPending || reabrirTransacao.isPending || adicionarItem.isPending || removerItem.isPending;
