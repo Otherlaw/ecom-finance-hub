@@ -569,7 +569,19 @@ export function ImportarMarketplaceModal({
       origem_extrato: origemExtrato,
     } as MarketplaceTransactionInsert));
 
-    await importarTransacoes.mutateAsync({ transacoes });
+    setUploadProgress(0);
+    setUploadLabel(`Importando ${transacoes.length} transações...`);
+
+    await importarTransacoes.mutateAsync({
+      transacoes,
+      onProgress: (percent) => {
+        setUploadProgress(percent);
+        setUploadLabel(`Importando... ${percent}%`);
+      },
+    });
+
+    setUploadProgress(null);
+    setUploadLabel("");
     onSuccess?.();
     handleClose();
   }, [empresaId, canal, contaNome, parsedData, fileName, importarTransacoes, onSuccess, handleClose]);
