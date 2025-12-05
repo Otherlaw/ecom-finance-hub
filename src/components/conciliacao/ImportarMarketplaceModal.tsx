@@ -89,6 +89,7 @@ export function ImportarMarketplaceModal({
   const [uploadLabel, setUploadLabel] = useState<string>("");
   const [duplicatasPrevia, setDuplicatasPrevia] = useState<number>(0);
   const [transacoesNovas, setTransacoesNovas] = useState<number>(0);
+  const [hashesDuplicados, setHashesDuplicados] = useState<Set<string>>(new Set());
 
   const resetForm = useCallback(() => {
     setEmpresaId("");
@@ -104,6 +105,7 @@ export function ImportarMarketplaceModal({
     setUploadLabel("");
     setDuplicatasPrevia(0);
     setTransacoesNovas(0);
+    setHashesDuplicados(new Set());
   }, []);
 
   // Função para gerar hash de duplicidade (mesma usada na importação)
@@ -123,6 +125,7 @@ export function ImportarMarketplaceModal({
     if (transacoes.length === 0) {
       setDuplicatasPrevia(0);
       setTransacoesNovas(0);
+      setHashesDuplicados(new Set());
       return;
     }
 
@@ -137,6 +140,7 @@ export function ImportarMarketplaceModal({
       .in('hash_duplicidade', hashesArquivo);
 
     const hashesExistentes = new Set((existentes || []).map(e => e.hash_duplicidade));
+    setHashesDuplicados(hashesExistentes);
     
     const duplicadas = hashesArquivo.filter(h => hashesExistentes.has(h)).length;
     const novas = transacoes.length - duplicadas;
@@ -777,38 +781,56 @@ export function ImportarMarketplaceModal({
                       <TableHead className="text-right">Valor Bruto</TableHead>
                       <TableHead className="text-right">Valor Líquido</TableHead>
                       <TableHead>Lançamento</TableHead>
+                      <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {parsedData.slice(0, 50).map((row, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell>{row.data_transacao}</TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {row.pedido_id || "-"}
-                        </TableCell>
-                        <TableCell>{row.tipo_transacao}</TableCell>
-                        <TableCell className="max-w-[200px] truncate">
-                          {row.descricao}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(row.valor_bruto)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(row.valor_liquido)}
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={`px-2 py-1 rounded text-xs ${
-                              row.tipo_lancamento === "credito"
-                                ? "bg-emerald-100 text-emerald-700"
-                                : "bg-red-100 text-red-700"
-                            }`}
-                          >
-                            {row.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {parsedData.slice(0, 50).map((row, idx) => {
+                      const hash = gerarHashDuplicidade(row, empresaId, canal);
+                      const isDuplicada = hashesDuplicados.has(hash);
+                      return (
+                        <TableRow key={idx} className={isDuplicada ? "bg-amber-50/50 opacity-60" : ""}>
+                          <TableCell>{row.data_transacao}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {row.pedido_id || "-"}
+                          </TableCell>
+                          <TableCell>{row.tipo_transacao}</TableCell>
+                          <TableCell className="max-w-[200px] truncate">
+                            {row.descricao}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(row.valor_bruto)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(row.valor_liquido)}
+                          </TableCell>
+                          <TableCell>
+                            <span
+                              className={`px-2 py-1 rounded text-xs ${
+                                row.tipo_lancamento === "credito"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              {row.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {isDuplicada ? (
+                              <span className="flex items-center gap-1 text-amber-600 text-xs">
+                                <AlertTriangle className="h-3 w-3" />
+                                Duplicada
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-emerald-600 text-xs">
+                                <Sparkles className="h-3 w-3" />
+                                Nova
+                              </span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
                 {parsedData.length > 50 && (
