@@ -81,6 +81,8 @@ export function ImportarMarketplaceModal({
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [isProcessing, setIsProcessing] = useState(false);
   const [totalItensDetectados, setTotalItensDetectados] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadLabel, setUploadLabel] = useState<string>("");
 
   const resetForm = useCallback(() => {
     setEmpresaId("");
@@ -92,6 +94,8 @@ export function ImportarMarketplaceModal({
     setStep("upload");
     setIsProcessing(false);
     setTotalItensDetectados(0);
+    setUploadProgress(null);
+    setUploadLabel("");
   }, []);
 
   const handleClose = useCallback(() => {
