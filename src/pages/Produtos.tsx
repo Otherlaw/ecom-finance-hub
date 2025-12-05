@@ -1,10 +1,10 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, Eye, Edit, Package, Filter } from "lucide-react";
+import { Plus, Search, Eye, Edit, Package, Trash2, Upload, Download } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -22,75 +22,87 @@ import {
 } from "@/components/ui/table";
 import { ProductFormModal } from "@/components/products/ProductFormModal";
 import { ProductDetailModal } from "@/components/products/ProductDetailModal";
+import { ImportProdutosModal } from "@/components/products/ImportProdutosModal";
+import { ExportProdutosModal } from "@/components/products/ExportProdutosModal";
+import { DeleteProdutoModal } from "@/components/products/DeleteProdutoModal";
+import { useProdutos } from "@/hooks/useProdutos";
+import { useEmpresas } from "@/hooks/useEmpresas";
 import {
   Product,
-  mockProducts,
   mockSalesHistory,
   mockPurchaseHistory,
   CATEGORIAS_PRODUTO,
   CANAIS_VENDA,
   formatCurrency,
-  formatDate,
 } from "@/lib/products-data";
+import type { Produto } from "@/lib/motor-custos";
 
 export default function Produtos() {
-  const [products, setProducts] = useState<Product[]>(mockProducts);
+  const { empresas } = useEmpresas();
+  const [empresaId, setEmpresaId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("todos");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
-  const [channelFilter, setChannelFilter] = useState<string>("todos");
+
+  const { produtos, isLoading, refetch, resumo } = useProdutos({
+    empresaId: empresaId || undefined,
+    status: statusFilter === "todos" ? "todos" : statusFilter as "ativo" | "inativo",
+    categoria: categoryFilter !== "todos" ? categoryFilter : undefined,
+    busca: searchTerm || undefined,
+  });
 
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [deletingProduto, setDeletingProduto] = useState<Produto | null>(null);
 
-  const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
-      if (searchTerm) {
-        const search = searchTerm.toLowerCase();
-        if (
-          !product.nome.toLowerCase().includes(search) &&
-          !product.codigoInterno.toLowerCase().includes(search) &&
-          !product.ncm.includes(search)
-        ) {
-          return false;
-        }
-      }
-      if (categoryFilter !== "todos" && product.categoria !== categoryFilter) return false;
-      if (statusFilter !== "todos" && product.status !== statusFilter) return false;
-      if (channelFilter !== "todos" && !product.canais.some((c) => c.channel === channelFilter)) return false;
-      return true;
-    });
-  }, [products, searchTerm, categoryFilter, statusFilter, channelFilter]);
+  // Converter Produto do Supabase para o formato do modal
+  const convertToProduct = (p: Produto): Product => ({
+    id: p.id,
+    codigoInterno: p.codigo_interno,
+    nome: p.nome,
+    descricao: p.descricao || "",
+    categoria: p.categoria || "",
+    subcategoria: p.subcategoria,
+    unidadeMedida: p.unidade_medida,
+    ncm: p.ncm || "",
+    cfopVenda: p.cfop_venda,
+    cfopCompra: p.cfop_compra,
+    situacaoTributaria: p.situacao_tributaria,
+    fornecedorPrincipalId: p.fornecedor_principal_id,
+    fornecedorPrincipalNome: p.fornecedor_principal_nome,
+    custoMedio: p.custo_medio_atual,
+    precoVendaSugerido: p.preco_venda_sugerido,
+    canais: p.canais || [],
+    status: p.status,
+    observacoes: p.observacoes,
+    dataCadastro: p.created_at || "",
+    dataAtualizacao: p.updated_at || "",
+  });
 
-  const handleSaveProduct = (product: Product) => {
-    setProducts((prev) => {
-      const index = prev.findIndex((p) => p.id === product.id);
-      if (index >= 0) {
-        const updated = [...prev];
-        updated[index] = product;
-        return updated;
-      }
-      return [...prev, product];
-    });
-  };
-
-  const handleEdit = (product: Product) => {
-    setEditingProduct(product);
+  const handleEdit = (produto: Produto) => {
+    setEditingProduct(convertToProduct(produto));
     setFormModalOpen(true);
   };
 
-  const handleView = (product: Product) => {
-    setSelectedProduct(product);
+  const handleView = (produto: Produto) => {
+    setSelectedProduct(convertToProduct(produto));
     setDetailModalOpen(true);
   };
 
-  const stats = useMemo(() => ({
-    total: products.length,
-    ativos: products.filter((p) => p.status === "ativo").length,
-    valorEstoque: products.reduce((sum, p) => sum + p.custoMedio * 10, 0),
-  }), [products]);
+  const handleDelete = (produto: Produto) => {
+    setDeletingProduto(produto);
+    setDeleteModalOpen(true);
+  };
+
+  const handleSaveProduct = () => {
+    refetch();
+  };
 
   return (
     <div className="flex min-h-screen w-full bg-background">
@@ -102,19 +114,29 @@ export default function Produtos() {
               <h1 className="text-2xl font-bold">Cadastro de Produtos</h1>
               <p className="text-muted-foreground">Gerencie o catálogo de produtos</p>
             </div>
-            <Button onClick={() => { setEditingProduct(null); setFormModalOpen(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Produto
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setExportModalOpen(true)}>
+                <Download className="h-4 w-4 mr-2" />
+                Exportar
+              </Button>
+              <Button variant="outline" onClick={() => setImportModalOpen(true)}>
+                <Upload className="h-4 w-4 mr-2" />
+                Importar
+              </Button>
+              <Button onClick={() => { setEditingProduct(null); setFormModalOpen(true); }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Novo Produto
+              </Button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
                   <Package className="h-8 w-8 text-primary" />
                   <div>
-                    <div className="text-2xl font-bold">{stats.total}</div>
+                    <div className="text-2xl font-bold">{resumo.total}</div>
                     <div className="text-sm text-muted-foreground">Total de Produtos</div>
                   </div>
                 </div>
@@ -122,13 +144,19 @@ export default function Produtos() {
             </Card>
             <Card>
               <CardContent className="pt-6">
-                <div className="text-2xl font-bold text-success">{stats.ativos}</div>
+                <div className="text-2xl font-bold text-success">{resumo.ativos}</div>
                 <div className="text-sm text-muted-foreground">Produtos Ativos</div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-6">
-                <div className="text-2xl font-bold">{formatCurrency(stats.valorEstoque)}</div>
+                <div className="text-2xl font-bold">{resumo.produtosComEstoque}</div>
+                <div className="text-sm text-muted-foreground">Com Estoque</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-2xl font-bold">{formatCurrency(resumo.valorEstoque)}</div>
                 <div className="text-sm text-muted-foreground">Valor Est. em Estoque</div>
               </CardContent>
             </Card>
@@ -137,6 +165,19 @@ export default function Produtos() {
           <Card>
             <CardHeader>
               <div className="flex items-center gap-4">
+                <Select value={empresaId} onValueChange={setEmpresaId}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="Todas empresas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Todas</SelectItem>
+                    {empresas.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.nome_fantasia || e.razao_social}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -161,67 +202,111 @@ export default function Produtos() {
                     <SelectItem value="inativo">Inativo</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={channelFilter} onValueChange={setChannelFilter}>
-                  <SelectTrigger className="w-40"><SelectValue placeholder="Canal" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todos</SelectItem>
-                    {CANAIS_VENDA.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
               </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Produto</TableHead>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead>NCM</TableHead>
-                    <TableHead className="text-right">Custo Médio</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProducts.map((product) => (
-                    <TableRow key={product.id}>
-                      <TableCell className="font-mono text-sm">{product.codigoInterno}</TableCell>
-                      <TableCell>
-                        <div className="font-medium max-w-64 truncate">{product.nome}</div>
-                        {product.canais.length > 0 && (
-                          <div className="flex gap-1 mt-1">
-                            {product.canais.slice(0, 3).map((c) => (
-                              <Badge key={c.channel} variant="outline" className="text-xs">{CANAIS_VENDA.find((x) => x.id === c.channel)?.nome}</Badge>
-                            ))}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>{product.categoria}</TableCell>
-                      <TableCell className="font-mono">{product.ncm}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(product.custoMedio)}</TableCell>
-                      <TableCell>
-                        <Badge variant={product.status === "ativo" ? "default" : "secondary"}>
-                          {product.status === "ativo" ? "Ativo" : "Inativo"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleView(product)}><Eye className="h-4 w-4" /></Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleEdit(product)}><Edit className="h-4 w-4" /></Button>
-                        </div>
-                      </TableCell>
+              {isLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Carregando produtos...</div>
+              ) : produtos.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  Nenhum produto encontrado. Use o botão "Importar" para adicionar produtos em massa.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Produto</TableHead>
+                      <TableHead>Categoria</TableHead>
+                      <TableHead>NCM</TableHead>
+                      <TableHead className="text-right">Custo Médio</TableHead>
+                      <TableHead className="text-right">Estoque</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {produtos.map((produto) => (
+                      <TableRow key={produto.id}>
+                        <TableCell className="font-mono text-sm">{produto.codigo_interno}</TableCell>
+                        <TableCell>
+                          <div className="font-medium max-w-64 truncate">{produto.nome}</div>
+                          {produto.canais && (produto.canais as any[]).length > 0 && (
+                            <div className="flex gap-1 mt-1">
+                              {(produto.canais as any[]).slice(0, 3).map((c: any) => (
+                                <Badge key={c.channel} variant="outline" className="text-xs">
+                                  {CANAIS_VENDA.find((x) => x.id === c.channel)?.nome || c.channel}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>{produto.categoria || "-"}</TableCell>
+                        <TableCell className="font-mono">{produto.ncm || "-"}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(produto.custo_medio_atual)}</TableCell>
+                        <TableCell className="text-right">{produto.estoque_atual}</TableCell>
+                        <TableCell>
+                          <Badge variant={produto.status === "ativo" ? "default" : "secondary"}>
+                            {produto.status === "ativo" ? "Ativo" : "Inativo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => handleView(produto)}>
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleEdit(produto)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => handleDelete(produto)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </div>
       </main>
 
-      <ProductFormModal open={formModalOpen} onOpenChange={setFormModalOpen} product={editingProduct} onSave={handleSaveProduct} />
-      <ProductDetailModal open={detailModalOpen} onOpenChange={setDetailModalOpen} product={selectedProduct} salesHistory={mockSalesHistory} purchaseHistory={mockPurchaseHistory} />
+      <ProductFormModal 
+        open={formModalOpen} 
+        onOpenChange={setFormModalOpen} 
+        product={editingProduct} 
+        onSave={handleSaveProduct} 
+      />
+      <ProductDetailModal 
+        open={detailModalOpen} 
+        onOpenChange={setDetailModalOpen} 
+        product={selectedProduct} 
+        salesHistory={mockSalesHistory} 
+        purchaseHistory={mockPurchaseHistory} 
+      />
+      <ImportProdutosModal 
+        open={importModalOpen} 
+        onOpenChange={setImportModalOpen} 
+        onSuccess={() => refetch()} 
+      />
+      <ExportProdutosModal 
+        open={exportModalOpen} 
+        onOpenChange={setExportModalOpen} 
+      />
+      <DeleteProdutoModal
+        open={deleteModalOpen}
+        onOpenChange={setDeleteModalOpen}
+        produto={deletingProduto}
+        onDeleted={() => refetch()}
+        onInactivate={() => refetch()}
+      />
     </div>
   );
 }
