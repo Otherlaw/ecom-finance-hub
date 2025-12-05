@@ -53,6 +53,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 
@@ -1377,25 +1378,46 @@ function MarketplaceTab() {
                 <Checkbox className="h-3.5 w-3.5" checked={selectedDuplicates.size === totalDuplicatas} />
                 Selecionar todas ({totalDuplicatas})
               </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="gap-2"
-                disabled={excluirDuplicatas.isPending}
-                onClick={() => {
-                  const allDuplicateIds = duplicatas.flatMap(g => g.transactions.slice(1).map(t => t.id));
-                  if (allDuplicateIds.length === 0) return;
-                  excluirDuplicatas.mutate(allDuplicateIds, {
-                    onSuccess: () => {
-                      setSelectedDuplicates(new Set());
-                      setDuplicatesModalOpen(false);
-                    }
-                  });
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                {excluirDuplicatas.isPending ? "Removendo..." : `Remover todas (${totalDuplicatas})`}
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="gap-2"
+                    disabled={excluirDuplicatas.isPending}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {excluirDuplicatas.isPending ? "Removendo..." : `Remover todas (${totalDuplicatas})`}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Confirmar remoção em massa</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Você está prestes a remover <strong>{totalDuplicatas} transações duplicadas</strong>. 
+                      Esta ação não pode ser desfeita. A primeira transação de cada grupo será mantida.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={() => {
+                        const allDuplicateIds = duplicatas.flatMap(g => g.transactions.slice(1).map(t => t.id));
+                        if (allDuplicateIds.length === 0) return;
+                        excluirDuplicatas.mutate(allDuplicateIds, {
+                          onSuccess: () => {
+                            setSelectedDuplicates(new Set());
+                            setDuplicatesModalOpen(false);
+                          }
+                        });
+                      }}
+                    >
+                      Sim, remover todas
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
               {selectedDuplicates.size > 0 && (
                 <Button
                   variant="ghost"
