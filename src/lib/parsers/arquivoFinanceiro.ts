@@ -16,6 +16,37 @@ export interface ParseResult {
   };
 }
 
+// ============= FUNÇÃO CENTRALIZADA PARA GERAR REFERÊNCIA EXTERNA =============
+// Regra "A": referência_externa = ${data}_${pedido}_${valor}_${descricao}
+// - Sempre string
+// - Sem espaços extras
+// - Máximo 150 caracteres
+export function gerarReferenciaExterna(params: {
+  data: string;
+  pedido?: string | null;
+  valor: number;
+  descricao?: string | null;
+  idUnico?: string | null; // Se existir ID único do relatório, usar como prioridade
+}): string {
+  // Se tiver ID único do relatório, priorizar
+  if (params.idUnico && String(params.idUnico).trim()) {
+    return String(params.idUnico).trim().substring(0, 150);
+  }
+  
+  // Caso contrário, gerar hash no formato padrão
+  const partes = [
+    String(params.data || "").trim(),
+    String(params.pedido || "").trim(),
+    String(params.valor || 0),
+    String(params.descricao || "").trim().substring(0, 80),
+  ];
+  
+  return partes
+    .map(p => p.replace(/\s+/g, " ").trim())
+    .join("_")
+    .substring(0, 150);
+}
+
 export function detectarTipoArquivo(file: File): TipoArquivoFinanceiro {
   const ext = file.name.split(".").pop()?.toLowerCase();
 
@@ -201,17 +232,26 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
     }
 
     // Obter ID único para referencia_externa (prevenir duplicatas)
-    let referenciaExterna = "";
+    let idUnico = "";
     if (col.idTarifa >= 0 && r[col.idTarifa]) {
-      referenciaExterna = String(r[col.idTarifa]).trim();
+      idUnico = String(r[col.idTarifa]).trim();
     } else if (col.idTransacao >= 0 && r[col.idTransacao]) {
-      referenciaExterna = String(r[col.idTransacao]).trim();
+      idUnico = String(r[col.idTransacao]).trim();
     } else if (col.idInterno >= 0 && r[col.idInterno]) {
-      referenciaExterna = String(r[col.idInterno]).trim();
+      idUnico = String(r[col.idInterno]).trim();
     }
 
     const pedidoId = col.numeroVenda >= 0 ? r[col.numeroVenda]?.toString().trim() || null : null;
     const canalVenda = col.canalVendas >= 0 ? r[col.canalVendas]?.toString().trim() || null : null;
+
+    // Gerar referência externa usando função centralizada
+    const referenciaExterna = gerarReferenciaExterna({
+      data: dataValida,
+      pedido: pedidoId,
+      valor: liquido || bruto,
+      descricao,
+      idUnico: idUnico || null,
+    });
 
     transacoes.push({
       origem: "marketplace" as const,
@@ -222,7 +262,7 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
       canal_venda: canalVenda,
       valor_bruto: bruto || liquido,
       valor_liquido: liquido || bruto,
-      referencia_externa: referenciaExterna || null,
+      referencia_externa: referenciaExterna,
     });
   }
 
@@ -336,13 +376,22 @@ export async function parseCSVMercadoPagoFaturamento(rows: any[]): Promise<Parse
 
     const isEstorno = estornada && estornada.trim().length > 0;
 
+    // Gerar referência externa usando função centralizada
+    const referenciaExterna = gerarReferenciaExterna({
+      data: dataValida,
+      pedido: numMov?.toString().trim() || null,
+      valor: valorTarifa,
+      descricao: detalhe,
+      idUnico: numMov?.toString().trim() || null,
+    });
+
     transacoes.push({
       origem: "marketplace" as const,
       canal: "mercado_pago" as const,
       data_transacao: dataValida,
       descricao: detalhe,
       pedido_id: numMov?.toString().trim() || null,
-      referencia_externa: numMov?.toString().trim() || null,
+      referencia_externa: referenciaExterna,
       valor_bruto: valorOperacao || valorTarifa,
       valor_liquido: valorTarifa,
       tarifas: isEstorno ? 0 : valorTarifa,
@@ -549,14 +598,26 @@ function parseCSVMercadoPagoVendas(rows: any[]): ParseResult {
                      tipoOp.includes("devolução") ||
                      liquido < 0;
 
+    const pedidoId = col.pedido >= 0 ? r[keys[col.pedido]]?.toString().trim() || null : 
+                     col.referencia >= 0 ? r[keys[col.referencia]]?.toString().trim() || null : null;
+    const idUnico = col.referencia >= 0 ? r[keys[col.referencia]]?.toString().trim() || null : null;
+
+    // Gerar referência externa usando função centralizada
+    const referenciaExterna = gerarReferenciaExterna({
+      data: dataValida,
+      pedido: pedidoId,
+      valor: Math.abs(liquido) || Math.abs(bruto),
+      descricao,
+      idUnico,
+    });
+
     transacoes.push({
       origem: "marketplace" as const,
       canal: "mercado_pago" as const,
       data_transacao: dataValida,
       descricao,
-      pedido_id: col.pedido >= 0 ? r[keys[col.pedido]]?.toString().trim() || null : 
-                 col.referencia >= 0 ? r[keys[col.referencia]]?.toString().trim() || null : null,
-      referencia_externa: col.referencia >= 0 ? r[keys[col.referencia]]?.toString().trim() || null : null,
+      pedido_id: pedidoId,
+      referencia_externa: referenciaExterna,
       valor_bruto: Math.abs(bruto) || Math.abs(liquido),
       valor_liquido: Math.abs(liquido) || Math.abs(bruto),
       tarifas: tarifa,
@@ -677,14 +738,26 @@ function parseXLSXMercadoPagoVendas(header: string[], dataRows: any[][]): ParseR
                      tipoOp.includes("devolução") ||
                      liquido < 0;
 
+    const pedidoId = col.pedido >= 0 ? r[col.pedido]?.toString().trim() || null : 
+                     col.referencia >= 0 ? r[col.referencia]?.toString().trim() || null : null;
+    const idUnico = col.referencia >= 0 ? r[col.referencia]?.toString().trim() || null : null;
+
+    // Gerar referência externa usando função centralizada
+    const referenciaExterna = gerarReferenciaExterna({
+      data: dataValida,
+      pedido: pedidoId,
+      valor: Math.abs(liquido) || Math.abs(bruto),
+      descricao,
+      idUnico,
+    });
+
     transacoes.push({
       origem: "marketplace" as const,
       canal: "mercado_pago" as const,
       data_transacao: dataValida,
       descricao,
-      pedido_id: col.pedido >= 0 ? r[col.pedido]?.toString().trim() || null : 
-                 col.referencia >= 0 ? r[col.referencia]?.toString().trim() || null : null,
-      referencia_externa: col.referencia >= 0 ? r[col.referencia]?.toString().trim() || null : null,
+      pedido_id: pedidoId,
+      referencia_externa: referenciaExterna,
       valor_bruto: Math.abs(bruto) || Math.abs(liquido),
       valor_liquido: Math.abs(liquido) || Math.abs(bruto),
       tarifas: tarifa,
