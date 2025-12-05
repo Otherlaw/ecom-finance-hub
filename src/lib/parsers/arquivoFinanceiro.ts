@@ -87,11 +87,106 @@ export async function parseXLSXFile(file: File): Promise<any[]> {
 
 // ============= UTILITÁRIOS COMPARTILHADOS =============
 
+/**
+ * PARSE NUMBER - Converte valores para número de forma segura
+ * 
+ * REGRAS CRÍTICAS:
+ * 1. Detecta e REJEITA datas (dd/mm/yyyy, yyyy-mm-dd, etc.) → retorna 0
+ * 2. Detecta formato brasileiro (1.234,56) vs americano (1,234.56)
+ * 3. Nunca deve gerar números gigantes de datas mal interpretadas
+ */
 const parseNumber = (val: any): number => {
+  // Se já é número, retorna direto
   if (typeof val === "number") return val;
-  if (!val) return 0;
-  const str = String(val).replace(/[^\d,.\-]/g, "").replace(",", ".");
-  return parseFloat(str) || 0;
+  
+  // Nulo/undefined → 0
+  if (val === null || val === undefined) return 0;
+  
+  // Converte para string e faz trim
+  let str = String(val).trim();
+  
+  // Se string vazia → 0
+  if (!str) return 0;
+  
+  // REGRA CRÍTICA: Detectar e rejeitar DATAS
+  // Padrões de data: dd/mm/yyyy, yyyy-mm-dd, dd-mm-yyyy, dd.mm.yyyy
+  const datePatterns = [
+    /^\d{1,2}\/\d{1,2}\/\d{2,4}$/,           // dd/mm/yyyy ou d/m/yy
+    /^\d{4}-\d{1,2}-\d{1,2}$/,               // yyyy-mm-dd
+    /^\d{1,2}-\d{1,2}-\d{2,4}$/,             // dd-mm-yyyy
+    /^\d{1,2}\.\d{1,2}\.\d{2,4}$/,           // dd.mm.yyyy
+    /^\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d/,       // dd/mm/yyyy HH:mm (com horário)
+  ];
+  
+  for (const pattern of datePatterns) {
+    if (pattern.test(str)) {
+      // É uma data, não um número! Retorna 0
+      return 0;
+    }
+  }
+  
+  // Se contém barra "/" é provavelmente data mal formatada → rejeitar
+  if (str.includes("/") && /\d+\/\d+/.test(str)) {
+    return 0;
+  }
+  
+  // Remove símbolos de moeda, espaços e caracteres não numéricos
+  // Mantém apenas: dígitos, vírgula, ponto, e sinal de menos
+  str = str.replace(/[R$€£¥\s]/gi, "");
+  
+  // Conta quantos pontos e vírgulas existem
+  const numPontos = (str.match(/\./g) || []).length;
+  const numVirgulas = (str.match(/,/g) || []).length;
+  
+  // LÓGICA DE FORMATO BRASILEIRO vs AMERICANO:
+  // Formato brasileiro: 1.234,56 (ponto como milhar, vírgula como decimal)
+  // Formato americano: 1,234.56 (vírgula como milhar, ponto como decimal)
+  
+  if (numPontos > 1) {
+    // Múltiplos pontos = separador de milhar brasileiro (1.234.567,89)
+    // Remove todos os pontos (milhares)
+    str = str.replace(/\./g, "");
+    // Substitui vírgula por ponto decimal
+    str = str.replace(",", ".");
+  } else if (numVirgulas > 1) {
+    // Múltiplas vírgulas = separador de milhar americano (1,234,567.89)
+    // Remove todas as vírgulas
+    str = str.replace(/,/g, "");
+  } else if (numVirgulas === 1 && numPontos === 1) {
+    // Tem ambos: verifica qual vem por último (esse é o decimal)
+    const posVirgula = str.lastIndexOf(",");
+    const posPonto = str.lastIndexOf(".");
+    
+    if (posVirgula > posPonto) {
+      // Formato brasileiro: 1.234,56
+      str = str.replace(/\./g, "").replace(",", ".");
+    } else {
+      // Formato americano: 1,234.56
+      str = str.replace(/,/g, "");
+    }
+  } else if (numVirgulas === 1 && numPontos === 0) {
+    // Apenas vírgula = decimal brasileiro (123,45)
+    str = str.replace(",", ".");
+  }
+  // Se tem apenas ponto, mantém como está (formato americano ou decimal simples)
+  
+  // Remove qualquer caractere restante que não seja número, ponto ou menos
+  str = str.replace(/[^\d.\-]/g, "");
+  
+  // Tenta converter
+  const num = parseFloat(str);
+  
+  // Se NaN, retorna 0
+  if (isNaN(num)) return 0;
+  
+  // Validação extra: se o número é absurdamente grande (> 100 milhões), 
+  // provavelmente é uma data mal interpretada
+  if (Math.abs(num) > 100000000) {
+    console.warn(`[parseNumber] Valor suspeito rejeitado (possível data): ${val} → ${num}`);
+    return 0;
+  }
+  
+  return num;
 };
 
 const normalizeDate = (dateStr: string): string => {
@@ -117,6 +212,54 @@ const findColumnIndex = (header: string[], possibleNames: string[]): number => {
       h && typeof h === "string" && h.toLowerCase().includes(name.toLowerCase())
     );
     if (idx >= 0) return idx;
+  }
+  return -1;
+};
+
+/**
+ * Busca coluna de tarifa/taxa com VALIDAÇÃO EXTRA
+ * Não deve retornar colunas de data ou texto
+ */
+const findTarifaColumnIndex = (
+  header: string[], 
+  possibleNames: string[], 
+  sampleRow?: any[]
+): number => {
+  // Termos que indicam que NÃO é coluna de tarifa
+  const termosExcluir = ["data", "fecha", "date", "período", "periodo", "vencimento"];
+  
+  for (const name of possibleNames) {
+    const idx = header.findIndex(h => {
+      if (!h || typeof h !== "string") return false;
+      const hLower = h.toLowerCase();
+      
+      // Verifica se contém o termo buscado
+      if (!hLower.includes(name.toLowerCase())) return false;
+      
+      // EXCLUI se contém termos de data
+      for (const excluir of termosExcluir) {
+        if (hLower.includes(excluir)) return false;
+      }
+      
+      return true;
+    });
+    
+    if (idx >= 0) {
+      // Se temos uma linha de amostra, validar se o valor parece numérico
+      if (sampleRow && sampleRow[idx]) {
+        const amostra = String(sampleRow[idx]).trim();
+        // Se parece data (contém /) ou é texto longo, rejeitar
+        if (amostra.includes("/") && /\d+\/\d+\/\d+/.test(amostra)) {
+          console.warn(`[findTarifaColumnIndex] Coluna "${header[idx]}" rejeitada - valor parece data: ${amostra}`);
+          continue;
+        }
+        if (amostra.length > 20 && !/^[\d,.\-\s]+$/.test(amostra)) {
+          console.warn(`[findTarifaColumnIndex] Coluna "${header[idx]}" rejeitada - texto longo: ${amostra}`);
+          continue;
+        }
+      }
+      return idx;
+    }
   }
   return -1;
 };
@@ -166,6 +309,9 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
   const dataRows = rows.slice((headerIndex >= 0 ? headerIndex : 0) + 1);
   const totalLinhasArquivo = dataRows.length;
 
+  // Pegar primeira linha de dados para validação de colunas numéricas
+  const primeiraLinhaAmostra = dataRows[0] || [];
+
   // Índices das colunas do relatório ML (busca flexível com múltiplas variações)
   const col = {
     // Colunas básicas
@@ -185,11 +331,11 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
     quantidade: findColumnIndex(header, ["quantidade", "qty", "quantity", "unidades", "qtd"]),
     precoUnitario: findColumnIndex(header, ["preço unitário", "preco unitario", "unit price", "valor unitário", "valor unitario"]),
     precoTotal: findColumnIndex(header, ["preço total", "preco total", "total price", "valor total item", "subtotal item"]),
-    // Colunas de taxas/tarifas detalhadas
-    comissao: findColumnIndex(header, ["comissão", "comissao", "commission", "tarifa de venda"]),
-    tarifa: findColumnIndex(header, ["tarifa", "fee", "taxa"]),
-    frete: findColumnIndex(header, ["frete", "envio", "shipping", "custo de envio"]),
-    desconto: findColumnIndex(header, ["desconto", "discount", "cupom"]),
+    // Colunas de taxas/tarifas detalhadas - usa função com validação extra
+    comissao: findTarifaColumnIndex(header, ["comissão", "comissao", "commission", "tarifa de venda"], primeiraLinhaAmostra),
+    tarifa: findTarifaColumnIndex(header, ["valor da tarifa", "tarifa", "fee", "taxa"], primeiraLinhaAmostra),
+    frete: findTarifaColumnIndex(header, ["frete", "envio", "shipping", "custo de envio"], primeiraLinhaAmostra),
+    desconto: findTarifaColumnIndex(header, ["desconto", "discount", "cupom"], primeiraLinhaAmostra),
   };
 
   console.log("[parseXLSXMercadoLivre] Colunas detectadas:", col, "Headers:", header.slice(0, 25));
