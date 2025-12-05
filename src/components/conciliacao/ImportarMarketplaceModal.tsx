@@ -655,7 +655,8 @@ export function ImportarMarketplaceModal({
     // Atualizar estatísticas finais
     const finalStats = {
       ...importStats,
-      totalDuplicadas: result.duplicadas,
+      // Usar o número de duplicadas identificadas no PREVIEW (antes da importação)
+      totalDuplicadas: transacoesDuplicadasIndices.size,
       totalInseridas: result.importadas,
     };
     setImportStats(finalStats);
@@ -664,6 +665,8 @@ export function ImportarMarketplaceModal({
     console.log('[Importação Marketplace] RESULTADO FINAL:', {
       arquivo: fileName,
       ...finalStats,
+      duplicadasNoPreview: transacoesDuplicadasIndices.size,
+      duplicadasNaImportacao: result.duplicadas,
     });
 
     // Auto-categorização e conciliação automática após importação
