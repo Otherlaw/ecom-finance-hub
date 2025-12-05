@@ -250,7 +250,19 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
   const BATCH_SIZE = 500;
 
+  // Função auxiliar para gerar hash simples de string (djb2 algorithm)
+  const hashString = (str: string): string => {
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) + hash) + str.charCodeAt(i);
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash).toString(36);
+  };
+
   // Função para gerar hash de duplicidade mais robusto
+  // Hash robusto: inclui hash da descrição completa + todos os campos monetários + taxas
+  // Isso garante que linhas diferentes do mesmo pedido (comissão, frete, tarifa, etc.) sejam únicas
   const gerarHashDuplicidade = (t: MarketplaceTransactionInsert): string => {
     // Normalizar valores para evitar problemas de precisão de ponto flutuante
     const valorLiquidoNorm = typeof t.valor_liquido === 'number' 
@@ -259,17 +271,36 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     const valorBrutoNorm = typeof t.valor_bruto === 'number' 
       ? parseFloat((t.valor_bruto || 0).toFixed(2)).toString()
       : String(t.valor_bruto || 0);
+    const taxasNorm = typeof t.taxas === 'number'
+      ? parseFloat(t.taxas.toFixed(2)).toString()
+      : String(t.taxas || 0);
+    const tarifasNorm = typeof t.tarifas === 'number'
+      ? parseFloat(t.tarifas.toFixed(2)).toString()
+      : String(t.tarifas || 0);
     
-    // Se tiver referencia_externa (ID único do relatório), usar como base
+    // Descrição completa é crítica para diferenciar linhas do mesmo pedido
+    const descricaoCompleta = (t.descricao || "").toLowerCase().trim();
+    const descricaoHash = hashString(descricaoCompleta);
+    
+    // Tipo de transação também diferencia (ex: venda vs tarifa vs comissão)
+    const tipoTransacao = (t.tipo_transacao || "").toLowerCase().trim();
+    const tipoLancamento = (t.tipo_lancamento || "").toLowerCase().trim();
+    
+    // Usar referencia_externa se disponível (já inclui data_pedido_valor_descricao)
     const baseRef = t.referencia_externa || t.pedido_id || "";
     
+    // Hash composto: todos os campos que identificam uma linha única
     const partes = [
       t.empresa_id,
       t.canal,
       t.data_transacao,
-      t.descricao?.substring(0, 100) || "",
+      descricaoHash,        // Hash da descrição completa (não truncada)
       valorLiquidoNorm,
       valorBrutoNorm,
+      taxasNorm,            // Incluir taxas para diferenciar linhas
+      tarifasNorm,          // Incluir tarifas para diferenciar linhas
+      tipoTransacao,        // Tipo de transação (venda, tarifa, comissão, etc)
+      tipoLancamento,       // Tipo de lançamento (crédito/débito)
       baseRef,
     ];
     // Usar uma string simples como "hash" - concatenação normalizada
