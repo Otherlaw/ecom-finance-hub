@@ -32,7 +32,7 @@ import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hook
 import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
-import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago, type ParseResult } from "@/lib/parsers/arquivoFinanceiro";
+import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago, parseShopee, type ParseResult } from "@/lib/parsers/arquivoFinanceiro";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -341,6 +341,29 @@ export function ImportarMarketplaceModal({
             valor_liquido: t.valor_liquido,
             tipo_lancamento: t.valor_liquido >= 0 ? "credito" as const : "debito" as const,
             referencia_externa: t.referencia_externa || hash,
+            itens: [],
+          };
+        });
+      } else if (canal === "shopee" && (tipo === "xlsx" || tipo === "csv")) {
+        // Parser específico Shopee retorna objetos já mapeados COM ESTATÍSTICAS
+        const result: ParseResult = await parseShopee(file);
+        stats = {
+          ...stats,
+          ...result.estatisticas,
+        };
+        transacoes = result.transacoes.map(t => {
+          return {
+            data_transacao: t.data_transacao,
+            descricao: t.descricao,
+            pedido_id: t.pedido_id,
+            tipo_transacao: t.tipo_transacao || "venda",
+            valor_bruto: t.valor_bruto,
+            tarifas: t.tarifas || 0,
+            taxas: t.taxas || 0,
+            outros_descontos: t.outros_descontos || 0,
+            valor_liquido: t.valor_liquido,
+            tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
+            referencia_externa: t.referencia_externa,
             itens: [],
           };
         });

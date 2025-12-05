@@ -785,3 +785,263 @@ function parseXLSXMercadoPagoVendas(header: string[], dataRows: any[][]): ParseR
     },
   };
 }
+
+// ============= PARSER SHOPEE CSV/XLSX COM ESTATÍSTICAS =============
+
+export async function parseShopee(file: File): Promise<ParseResult> {
+  const fileExt = file.name.split(".").pop()?.toLowerCase();
+  
+  // Parse arquivo (CSV ou XLSX)
+  let rows: any[];
+  if (fileExt === "csv") {
+    rows = await parseCSVFile(file);
+  } else {
+    rows = await parseXLSXFile(file);
+  }
+
+  if (!rows || rows.length === 0) {
+    return {
+      transacoes: [],
+      estatisticas: {
+        totalLinhasArquivo: 0,
+        totalTransacoesGeradas: 0,
+        totalComValorZero: 0,
+        totalDescartadasPorFormato: 0,
+        totalLinhasVazias: 0,
+      },
+    };
+  }
+
+  const totalLinhasArquivo = rows.length;
+  let totalComValorZero = 0;
+  let totalDescartadasPorFormato = 0;
+  let totalLinhasVazias = 0;
+
+  const keys = Object.keys(rows[0]);
+  console.log("[parseShopee] Headers detectados:", keys.slice(0, 20));
+
+  // Colunas do relatório Shopee (múltiplas variações de nome)
+  const col = {
+    // Data
+    data: findColumnIndex(keys, [
+      "data do pedido", "data pedido", "order date", "created date", 
+      "data de criação", "data da transação", "transaction date",
+      "data de conclusão", "completion date", "data"
+    ]),
+    dataRepasse: findColumnIndex(keys, [
+      "data de liberação", "release date", "data do repasse", 
+      "settlement date", "payout date"
+    ]),
+    // Identificadores
+    pedidoId: findColumnIndex(keys, [
+      "n° do pedido", "numero do pedido", "order id", "order no", 
+      "nº pedido", "id do pedido", "order number", "pedido"
+    ]),
+    idTransacao: findColumnIndex(keys, [
+      "id da transação", "transaction id", "id transação", "transaction no",
+      "nº transação", "id"
+    ]),
+    // Descrição/Tipo
+    tipoTransacao: findColumnIndex(keys, [
+      "tipo de transação", "transaction type", "tipo transação", "type",
+      "tipo", "descrição da transação", "transaction description"
+    ]),
+    descricao: findColumnIndex(keys, [
+      "descrição", "descricao", "description", "motivo", "reason",
+      "detalhes", "details", "observação"
+    ]),
+    nomeProduto: findColumnIndex(keys, [
+      "nome do produto", "product name", "produto", "item name",
+      "nome produto", "título", "title"
+    ]),
+    // Valores
+    valorTotal: findColumnIndex(keys, [
+      "valor total do pedido", "order total", "total do pedido", 
+      "total amount", "valor bruto", "gross amount", "total"
+    ]),
+    valorProduto: findColumnIndex(keys, [
+      "preço do produto", "product price", "valor do produto",
+      "unit price", "preço unitário"
+    ]),
+    taxaComissao: findColumnIndex(keys, [
+      "taxa de comissão", "commission fee", "comissão", "commission",
+      "taxa comissão", "taxa marketplace", "marketplace fee"
+    ]),
+    taxaTransacao: findColumnIndex(keys, [
+      "taxa de transação", "transaction fee", "taxa transação",
+      "payment fee", "taxa pagamento"
+    ]),
+    taxaServico: findColumnIndex(keys, [
+      "taxa de serviço", "service fee", "taxa serviço"
+    ]),
+    frete: findColumnIndex(keys, [
+      "taxa de envio", "shipping fee", "frete", "envio",
+      "custo de envio", "shipping cost", "taxa frete"
+    ]),
+    descontos: findColumnIndex(keys, [
+      "desconto", "discount", "cupom", "voucher", "promoção",
+      "desconto vendedor", "seller discount", "desconto plataforma"
+    ]),
+    valorLiquido: findColumnIndex(keys, [
+      "receita do vendedor", "seller earnings", "valor líquido", 
+      "net amount", "valor a receber", "payout amount", "earnings",
+      "receita líquida", "net earnings", "ganhos", "seller income"
+    ]),
+    // Status
+    status: findColumnIndex(keys, [
+      "status do pedido", "order status", "status", "situação",
+      "status da transação", "transaction status"
+    ]),
+    // SKU
+    sku: findColumnIndex(keys, [
+      "sku", "sku do produto", "product sku", "variação", "variation",
+      "código sku", "sku code"
+    ]),
+    quantidade: findColumnIndex(keys, [
+      "quantidade", "qty", "quantity", "qtd", "unidades"
+    ]),
+  };
+
+  console.log("[parseShopee] Colunas mapeadas:", col);
+
+  // Valida colunas mínimas necessárias
+  if (col.data === -1 && col.dataRepasse === -1) {
+    throw new Error(
+      `Formato não reconhecido do relatório Shopee. Nenhuma coluna de data encontrada. ` +
+      `Headers: ${keys.slice(0, 15).join(", ")}`
+    );
+  }
+
+  const transacoes: any[] = [];
+
+  for (const r of rows) {
+    // Data: prioriza data do pedido, depois data de repasse
+    const dataStr = r[keys[col.data]] || r[keys[col.dataRepasse]] || "";
+    const dataValida = normalizeDate(dataStr);
+    const dataRepasseStr = col.dataRepasse >= 0 ? normalizeDate(r[keys[col.dataRepasse]]) : null;
+    
+    // Valores
+    const valorTotal = parseNumber(r[keys[col.valorTotal]]);
+    const valorProduto = parseNumber(r[keys[col.valorProduto]]);
+    const taxaComissao = Math.abs(parseNumber(r[keys[col.taxaComissao]]));
+    const taxaTransacao = Math.abs(parseNumber(r[keys[col.taxaTransacao]]));
+    const taxaServico = Math.abs(parseNumber(r[keys[col.taxaServico]]));
+    const frete = Math.abs(parseNumber(r[keys[col.frete]]));
+    const descontos = Math.abs(parseNumber(r[keys[col.descontos]]));
+    let valorLiquido = parseNumber(r[keys[col.valorLiquido]]);
+    
+    // Se não tiver valor líquido, calcular
+    if (!valorLiquido && (valorTotal || valorProduto)) {
+      const totalTaxas = taxaComissao + taxaTransacao + taxaServico;
+      valorLiquido = (valorTotal || valorProduto) - totalTaxas - frete + descontos;
+    }
+
+    // Validações
+    const temData = !!dataValida;
+    const temValor = valorTotal !== 0 || valorLiquido !== 0 || valorProduto !== 0;
+
+    // Descrição: monta baseado nos dados disponíveis
+    let descricao = "Transação Shopee";
+    if (col.tipoTransacao >= 0 && r[keys[col.tipoTransacao]]) {
+      descricao = String(r[keys[col.tipoTransacao]]).trim();
+    } else if (col.descricao >= 0 && r[keys[col.descricao]]) {
+      descricao = String(r[keys[col.descricao]]).trim();
+    } else if (col.nomeProduto >= 0 && r[keys[col.nomeProduto]]) {
+      descricao = String(r[keys[col.nomeProduto]]).trim();
+    }
+
+    const temDescricao = descricao !== "Transação Shopee";
+
+    // Linha completamente vazia
+    if (!temData && !temDescricao && !temValor) {
+      totalLinhasVazias++;
+      continue;
+    }
+
+    // Contabiliza valores zero
+    if (valorLiquido === 0 && valorTotal === 0 && valorProduto === 0) {
+      totalComValorZero++;
+    }
+
+    // Status inválidos
+    const status = col.status >= 0 ? String(r[keys[col.status]] || "").toLowerCase() : "";
+    if (status.includes("cancel") || status.includes("return") || 
+        status.includes("refund") || status.includes("devol")) {
+      // Não descartamos devoluções, mas marcamos como débito
+    }
+
+    // Sem data válida
+    if (!temData) {
+      totalDescartadasPorFormato++;
+      continue;
+    }
+
+    // Identificadores
+    const pedidoId = col.pedidoId >= 0 ? r[keys[col.pedidoId]]?.toString().trim() || null : null;
+    const idTransacao = col.idTransacao >= 0 ? r[keys[col.idTransacao]]?.toString().trim() || null : null;
+    const sku = col.sku >= 0 ? r[keys[col.sku]]?.toString().trim() || null : null;
+    const quantidade = col.quantidade >= 0 ? parseInt(r[keys[col.quantidade]]) || 1 : 1;
+
+    // Determinar tipo de lançamento
+    const tipoTransacao = col.tipoTransacao >= 0 ? String(r[keys[col.tipoTransacao]] || "").toLowerCase() : "";
+    const isDebito = tipoTransacao.includes("refund") || 
+                     tipoTransacao.includes("cancel") || 
+                     tipoTransacao.includes("estorno") ||
+                     tipoTransacao.includes("devolução") ||
+                     tipoTransacao.includes("return") ||
+                     tipoTransacao.includes("taxa") ||
+                     tipoTransacao.includes("fee") ||
+                     valorLiquido < 0;
+
+    // Gerar referência externa usando função centralizada
+    const referenciaExterna = gerarReferenciaExterna({
+      data: dataValida,
+      pedido: pedidoId,
+      valor: Math.abs(valorLiquido) || Math.abs(valorTotal) || Math.abs(valorProduto),
+      descricao,
+      idUnico: idTransacao || pedidoId || null,
+    });
+
+    // Total de taxas para breakdown
+    const totalTaxas = taxaComissao + taxaTransacao + taxaServico;
+
+    transacoes.push({
+      origem: "marketplace" as const,
+      canal: "shopee" as const,
+      data_transacao: dataValida,
+      data_repasse: dataRepasseStr || null,
+      descricao,
+      pedido_id: pedidoId,
+      referencia_externa: referenciaExterna,
+      valor_bruto: Math.abs(valorTotal) || Math.abs(valorProduto) || Math.abs(valorLiquido),
+      valor_liquido: Math.abs(valorLiquido) || Math.abs(valorTotal) || Math.abs(valorProduto),
+      taxas: totalTaxas,
+      tarifas: taxaComissao,
+      outros_descontos: descontos,
+      tipo_transacao: tipoTransacao || "venda",
+      tipo_lancamento: isDebito ? "debito" : "credito",
+      // Dados extras para items
+      sku_marketplace: sku,
+      quantidade,
+    });
+  }
+
+  console.log("[parseShopee] Estatísticas:", {
+    totalLinhasArquivo,
+    totalTransacoesGeradas: transacoes.length,
+    totalComValorZero,
+    totalDescartadasPorFormato,
+    totalLinhasVazias,
+  });
+
+  return {
+    transacoes,
+    estatisticas: {
+      totalLinhasArquivo,
+      totalTransacoesGeradas: transacoes.length,
+      totalComValorZero,
+      totalDescartadasPorFormato,
+      totalLinhasVazias,
+    },
+  };
+}
