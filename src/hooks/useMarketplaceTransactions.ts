@@ -229,12 +229,17 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
   // Função para gerar hash de duplicidade
   const gerarHashDuplicidade = (t: MarketplaceTransactionInsert): string => {
+    // Normalizar valor para evitar problemas de precisão de ponto flutuante
+    const valorNormalizado = typeof t.valor_liquido === 'number' 
+      ? parseFloat(t.valor_liquido.toFixed(2)).toString()
+      : String(t.valor_liquido || 0);
+    
     const partes = [
       t.empresa_id,
       t.canal,
       t.data_transacao,
       t.descricao?.substring(0, 100) || "",
-      String(t.valor_liquido || 0),
+      valorNormalizado,
       t.pedido_id || "",
     ];
     // Usar uma string simples como "hash" - concatenação normalizada
