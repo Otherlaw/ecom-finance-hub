@@ -1,62 +1,95 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, FileText, Package, Eye, Link2, Upload, BarChart3 } from "lucide-react";
+import { Plus, Search, FileText, Package, Link2, BarChart3, CheckCircle2 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PurchaseFormModal } from "@/components/purchases/PurchaseFormModal";
-import { NFProductMappingModal } from "@/components/purchases/NFProductMappingModal";
-import { ABCCurveAnalysis } from "@/components/purchases/ABCCurveAnalysis";
+import { RegistrarRecebimentoModal } from "@/components/purchases/RegistrarRecebimentoModal";
 import { useToast } from "@/hooks/use-toast";
-import { Purchase, mockPurchases, EMPRESAS, STATUS_COMPRA, formatCurrency, formatDate, calculatePurchaseSummary } from "@/lib/purchases-data";
-import { mockProducts, mockSalesHistory, mockPurchaseHistory as productPurchaseHistory } from "@/lib/products-data";
+import { useCompras, Compra } from "@/hooks/useCompras";
+import { useEmpresas } from "@/hooks/useEmpresas";
+import { format } from "date-fns";
+
+// Status labels e cores
+const STATUS_COMPRA: Record<string, { label: string; color: string }> = {
+  em_compra: { label: "Em Compra", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
+  em_transito: { label: "Em Trânsito", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
+  parcial: { label: "Parcial", color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" },
+  concluido: { label: "Concluído", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
+  cancelado: { label: "Cancelado", color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" },
+};
+
+const formatCurrency = (value: number) => {
+  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+};
+
+const formatDate = (date: string) => {
+  try {
+    return format(new Date(date), 'dd/MM/yyyy');
+  } catch {
+    return date;
+  }
+};
 
 export default function Compras() {
   const { toast } = useToast();
-  const [purchases, setPurchases] = useState<Purchase[]>(mockPurchases);
-  const [searchTerm, setSearchTerm] = useState("");
+  const { empresas = [] } = useEmpresas();
   const [empresaFilter, setEmpresaFilter] = useState<string>("todos");
+  
+  const { compras = [], isLoading, refetch, atualizarStatus } = useCompras({
+    empresaId: empresaFilter !== "todos" ? empresaFilter : undefined,
+  });
+
+  const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
 
-  const [formModalOpen, setFormModalOpen] = useState(false);
-  const [mappingModalOpen, setMappingModalOpen] = useState(false);
-  const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
-  const [mappingPurchase, setMappingPurchase] = useState<Purchase | null>(null);
+  const [recebimentoModalOpen, setRecebimentoModalOpen] = useState(false);
+  const [recebimentoPurchase, setRecebimentoPurchase] = useState<Compra | null>(null);
 
   const filteredPurchases = useMemo(() => {
-    return purchases.filter((p) => {
-      if (searchTerm && !p.fornecedor.toLowerCase().includes(searchTerm.toLowerCase()) && !p.numeroNF?.includes(searchTerm)) return false;
-      if (empresaFilter !== "todos" && p.empresa !== empresaFilter) return false;
+    return compras.filter((p) => {
+      if (searchTerm) {
+        const term = searchTerm.toLowerCase();
+        if (!p.fornecedor_nome.toLowerCase().includes(term) && !p.numero_nf?.includes(searchTerm)) {
+          return false;
+        }
+      }
       if (statusFilter !== "todos" && p.status !== statusFilter) return false;
       return true;
     });
-  }, [purchases, searchTerm, empresaFilter, statusFilter]);
+  }, [compras, searchTerm, statusFilter]);
 
-  const summary = useMemo(() => calculatePurchaseSummary(purchases), [purchases]);
+  const summary = useMemo(() => {
+    const totalCompras = compras.length;
+    const valorTotal = compras.reduce((sum, c) => sum + c.valor_total, 0);
+    const comprasConcluidas = compras.filter(c => c.status === 'concluido').length;
+    const itensNaoMapeados = compras.reduce((sum, c) => {
+      return sum + (c.itens?.filter(i => !i.mapeado).length || 0);
+    }, 0);
+    return { totalCompras, valorTotal, comprasConcluidas, itensNaoMapeados };
+  }, [compras]);
 
-  const handleSavePurchase = (purchase: Purchase) => {
-    setPurchases((prev) => {
-      const index = prev.findIndex((p) => p.id === purchase.id);
-      if (index >= 0) {
-        const updated = [...prev];
-        updated[index] = purchase;
-        return updated;
-      }
-      return [...prev, purchase];
-    });
+  const handleOpenRecebimento = (purchase: Compra) => {
+    setRecebimentoPurchase(purchase);
+    setRecebimentoModalOpen(true);
   };
 
-  const handleOpenMapping = (purchase: Purchase) => {
-    setMappingPurchase(purchase);
-    setMappingModalOpen(true);
+  const handleStatusChange = async (compraId: string, novoStatus: string) => {
+    try {
+      await atualizarStatus.mutateAsync({ id: compraId, status: novoStatus as any });
+      toast({ title: "Status atualizado", description: `Compra alterada para ${STATUS_COMPRA[novoStatus]?.label}` });
+    } catch (err) {
+      toast({ title: "Erro", description: "Não foi possível atualizar o status", variant: "destructive" });
+    }
   };
 
-  const handleCreateProductFromItem = () => {
-    toast({ title: "Criar Produto", description: "Abra o módulo de Produtos para criar um novo item." });
+  const handleRecebimentoSuccess = () => {
+    refetch();
+    toast({ title: "Recebimento registrado", description: "Estoque atualizado com sucesso!" });
   };
 
   return (
@@ -67,25 +100,45 @@ export default function Compras() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Módulo de Compras</h1>
-              <p className="text-muted-foreground">Gerencie compras e integração com NFs</p>
+              <p className="text-muted-foreground">Gerencie compras, recebimentos e integração com NFs</p>
             </div>
-            <Button onClick={() => { setEditingPurchase(null); setFormModalOpen(true); }}>
+            <Button disabled>
               <Plus className="h-4 w-4 mr-2" />
               Nova Compra Manual
             </Button>
           </div>
 
           <div className="grid grid-cols-4 gap-4">
-            <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{summary.totalCompras}</div><div className="text-sm text-muted-foreground">Total de Compras</div></CardContent></Card>
-            <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{formatCurrency(summary.valorTotal)}</div><div className="text-sm text-muted-foreground">Valor Total</div></CardContent></Card>
-            <Card><CardContent className="pt-6"><div className="text-2xl font-bold text-success">{summary.comprasConfirmadas}</div><div className="text-sm text-muted-foreground">Confirmadas</div></CardContent></Card>
-            <Card><CardContent className="pt-6"><div className="text-2xl font-bold text-warning">{summary.itensNaoMapeados}</div><div className="text-sm text-muted-foreground">Itens Não Mapeados</div></CardContent></Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-2xl font-bold">{summary.totalCompras}</div>
+                <div className="text-sm text-muted-foreground">Total de Compras</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-2xl font-bold">{formatCurrency(summary.valorTotal)}</div>
+                <div className="text-sm text-muted-foreground">Valor Total</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-2xl font-bold text-success">{summary.comprasConcluidas}</div>
+                <div className="text-sm text-muted-foreground">Concluídas</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-2xl font-bold text-warning">{summary.itensNaoMapeados}</div>
+                <div className="text-sm text-muted-foreground">Itens Não Mapeados</div>
+              </CardContent>
+            </Card>
           </div>
 
           <Tabs defaultValue="compras">
             <TabsList>
               <TabsTrigger value="compras"><FileText className="h-4 w-4 mr-2" />Compras</TabsTrigger>
-              <TabsTrigger value="curva-abc"><BarChart3 className="h-4 w-4 mr-2" />Curva ABC</TabsTrigger>
+              <TabsTrigger value="curva-abc" disabled><BarChart3 className="h-4 w-4 mr-2" />Curva ABC</TabsTrigger>
             </TabsList>
 
             <TabsContent value="compras" className="mt-4">
@@ -94,78 +147,144 @@ export default function Compras() {
                   <div className="flex items-center gap-4">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input placeholder="Buscar por fornecedor ou NF..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9" />
+                      <Input 
+                        placeholder="Buscar por fornecedor ou NF..." 
+                        value={searchTerm} 
+                        onChange={(e) => setSearchTerm(e.target.value)} 
+                        className="pl-9" 
+                      />
                     </div>
                     <Select value={empresaFilter} onValueChange={setEmpresaFilter}>
-                      <SelectTrigger className="w-40"><SelectValue placeholder="Empresa" /></SelectTrigger>
+                      <SelectTrigger className="w-48">
+                        <SelectValue placeholder="Empresa" />
+                      </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="todos">Todas</SelectItem>
-                        {EMPRESAS.map((e) => <SelectItem key={e} value={e}>{e}</SelectItem>)}
+                        <SelectItem value="todos">Todas as empresas</SelectItem>
+                        {empresas.map((e) => (
+                          <SelectItem key={e.id} value={e.id}>
+                            {e.nome_fantasia || e.razao_social}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
+                      <SelectTrigger className="w-40">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="todos">Todos</SelectItem>
-                        <SelectItem value="em_aberto">Em Aberto</SelectItem>
-                        <SelectItem value="confirmada">Confirmada</SelectItem>
-                        <SelectItem value="cancelada">Cancelada</SelectItem>
+                        <SelectItem value="em_compra">Em Compra</SelectItem>
+                        <SelectItem value="em_transito">Em Trânsito</SelectItem>
+                        <SelectItem value="parcial">Parcial</SelectItem>
+                        <SelectItem value="concluido">Concluído</SelectItem>
+                        <SelectItem value="cancelado">Cancelado</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Data</TableHead>
-                        <TableHead>NF</TableHead>
-                        <TableHead>Fornecedor</TableHead>
-                        <TableHead>Empresa</TableHead>
-                        <TableHead className="text-center">Itens</TableHead>
-                        <TableHead className="text-right">Valor Total</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredPurchases.map((purchase) => {
-                        const unmapped = purchase.itens.filter((i) => !i.mapeado).length;
-                        return (
-                          <TableRow key={purchase.id}>
-                            <TableCell>{formatDate(purchase.dataCompra)}</TableCell>
-                            <TableCell className="font-mono">{purchase.numeroNF || "-"}</TableCell>
-                            <TableCell className="max-w-48 truncate">{purchase.fornecedor}</TableCell>
-                            <TableCell><Badge variant="outline">{purchase.empresa}</Badge></TableCell>
-                            <TableCell className="text-center">
-                              {purchase.itens.length}
-                              {unmapped > 0 && <Badge variant="outline" className="ml-2 bg-warning/10 text-warning">{unmapped} s/ vínculo</Badge>}
-                            </TableCell>
-                            <TableCell className="text-right font-medium">{formatCurrency(purchase.valorTotal)}</TableCell>
-                            <TableCell><Badge className={STATUS_COMPRA[purchase.status].color}>{STATUS_COMPRA[purchase.status].label}</Badge></TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-1">
-                                <Button variant="ghost" size="icon" onClick={() => handleOpenMapping(purchase)} title="Mapear produtos"><Link2 className="h-4 w-4" /></Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                  {isLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">Carregando compras...</div>
+                  ) : filteredPurchases.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      Nenhuma compra encontrada. As compras serão criadas automaticamente ao importar NF-e.
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead>NF</TableHead>
+                          <TableHead>Fornecedor</TableHead>
+                          <TableHead className="text-center">Itens</TableHead>
+                          <TableHead className="text-right">Valor Total</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredPurchases.map((purchase) => {
+                          const unmapped = purchase.itens?.filter((i) => !i.mapeado).length || 0;
+                          const statusInfo = STATUS_COMPRA[purchase.status] || STATUS_COMPRA.em_compra;
+                          const podeReceber = purchase.status !== 'concluido' && purchase.status !== 'cancelado';
+                          
+                          return (
+                            <TableRow key={purchase.id}>
+                              <TableCell>{formatDate(purchase.data_compra)}</TableCell>
+                              <TableCell className="font-mono">{purchase.numero_nf || "-"}</TableCell>
+                              <TableCell className="max-w-48 truncate">{purchase.fornecedor_nome}</TableCell>
+                              <TableCell className="text-center">
+                                {purchase.itens?.length || 0}
+                                {unmapped > 0 && (
+                                  <Badge variant="outline" className="ml-2 bg-warning/10 text-warning">
+                                    {unmapped} s/ vínculo
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {formatCurrency(purchase.valor_total)}
+                              </TableCell>
+                              <TableCell>
+                                <Select 
+                                  value={purchase.status} 
+                                  onValueChange={(value) => handleStatusChange(purchase.id, value)}
+                                >
+                                  <SelectTrigger className="w-32 h-8">
+                                    <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="em_compra">Em Compra</SelectItem>
+                                    <SelectItem value="em_transito">Em Trânsito</SelectItem>
+                                    <SelectItem value="parcial">Parcial</SelectItem>
+                                    <SelectItem value="concluido">Concluído</SelectItem>
+                                    <SelectItem value="cancelado">Cancelado</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-1">
+                                  {podeReceber && (
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      onClick={() => handleOpenRecebimento(purchase)} 
+                                      title="Registrar recebimento"
+                                    >
+                                      <Package className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                  {purchase.status === 'concluido' && (
+                                    <CheckCircle2 className="h-4 w-4 text-success ml-2" />
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
 
             <TabsContent value="curva-abc" className="mt-4">
-              <ABCCurveAnalysis products={mockProducts} salesHistory={mockSalesHistory} purchaseHistory={productPurchaseHistory} />
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  Análise de Curva ABC disponível em breve
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
         </div>
       </main>
 
-      <PurchaseFormModal open={formModalOpen} onOpenChange={setFormModalOpen} purchase={editingPurchase} products={mockProducts} onSave={handleSavePurchase} />
-      <NFProductMappingModal open={mappingModalOpen} onOpenChange={setMappingModalOpen} purchase={mappingPurchase} products={mockProducts} onSave={handleSavePurchase} onCreateProduct={handleCreateProductFromItem} />
+      <RegistrarRecebimentoModal
+        open={recebimentoModalOpen}
+        onOpenChange={setRecebimentoModalOpen}
+        compra={recebimentoPurchase}
+        onSuccess={handleRecebimentoSuccess}
+      />
     </div>
   );
 }
