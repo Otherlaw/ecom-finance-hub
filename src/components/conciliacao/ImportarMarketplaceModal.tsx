@@ -143,61 +143,22 @@ export function ImportarMarketplaceModal({
     });
   }, []);
 
-  // Função auxiliar para gerar hash simples de string (djb2 algorithm)
-  const hashString = useCallback((str: string): string => {
-    let hash = 5381;
-    for (let i = 0; i < str.length; i++) {
-      hash = ((hash << 5) + hash) + str.charCodeAt(i);
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    return Math.abs(hash).toString(36);
-  }, []);
-
-  // Função para gerar hash de duplicidade - DEVE SER IDÊNTICA À DO HOOK
-  // Hash robusto: inclui hash da descrição completa + todos os campos monetários + taxas
-  // Isso garante que linhas diferentes do mesmo pedido (comissão, frete, tarifa, etc.) sejam únicas
-  const gerarHashDuplicidade = useCallback((t: TransacaoPreview, empId: string, canalVal: string): string => {
-    // Normalizar valores para evitar problemas de precisão de ponto flutuante
-    const valorLiquidoNorm = typeof t.valor_liquido === 'number' 
-      ? parseFloat(t.valor_liquido.toFixed(2)).toString()
-      : String(t.valor_liquido || 0);
-    const valorBrutoNorm = typeof t.valor_bruto === 'number'
-      ? parseFloat(t.valor_bruto.toFixed(2)).toString()
-      : String(t.valor_bruto || 0);
-    const taxasNorm = typeof t.taxas === 'number'
-      ? parseFloat(t.taxas.toFixed(2)).toString()
-      : String(t.taxas || 0);
-    const tarifasNorm = typeof t.tarifas === 'number'
-      ? parseFloat(t.tarifas.toFixed(2)).toString()
-      : String(t.tarifas || 0);
-    
-    // Descrição completa é crítica para diferenciar linhas do mesmo pedido
-    const descricaoCompleta = (t.descricao || "").toLowerCase().trim();
-    const descricaoHash = hashString(descricaoCompleta);
-    
-    // Tipo de transação também diferencia (ex: venda vs tarifa vs comissão)
-    const tipoTransacao = (t.tipo_transacao || "").toLowerCase().trim();
-    const tipoLancamento = (t.tipo_lancamento || "").toLowerCase().trim();
-    
-    // Usar referencia_externa se disponível (já inclui data_pedido_valor_descricao)
-    const baseRef = t.referencia_externa || t.pedido_id || "";
-    
-    // Hash composto: todos os campos que identificam uma linha única
-    const partes = [
+  // Função determinística para gerar referência única de duplicidade
+  // Combina: empresa, canal, data, pedido, tipo_lancamento, valor e descrição truncada
+  // DEVE SER IDÊNTICA À DO HOOK useMarketplaceTransactions
+  const buildMarketplaceRef = useCallback((t: TransacaoPreview, empId: string, canalVal: string): string => {
+    const base = [
       empId,
       canalVal,
-      t.data_transacao,
-      descricaoHash,        // Hash da descrição completa (não truncada)
-      valorLiquidoNorm,
-      valorBrutoNorm,
-      taxasNorm,            // Incluir taxas para diferenciar linhas
-      tarifasNorm,          // Incluir tarifas para diferenciar linhas
-      tipoTransacao,        // Tipo de transação (venda, tarifa, comissão, etc)
-      tipoLancamento,       // Tipo de lançamento (crédito/débito)
-      baseRef,
-    ];
-    return partes.map(p => String(p).toLowerCase().trim()).join("|");
-  }, [hashString]);
+      t.data_transacao || '',
+      t.pedido_id || '',
+      t.tipo_lancamento || '',
+      Number(t.valor_liquido || 0).toFixed(2),
+      (t.descricao || '').substring(0, 60),
+    ].join('|');
+    
+    return base.substring(0, 100);
+  }, []);
 
   // Estado para armazenar quais transações são duplicadas (por índice)
   const [transacoesDuplicadasIndices, setTransacoesDuplicadasIndices] = useState<Set<number>>(new Set());
@@ -217,7 +178,7 @@ export function ImportarMarketplaceModal({
     console.log('[Verificação Duplicatas] Iniciando verificação para', transacoes.length, 'transações');
 
     // Gerar hashes para as transações do arquivo
-    const hashesArquivo = transacoes.map(t => gerarHashDuplicidade(t, empId, canalVal));
+    const hashesArquivo = transacoes.map(t => buildMarketplaceRef(t, empId, canalVal));
     
     // Também verificar duplicatas internas (dentro do próprio arquivo)
     const hashesUnicos = new Set<string>();
@@ -295,7 +256,7 @@ export function ImportarMarketplaceModal({
     });
     
     return totalDuplicadas;
-  }, [gerarHashDuplicidade]);
+  }, [buildMarketplaceRef]);
 
   const handleClose = useCallback(() => {
     resetForm();
