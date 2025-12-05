@@ -299,12 +299,27 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     const hashesSet = new Set<string>();
     const allHashes = registrosComHash.map(r => r.hash_duplicidade);
     
+    // Extrair empresa_id e canal do primeiro registro para filtrar duplicatas
+    const empresaIdFiltro = registros[0]?.empresa_id;
+    const canalFiltro = registros[0]?.canal;
+    
     for (let i = 0; i < allHashes.length; i += HASH_BATCH_SIZE) {
       const hashBatch = allHashes.slice(i, i + HASH_BATCH_SIZE);
-      const { data: hashesExistentes } = await supabase
+      
+      let query = supabase
         .from("marketplace_transactions")
         .select("hash_duplicidade")
         .in("hash_duplicidade", hashBatch);
+      
+      // Filtrar por empresa e canal para garantir consistência com a prévia
+      if (empresaIdFiltro) {
+        query = query.eq("empresa_id", empresaIdFiltro);
+      }
+      if (canalFiltro) {
+        query = query.eq("canal", canalFiltro);
+      }
+      
+      const { data: hashesExistentes } = await query;
       
       (hashesExistentes || []).forEach(h => hashesSet.add(h.hash_duplicidade));
     }
