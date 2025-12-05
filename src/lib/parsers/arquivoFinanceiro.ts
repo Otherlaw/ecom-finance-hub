@@ -28,26 +28,19 @@ export async function parseCSVFile(file: File): Promise<any[]> {
 }
 
 // Parser XLSX → array de objetos
+// Prioriza aba 'REPORT' (padrão Mercado Livre), senão usa primeira aba
 export async function parseXLSXFile(file: File): Promise<any[]> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
 
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: "array" });
+  // Mercado Livre usa aba chamada 'REPORT'
+  const sheet = workbook.Sheets["REPORT"] || workbook.Sheets[workbook.SheetNames[0]];
 
-        const firstSheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[firstSheetName];
+  if (!sheet) {
+    throw new Error("Nenhuma aba encontrada no arquivo XLSX");
+  }
 
-        const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-        resolve(json as any[]);
-      } catch (err) {
-        reject(err);
-      }
-    };
-
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(file);
-  });
+  // Converte para array de objetos usando primeira linha como header
+  const json = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  return json as any[];
 }
