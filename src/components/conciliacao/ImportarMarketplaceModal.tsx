@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -24,11 +24,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Upload, FileSpreadsheet, AlertCircle, Package, Sparkles, AlertTriangle, Info } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, Package, Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Progress } from "@/components/ui/progress";
 import { useEmpresas } from "@/hooks/useEmpresas";
-import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
+import { MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
 import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
@@ -66,8 +65,6 @@ interface ImportStats {
   totalComValorZero: number;
   totalDescartadasPorFormato: number;
   totalLinhasVazias: number;
-  totalDuplicadas: number;
-  totalInseridas: number;
 }
 
 const CANAIS = [
@@ -80,8 +77,7 @@ const CANAIS = [
   { value: "outro", label: "Outro" },
 ];
 
-// Função para gerar referência única conforme especificado
-// Formato: canal_data_pedido_descricao_valor (max 120 chars)
+// Função para gerar referência única
 function buildMarketplaceRef(
   canal: string,
   data_transacao: string,
@@ -99,7 +95,6 @@ export function ImportarMarketplaceModal({
   onSuccess,
 }: ImportarMarketplaceModalProps) {
   const { empresas } = useEmpresas();
-  const { importarTransacoes } = useMarketplaceTransactions();
   const { processarTransacoesImportadas } = useMarketplaceAutoCategorizacao();
   const queryClient = useQueryClient();
   
@@ -112,10 +107,6 @@ export function ImportarMarketplaceModal({
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [isProcessing, setIsProcessing] = useState(false);
   const [totalItensDetectados, setTotalItensDetectados] = useState(0);
-  const [duplicatasPrevia, setDuplicatasPrevia] = useState<number>(0);
-  const [transacoesNovas, setTransacoesNovas] = useState<number>(0);
-  const [transacoesDuplicadasIndices, setTransacoesDuplicadasIndices] = useState<Set<number>>(new Set());
-  const [isVerificandoDuplicatas, setIsVerificandoDuplicatas] = useState(false);
   
   const [importStats, setImportStats] = useState<ImportStats>({
     totalLinhasArquivo: 0,
@@ -123,8 +114,6 @@ export function ImportarMarketplaceModal({
     totalComValorZero: 0,
     totalDescartadasPorFormato: 0,
     totalLinhasVazias: 0,
-    totalDuplicadas: 0,
-    totalInseridas: 0,
   });
 
   const resetForm = useCallback(() => {
@@ -137,106 +126,13 @@ export function ImportarMarketplaceModal({
     setStep("upload");
     setIsProcessing(false);
     setTotalItensDetectados(0);
-    setDuplicatasPrevia(0);
-    setTransacoesNovas(0);
-    setTransacoesDuplicadasIndices(new Set());
-    setIsVerificandoDuplicatas(false);
     setImportStats({
       totalLinhasArquivo: 0,
       totalTransacoesGeradas: 0,
       totalComValorZero: 0,
       totalDescartadasPorFormato: 0,
       totalLinhasVazias: 0,
-      totalDuplicadas: 0,
-      totalInseridas: 0,
     });
-  }, []);
-
-  // Verificar duplicatas no banco usando referencia_externa
-  const verificarDuplicatasPrevia = useCallback(async (transacoes: TransacaoPreview[], empId: string, canalVal: string) => {
-    if (transacoes.length === 0) {
-      setDuplicatasPrevia(0);
-      setTransacoesNovas(0);
-      setTransacoesDuplicadasIndices(new Set());
-      return 0;
-    }
-
-    setIsVerificandoDuplicatas(true);
-    console.log('[Verificação Duplicatas] Iniciando verificação para', transacoes.length, 'transações');
-
-    // Gerar referências para as transações do arquivo
-    const refsArquivo = transacoes.map(t => 
-      buildMarketplaceRef(canalVal, t.data_transacao, t.pedido_id, t.descricao, t.valor_liquido)
-    );
-    
-    // Verificar duplicatas internas
-    const refsUnicos = new Set<string>();
-    const duplicatasInternas = new Set<number>();
-    refsArquivo.forEach((ref, idx) => {
-      if (refsUnicos.has(ref)) {
-        duplicatasInternas.add(idx);
-      } else {
-        refsUnicos.add(ref);
-      }
-    });
-
-    console.log('[Verificação Duplicatas] Duplicatas internas no arquivo:', duplicatasInternas.size);
-
-    // Buscar refs existentes no banco em lotes
-    const BATCH_SIZE = 10000;
-    const refsExistentesBanco = new Set<string>();
-    const refsParaBuscar = Array.from(refsUnicos);
-    
-    for (let i = 0; i < refsParaBuscar.length; i += BATCH_SIZE) {
-      const batch = refsParaBuscar.slice(i, i + BATCH_SIZE);
-      
-      const { data: existentes, error } = await supabase
-        .from('marketplace_transactions')
-        .select('referencia_externa')
-        .eq('empresa_id', empId)
-        .eq('canal', canalVal)
-        .in('referencia_externa', batch);
-      
-      if (error) {
-        console.error('[Verificação Duplicatas] Erro ao buscar refs:', error);
-        continue;
-      }
-      
-      (existentes || []).forEach(e => {
-        if (e.referencia_externa) {
-          refsExistentesBanco.add(e.referencia_externa);
-        }
-      });
-    }
-
-    console.log('[Verificação Duplicatas] Refs encontrados no banco:', refsExistentesBanco.size);
-
-    // Identificar quais transações são duplicatas
-    const indicesDuplicados = new Set<number>();
-    refsArquivo.forEach((ref, idx) => {
-      if (refsExistentesBanco.has(ref) || duplicatasInternas.has(idx)) {
-        indicesDuplicados.add(idx);
-      }
-    });
-
-    setTransacoesDuplicadasIndices(indicesDuplicados);
-    
-    const totalDuplicadas = indicesDuplicados.size;
-    const totalNovas = transacoes.length - totalDuplicadas;
-
-    setDuplicatasPrevia(totalDuplicadas);
-    setTransacoesNovas(totalNovas);
-    setIsVerificandoDuplicatas(false);
-
-    console.log('[Verificação Duplicatas] RESULTADO:', {
-      totalTransacoes: transacoes.length,
-      duplicatasBanco: refsExistentesBanco.size,
-      duplicatasInternas: duplicatasInternas.size,
-      totalDuplicadas,
-      totalNovas,
-    });
-    
-    return totalDuplicadas;
   }, []);
 
   const handleClose = useCallback(() => {
@@ -244,6 +140,7 @@ export function ImportarMarketplaceModal({
     onOpenChange(false);
   }, [onOpenChange, resetForm]);
 
+  // Preview RÁPIDO - Apenas parse local do arquivo, SEM verificação de duplicatas no banco
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -262,8 +159,6 @@ export function ImportarMarketplaceModal({
         totalComValorZero: 0,
         totalDescartadasPorFormato: 0,
         totalLinhasVazias: 0,
-        totalDuplicadas: 0,
-        totalInseridas: 0,
       };
 
       // Parser específico para Mercado Pago
@@ -340,7 +235,7 @@ export function ImportarMarketplaceModal({
         return;
       }
 
-      console.log('[Importação Marketplace] Prévia completa', {
+      console.log('[Importação Marketplace] Preview completo', {
         tipo,
         canal,
         ...stats,
@@ -356,20 +251,15 @@ export function ImportarMarketplaceModal({
 
       setParsedData(transacoes);
       setTotalItensDetectados(totalItens);
-      setStep("preview");
-      
-      // Verificar duplicatas na prévia
-      const duplicadas = await verificarDuplicatasPrevia(transacoes, empresaId, canal);
-      stats.totalDuplicadas = duplicadas;
-      
       setImportStats(stats);
+      setStep("preview");
       setIsProcessing(false);
     } catch (err) {
       console.error("Erro ao processar arquivo:", err);
       setError("Erro ao processar o arquivo. Verifique o formato.");
       setIsProcessing(false);
     }
-  }, [canal, empresaId, verificarDuplicatasPrevia]);
+  }, [canal]);
 
   // Parser genérico para CSV/XLSX
   const mapLinhasRelatorioParaTransacoes = useCallback((linhas: any[], selectedCanal: string): { transacoes: TransacaoPreview[]; totalItens: number } => {
@@ -525,47 +415,37 @@ export function ImportarMarketplaceModal({
     return { transacoes: transactions, totalItens };
   }, []);
 
-  // IMPORTAÇÃO EM SEGUNDO PLANO
+  // IMPORTAÇÃO EM SEGUNDO PLANO - A verificação de duplicatas ocorre AQUI no backend
   const handleImport = useCallback(async () => {
     if (!empresaId || !canal || parsedData.length === 0) return;
 
-    // Filtrar apenas transações novas
-    const transacoesParaImportar = parsedData
-      .filter((_, idx) => !transacoesDuplicadasIndices.has(idx))
-      .map(row => ({
-        empresa_id: empresaId,
-        canal,
-        conta_nome: contaNome || canal,
-        pedido_id: row.pedido_id,
-        referencia_externa: row.referencia_externa,
-        data_transacao: row.data_transacao,
-        data_repasse: null,
-        tipo_transacao: row.tipo_transacao,
-        descricao: row.descricao,
-        valor_bruto: row.valor_bruto,
-        valor_liquido: row.valor_liquido,
-        tarifas: row.tarifas || 0,
-        taxas: row.taxas || 0,
-        outros_descontos: row.outros_descontos || 0,
-        tipo_lancamento: row.tipo_lancamento,
-        status: 'importado',
-        categoria_id: null,
-        centro_custo_id: null,
-        responsavel_id: null,
-        origem_extrato: fileName.toLowerCase().endsWith('.xlsx') ? 'arquivo_xlsx' : 'arquivo_csv',
-      } as MarketplaceTransactionInsert));
+    // Preparar todas as transações (duplicatas serão filtradas no backend)
+    const transacoesParaImportar = parsedData.map(row => ({
+      empresa_id: empresaId,
+      canal,
+      conta_nome: contaNome || canal,
+      pedido_id: row.pedido_id,
+      referencia_externa: row.referencia_externa,
+      data_transacao: row.data_transacao,
+      data_repasse: null,
+      tipo_transacao: row.tipo_transacao,
+      descricao: row.descricao,
+      valor_bruto: row.valor_bruto,
+      valor_liquido: row.valor_liquido,
+      tarifas: row.tarifas || 0,
+      taxas: row.taxas || 0,
+      outros_descontos: row.outros_descontos || 0,
+      tipo_lancamento: row.tipo_lancamento,
+      status: 'importado',
+      categoria_id: null,
+      centro_custo_id: null,
+      responsavel_id: null,
+      origem_extrato: fileName.toLowerCase().endsWith('.xlsx') ? 'arquivo_xlsx' : 'arquivo_csv',
+    } as MarketplaceTransactionInsert));
 
     console.log('[Importação Background] Iniciando...', {
       total: parsedData.length,
-      duplicadas: transacoesDuplicadasIndices.size,
-      paraImportar: transacoesParaImportar.length,
     });
-
-    if (transacoesParaImportar.length === 0) {
-      toast.info("Todas as transações já existem no banco. Nenhuma importação necessária.");
-      handleClose();
-      return;
-    }
 
     // Criar job no banco
     let jobId: string;
@@ -592,7 +472,6 @@ export function ImportarMarketplaceModal({
     const savedEmpresaId = empresaId;
     const savedCanal = canal;
     const savedParsedData = [...parsedData];
-    const savedTransacoesDuplicadasIndices = new Set(transacoesDuplicadasIndices);
     
     handleClose();
     onSuccess?.();
@@ -600,20 +479,18 @@ export function ImportarMarketplaceModal({
     // Invalidar queries para mostrar job em andamento
     queryClient.invalidateQueries({ queryKey: ["marketplace_import_jobs"] });
 
-    // Processar em background (não bloqueia UI)
+    // Processar em background (não bloqueia UI) - A deduplicação ocorre AQUI
     processarImportacaoBackground(
       jobId,
       transacoesParaImportar,
       savedParsedData,
-      savedTransacoesDuplicadasIndices,
       savedEmpresaId,
       savedCanal,
-      importarTransacoes,
       processarTransacoesImportadas,
       queryClient
     );
 
-  }, [empresaId, canal, contaNome, parsedData, fileName, transacoesDuplicadasIndices, importarTransacoes, processarTransacoesImportadas, handleClose, onSuccess, queryClient]);
+  }, [empresaId, canal, contaNome, parsedData, fileName, processarTransacoesImportadas, handleClose, onSuccess, queryClient]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -704,28 +581,35 @@ export function ImportarMarketplaceModal({
             </Alert>
           )}
 
-          {/* Preview das transações */}
-          {parsedData.length > 0 && (
+          {isProcessing && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">
+              <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              Processando arquivo...
+            </div>
+          )}
+
+          {/* Preview das transações - RÁPIDO, sem verificação de duplicatas */}
+          {parsedData.length > 0 && !isProcessing && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>
-                  Preview ({parsedData.length} transações encontradas)
+                  Preview ({parsedData.length.toLocaleString()} transações encontradas)
                 </Label>
                 {totalItensDetectados > 0 && (
                   <span className="flex items-center gap-1 text-sm text-emerald-600">
                     <Package className="h-4 w-4" />
-                    {totalItensDetectados} itens de produto detectados
+                    {totalItensDetectados.toLocaleString()} itens de produto detectados
                   </span>
                 )}
               </div>
 
-              {/* Estatísticas */}
+              {/* Estatísticas do arquivo */}
               {importStats.totalLinhasArquivo > 0 && (
                 <div className="text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md flex items-center gap-2">
                   <Info className="h-3.5 w-3.5" />
                   <span>
                     Arquivo: <strong>{importStats.totalLinhasArquivo.toLocaleString()}</strong> linhas | 
-                    Geradas: <strong>{importStats.totalTransacoesGeradas.toLocaleString()}</strong>
+                    Transações válidas: <strong>{importStats.totalTransacoesGeradas.toLocaleString()}</strong>
                     {importStats.totalDescartadasPorFormato > 0 && (
                       <> | Formato inválido: <strong>{importStats.totalDescartadasPorFormato.toLocaleString()}</strong></>
                     )}
@@ -733,28 +617,13 @@ export function ImportarMarketplaceModal({
                 </div>
               )}
 
-              {/* Status de duplicatas */}
-              {isVerificandoDuplicatas && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">
-                  <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                  Verificando duplicatas no banco de dados...
-                </div>
-              )}
-              
-              {!isVerificandoDuplicatas && (duplicatasPrevia > 0 || transacoesNovas > 0) && (
-                <div className="flex gap-3 text-sm">
-                  <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1.5 rounded-md">
-                    <Sparkles className="h-4 w-4" />
-                    {transacoesNovas.toLocaleString()} novas (serão importadas)
-                  </span>
-                  {duplicatasPrevia > 0 && (
-                    <span className="flex items-center gap-1 text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 rounded-md">
-                      <AlertTriangle className="h-4 w-4" />
-                      {duplicatasPrevia.toLocaleString()} duplicadas (serão ignoradas)
-                    </span>
-                  )}
-                </div>
-              )}
+              {/* Informação sobre duplicatas */}
+              <div className="text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950/30 px-3 py-2 rounded-md flex items-center gap-2">
+                <Info className="h-3.5 w-3.5 text-blue-600" />
+                <span className="text-blue-700 dark:text-blue-400">
+                  A verificação de duplicatas será feita automaticamente durante a importação em segundo plano.
+                </span>
+              </div>
 
               <ScrollArea className="max-h-64 border rounded-md mt-2">
                 <Table>
@@ -767,50 +636,36 @@ export function ImportarMarketplaceModal({
                       <TableHead className="text-right">Tarifas</TableHead>
                       <TableHead className="text-right">Valor Líquido</TableHead>
                       <TableHead className="text-center">Tipo</TableHead>
-                      <TableHead className="text-center">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {parsedData.slice(0, 100).map((t, idx) => {
-                      const isDuplicada = transacoesDuplicadasIndices.has(idx);
-                      return (
-                        <TableRow 
-                          key={idx} 
-                          className={isDuplicada ? "opacity-50 bg-amber-50/50 dark:bg-amber-950/20" : ""}
-                        >
-                          <TableCell className="text-xs">
-                            {t.data_transacao ? new Date(t.data_transacao + "T00:00:00").toLocaleDateString("pt-BR") : "-"}
-                          </TableCell>
-                          <TableCell className="text-xs max-w-[200px] truncate" title={t.descricao}>
-                            {t.descricao}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {t.pedido_id || "-"}
-                          </TableCell>
-                          <TableCell className="text-xs text-right">
-                            {formatCurrency(t.valor_bruto)}
-                          </TableCell>
-                          <TableCell className="text-xs text-right text-destructive">
-                            {t.tarifas > 0 ? formatCurrency(t.tarifas) : "-"}
-                          </TableCell>
-                          <TableCell className={`text-xs text-right font-medium ${t.tipo_lancamento === 'credito' ? 'text-success' : 'text-destructive'}`}>
-                            {t.tipo_lancamento === 'credito' ? '+' : '-'}{formatCurrency(t.valor_liquido)}
-                          </TableCell>
-                          <TableCell className="text-xs text-center">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${t.tipo_lancamento === 'credito' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
-                              {t.tipo_lancamento === 'credito' ? 'C' : 'D'}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {isDuplicada ? (
-                              <span className="text-[10px] text-amber-600">Duplicada</span>
-                            ) : (
-                              <span className="text-[10px] text-emerald-600">Nova</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                    {parsedData.slice(0, 100).map((t, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell className="text-xs">
+                          {t.data_transacao ? new Date(t.data_transacao + "T00:00:00").toLocaleDateString("pt-BR") : "-"}
+                        </TableCell>
+                        <TableCell className="text-xs max-w-[200px] truncate" title={t.descricao}>
+                          {t.descricao}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {t.pedido_id || "-"}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(t.valor_bruto)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right text-destructive">
+                          {t.tarifas > 0 ? formatCurrency(t.tarifas) : "-"}
+                        </TableCell>
+                        <TableCell className={`text-xs text-right font-medium ${t.tipo_lancamento === 'credito' ? 'text-success' : 'text-destructive'}`}>
+                          {t.tipo_lancamento === 'credito' ? '+' : '-'}{formatCurrency(t.valor_liquido)}
+                        </TableCell>
+                        <TableCell className="text-xs text-center">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${t.tipo_lancamento === 'credito' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
+                            {t.tipo_lancamento === 'credito' ? 'Crédito' : 'Débito'}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
                 {parsedData.length > 100 && (
@@ -829,11 +684,11 @@ export function ImportarMarketplaceModal({
           </Button>
           <Button
             onClick={handleImport}
-            disabled={parsedData.length === 0 || isProcessing || isVerificandoDuplicatas || transacoesNovas === 0}
+            disabled={parsedData.length === 0 || isProcessing}
             className="gap-2"
           >
             <Upload className="h-4 w-4" />
-            Iniciar Importação ({transacoesNovas.toLocaleString()} transações)
+            Iniciar Importação ({parsedData.length.toLocaleString()} transações)
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -841,28 +696,79 @@ export function ImportarMarketplaceModal({
   );
 }
 
-// Função que processa em background (fora do componente para não ser afetada pelo unmount)
+// Função que processa em background - A VERIFICAÇÃO DE DUPLICATAS OCORRE AQUI
 async function processarImportacaoBackground(
   jobId: string,
   transacoesParaImportar: MarketplaceTransactionInsert[],
   parsedData: TransacaoPreview[],
-  transacoesDuplicadasIndices: Set<number>,
   empresaId: string,
   canal: string,
-  importarTransacoes: any,
   processarTransacoesImportadas: any,
   queryClient: any
 ) {
   const BATCH_SIZE = 500;
   let importadas = 0;
-  let duplicadas = transacoesDuplicadasIndices.size;
+  let duplicadas = 0;
   let erros = 0;
   const insertedIds: string[] = [];
 
   try {
-    // Processar em batches
-    for (let i = 0; i < transacoesParaImportar.length; i += BATCH_SIZE) {
-      const batch = transacoesParaImportar.slice(i, i + BATCH_SIZE);
+    // PASSO 1: Verificar duplicatas no banco ANTES de inserir (em lotes)
+    console.log('[Background Import] Verificando duplicatas no banco...');
+    
+    const refsParaImportar = transacoesParaImportar.map(t => t.referencia_externa);
+    const refsExistentes = new Set<string>();
+    
+    // Buscar refs existentes no banco em lotes de 10k
+    for (let i = 0; i < refsParaImportar.length; i += 10000) {
+      const batch = refsParaImportar.slice(i, i + 10000).filter(Boolean) as string[];
+      if (batch.length === 0) continue;
+      
+      const { data: existentes } = await supabase
+        .from('marketplace_transactions')
+        .select('referencia_externa')
+        .eq('empresa_id', empresaId)
+        .eq('canal', canal)
+        .in('referencia_externa', batch);
+      
+      (existentes || []).forEach(e => {
+        if (e.referencia_externa) refsExistentes.add(e.referencia_externa);
+      });
+    }
+    
+    console.log('[Background Import] Refs existentes no banco:', refsExistentes.size);
+    
+    // Filtrar transações que NÃO existem no banco
+    const transacoesNovas = transacoesParaImportar.filter(t => 
+      !t.referencia_externa || !refsExistentes.has(t.referencia_externa)
+    );
+    
+    // Também filtrar duplicatas internas do arquivo
+    const refsVistas = new Set<string>();
+    const transacoesUnicas: MarketplaceTransactionInsert[] = [];
+    
+    for (const t of transacoesNovas) {
+      if (t.referencia_externa && refsVistas.has(t.referencia_externa)) {
+        duplicadas++;
+        continue;
+      }
+      if (t.referencia_externa) refsVistas.add(t.referencia_externa);
+      transacoesUnicas.push(t);
+    }
+    
+    // Contar duplicatas do banco
+    duplicadas += (transacoesParaImportar.length - transacoesNovas.length);
+    
+    console.log('[Background Import] Após deduplicação:', {
+      total: transacoesParaImportar.length,
+      duplicadasBanco: transacoesParaImportar.length - transacoesNovas.length,
+      duplicadasInternas: transacoesNovas.length - transacoesUnicas.length,
+      paraInserir: transacoesUnicas.length,
+    });
+
+    // PASSO 2: Inserir transações únicas em batches
+    for (let i = 0; i < transacoesUnicas.length; i += BATCH_SIZE) {
+      const batch = transacoesUnicas.slice(i, i + BATCH_SIZE);
       
       try {
         const { data, error } = await supabase
@@ -872,7 +778,7 @@ async function processarImportacaoBackground(
 
         if (error) {
           if (error.code === "23505") {
-            // Duplicidade - contar e continuar
+            // Duplicidade no banco (edge case) - contar e continuar
             duplicadas += batch.length;
           } else {
             erros += batch.length;
@@ -891,14 +797,14 @@ async function processarImportacaoBackground(
 
       // Atualizar progresso no banco após cada batch
       await atualizarProgressoJob(jobId, {
-        linhas_processadas: Math.min(i + batch.length, transacoesParaImportar.length),
+        linhas_processadas: Math.min(i + batch.length, transacoesUnicas.length),
         linhas_importadas: importadas,
         linhas_duplicadas: duplicadas,
         linhas_com_erro: erros,
       });
     }
 
-    // Auto-categorização
+    // PASSO 3: Auto-categorização
     if (insertedIds.length > 0) {
       try {
         await processarTransacoesImportadas.mutateAsync({
@@ -909,17 +815,16 @@ async function processarImportacaoBackground(
         console.error("[Background Import] Erro na auto-categorização:", err);
       }
 
-      // Criar itens de venda
-      const transacoesNovasComIndice = parsedData
-        .map((t, idx) => ({ transacao: t, indiceOriginal: idx }))
-        .filter(({ indiceOriginal }) => !transacoesDuplicadasIndices.has(indiceOriginal));
-
-      const transacoesComItens = transacoesNovasComIndice
-        .map(({ transacao }, idx) => ({
-          transactionId: insertedIds[idx],
-          itens: transacao.itens || [],
+      // PASSO 4: Criar itens de venda
+      // Mapear índices das transações inseridas para os dados originais
+      const insertedRefs = new Set(transacoesUnicas.slice(0, insertedIds.length).map(t => t.referencia_externa));
+      const transacoesComItens = parsedData
+        .filter(t => insertedRefs.has(t.referencia_externa) && t.itens && t.itens.length > 0)
+        .map((t, idx) => ({
+          transactionId: insertedIds[idx] || insertedIds[0], // fallback
+          itens: t.itens || [],
         }))
-        .filter(t => t.itens && t.itens.length > 0);
+        .filter(t => t.itens.length > 0);
 
       if (transacoesComItens.length > 0) {
         try {
@@ -931,7 +836,7 @@ async function processarImportacaoBackground(
       }
     }
 
-    // Finalizar job com sucesso
+    // PASSO 5: Finalizar job com sucesso
     await finalizarJob(jobId, {
       status: 'concluido',
       linhas_importadas: importadas,
@@ -943,8 +848,9 @@ async function processarImportacaoBackground(
     queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
     queryClient.invalidateQueries({ queryKey: ["marketplace_import_jobs"] });
 
-    toast.success(`Importação concluída: ${importadas.toLocaleString()} transações importadas`, {
-      description: duplicadas > 0 ? `${duplicadas.toLocaleString()} duplicadas ignoradas` : undefined,
+    toast.success(`Importação concluída!`, {
+      description: `${importadas.toLocaleString()} inseridas | ${duplicadas.toLocaleString()} duplicadas | ${erros > 0 ? `${erros.toLocaleString()} erros` : ''}`.trim(),
+      duration: 8000,
     });
 
   } catch (err) {
