@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { Upload, FileSpreadsheet, AlertCircle, Package } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Progress } from "@/components/ui/progress";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -743,6 +744,15 @@ export function ImportarMarketplaceModal({
             </div>
           )}
         </div>
+
+        {uploadProgress !== null && (
+          <div className="mt-4 mb-2">
+            <p className="text-xs text-muted-foreground mb-1">
+              {uploadLabel || "Processando arquivo..."}
+            </p>
+            <Progress value={uploadProgress} className="h-1.5" />
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose}>
