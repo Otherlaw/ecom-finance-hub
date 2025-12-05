@@ -380,12 +380,12 @@ export function useRecebimentos(compraId: string | null) {
           if (item.sku_id && item.quantidade_recebida > 0) {
             try {
               await registrarEntradaEstoqueSKU({
-                empresaId: input.empresa_id,
                 skuId: item.sku_id,
+                empresaId: input.empresa_id,
                 quantidade: item.quantidade_recebida,
                 custoUnitario: item.custo_unitario,
                 data: input.data_recebimento,
-                origem: 'recebimento_compra',
+                origem: 'compra',
                 referenciaId: recebimento.id,
                 observacoes: `Recebimento de compra - Item ${item.compra_item_id}`,
               });
