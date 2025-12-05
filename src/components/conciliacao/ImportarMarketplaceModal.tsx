@@ -124,12 +124,12 @@ export function ImportarMarketplaceModal({
       outrosDescontos: string[];
     }> = {
       mercado_livre: {
-        data: ["date", "data", "fecha"],
-        pedido: ["order", "pedido", "pack_id", "order_id"],
-        tipo: ["type", "tipo", "reason"],
-        descricao: ["description", "descricao", "description_detail"],
-        valorBruto: ["amount", "valor_bruto", "gross_amount"],
-        valorLiquido: ["net_amount", "valor_liquido", "total"],
+        data: ["data da tarifa", "date", "data", "fecha"],
+        pedido: ["número da venda", "order", "pedido", "pack_id", "order_id"],
+        tipo: ["tipo de tarifa", "type", "tipo", "reason"],
+        descricao: ["description", "descricao", "description_detail", "tipo de tarifa"],
+        valorBruto: ["valor da transação", "amount", "valor_bruto", "gross_amount"],
+        valorLiquido: ["valor líquido da transação", "net_amount", "valor_liquido", "total"],
         tarifas: ["tarifa", "comissao", "commission", "fee"],
         taxas: ["taxa", "imposto", "tax"],
         outrosDescontos: ["desconto", "discount", "outros"],
@@ -291,12 +291,12 @@ export function ImportarMarketplaceModal({
       outrosDescontos: string[];
     }> = {
       mercado_livre: {
-        data: ["date", "data", "fecha"],
-        pedido: ["order", "pedido", "pack_id", "order_id"],
-        tipo: ["type", "tipo", "reason"],
-        descricao: ["description", "descricao", "description_detail"],
-        valorBruto: ["amount", "valor_bruto", "gross_amount"],
-        valorLiquido: ["net_amount", "valor_liquido", "total"],
+        data: ["data da tarifa", "date", "data", "fecha"],
+        pedido: ["número da venda", "order", "pedido", "pack_id", "order_id"],
+        tipo: ["tipo de tarifa", "type", "tipo", "reason"],
+        descricao: ["description", "descricao", "description_detail", "tipo de tarifa"],
+        valorBruto: ["valor da transação", "amount", "valor_bruto", "gross_amount"],
+        valorLiquido: ["valor líquido da transação", "net_amount", "valor_liquido", "total"],
         tarifas: ["tarifa", "comissao", "commission", "fee"],
         taxas: ["taxa", "imposto", "tax"],
         outrosDescontos: ["desconto", "discount", "outros"],

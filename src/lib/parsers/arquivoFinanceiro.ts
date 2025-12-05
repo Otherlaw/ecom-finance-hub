@@ -68,20 +68,37 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
   );
 
   if (headerIndex === -1) {
-    throw new Error("Cabeçalho não encontrado no XLSX do Mercado Livre. Procurando por 'data da tarifa'.");
+    throw new Error("Cabeçalho não encontrado no XLSX do Mercado Livre. Procurando por 'Data da tarifa'.");
   }
 
   const header = rows[headerIndex] as string[];
   const dataRows = rows.slice(headerIndex + 1);
+
+  // Validar colunas obrigatórias do relatório ML
+  const col = {
+    dataTarifa: header.findIndex(h => h === "Data da tarifa"),
+    tipoTarifa: header.findIndex(h => h === "Tipo de tarifa"),
+    numeroVenda: header.findIndex(h => h === "Número da venda"),
+    canalVendas: header.findIndex(h => h === "Canal de vendas"),
+    valorTransacao: header.findIndex(h => h === "Valor da transação"),
+    valorLiquido: header.findIndex(h => h === "Valor líquido da transação"),
+  };
+
+  if (col.dataTarifa === -1 || col.tipoTarifa === -1 || col.valorLiquido === -1) {
+    throw new Error(
+      "Formato inesperado do relatório de faturamento do Mercado Livre. " +
+      "Colunas obrigatórias: 'Data da tarifa', 'Tipo de tarifa', 'Valor líquido da transação'."
+    );
+  }
 
   // Converte para array de objetos usando o header detectado
   return dataRows
     .filter((row) => row.some((cell) => cell !== "" && cell !== null && cell !== undefined))
     .map((row) => {
       const obj: Record<string, any> = {};
-      header.forEach((col, i) => {
-        if (col) {
-          obj[col.trim()] = row[i] ?? "";
+      header.forEach((colName, i) => {
+        if (colName) {
+          obj[colName.trim()] = row[i] ?? "";
         }
       });
       return obj;
