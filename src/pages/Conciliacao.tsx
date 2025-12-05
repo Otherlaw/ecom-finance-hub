@@ -1065,6 +1065,12 @@ function MarketplaceTab() {
           Atualizar
         </Button>
         
+        {/* Contador de transações */}
+        <div className="flex items-center gap-1 text-sm text-muted-foreground ml-2">
+          <span className="font-medium text-foreground">{transacoesFiltradas.length}</span>
+          <span>de {transacoes.length} transações</span>
+        </div>
+        
         <Button className="gap-2 ml-auto" onClick={() => setImportModalOpen(true)}>
           <Upload className="h-4 w-4" />
           Importar Relatório
