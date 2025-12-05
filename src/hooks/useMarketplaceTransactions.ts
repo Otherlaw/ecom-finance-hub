@@ -197,23 +197,29 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     },
   });
 
+  const BATCH_SIZE = 500;
+
   const importarTransacoes = useMutation({
     mutationFn: async (transactionsWithItems: TransactionWithItems[]) => {
       const transactionsToImport = transactionsWithItems.map(t => t.transaction);
       
-      // Buscar referências existentes para evitar duplicatas
+      // Buscar referências existentes para evitar duplicatas (em lotes para grandes volumes)
       const referencias = transactionsToImport
         .filter(t => t.referencia_externa)
         .map(t => t.referencia_externa);
 
       let existingRefs: string[] = [];
       if (referencias.length > 0) {
-        const { data: existing } = await supabase
-          .from("marketplace_transactions")
-          .select("referencia_externa")
-          .in("referencia_externa", referencias as string[]);
-        
-        existingRefs = (existing || []).map(e => e.referencia_externa).filter(Boolean) as string[];
+        // Buscar em lotes de 500 para evitar limite de IN clause
+        for (let i = 0; i < referencias.length; i += BATCH_SIZE) {
+          const batch = referencias.slice(i, i + BATCH_SIZE);
+          const { data: existing } = await supabase
+            .from("marketplace_transactions")
+            .select("referencia_externa")
+            .in("referencia_externa", batch as string[]);
+          
+          existingRefs.push(...(existing || []).map(e => e.referencia_externa).filter(Boolean) as string[]);
+        }
       }
 
       // Filtrar transações que não são duplicatas
@@ -225,24 +231,38 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         return { imported: 0, skipped: transactionsToImport.length, itensCreated: 0 };
       }
 
-      // Inserir transações
-      const { data: insertedTransactions, error } = await supabase
-        .from("marketplace_transactions")
-        .insert(newTransactionsWithItems.map(t => t.transaction))
-        .select("id, referencia_externa");
+      // Inserir transações em lotes
+      const allInsertedTransactions: { id: string; referencia_externa: string | null }[] = [];
+      const transactionsData = newTransactionsWithItems.map(t => t.transaction);
+      
+      for (let i = 0; i < transactionsData.length; i += BATCH_SIZE) {
+        const batch = transactionsData.slice(i, i + BATCH_SIZE);
+        
+        const { data: insertedBatch, error } = await supabase
+          .from("marketplace_transactions")
+          .insert(batch)
+          .select("id, referencia_externa");
 
-      if (error) throw error;
+        if (error) {
+          console.error(`[Marketplace Import] Erro no lote ${Math.floor(i / BATCH_SIZE) + 1}:`, error);
+          throw error;
+        }
+        
+        allInsertedTransactions.push(...(insertedBatch || []));
+      }
 
       // Criar mapa de referência -> id
       const refToIdMap = new Map<string, string>();
-      for (const t of insertedTransactions || []) {
+      for (const t of allInsertedTransactions) {
         if (t.referencia_externa) {
           refToIdMap.set(t.referencia_externa, t.id);
         }
       }
 
-      // Inserir itens para cada transação
+      // Inserir itens em lotes
       let itensCreated = 0;
+      const allItensToInsert: any[] = [];
+      
       for (const twi of newTransactionsWithItems) {
         if (twi.itens.length === 0) continue;
         
@@ -252,21 +272,28 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
           
         if (!transactionId) continue;
 
-        const itensToInsert = twi.itens.map(item => ({
-          transaction_id: transactionId,
-          sku_marketplace: item.sku_marketplace,
-          descricao_item: item.descricao_item,
-          quantidade: item.quantidade,
-          preco_unitario: item.preco_unitario,
-          preco_total: item.preco_total,
-        }));
+        for (const item of twi.itens) {
+          allItensToInsert.push({
+            transaction_id: transactionId,
+            sku_marketplace: item.sku_marketplace,
+            descricao_item: item.descricao_item,
+            quantidade: item.quantidade,
+            preco_unitario: item.preco_unitario,
+            preco_total: item.preco_total,
+          });
+        }
+      }
 
+      // Inserir itens em lotes
+      for (let i = 0; i < allItensToInsert.length; i += BATCH_SIZE) {
+        const batch = allItensToInsert.slice(i, i + BATCH_SIZE);
+        
         const { error: itensError } = await supabase
           .from("marketplace_transaction_items")
-          .insert(itensToInsert);
+          .insert(batch);
 
         if (!itensError) {
-          itensCreated += itensToInsert.length;
+          itensCreated += batch.length;
         }
       }
 
