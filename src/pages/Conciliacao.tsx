@@ -1362,6 +1362,52 @@ function MarketplaceTab() {
             </DialogDescription>
           </DialogHeader>
           
+          {/* Ações rápidas */}
+          {duplicatas.length > 0 && (
+            <div className="flex items-center gap-2 py-2 border-b">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => {
+                  const allDuplicateIds = duplicatas.flatMap(g => g.transactions.slice(1).map(t => t.id));
+                  setSelectedDuplicates(new Set(allDuplicateIds));
+                }}
+              >
+                <Checkbox className="h-3.5 w-3.5" checked={selectedDuplicates.size === totalDuplicatas} />
+                Selecionar todas ({totalDuplicatas})
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="gap-2"
+                disabled={excluirDuplicatas.isPending}
+                onClick={() => {
+                  const allDuplicateIds = duplicatas.flatMap(g => g.transactions.slice(1).map(t => t.id));
+                  if (allDuplicateIds.length === 0) return;
+                  excluirDuplicatas.mutate(allDuplicateIds, {
+                    onSuccess: () => {
+                      setSelectedDuplicates(new Set());
+                      setDuplicatesModalOpen(false);
+                    }
+                  });
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {excluirDuplicatas.isPending ? "Removendo..." : `Remover todas (${totalDuplicatas})`}
+              </Button>
+              {selectedDuplicates.size > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedDuplicates(new Set())}
+                >
+                  Limpar seleção
+                </Button>
+              )}
+            </div>
+          )}
+          
           <ScrollArea className="max-h-[50vh] pr-4">
             {isDuplicatesLoading ? (
               <div className="space-y-4">
