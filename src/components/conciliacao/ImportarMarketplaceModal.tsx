@@ -24,11 +24,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Upload, FileSpreadsheet, AlertCircle, Package } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, Package, Sparkles } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
+import { useMarketplaceRules } from "@/hooks/useMarketplaceRules";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
 import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago } from "@/lib/parsers/arquivoFinanceiro";
@@ -72,6 +73,7 @@ export function ImportarMarketplaceModal({
 }: ImportarMarketplaceModalProps) {
   const { empresas } = useEmpresas();
   const { importarTransacoes } = useMarketplaceTransactions();
+  const { aplicarRegrasTransacoes } = useMarketplaceRules();
   
   const [empresaId, setEmpresaId] = useState<string>("");
   const [canal, setCanal] = useState<string>("");
@@ -574,18 +576,27 @@ export function ImportarMarketplaceModal({
     setUploadLabel(`Importando ${transacoes.length} transações...`);
     setUploadProgress(0);
 
-    await importarTransacoes.mutateAsync({
+    const result = await importarTransacoes.mutateAsync({
       transacoes,
       onProgress: (percent) => {
         setUploadProgress(percent);
       },
     });
 
+    // Auto-categorização após importação
+    if (result.insertedIds && result.insertedIds.length > 0) {
+      setUploadLabel("Categorizando automaticamente...");
+      await aplicarRegrasTransacoes.mutateAsync({
+        transactionIds: result.insertedIds,
+        empresaId,
+      });
+    }
+
     setUploadLabel("");
     setUploadProgress(null);
     onSuccess?.();
     handleClose();
-  }, [empresaId, canal, contaNome, parsedData, fileName, importarTransacoes, onSuccess, handleClose]);
+  }, [empresaId, canal, contaNome, parsedData, fileName, importarTransacoes, aplicarRegrasTransacoes, onSuccess, handleClose]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {

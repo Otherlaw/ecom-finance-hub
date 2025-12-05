@@ -107,6 +107,12 @@ export interface MarketplaceTransactionInsert {
   origem_arquivo?: string;
 }
 
+export interface ImportResult {
+  importadas: number;
+  duplicadas: number;
+  insertedIds: string[];
+}
+
 export interface TransactionWithItems {
   transaction: MarketplaceTransactionInsert;
   itens: Array<{
@@ -148,7 +154,7 @@ interface UseMarketplaceTransactionsReturn {
   isLoading: boolean;
   refetch: () => void;
   importarTransacoes: UseMutationResult<
-    { importadas: number; duplicadas?: number },
+    ImportResult,
     Error,
     { transacoes: MarketplaceTransactionInsert[]; onProgress?: (percent: number) => void },
     unknown
@@ -239,9 +245,9 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
   const insertMarketplaceTransactionsInBatches = async (
     registros: MarketplaceTransactionInsert[],
     onProgress?: (percent: number) => void
-  ): Promise<{ importadas: number; duplicadas: number }> => {
+  ): Promise<{ importadas: number; duplicadas: number; insertedIds: string[] }> => {
     if (!registros.length) {
-      return { importadas: 0, duplicadas: 0 };
+      return { importadas: 0, duplicadas: 0, insertedIds: [] };
     }
 
     // 1. Gerar hashes para todos os registros
@@ -264,11 +270,12 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     const duplicadas = registrosComHash.length - registrosNovos.length;
 
     if (registrosNovos.length === 0) {
-      return { importadas: 0, duplicadas };
+      return { importadas: 0, duplicadas, insertedIds: [] };
     }
 
     let importadas = 0;
     const total = registrosNovos.length;
+    const insertedIds: string[] = [];
 
     for (let i = 0; i < registrosNovos.length; i += BATCH_SIZE) {
       const batch = registrosNovos.slice(i, i + BATCH_SIZE);
@@ -276,7 +283,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       const { data, error } = await supabase
         .from("marketplace_transactions")
         .insert(batch)
-        .select();
+        .select("id");
 
       if (error) {
         // Se for erro de duplicidade, ignorar e continuar
@@ -294,6 +301,11 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
       const inseridas = data?.length ?? batch.length;
       importadas += inseridas;
+      
+      // Coletar IDs inseridos
+      if (data) {
+        insertedIds.push(...data.map(d => d.id));
+      }
 
       if (onProgress) {
         const processed = Math.min(i + batch.length, total);
@@ -302,13 +314,13 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       }
     }
 
-    return { importadas, duplicadas };
+    return { importadas, duplicadas, insertedIds };
   };
 
   const importarTransacoes = useMutation({
-    mutationFn: async ({ transacoes, onProgress }: { transacoes: MarketplaceTransactionInsert[]; onProgress?: (percent: number) => void }) => {
+    mutationFn: async ({ transacoes, onProgress }: { transacoes: MarketplaceTransactionInsert[]; onProgress?: (percent: number) => void }): Promise<ImportResult> => {
       if (!transacoes || transacoes.length === 0) {
-        return { importadas: 0, duplicadas: 0 };
+        return { importadas: 0, duplicadas: 0, insertedIds: [] };
       }
 
       console.log(
@@ -320,7 +332,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       // 5% inicial só pra barra não começar em zero
       if (onProgress) onProgress(5);
 
-      const { importadas, duplicadas } = await insertMarketplaceTransactionsInBatches(
+      const { importadas, duplicadas, insertedIds } = await insertMarketplaceTransactionsInBatches(
         transacoes,
         onProgress
       );
@@ -335,7 +347,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       // Garante 100% no final
       if (onProgress) onProgress(100);
 
-      return { importadas, duplicadas };
+      return { importadas, duplicadas, insertedIds };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
