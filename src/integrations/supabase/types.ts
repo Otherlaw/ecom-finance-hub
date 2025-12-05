@@ -256,6 +256,141 @@ export type Database = {
           },
         ]
       }
+      compras: {
+        Row: {
+          chave_acesso: string | null
+          created_at: string
+          data_compra: string
+          empresa_id: string
+          fornecedor_cnpj: string | null
+          fornecedor_nome: string
+          id: string
+          numero_nf: string | null
+          observacoes: string | null
+          status: string
+          updated_at: string
+          valor_total: number
+        }
+        Insert: {
+          chave_acesso?: string | null
+          created_at?: string
+          data_compra: string
+          empresa_id: string
+          fornecedor_cnpj?: string | null
+          fornecedor_nome: string
+          id?: string
+          numero_nf?: string | null
+          observacoes?: string | null
+          status?: string
+          updated_at?: string
+          valor_total?: number
+        }
+        Update: {
+          chave_acesso?: string | null
+          created_at?: string
+          data_compra?: string
+          empresa_id?: string
+          fornecedor_cnpj?: string | null
+          fornecedor_nome?: string
+          id?: string
+          numero_nf?: string | null
+          observacoes?: string | null
+          status?: string
+          updated_at?: string
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "compras_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      compras_itens: {
+        Row: {
+          aliquota_icms: number | null
+          cfop: string | null
+          codigo_produto_nf: string | null
+          compra_id: string
+          created_at: string
+          descricao_nf: string
+          id: string
+          mapeado: boolean
+          ncm: string | null
+          produto_id: string | null
+          quantidade: number
+          quantidade_recebida: number
+          sku_id: string | null
+          updated_at: string
+          valor_icms: number | null
+          valor_total: number
+          valor_unitario: number
+        }
+        Insert: {
+          aliquota_icms?: number | null
+          cfop?: string | null
+          codigo_produto_nf?: string | null
+          compra_id: string
+          created_at?: string
+          descricao_nf: string
+          id?: string
+          mapeado?: boolean
+          ncm?: string | null
+          produto_id?: string | null
+          quantidade?: number
+          quantidade_recebida?: number
+          sku_id?: string | null
+          updated_at?: string
+          valor_icms?: number | null
+          valor_total?: number
+          valor_unitario?: number
+        }
+        Update: {
+          aliquota_icms?: number | null
+          cfop?: string | null
+          codigo_produto_nf?: string | null
+          compra_id?: string
+          created_at?: string
+          descricao_nf?: string
+          id?: string
+          mapeado?: boolean
+          ncm?: string | null
+          produto_id?: string | null
+          quantidade?: number
+          quantidade_recebida?: number
+          sku_id?: string | null
+          updated_at?: string
+          valor_icms?: number | null
+          valor_total?: number
+          valor_unitario?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "compras_itens_compra_id_fkey"
+            columns: ["compra_id"]
+            isOneToOne: false
+            referencedRelation: "compras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "compras_itens_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "compras_itens_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "produto_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contas_a_pagar: {
         Row: {
           categoria_id: string | null
@@ -1496,6 +1631,115 @@ export type Database = {
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recebimentos_compra: {
+        Row: {
+          compra_id: string
+          created_at: string
+          data_recebimento: string
+          id: string
+          observacao: string | null
+          usuario_id: string | null
+        }
+        Insert: {
+          compra_id: string
+          created_at?: string
+          data_recebimento?: string
+          id?: string
+          observacao?: string | null
+          usuario_id?: string | null
+        }
+        Update: {
+          compra_id?: string
+          created_at?: string
+          data_recebimento?: string
+          id?: string
+          observacao?: string | null
+          usuario_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recebimentos_compra_compra_id_fkey"
+            columns: ["compra_id"]
+            isOneToOne: false
+            referencedRelation: "compras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recebimentos_itens: {
+        Row: {
+          compra_item_id: string
+          created_at: string
+          custo_unitario: number
+          id: string
+          lote: string | null
+          observacao: string | null
+          produto_id: string | null
+          quantidade_devolvida: number
+          quantidade_pedida: number | null
+          quantidade_recebida: number
+          recebimento_id: string
+          sku_id: string | null
+        }
+        Insert: {
+          compra_item_id: string
+          created_at?: string
+          custo_unitario?: number
+          id?: string
+          lote?: string | null
+          observacao?: string | null
+          produto_id?: string | null
+          quantidade_devolvida?: number
+          quantidade_pedida?: number | null
+          quantidade_recebida?: number
+          recebimento_id: string
+          sku_id?: string | null
+        }
+        Update: {
+          compra_item_id?: string
+          created_at?: string
+          custo_unitario?: number
+          id?: string
+          lote?: string | null
+          observacao?: string | null
+          produto_id?: string | null
+          quantidade_devolvida?: number
+          quantidade_pedida?: number | null
+          quantidade_recebida?: number
+          recebimento_id?: string
+          sku_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recebimentos_itens_compra_item_id_fkey"
+            columns: ["compra_item_id"]
+            isOneToOne: false
+            referencedRelation: "compras_itens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recebimentos_itens_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recebimentos_itens_recebimento_id_fkey"
+            columns: ["recebimento_id"]
+            isOneToOne: false
+            referencedRelation: "recebimentos_compra"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recebimentos_itens_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "produto_skus"
             referencedColumns: ["id"]
           },
         ]
