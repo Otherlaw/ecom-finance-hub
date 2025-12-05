@@ -795,27 +795,27 @@ export function ImportarMarketplaceModal({
                       const hash = gerarHashDuplicidade(row, empresaId, canal);
                       const isDuplicada = hashesDuplicados.has(hash);
                       return (
-                        <TableRow key={idx} className={isDuplicada ? "bg-amber-50/50 opacity-60" : ""}>
-                          <TableCell>{row.data_transacao}</TableCell>
-                          <TableCell className="font-mono text-xs">
+                        <TableRow key={idx} className={isDuplicada ? "bg-amber-50 dark:bg-amber-950/30" : ""}>
+                          <TableCell className={isDuplicada ? "text-muted-foreground" : ""}>{row.data_transacao}</TableCell>
+                          <TableCell className={`font-mono text-xs ${isDuplicada ? "text-muted-foreground" : ""}`}>
                             {row.pedido_id || "-"}
                           </TableCell>
-                          <TableCell>{row.tipo_transacao}</TableCell>
-                          <TableCell className="max-w-[200px] truncate">
+                          <TableCell className={isDuplicada ? "text-muted-foreground" : ""}>{row.tipo_transacao}</TableCell>
+                          <TableCell className={`max-w-[200px] truncate ${isDuplicada ? "text-muted-foreground" : ""}`}>
                             {row.descricao}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className={`text-right ${isDuplicada ? "text-muted-foreground" : ""}`}>
                             {formatCurrency(row.valor_bruto)}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className={`text-right ${isDuplicada ? "text-muted-foreground" : ""}`}>
                             {formatCurrency(row.valor_liquido)}
                           </TableCell>
                           <TableCell>
                             <span
-                              className={`px-2 py-1 rounded text-xs ${
+                              className={`px-2 py-1 rounded text-xs font-medium ${
                                 row.tipo_lancamento === "credito"
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : "bg-red-100 text-red-700"
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                               }`}
                             >
                               {row.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
@@ -823,13 +823,13 @@ export function ImportarMarketplaceModal({
                           </TableCell>
                           <TableCell>
                             {isDuplicada ? (
-                              <span className="flex items-center gap-1 text-amber-600 text-xs">
-                                <AlertTriangle className="h-3 w-3" />
+                              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-xs font-medium whitespace-nowrap">
+                                <AlertTriangle className="h-3 w-3 flex-shrink-0" />
                                 Duplicada
                               </span>
                             ) : (
-                              <span className="flex items-center gap-1 text-emerald-600 text-xs">
-                                <Sparkles className="h-3 w-3" />
+                              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs font-medium whitespace-nowrap">
+                                <Sparkles className="h-3 w-3 flex-shrink-0" />
                                 Nova
                               </span>
                             )}
