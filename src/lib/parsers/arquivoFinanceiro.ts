@@ -43,7 +43,7 @@ export async function parseXLSXFile(file: File): Promise<any[]> {
 }
 
 // Parser XLSX específico para relatórios Mercado Livre
-// Detecta cabeçalho dinamicamente buscando "data da tarifa"
+// Retorna objetos estruturados prontos para importação
 export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
@@ -74,7 +74,7 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
   const header = rows[headerIndex] as string[];
   const dataRows = rows.slice(headerIndex + 1);
 
-  // Validar colunas obrigatórias do relatório ML
+  // Índices das colunas obrigatórias do relatório ML
   const col = {
     dataTarifa: header.findIndex(h => h === "Data da tarifa"),
     tipoTarifa: header.findIndex(h => h === "Tipo de tarifa"),
@@ -91,16 +91,47 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
     );
   }
 
-  // Converte para array de objetos usando o header detectado
-  return dataRows
-    .filter((row) => row.some((cell) => cell !== "" && cell !== null && cell !== undefined))
-    .map((row) => {
-      const obj: Record<string, any> = {};
-      header.forEach((colName, i) => {
-        if (colName) {
-          obj[colName.trim()] = row[i] ?? "";
-        }
-      });
-      return obj;
-    });
+  // Funções auxiliares de parsing
+  const parseNumber = (val: any): number => {
+    if (typeof val === "number") return val;
+    if (!val) return 0;
+    const str = String(val).replace(/[^\d,.\-]/g, "").replace(",", ".");
+    return parseFloat(str) || 0;
+  };
+
+  const normalizeDate = (dateStr: string): string => {
+    if (!dateStr) return new Date().toISOString().split("T")[0];
+    const str = String(dateStr).trim();
+    // Formato DD/MM/YYYY ou DD-MM-YYYY
+    const parts = str.split(/[\/\-]/);
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        // YYYY-MM-DD
+        return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
+      }
+      // DD/MM/YYYY → YYYY-MM-DD
+      return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+    }
+    return new Date().toISOString().split("T")[0];
+  };
+
+  // Mapear linhas para objetos estruturados
+  const transacoes = dataRows
+    .filter(r => r && r[col.dataTarifa]) // ignora rodapés/linhas vazias
+    .map(r => {
+      const bruto = parseNumber(r[col.valorTransacao]);
+      const liquido = parseNumber(r[col.valorLiquido]);
+
+      return {
+        "Data da tarifa": normalizeDate(r[col.dataTarifa]),
+        "Tipo de tarifa": String(r[col.tipoTarifa] || "").trim(),
+        "Número da venda": r[col.numeroVenda]?.toString().trim() || null,
+        "Canal de vendas": r[col.canalVendas]?.toString().trim() || null,
+        "Valor da transação": bruto,
+        "Valor líquido da transação": liquido || bruto,
+      };
+    })
+    .filter(t => !isNaN(t["Valor líquido da transação"]) && t["Valor líquido da transação"] !== 0);
+
+  return transacoes;
 }
