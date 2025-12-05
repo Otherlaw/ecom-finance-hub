@@ -693,11 +693,7 @@ function MarketplaceTab() {
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
   const [busca, setBusca] = useState("");
   
-  // Período padrão: mês atual
-  const hoje = new Date();
-  const periodoInicio = format(startOfMonth(hoje), "yyyy-MM-dd");
-  const periodoFim = format(endOfMonth(hoje), "yyyy-MM-dd");
-  
+  // Sem filtro de período por padrão para mostrar todas as transações importadas
   const { empresas } = useEmpresas();
   const {
     transacoes,
@@ -707,8 +703,6 @@ function MarketplaceTab() {
   } = useMarketplaceTransactions({
     empresaId: empresaId === "all" ? undefined : empresaId,
     canal: canal === "all" ? undefined : canal,
-    periodoInicio,
-    periodoFim,
     status: statusFiltro as any,
   });
   
