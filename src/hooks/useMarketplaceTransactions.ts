@@ -279,28 +279,28 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
     console.log("[Importação Marketplace] Iniciando processamento de", registros.length, "registros");
 
-    // 1. Gerar hashes para todos os registros
-    const registrosComHash = registros.map(r => ({
+    // 1. Gerar refs para todos os registros (usar referencia_externa)
+    const registrosComRef = registros.map(r => ({
       ...r,
-      hash_duplicidade: buildMarketplaceRef(r),
+      referencia_externa: buildMarketplaceRef(r),
     }));
 
-    // 2. Buscar hashes existentes no banco em lotes de 10.000 para arquivos grandes
+    // 2. Buscar refs existentes no banco em lotes de 10.000 para arquivos grandes
     const HASH_BATCH_SIZE = 10000;
-    const hashesSet = new Set<string>();
-    const allHashes = registrosComHash.map(r => r.hash_duplicidade);
+    const refsSet = new Set<string>();
+    const allRefs = registrosComRef.map(r => r.referencia_externa);
     
     // Extrair empresa_id e canal do primeiro registro para filtrar duplicatas
     const empresaIdFiltro = registros[0]?.empresa_id;
     const canalFiltro = registros[0]?.canal;
     
-    for (let i = 0; i < allHashes.length; i += HASH_BATCH_SIZE) {
-      const hashBatch = allHashes.slice(i, i + HASH_BATCH_SIZE);
+    for (let i = 0; i < allRefs.length; i += HASH_BATCH_SIZE) {
+      const refBatch = allRefs.slice(i, i + HASH_BATCH_SIZE);
       
       let query = supabase
         .from("marketplace_transactions")
-        .select("hash_duplicidade")
-        .in("hash_duplicidade", hashBatch);
+        .select("referencia_externa")
+        .in("referencia_externa", refBatch);
       
       // Filtrar por empresa e canal para garantir consistência com a prévia
       if (empresaIdFiltro) {
@@ -310,18 +310,20 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         query = query.eq("canal", canalFiltro);
       }
       
-      const { data: hashesExistentes } = await query;
+      const { data: refsExistentes } = await query;
       
-      (hashesExistentes || []).forEach(h => hashesSet.add(h.hash_duplicidade));
+      (refsExistentes || []).forEach(h => {
+        if (h.referencia_externa) refsSet.add(h.referencia_externa);
+      });
     }
 
     // 3. Filtrar apenas registros novos
-    const registrosNovos = registrosComHash.filter(r => !hashesSet.has(r.hash_duplicidade));
-    const duplicadas = registrosComHash.length - registrosNovos.length;
+    const registrosNovos = registrosComRef.filter(r => !refsSet.has(r.referencia_externa));
+    const duplicadas = registrosComRef.length - registrosNovos.length;
 
     console.log("[Importação Marketplace] Estatísticas de duplicidade:", {
       totalRecebidos: registros.length,
-      hashesExistentes: hashesSet.size,
+      refsExistentes: refsSet.size,
       duplicadas,
       registrosNovos: registrosNovos.length,
     });
