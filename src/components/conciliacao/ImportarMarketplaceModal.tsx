@@ -456,7 +456,27 @@ export function ImportarMarketplaceModal({
       let transacoes: TransacaoPreview[] = [];
       let totalItens = 0;
 
-      if (tipo === "csv") {
+      // Parser específico para Mercado Pago (CSV ou XLSX)
+      if (canal === "mercado_pago") {
+        const linhasMP = await parseXLSXMercadoPago(file);
+        transacoes = linhasMP.map(t => {
+          const hash = `${t.data_transacao}_${t.pedido_id || t.referencia_externa || ""}_${t.valor_liquido}_${t.descricao}`.substring(0, 100);
+          return {
+            data_transacao: t.data_transacao,
+            descricao: t.descricao,
+            pedido_id: t.pedido_id,
+            tipo_transacao: t.tipo_transacao || "payment",
+            valor_bruto: t.valor_bruto,
+            tarifas: t.tarifas || 0,
+            taxas: 0,
+            outros_descontos: 0,
+            valor_liquido: t.valor_liquido,
+            tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
+            referencia_externa: t.referencia_externa || hash,
+            itens: [],
+          };
+        });
+      } else if (tipo === "csv") {
         const linhas = await parseCSVFile(file);
         const result = mapLinhasRelatorioParaTransacoes(linhas, canal);
         transacoes = result.transacoes;
@@ -479,26 +499,6 @@ export function ImportarMarketplaceModal({
               valor_liquido: t.valor_liquido,
               tipo_lancamento: t.valor_liquido >= 0 ? "credito" as const : "debito" as const,
               referencia_externa: hash,
-              itens: [],
-            };
-          });
-        } else if (canal === "mercado_pago") {
-          // Parser específico Mercado Pago
-          const linhasMP = await parseXLSXMercadoPago(file);
-          transacoes = linhasMP.map(t => {
-            const hash = `${t.data_transacao}_${t.pedido_id || t.referencia_externa || ""}_${t.valor_liquido}_${t.descricao}`.substring(0, 100);
-            return {
-              data_transacao: t.data_transacao,
-              descricao: t.descricao,
-              pedido_id: t.pedido_id,
-              tipo_transacao: t.tipo_transacao || "payment",
-              valor_bruto: t.valor_bruto,
-              tarifas: t.tarifas || 0,
-              taxas: 0,
-              outros_descontos: 0,
-              valor_liquido: t.valor_liquido,
-              tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
-              referencia_externa: t.referencia_externa || hash,
               itens: [],
             };
           });
