@@ -23,6 +23,7 @@ import {
   RotateCcw,
   Ban,
   Store,
+  CalendarIcon,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
@@ -44,6 +45,11 @@ import { CategorizacaoMarketplaceModal } from "@/components/conciliacao/Categori
 import { MovimentoManualFormModal } from "@/components/movimentos-manuais/MovimentoManualFormModal";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // Mock removido - usando dados reais de manual_transactions
 
@@ -693,7 +699,11 @@ function MarketplaceTab() {
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
   const [busca, setBusca] = useState("");
   
-  // Sem filtro de período por padrão para mostrar todas as transações importadas
+  // Filtro de período opcional
+  const [periodoAtivo, setPeriodoAtivo] = useState(false);
+  const [dataInicio, setDataInicio] = useState<Date | undefined>(startOfMonth(new Date()));
+  const [dataFim, setDataFim] = useState<Date | undefined>(endOfMonth(new Date()));
+  
   const { empresas } = useEmpresas();
   const {
     transacoes,
@@ -704,6 +714,8 @@ function MarketplaceTab() {
     empresaId: empresaId === "all" ? undefined : empresaId,
     canal: canal === "all" ? undefined : canal,
     status: statusFiltro as any,
+    periodoInicio: periodoAtivo && dataInicio ? format(dataInicio, "yyyy-MM-dd") : undefined,
+    periodoFim: periodoAtivo && dataFim ? format(dataFim, "yyyy-MM-dd") : undefined,
   });
   
   // Filtro de busca local
@@ -907,6 +919,72 @@ function MarketplaceTab() {
             <SelectItem value="ignorado">Ignorados</SelectItem>
           </SelectContent>
         </Select>
+        
+        {/* Filtro de Período Opcional */}
+        <div className="flex items-center gap-2">
+          <Checkbox 
+            id="periodo-ativo" 
+            checked={periodoAtivo} 
+            onCheckedChange={(checked) => setPeriodoAtivo(checked === true)}
+          />
+          <label htmlFor="periodo-ativo" className="text-sm text-muted-foreground cursor-pointer">
+            Período
+          </label>
+        </div>
+        
+        {periodoAtivo && (
+          <>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-[130px] justify-start text-left font-normal",
+                    !dataInicio && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dataInicio ? format(dataInicio, "dd/MM/yyyy") : "Início"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={dataInicio}
+                  onSelect={setDataInicio}
+                  initialFocus
+                  locale={ptBR}
+                  className="p-3 pointer-events-auto"
+                />
+              </PopoverContent>
+            </Popover>
+            
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-[130px] justify-start text-left font-normal",
+                    !dataFim && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dataFim ? format(dataFim, "dd/MM/yyyy") : "Fim"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={dataFim}
+                  onSelect={setDataFim}
+                  initialFocus
+                  locale={ptBR}
+                  className="p-3 pointer-events-auto"
+                />
+              </PopoverContent>
+            </Popover>
+          </>
+        )}
         
         <Button variant="outline" className="gap-2" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4" />
