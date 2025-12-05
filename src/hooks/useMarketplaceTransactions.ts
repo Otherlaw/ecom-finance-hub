@@ -193,6 +193,9 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
       if (params?.status && params.status !== "todos") {
         query = query.eq("status", params.status);
+      } else {
+        // Quando status é "todos" ou não especificado, exclui ignorados por padrão
+        query = query.neq("status", "ignorado");
       }
 
       const { data, error } = await query;
