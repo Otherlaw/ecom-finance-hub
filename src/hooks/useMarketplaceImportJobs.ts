@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface MarketplaceImportJob {
@@ -34,7 +35,7 @@ interface UseMarketplaceImportJobsReturn {
 export function useMarketplaceImportJobs(params?: UseMarketplaceImportJobsParams): UseMarketplaceImportJobsReturn {
   const queryClient = useQueryClient();
 
-  // Query com polling de 3 segundos quando houver job processando
+  // Query inicial
   const { data: jobs = [], isLoading, refetch } = useQuery({
     queryKey: ["marketplace_import_jobs", params?.empresaId],
     queryFn: async () => {
@@ -53,13 +54,60 @@ export function useMarketplaceImportJobs(params?: UseMarketplaceImportJobsParams
       if (error) throw error;
       return (data || []) as MarketplaceImportJob[];
     },
-    refetchInterval: (query) => {
-      // Polling de 3 segundos se houver job processando
-      const data = query.state.data as MarketplaceImportJob[] | undefined;
-      const hasProcessing = data?.some(j => j.status === 'processando');
-      return hasProcessing ? 3000 : false;
-    },
   });
+
+  // Realtime subscription para atualizações em tempo real
+  useEffect(() => {
+    const channel = supabase
+      .channel('marketplace-import-jobs-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'marketplace_import_jobs',
+        },
+        (payload) => {
+          console.log('[Realtime] Job update:', payload.eventType, payload.new);
+          
+          // Atualizar cache do React Query com os novos dados
+          queryClient.setQueryData(
+            ["marketplace_import_jobs", params?.empresaId],
+            (oldData: MarketplaceImportJob[] | undefined) => {
+              if (!oldData) return oldData;
+
+              if (payload.eventType === 'INSERT') {
+                const newJob = payload.new as MarketplaceImportJob;
+                // Só adiciona se pertence à empresa filtrada (ou se não há filtro)
+                if (!params?.empresaId || newJob.empresa_id === params.empresaId) {
+                  return [newJob, ...oldData];
+                }
+                return oldData;
+              }
+
+              if (payload.eventType === 'UPDATE') {
+                const updatedJob = payload.new as MarketplaceImportJob;
+                return oldData.map(job => 
+                  job.id === updatedJob.id ? updatedJob : job
+                );
+              }
+
+              if (payload.eventType === 'DELETE') {
+                const deletedId = (payload.old as { id: string }).id;
+                return oldData.filter(job => job.id !== deletedId);
+              }
+
+              return oldData;
+            }
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient, params?.empresaId]);
 
   // Separar jobs por status
   const emAndamento = jobs.filter(j => j.status === 'processando');
@@ -88,9 +136,6 @@ export function useMarketplaceImportJobs(params?: UseMarketplaceImportJobsParams
       if (error) throw error;
       return data as MarketplaceImportJob;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["marketplace_import_jobs"] });
-    },
   });
 
   // Atualizar job existente
@@ -102,9 +147,6 @@ export function useMarketplaceImportJobs(params?: UseMarketplaceImportJobsParams
         .eq("id", id);
 
       if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["marketplace_import_jobs"] });
     },
   });
 
