@@ -44,7 +44,7 @@ import { ImportarMarketplaceModal } from "@/components/conciliacao/ImportarMarke
 import { CategorizacaoMarketplaceModal } from "@/components/conciliacao/CategorizacaoMarketplaceModal";
 import { MovimentoManualFormModal } from "@/components/movimentos-manuais/MovimentoManualFormModal";
 import { useQueryClient } from "@tanstack/react-query";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfMonth, endOfMonth, subDays, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -933,7 +933,57 @@ function MarketplaceTab() {
         </div>
         
         {periodoAtivo && (
-          <>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Atalhos de período */}
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  setDataInicio(subDays(new Date(), 7));
+                  setDataFim(new Date());
+                }}
+              >
+                7 dias
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  setDataInicio(subDays(new Date(), 30));
+                  setDataFim(new Date());
+                }}
+              >
+                30 dias
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  setDataInicio(startOfMonth(new Date()));
+                  setDataFim(endOfMonth(new Date()));
+                }}
+              >
+                Mês atual
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  const mesAnterior = subMonths(new Date(), 1);
+                  setDataInicio(startOfMonth(mesAnterior));
+                  setDataFim(endOfMonth(mesAnterior));
+                }}
+              >
+                Mês anterior
+              </Button>
+            </div>
+            
+            {/* Seletores de data */}
             <Popover>
               <PopoverTrigger asChild>
                 <Button
@@ -983,7 +1033,7 @@ function MarketplaceTab() {
                 />
               </PopoverContent>
             </Popover>
-          </>
+          </div>
         )}
         
         <Button variant="outline" className="gap-2" onClick={() => refetch()}>
