@@ -306,6 +306,8 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["marketplace_transaction_items"] });
+      queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
       let msg = `${result.imported} transações importadas.`;
       if (result.skipped > 0) msg += ` ${result.skipped} duplicadas ignoradas.`;
       if (result.itensCreated > 0) msg += ` ${result.itensCreated} itens de produto criados.`;
