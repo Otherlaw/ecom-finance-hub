@@ -86,6 +86,14 @@ export function ExcluirProdutoModal({
     return null;
   };
 
+  // Limpar erro ao abrir/fechar modal
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      setVinculoError(null);
+    }
+    onOpenChange(open);
+  };
+
   const handleDelete = async () => {
     if (!produtoId) return;
 
@@ -110,7 +118,7 @@ export function ExcluirProdutoModal({
       if (error) throw error;
 
       toast.success("Produto excluído com sucesso");
-      onOpenChange(false);
+      handleOpenChange(false);
       if (onSuccess) onSuccess();
     } catch (err: any) {
       console.error("Erro ao excluir produto:", err);
@@ -121,7 +129,7 @@ export function ExcluirProdutoModal({
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">

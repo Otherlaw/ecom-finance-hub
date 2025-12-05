@@ -46,7 +46,7 @@ export default function Produtos() {
   // Seleciona primeira empresa automaticamente
   const empresaSelecionada = empresaId || empresas?.[0]?.id || "";
 
-  const { produtos, isLoading, resumo, criarProduto, atualizarProduto } = useProdutos({
+  const { produtos, isLoading, resumo, criarProduto, atualizarProduto, refetch } = useProdutos({
     empresaId: empresaSelecionada,
     status: statusFilter === "todos" ? undefined : statusFilter as "ativo" | "inativo",
     categoria: categoryFilter === "todos" ? undefined : categoryFilter,
@@ -409,6 +409,9 @@ export default function Produtos() {
       <ImportarProdutosModal
         open={importModalOpen}
         onOpenChange={setImportModalOpen}
+        onSuccess={() => {
+          refetch();
+        }}
       />
 
       <ExportarProdutosModal
@@ -422,7 +425,7 @@ export default function Produtos() {
         produtoId={productToDelete?.id || null}
         produtoNome={productToDelete?.nome || ""}
         onSuccess={() => {
-          setDeleteModalOpen(false);
+          refetch();
           setProductToDelete(null);
         }}
       />
