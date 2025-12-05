@@ -198,6 +198,9 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         query = query.neq("status", "ignorado");
       }
 
+      // Remover limite padrão de 1000 do Supabase - buscar até 50.000 registros
+      query = query.limit(50000);
+
       const { data, error } = await query;
 
       if (error) throw error;
