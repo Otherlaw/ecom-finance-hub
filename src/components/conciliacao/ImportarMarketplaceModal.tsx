@@ -24,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Upload, FileSpreadsheet, AlertCircle, Package, Sparkles } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, Package, Sparkles, AlertTriangle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { useEmpresas } from "@/hooks/useEmpresas";
@@ -33,6 +33,7 @@ import { useMarketplaceRules } from "@/hooks/useMarketplaceRules";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
 import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago } from "@/lib/parsers/arquivoFinanceiro";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ImportarMarketplaceModalProps {
   open: boolean;
@@ -86,6 +87,8 @@ export function ImportarMarketplaceModal({
   const [totalItensDetectados, setTotalItensDetectados] = useState(0);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadLabel, setUploadLabel] = useState<string>("");
+  const [duplicatasPrevia, setDuplicatasPrevia] = useState<number>(0);
+  const [transacoesNovas, setTransacoesNovas] = useState<number>(0);
 
   const resetForm = useCallback(() => {
     setEmpresaId("");
@@ -99,7 +102,48 @@ export function ImportarMarketplaceModal({
     setTotalItensDetectados(0);
     setUploadProgress(null);
     setUploadLabel("");
+    setDuplicatasPrevia(0);
+    setTransacoesNovas(0);
   }, []);
+
+  // Função para gerar hash de duplicidade (mesma usada na importação)
+  const gerarHashDuplicidade = useCallback((t: TransacaoPreview, empId: string, canalVal: string): string => {
+    const str = `${empId}|${canalVal}|${t.data_transacao}|${t.descricao?.substring(0, 100) || ''}|${t.valor_liquido}|${t.pedido_id || ''}`;
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16);
+  }, []);
+
+  // Verificar duplicatas no banco durante prévia
+  const verificarDuplicatasPrevia = useCallback(async (transacoes: TransacaoPreview[], empId: string, canalVal: string) => {
+    if (transacoes.length === 0) {
+      setDuplicatasPrevia(0);
+      setTransacoesNovas(0);
+      return;
+    }
+
+    // Gerar hashes para as transações do arquivo
+    const hashesArquivo = transacoes.map(t => gerarHashDuplicidade(t, empId, canalVal));
+
+    // Buscar hashes existentes no banco
+    const { data: existentes } = await supabase
+      .from('marketplace_transactions')
+      .select('hash_duplicidade')
+      .eq('empresa_id', empId)
+      .in('hash_duplicidade', hashesArquivo);
+
+    const hashesExistentes = new Set((existentes || []).map(e => e.hash_duplicidade));
+    
+    const duplicadas = hashesArquivo.filter(h => hashesExistentes.has(h)).length;
+    const novas = transacoes.length - duplicadas;
+
+    setDuplicatasPrevia(duplicadas);
+    setTransacoesNovas(novas);
+  }, [gerarHashDuplicidade]);
 
   const handleClose = useCallback(() => {
     resetForm();
@@ -537,13 +581,17 @@ export function ImportarMarketplaceModal({
       setParsedData(transacoes);
       setTotalItensDetectados(totalItens);
       setStep("preview");
+      
+      // Verificar duplicatas na prévia
+      await verificarDuplicatasPrevia(transacoes, empresaId, canal);
+      
       setIsProcessing(false);
     } catch (err) {
       console.error("Erro ao processar arquivo:", err);
       setError("Erro ao processar o arquivo. Verifique o formato.");
       setIsProcessing(false);
     }
-  }, [canal, mapLinhasRelatorioParaTransacoes]);
+  }, [canal, empresaId, mapLinhasRelatorioParaTransacoes, verificarDuplicatasPrevia]);
 
   const handleImport = useCallback(async () => {
     if (!empresaId || !canal || parsedData.length === 0) return;
@@ -701,6 +749,23 @@ export function ImportarMarketplaceModal({
                   </span>
                 )}
               </div>
+
+              {/* Aviso de duplicatas na prévia */}
+              {(duplicatasPrevia > 0 || transacoesNovas > 0) && (
+                <div className="flex gap-3 text-sm">
+                  <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-md">
+                    <Sparkles className="h-4 w-4" />
+                    {transacoesNovas} novas
+                  </span>
+                  {duplicatasPrevia > 0 && (
+                    <span className="flex items-center gap-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-md">
+                      <AlertTriangle className="h-4 w-4" />
+                      {duplicatasPrevia} duplicadas (serão ignoradas)
+                    </span>
+                  )}
+                </div>
+              )}
+
               <ScrollArea className="h-[300px] border rounded-md">
                 <Table>
                   <TableHeader>
@@ -771,10 +836,17 @@ export function ImportarMarketplaceModal({
           </Button>
           <Button
             onClick={handleImport}
-            disabled={!empresaId || !canal || parsedData.length === 0 || importarTransacoes.isPending}
+            disabled={!empresaId || !canal || parsedData.length === 0 || transacoesNovas === 0 || importarTransacoes.isPending}
           >
             <Upload className="h-4 w-4 mr-2" />
-            {importarTransacoes.isPending ? "Importando..." : `Importar ${parsedData.length} transações`}
+            {importarTransacoes.isPending 
+              ? "Importando..." 
+              : transacoesNovas > 0 
+                ? `Importar ${transacoesNovas} transações novas`
+                : parsedData.length > 0 
+                  ? "Todas duplicadas"
+                  : `Importar ${parsedData.length} transações`
+            }
           </Button>
         </DialogFooter>
       </DialogContent>
