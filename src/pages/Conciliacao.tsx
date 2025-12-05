@@ -931,6 +931,19 @@ function MarketplaceTab() {
           <label htmlFor="periodo-ativo" className="text-sm text-muted-foreground cursor-pointer">
             Período
           </label>
+          {periodoAtivo && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setPeriodoAtivo(false);
+                setAtalhoSelecionado(null);
+              }}
+            >
+              Limpar
+            </Button>
+          )}
         </div>
         
         {periodoAtivo && (
