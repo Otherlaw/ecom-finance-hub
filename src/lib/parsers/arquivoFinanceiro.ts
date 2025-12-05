@@ -58,34 +58,55 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
   // Converte para array de arrays (sem header)
   const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false });
 
-  // Encontra a linha do cabeçalho buscando "data da tarifa"
+  // Encontra a linha do cabeçalho buscando termos comuns de relatórios ML
   const headerIndex = rows.findIndex((row) =>
     row.some(
       (cell) =>
         typeof cell === "string" &&
-        cell.toLowerCase().includes("data da tarifa")
+        (cell.toLowerCase().includes("data da tarifa") ||
+         cell.toLowerCase().includes("tipo de tarifa") ||
+         cell.toLowerCase().includes("valor líquido") ||
+         cell.toLowerCase().includes("valor liquido"))
     )
   );
 
   if (headerIndex === -1) {
-    throw new Error("Cabeçalho não encontrado no XLSX do Mercado Livre. Procurando por 'Data da tarifa'.");
+    // Fallback: usa primeira linha como header
+    console.warn("Cabeçalho ML não detectado, usando primeira linha");
   }
 
-  const header = rows[headerIndex] as string[];
-  const dataRows = rows.slice(headerIndex + 1);
+  const header = (headerIndex >= 0 ? rows[headerIndex] : rows[0]) as string[];
+  const dataRows = rows.slice((headerIndex >= 0 ? headerIndex : 0) + 1);
 
-  // Índices das colunas obrigatórias do relatório ML
-  const col = {
-    dataTarifa: header.indexOf("Data da tarifa"),
-    tipoTarifa: header.indexOf("Tipo de tarifa"),
-    numeroVenda: header.indexOf("Número da venda"),
-    canalVendas: header.indexOf("Canal de vendas"),
-    valorTransacao: header.indexOf("Valor da transação"),
-    valorLiquido: header.indexOf("Valor líquido da transação"),
+  // Função para buscar coluna de forma flexível (case-insensitive, busca parcial)
+  const findColumnIndex = (possibleNames: string[]): number => {
+    for (const name of possibleNames) {
+      const idx = header.findIndex(h => 
+        h && typeof h === "string" && h.toLowerCase().includes(name.toLowerCase())
+      );
+      if (idx >= 0) return idx;
+    }
+    return -1;
   };
 
+  // Índices das colunas obrigatórias do relatório ML (busca flexível)
+  const col = {
+    dataTarifa: findColumnIndex(["data da tarifa", "data tarifa", "fecha"]),
+    tipoTarifa: findColumnIndex(["tipo de tarifa", "tipo tarifa", "type"]),
+    numeroVenda: findColumnIndex(["número da venda", "numero da venda", "order", "pedido"]),
+    canalVendas: findColumnIndex(["canal de vendas", "canal vendas", "channel"]),
+    valorTransacao: findColumnIndex(["valor da transação", "valor transação", "valor transacao", "gross"]),
+    valorLiquido: findColumnIndex(["valor líquido", "valor liquido", "net", "total"]),
+  };
+
+  // Log para debug
+  console.log("Colunas detectadas ML:", col, "Headers:", header.slice(0, 10));
+
   if (col.dataTarifa === -1 || col.tipoTarifa === -1 || col.valorLiquido === -1) {
-    throw new Error("Formato inesperado do relatório de faturamento do Mercado Livre");
+    throw new Error(
+      `Formato inesperado do relatório ML. Colunas encontradas: data=${col.dataTarifa}, tipo=${col.tipoTarifa}, liquido=${col.valorLiquido}. ` +
+      `Headers: ${header.slice(0, 8).join(", ")}`
+    );
   }
 
   // Funções auxiliares de parsing
