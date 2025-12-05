@@ -945,6 +945,7 @@ export type Database = {
           data_transacao: string
           descricao: string
           empresa_id: string
+          hash_duplicidade: string | null
           id: string
           origem_extrato: string | null
           outros_descontos: number | null
@@ -971,6 +972,7 @@ export type Database = {
           data_transacao: string
           descricao: string
           empresa_id: string
+          hash_duplicidade?: string | null
           id?: string
           origem_extrato?: string | null
           outros_descontos?: number | null
@@ -997,6 +999,7 @@ export type Database = {
           data_transacao?: string
           descricao?: string
           empresa_id?: string
+          hash_duplicidade?: string | null
           id?: string
           origem_extrato?: string | null
           outros_descontos?: number | null
