@@ -26,6 +26,7 @@ import {
   CalendarIcon,
   Trash2,
   Copy,
+  Wand2,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
@@ -36,6 +37,7 @@ import { useFaturas, useTransacoes } from "@/hooks/useCartoes";
 import { useBankTransactions, BankTransaction } from "@/hooks/useBankTransactions";
 import { useMovimentacoesManuais, ManualTransaction } from "@/hooks/useManualTransactions";
 import { useMarketplaceTransactions, MarketplaceTransaction, DuplicateGroup } from "@/hooks/useMarketplaceTransactions";
+import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -78,6 +80,14 @@ function StatusBadge({ status }: { status: string }) {
       </Badge>
     );
   }
+  if (status === "categorizado") {
+    return (
+      <Badge className="bg-primary/10 text-primary border-primary/20">
+        <Wand2 className="h-3 w-3 mr-1" />
+        Auto
+      </Badge>
+    );
+  }
   if (status === "divergencia") {
     return (
       <Badge className="bg-warning/10 text-warning border-warning/20">
@@ -86,11 +96,11 @@ function StatusBadge({ status }: { status: string }) {
       </Badge>
     );
   }
-  if (status === "faltando" || status === "pendente") {
+  if (status === "faltando" || status === "pendente" || status === "importado") {
     return (
       <Badge className="bg-destructive/10 text-destructive border-destructive/20">
         <X className="h-3 w-3 mr-1" />
-        {status === "pendente" ? "Pendente" : "Faltando"}
+        {status === "pendente" ? "Pendente" : status === "importado" ? "Importado" : "Faltando"}
       </Badge>
     );
   }
@@ -700,6 +710,7 @@ function MarketplaceTab() {
   }>({ open: false, transacao: null });
   const [duplicatesModalOpen, setDuplicatesModalOpen] = useState(false);
   const [selectedDuplicates, setSelectedDuplicates] = useState<Set<string>>(new Set());
+  const [isReprocessing, setIsReprocessing] = useState(false);
   
   // Filtros
   const [empresaId, setEmpresaId] = useState<string>("all");
@@ -718,6 +729,7 @@ function MarketplaceTab() {
   const [atalhoSelecionado, setAtalhoSelecionado] = useState<string | null>(null);
   
   const { empresas } = useEmpresas();
+  const { reprocessarAntigas, isProcessing: isAutoProcessing } = useMarketplaceAutoCategorizacao();
   const {
     transacoes,
     resumo,
@@ -762,6 +774,20 @@ function MarketplaceTab() {
   
   const handleCategorizar = (transacao: MarketplaceTransaction) => {
     setCategorizacaoModal({ open: true, transacao });
+  };
+  
+  const handleReprocessarAntigas = async () => {
+    setIsReprocessing(true);
+    try {
+      await reprocessarAntigas.mutateAsync({
+        empresaId: empresaId !== "all" ? empresaId : undefined,
+      });
+      refetch();
+    } catch (err) {
+      console.error("Erro ao reprocessar:", err);
+    } finally {
+      setIsReprocessing(false);
+    }
   };
   
   const CANAL_LABELS: Record<string, string> = {
@@ -1105,7 +1131,7 @@ function MarketplaceTab() {
         {totalDuplicatas > 0 && (
           <Button 
             variant="outline" 
-            className="gap-2 ml-auto border-warning text-warning hover:bg-warning/10" 
+            className="gap-2 border-warning text-warning hover:bg-warning/10" 
             onClick={() => setDuplicatesModalOpen(true)}
           >
             <Copy className="h-4 w-4" />
@@ -1113,7 +1139,20 @@ function MarketplaceTab() {
           </Button>
         )}
         
-        <Button className={cn("gap-2", totalDuplicatas === 0 && "ml-auto")} onClick={() => setImportModalOpen(true)}>
+        {/* Botão de Reprocessamento Automático */}
+        {(resumo.importadas > 0 || resumo.pendentes > 0) && (
+          <Button 
+            variant="outline" 
+            className="gap-2 border-primary text-primary hover:bg-primary/10" 
+            onClick={handleReprocessarAntigas}
+            disabled={isReprocessing || isAutoProcessing}
+          >
+            <Wand2 className={cn("h-4 w-4", (isReprocessing || isAutoProcessing) && "animate-spin")} />
+            {isReprocessing || isAutoProcessing ? "Processando..." : "Reprocessar Automático"}
+          </Button>
+        )}
+        
+        <Button className={cn("gap-2", totalDuplicatas === 0 && resumo.importadas === 0 && resumo.pendentes === 0 && "ml-auto")} onClick={() => setImportModalOpen(true)}>
           <Upload className="h-4 w-4" />
           Importar Relatório
         </Button>
@@ -1210,9 +1249,17 @@ function MarketplaceTab() {
                     </TableCell>
                     <TableCell>
                       {t.categoria ? (
-                        <Badge variant="outline" className="bg-success/5 border-success/30 text-success">
-                          {t.categoria.nome}
-                        </Badge>
+                        <div className="flex flex-col gap-0.5">
+                          <Badge variant="outline" className="bg-success/5 border-success/30 text-success">
+                            {t.categoria.nome}
+                          </Badge>
+                          {t.status === "conciliado" && (
+                            <span className="text-[10px] text-primary flex items-center gap-0.5">
+                              <Wand2 className="h-2.5 w-2.5" />
+                              Auto
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <Badge variant="outline" className="text-muted-foreground">
                           Não categorizado
