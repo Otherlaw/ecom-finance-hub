@@ -135,12 +135,18 @@ interface MarketplaceResumo {
   totalDescontos: number; // soma de tarifas + taxas + outros_descontos
 }
 
+// Payload aceito pela mutation (transações + callback opcional de progresso)
+export type ImportMarketplacePayload = {
+  transacoes: MarketplaceTransactionInsert[];
+  onProgress?: (percent: number) => void;
+};
+
 interface UseMarketplaceTransactionsReturn {
   transacoes: MarketplaceTransaction[];
   resumo: MarketplaceResumo;
   isLoading: boolean;
   refetch: () => void;
-  importarTransacoes: UseMutationResult<{ importadas: number }, Error, MarketplaceTransactionInsert[], unknown>;
+  importarTransacoes: UseMutationResult<{ importadas: number }, Error, ImportMarketplacePayload, unknown>;
   atualizarTransacao: UseMutationResult<MarketplaceTransaction, Error, {
     id: string;
     categoriaId?: string;
@@ -199,15 +205,17 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
   const BATCH_SIZE = 500;
 
-  // Função auxiliar para inserir transações em lotes
+  // Função auxiliar para inserir transações em lotes com callback de progresso
   const insertMarketplaceTransactionsInBatches = async (
-    registros: MarketplaceTransactionInsert[]
+    registros: MarketplaceTransactionInsert[],
+    onProgress?: (percent: number) => void
   ): Promise<{ importadas: number }> => {
     if (!registros.length) {
       return { importadas: 0 };
     }
 
     let importadas = 0;
+    const total = registros.length;
 
     for (let i = 0; i < registros.length; i += BATCH_SIZE) {
       const batch = registros.slice(i, i + BATCH_SIZE);
@@ -226,14 +234,21 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         throw error;
       }
 
-      importadas += data?.length ?? batch.length;
+      const inseridas = data?.length ?? batch.length;
+      importadas += inseridas;
+
+      if (onProgress) {
+        const processed = Math.min(i + batch.length, total);
+        const percent = Math.round((processed / total) * 100);
+        onProgress(percent);
+      }
     }
 
     return { importadas };
   };
 
   const importarTransacoes = useMutation({
-    mutationFn: async (transacoes: MarketplaceTransactionInsert[]) => {
+    mutationFn: async ({ transacoes, onProgress }: ImportMarketplacePayload) => {
       if (!transacoes || transacoes.length === 0) {
         return { importadas: 0 };
       }
@@ -244,12 +259,21 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         "registros"
       );
 
-      const { importadas } = await insertMarketplaceTransactionsInBatches(transacoes);
+      // 5% inicial só pra barra não começar em zero
+      if (onProgress) onProgress(5);
+
+      const { importadas } = await insertMarketplaceTransactionsInBatches(
+        transacoes,
+        onProgress
+      );
 
       console.log(
         "[Importação Marketplace] Finalizado. Registros importados:",
         importadas
       );
+
+      // Garante 100% no final
+      if (onProgress) onProgress(100);
 
       return { importadas };
     },

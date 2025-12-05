@@ -565,7 +565,7 @@ export function ImportarMarketplaceModal({
       origem_extrato: origemExtrato,
     } as MarketplaceTransactionInsert));
 
-    await importarTransacoes.mutateAsync(transacoes);
+    await importarTransacoes.mutateAsync({ transacoes });
     onSuccess?.();
     handleClose();
   }, [empresaId, canal, contaNome, parsedData, fileName, importarTransacoes, onSuccess, handleClose]);
