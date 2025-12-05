@@ -703,6 +703,7 @@ function MarketplaceTab() {
   const [periodoAtivo, setPeriodoAtivo] = useState(false);
   const [dataInicio, setDataInicio] = useState<Date | undefined>(startOfMonth(new Date()));
   const [dataFim, setDataFim] = useState<Date | undefined>(endOfMonth(new Date()));
+  const [atalhoSelecionado, setAtalhoSelecionado] = useState<string | null>(null);
   
   const { empresas } = useEmpresas();
   const {
@@ -937,46 +938,50 @@ function MarketplaceTab() {
             {/* Atalhos de período */}
             <div className="flex gap-1">
               <Button
-                variant="ghost"
+                variant={atalhoSelecionado === "7dias" ? "default" : "ghost"}
                 size="sm"
                 className="h-8 text-xs"
                 onClick={() => {
                   setDataInicio(subDays(new Date(), 7));
                   setDataFim(new Date());
+                  setAtalhoSelecionado("7dias");
                 }}
               >
                 7 dias
               </Button>
               <Button
-                variant="ghost"
+                variant={atalhoSelecionado === "30dias" ? "default" : "ghost"}
                 size="sm"
                 className="h-8 text-xs"
                 onClick={() => {
                   setDataInicio(subDays(new Date(), 30));
                   setDataFim(new Date());
+                  setAtalhoSelecionado("30dias");
                 }}
               >
                 30 dias
               </Button>
               <Button
-                variant="ghost"
+                variant={atalhoSelecionado === "mesAtual" ? "default" : "ghost"}
                 size="sm"
                 className="h-8 text-xs"
                 onClick={() => {
                   setDataInicio(startOfMonth(new Date()));
                   setDataFim(endOfMonth(new Date()));
+                  setAtalhoSelecionado("mesAtual");
                 }}
               >
                 Mês atual
               </Button>
               <Button
-                variant="ghost"
+                variant={atalhoSelecionado === "mesAnterior" ? "default" : "ghost"}
                 size="sm"
                 className="h-8 text-xs"
                 onClick={() => {
                   const mesAnterior = subMonths(new Date(), 1);
                   setDataInicio(startOfMonth(mesAnterior));
                   setDataFim(endOfMonth(mesAnterior));
+                  setAtalhoSelecionado("mesAnterior");
                 }}
               >
                 Mês anterior
@@ -1001,7 +1006,10 @@ function MarketplaceTab() {
                 <Calendar
                   mode="single"
                   selected={dataInicio}
-                  onSelect={setDataInicio}
+                  onSelect={(date) => {
+                    setDataInicio(date);
+                    setAtalhoSelecionado(null);
+                  }}
                   initialFocus
                   locale={ptBR}
                   className="p-3 pointer-events-auto"
@@ -1026,7 +1034,10 @@ function MarketplaceTab() {
                 <Calendar
                   mode="single"
                   selected={dataFim}
-                  onSelect={setDataFim}
+                  onSelect={(date) => {
+                    setDataFim(date);
+                    setAtalhoSelecionado(null);
+                  }}
                   initialFocus
                   locale={ptBR}
                   className="p-3 pointer-events-auto"
