@@ -121,7 +121,16 @@ const findColumnIndex = (header: string[], possibleNames: string[]): number => {
   return -1;
 };
 
-// ============= PARSER MERCADO LIVRE XLSX COM ESTATÍSTICAS =============
+// ============= INTERFACE PARA ITEM DE VENDA =============
+export interface ItemVendaParser {
+  sku_marketplace: string | null;
+  descricao_item: string | null;
+  quantidade: number;
+  preco_unitario: number | null;
+  preco_total: number | null;
+}
+
+// ============= PARSER MERCADO LIVRE XLSX COM ESTATÍSTICAS E EXTRAÇÃO DE ITENS =============
 
 export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
   const buffer = await file.arrayBuffer();
@@ -150,21 +159,19 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
   );
 
   if (headerIndex === -1) {
-    // Fallback: usa primeira linha como header
     console.warn("Cabeçalho ML não detectado, usando primeira linha");
   }
 
   const header = (headerIndex >= 0 ? rows[headerIndex] : rows[0]) as string[];
   const dataRows = rows.slice((headerIndex >= 0 ? headerIndex : 0) + 1);
-
-  // Total de linhas do arquivo (sem cabeçalho)
   const totalLinhasArquivo = dataRows.length;
 
   // Índices das colunas do relatório ML (busca flexível com múltiplas variações)
   const col = {
+    // Colunas básicas
     dataTarifa: findColumnIndex(header, ["data da tarifa", "data tarifa", "fecha", "data"]),
     tipoTarifa: findColumnIndex(header, ["tipo de tarifa", "tipo tarifa", "detalhe", "descrição", "descricao", "type"]),
-    numeroVenda: findColumnIndex(header, ["número da venda", "numero da venda", "order", "pedido", "n° pedido"]),
+    numeroVenda: findColumnIndex(header, ["número da venda", "numero da venda", "order", "pedido", "n° pedido", "pack id"]),
     canalVendas: findColumnIndex(header, ["canal de vendas", "canal vendas", "channel", "marketplace"]),
     valorTransacao: findColumnIndex(header, ["valor da transação", "valor transação", "valor transacao", "valor bruto", "gross"]),
     valorLiquido: findColumnIndex(header, ["valor líquido", "valor liquido", "subtotal", "net", "total", "valor da tarifa"]),
@@ -172,10 +179,20 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
     idTarifa: findColumnIndex(header, ["id da tarifa", "id tarifa", "tarifa id", "id"]),
     idTransacao: findColumnIndex(header, ["id da transação", "id transação", "transaction id", "id transacao"]),
     idInterno: findColumnIndex(header, ["id interno", "id único", "id operação", "operation id"]),
+    // NOVAS COLUNAS: Dados do item/produto (MLB)
+    mlb: findColumnIndex(header, ["mlb", "id do anúncio", "id anúncio", "listing id", "item id", "id do item", "item_id", "publicação"]),
+    nomeItem: findColumnIndex(header, ["título do anúncio", "titulo do anuncio", "título", "titulo", "nome do item", "item name", "descrição do produto", "produto"]),
+    quantidade: findColumnIndex(header, ["quantidade", "qty", "quantity", "unidades", "qtd"]),
+    precoUnitario: findColumnIndex(header, ["preço unitário", "preco unitario", "unit price", "valor unitário", "valor unitario"]),
+    precoTotal: findColumnIndex(header, ["preço total", "preco total", "total price", "valor total item", "subtotal item"]),
+    // Colunas de taxas/tarifas detalhadas
+    comissao: findColumnIndex(header, ["comissão", "comissao", "commission", "tarifa de venda"]),
+    tarifa: findColumnIndex(header, ["tarifa", "fee", "taxa"]),
+    frete: findColumnIndex(header, ["frete", "envio", "shipping", "custo de envio"]),
+    desconto: findColumnIndex(header, ["desconto", "discount", "cupom"]),
   };
 
-  // Log para debug
-  console.log("[parseXLSXMercadoLivre] Colunas detectadas:", col, "Headers:", header.slice(0, 15));
+  console.log("[parseXLSXMercadoLivre] Colunas detectadas:", col, "Headers:", header.slice(0, 25));
   console.log("[parseXLSXMercadoLivre] Total linhas no arquivo (sem cabeçalho):", totalLinhasArquivo);
 
   // Apenas data e valor são realmente obrigatórios
@@ -244,6 +261,16 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
     const pedidoId = col.numeroVenda >= 0 ? r[col.numeroVenda]?.toString().trim() || null : null;
     const canalVenda = col.canalVendas >= 0 ? r[col.canalVendas]?.toString().trim() || null : null;
 
+    // Extrair taxas/tarifas detalhadas do relatório
+    const comissao = col.comissao >= 0 ? Math.abs(parseNumber(r[col.comissao])) : 0;
+    const tarifa = col.tarifa >= 0 ? Math.abs(parseNumber(r[col.tarifa])) : 0;
+    const frete = col.frete >= 0 ? Math.abs(parseNumber(r[col.frete])) : 0;
+    const desconto = col.desconto >= 0 ? Math.abs(parseNumber(r[col.desconto])) : 0;
+
+    // Calcular total de taxas se não fornecido diretamente
+    const totalTaxas = comissao + tarifa;
+    const outrosDescontos = desconto;
+
     // Gerar referência externa usando função centralizada
     const referenciaExterna = gerarReferenciaExterna({
       data: dataValida,
@@ -252,6 +279,56 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
       descricao,
       idUnico: idUnico || null,
     });
+
+    // Determinar tipo de transação e lançamento automaticamente
+    const descNormalizada = descricao.toLowerCase();
+    let tipoTransacao = "outro";
+    let tipoLancamento: 'credito' | 'debito' = liquido >= 0 ? "credito" : "debito";
+
+    // Regras de classificação automática baseadas na descrição
+    if (descNormalizada.includes("venda") || descNormalizada.includes("pagamento") || descNormalizada.includes("liberação") || descNormalizada.includes("repasse")) {
+      tipoTransacao = "venda";
+      tipoLancamento = "credito";
+    } else if (descNormalizada.includes("tarifa") || descNormalizada.includes("comissão") || descNormalizada.includes("custo por vender")) {
+      tipoTransacao = "tarifa_marketplace";
+      tipoLancamento = "debito";
+    } else if (descNormalizada.includes("envio") || descNormalizada.includes("frete") || descNormalizada.includes("full")) {
+      tipoTransacao = "frete_marketplace";
+      tipoLancamento = "debito";
+    } else if (descNormalizada.includes("publicidade") || descNormalizada.includes("ads") || descNormalizada.includes("anúncio")) {
+      tipoTransacao = "ads";
+      tipoLancamento = "debito";
+    } else if (descNormalizada.includes("estorno") || descNormalizada.includes("devolução") || descNormalizada.includes("cancelamento")) {
+      tipoTransacao = "estorno";
+      tipoLancamento = "debito";
+    } else if (descNormalizada.includes("antecipação")) {
+      tipoTransacao = "antecipacao";
+      tipoLancamento = "debito";
+    } else if (descNormalizada.includes("juros") || descNormalizada.includes("parcelamento")) {
+      tipoTransacao = "taxa_parcelamento";
+      tipoLancamento = "debito";
+    }
+
+    // EXTRAIR DADOS DO ITEM (se existirem no relatório)
+    const itens: ItemVendaParser[] = [];
+    
+    // Verificar se existe MLB/ID do anúncio nesta linha
+    const mlbStr = col.mlb >= 0 ? r[col.mlb]?.toString().trim() : null;
+    const nomeItemStr = col.nomeItem >= 0 ? r[col.nomeItem]?.toString().trim() : null;
+    const qtd = col.quantidade >= 0 ? parseInt(r[col.quantidade]) || 1 : 1;
+    const precoUnit = col.precoUnitario >= 0 ? parseNumber(r[col.precoUnitario]) : null;
+    const precoTot = col.precoTotal >= 0 ? parseNumber(r[col.precoTotal]) : null;
+
+    // Se tem MLB ou nome do item e é uma transação de venda, criar item
+    if ((mlbStr || nomeItemStr) && (tipoTransacao === "venda" || descNormalizada.includes("venda"))) {
+      itens.push({
+        sku_marketplace: mlbStr || null,
+        descricao_item: nomeItemStr || descricao,
+        quantidade: qtd,
+        preco_unitario: precoUnit,
+        preco_total: precoTot || (precoUnit ? precoUnit * qtd : null),
+      });
+    }
 
     transacoes.push({
       origem: "marketplace" as const,
@@ -262,11 +339,19 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
       canal_venda: canalVenda,
       valor_bruto: bruto || liquido,
       valor_liquido: liquido || bruto,
+      tarifas: totalTaxas || 0,
+      taxas: frete,
+      outros_descontos: outrosDescontos,
+      tipo_transacao: tipoTransacao,
+      tipo_lancamento: tipoLancamento,
       referencia_externa: referenciaExterna,
+      // Array de itens (vazio se não for venda com item identificável)
+      itens,
     });
   }
 
   const totalTransacoesGeradas = transacoes.length;
+  const totalComItens = transacoes.filter(t => t.itens && t.itens.length > 0).length;
 
   console.log("[parseXLSXMercadoLivre] Estatísticas:", {
     totalLinhasArquivo,
@@ -274,6 +359,7 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
     totalComValorZero,
     totalDescartadasPorFormato,
     totalLinhasVazias,
+    totalComItens,
   });
 
   return {
