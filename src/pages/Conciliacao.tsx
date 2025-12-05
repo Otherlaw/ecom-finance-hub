@@ -701,7 +701,7 @@ function MarketplaceTab() {
   
   // Paginação
   const [paginaAtual, setPaginaAtual] = useState(1);
-  const itensPorPagina = 100;
+  const [itensPorPagina, setItensPorPagina] = useState(100);
   
   // Filtro de período opcional
   const [periodoAtivo, setPeriodoAtivo] = useState(false);
@@ -1240,8 +1240,30 @@ function MarketplaceTab() {
           {/* Paginação */}
           {totalPaginas > 1 && (
             <div className="flex items-center justify-between px-4 py-3 border-t">
-              <div className="text-sm text-muted-foreground">
-                Mostrando {((paginaAtual - 1) * itensPorPagina) + 1} a {Math.min(paginaAtual * itensPorPagina, transacoesFiltradas.length)} de {transacoesFiltradas.length}
+              <div className="flex items-center gap-4">
+                <div className="text-sm text-muted-foreground">
+                  Mostrando {((paginaAtual - 1) * itensPorPagina) + 1} a {Math.min(paginaAtual * itensPorPagina, transacoesFiltradas.length)} de {transacoesFiltradas.length}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Itens:</span>
+                  <Select
+                    value={String(itensPorPagina)}
+                    onValueChange={(val) => {
+                      setItensPorPagina(Number(val));
+                      setPaginaAtual(1);
+                    }}
+                  >
+                    <SelectTrigger className="w-[80px] h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                      <SelectItem value="250">250</SelectItem>
+                      <SelectItem value="500">500</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <Button
