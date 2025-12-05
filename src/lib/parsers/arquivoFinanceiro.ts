@@ -4,6 +4,18 @@ import Papa from "papaparse";
 
 export type TipoArquivoFinanceiro = "csv" | "xlsx" | "ofx";
 
+// ============= INTERFACE DE RESULTADO DE PARSE COM ESTATÍSTICAS =============
+export interface ParseResult {
+  transacoes: any[];
+  estatisticas: {
+    totalLinhasArquivo: number;
+    totalTransacoesGeradas: number;
+    totalComValorZero: number;
+    totalDescartadasPorFormato: number;
+    totalLinhasVazias: number;
+  };
+}
+
 export function detectarTipoArquivo(file: File): TipoArquivoFinanceiro {
   const ext = file.name.split(".").pop()?.toLowerCase();
 
@@ -52,7 +64,7 @@ const parseNumber = (val: any): number => {
 };
 
 const normalizeDate = (dateStr: string): string => {
-  if (!dateStr) return new Date().toISOString().split("T")[0];
+  if (!dateStr) return "";
   const str = String(dateStr).trim();
   // Formato DD/MM/YYYY ou DD-MM-YYYY
   const parts = str.split(/[\/\-]/);
@@ -64,7 +76,7 @@ const normalizeDate = (dateStr: string): string => {
     // DD/MM/YYYY → YYYY-MM-DD
     return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
   }
-  return new Date().toISOString().split("T")[0];
+  return "";
 };
 
 // Função para buscar coluna de forma flexível (case-insensitive, busca parcial)
@@ -78,9 +90,9 @@ const findColumnIndex = (header: string[], possibleNames: string[]): number => {
   return -1;
 };
 
-// ============= PARSER MERCADO LIVRE XLSX =============
+// ============= PARSER MERCADO LIVRE XLSX COM ESTATÍSTICAS =============
 
-export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
+export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
 
@@ -114,6 +126,9 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
   const header = (headerIndex >= 0 ? rows[headerIndex] : rows[0]) as string[];
   const dataRows = rows.slice((headerIndex >= 0 ? headerIndex : 0) + 1);
 
+  // Total de linhas do arquivo (sem cabeçalho)
+  const totalLinhasArquivo = dataRows.length;
+
   // Índices das colunas do relatório ML (busca flexível com múltiplas variações)
   const col = {
     dataTarifa: findColumnIndex(header, ["data da tarifa", "data tarifa", "fecha", "data"]),
@@ -122,10 +137,15 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
     canalVendas: findColumnIndex(header, ["canal de vendas", "canal vendas", "channel", "marketplace"]),
     valorTransacao: findColumnIndex(header, ["valor da transação", "valor transação", "valor transacao", "valor bruto", "gross"]),
     valorLiquido: findColumnIndex(header, ["valor líquido", "valor liquido", "subtotal", "net", "total", "valor da tarifa"]),
+    // Colunas de ID único para evitar duplicatas
+    idTarifa: findColumnIndex(header, ["id da tarifa", "id tarifa", "tarifa id", "id"]),
+    idTransacao: findColumnIndex(header, ["id da transação", "id transação", "transaction id", "id transacao"]),
+    idInterno: findColumnIndex(header, ["id interno", "id único", "id operação", "operation id"]),
   };
 
   // Log para debug
-  console.log("Colunas detectadas ML:", col, "Headers:", header.slice(0, 15));
+  console.log("[parseXLSXMercadoLivre] Colunas detectadas:", col, "Headers:", header.slice(0, 15));
+  console.log("[parseXLSXMercadoLivre] Total linhas no arquivo (sem cabeçalho):", totalLinhasArquivo);
 
   // Apenas data e valor são realmente obrigatórios
   if (col.dataTarifa === -1 || col.valorLiquido === -1) {
@@ -135,42 +155,120 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
     );
   }
 
+  // Contadores para estatísticas
+  let totalComValorZero = 0;
+  let totalDescartadasPorFormato = 0;
+  let totalLinhasVazias = 0;
+
   // Mapear linhas para objetos estruturados prontos para importação
-  const transacoes = dataRows
-    .filter(r => r && r[col.dataTarifa]) // ignora rodapés/linhas vazias
-    .map(r => {
-      const bruto = parseNumber(r[col.valorTransacao]);
-      const liquido = parseNumber(r[col.valorLiquido]);
-      
-      // Descrição: usa tipoTarifa se disponível, senão tenta outras colunas
-      let descricao = "Transação ML";
-      if (col.tipoTarifa >= 0 && r[col.tipoTarifa]) {
-        descricao = String(r[col.tipoTarifa]).trim();
-      } else if (col.valorTransacao >= 0 && r[col.valorTransacao]) {
-        descricao = `Tarifa: R$ ${bruto.toFixed(2)}`;
-      }
+  const transacoes: any[] = [];
 
-      return {
-        origem: "marketplace" as const,
-        canal: "mercado_livre" as const,
-        data_transacao: normalizeDate(r[col.dataTarifa]),
-        descricao,
-        pedido_id: col.numeroVenda >= 0 ? r[col.numeroVenda]?.toString().trim() || null : null,
-        canal_venda: col.canalVendas >= 0 ? r[col.canalVendas]?.toString().trim() || null : null,
-        valor_bruto: bruto || liquido,
-        valor_liquido: liquido || bruto,
-      };
-    })
-    .filter(t => !isNaN(t.valor_liquido) && t.valor_liquido !== 0);
+  for (const r of dataRows) {
+    // Verificar se linha está vazia (sem data E sem descrição E sem valores)
+    const dataStr = r[col.dataTarifa];
+    const descricaoStr = col.tipoTarifa >= 0 ? r[col.tipoTarifa] : "";
+    const bruto = parseNumber(r[col.valorTransacao]);
+    const liquido = parseNumber(r[col.valorLiquido]);
 
-  return transacoes;
+    const dataValida = normalizeDate(dataStr);
+    const temData = !!dataValida;
+    const temDescricao = !!descricaoStr && String(descricaoStr).trim().length > 0;
+    const temValor = !isNaN(bruto) && bruto !== 0 || !isNaN(liquido) && liquido !== 0;
+
+    // Só descartar se não tem NADA (sem data E sem descrição E sem valor)
+    if (!temData && !temDescricao && !temValor) {
+      totalLinhasVazias++;
+      continue;
+    }
+
+    // Contar linhas com valor zero (mas que serão importadas se tiverem outros dados)
+    if (liquido === 0 && bruto === 0) {
+      totalComValorZero++;
+    }
+
+    // Se não tem data válida, descartar (necessário para ordenação/agrupamento)
+    if (!temData) {
+      totalDescartadasPorFormato++;
+      continue;
+    }
+
+    // Descrição: usa tipoTarifa se disponível, senão tenta outras colunas
+    let descricao = "Transação ML";
+    if (col.tipoTarifa >= 0 && r[col.tipoTarifa]) {
+      descricao = String(r[col.tipoTarifa]).trim();
+    } else if (col.valorTransacao >= 0 && r[col.valorTransacao]) {
+      descricao = `Tarifa: R$ ${bruto.toFixed(2)}`;
+    }
+
+    // Obter ID único para referencia_externa (prevenir duplicatas)
+    let referenciaExterna = "";
+    if (col.idTarifa >= 0 && r[col.idTarifa]) {
+      referenciaExterna = String(r[col.idTarifa]).trim();
+    } else if (col.idTransacao >= 0 && r[col.idTransacao]) {
+      referenciaExterna = String(r[col.idTransacao]).trim();
+    } else if (col.idInterno >= 0 && r[col.idInterno]) {
+      referenciaExterna = String(r[col.idInterno]).trim();
+    }
+
+    const pedidoId = col.numeroVenda >= 0 ? r[col.numeroVenda]?.toString().trim() || null : null;
+    const canalVenda = col.canalVendas >= 0 ? r[col.canalVendas]?.toString().trim() || null : null;
+
+    transacoes.push({
+      origem: "marketplace" as const,
+      canal: "mercado_livre" as const,
+      data_transacao: dataValida,
+      descricao,
+      pedido_id: pedidoId,
+      canal_venda: canalVenda,
+      valor_bruto: bruto || liquido,
+      valor_liquido: liquido || bruto,
+      referencia_externa: referenciaExterna || null,
+    });
+  }
+
+  const totalTransacoesGeradas = transacoes.length;
+
+  console.log("[parseXLSXMercadoLivre] Estatísticas:", {
+    totalLinhasArquivo,
+    totalTransacoesGeradas,
+    totalComValorZero,
+    totalDescartadasPorFormato,
+    totalLinhasVazias,
+  });
+
+  return {
+    transacoes,
+    estatisticas: {
+      totalLinhasArquivo,
+      totalTransacoesGeradas,
+      totalComValorZero,
+      totalDescartadasPorFormato,
+      totalLinhasVazias,
+    },
+  };
 }
 
-// ============= PARSER MERCADO PAGO XLSX/CSV =============
+// ============= PARSER MERCADO PAGO XLSX/CSV COM ESTATÍSTICAS =============
 
 // Parser para Relatório de Faturamento/Tarifas do Mercado Pago (formato CSV brasileiro)
-export async function parseCSVMercadoPagoFaturamento(rows: any[]): Promise<any[]> {
-  if (!rows || rows.length === 0) return [];
+export async function parseCSVMercadoPagoFaturamento(rows: any[]): Promise<ParseResult> {
+  if (!rows || rows.length === 0) {
+    return {
+      transacoes: [],
+      estatisticas: {
+        totalLinhasArquivo: 0,
+        totalTransacoesGeradas: 0,
+        totalComValorZero: 0,
+        totalDescartadasPorFormato: 0,
+        totalLinhasVazias: 0,
+      },
+    };
+  }
+
+  const totalLinhasArquivo = rows.length;
+  let totalComValorZero = 0;
+  let totalDescartadasPorFormato = 0;
+  let totalLinhasVazias = 0;
 
   // Colunas do Relatório de Faturamento MP
   const col = {
@@ -204,41 +302,76 @@ export async function parseCSVMercadoPagoFaturamento(rows: any[]): Promise<any[]
   };
 
   const keys = Object.keys(rows[0]);
-  console.log("Colunas Faturamento MP:", col, "Keys:", keys);
+  console.log("[parseCSVMercadoPagoFaturamento] Colunas:", col, "Keys:", keys);
 
-  return rows
-    .filter(r => r && (r[keys[col.data]] || r["Data do movimento"]))
-    .map(r => {
-      // Acesso flexível às colunas
-      const data = r[keys[col.data]] || r["Data do movimento"] || "";
-      const detalhe = r[keys[col.detalhe]] || r["Detalhe"] || "Tarifa MP";
-      const valorTarifa = parseNumber(r[keys[col.valorTarifa]] || r["Valor da tarifa"]);
-      const valorOperacao = parseNumber(r[keys[col.valorOperacao]] || r["Valor da operação"]);
-      const tipoOp = r[keys[col.tipoOperacao]] || r["Tipo de operação"] || "";
-      const numMov = r[keys[col.numeroMovimento]] || r["Número do movimento"] || "";
-      const estornada = r[keys[col.tarifaEstornada]] || r["Tarifa estornada"] || "";
+  const transacoes: any[] = [];
 
-      // Se tarifa foi estornada, é um crédito (estorno)
-      const isEstorno = estornada && estornada.trim().length > 0;
-      
-      return {
-        origem: "marketplace" as const,
-        canal: "mercado_pago" as const,
-        data_transacao: normalizeDate(data),
-        descricao: detalhe,
-        pedido_id: numMov?.toString().trim() || null,
-        referencia_externa: numMov?.toString().trim() || null,
-        valor_bruto: valorOperacao || valorTarifa,
-        valor_liquido: valorTarifa,
-        tarifas: isEstorno ? 0 : valorTarifa,
-        tipo_transacao: tipoOp.toLowerCase() || "tarifa",
-        tipo_lancamento: isEstorno ? "credito" : "debito", // Tarifas são despesas (débito)
-      };
-    })
-    .filter(t => !isNaN(t.valor_liquido) && t.valor_liquido !== 0);
+  for (const r of rows) {
+    const data = r[keys[col.data]] || r["Data do movimento"] || "";
+    const detalhe = r[keys[col.detalhe]] || r["Detalhe"] || "Tarifa MP";
+    const valorTarifa = parseNumber(r[keys[col.valorTarifa]] || r["Valor da tarifa"]);
+    const valorOperacao = parseNumber(r[keys[col.valorOperacao]] || r["Valor da operação"]);
+    const tipoOp = r[keys[col.tipoOperacao]] || r["Tipo de operação"] || "";
+    const numMov = r[keys[col.numeroMovimento]] || r["Número do movimento"] || "";
+    const estornada = r[keys[col.tarifaEstornada]] || r["Tarifa estornada"] || "";
+
+    const dataValida = normalizeDate(data);
+    const temData = !!dataValida;
+    const temDescricao = !!detalhe && String(detalhe).trim().length > 0;
+    const temValor = valorTarifa !== 0 || valorOperacao !== 0;
+
+    if (!temData && !temDescricao && !temValor) {
+      totalLinhasVazias++;
+      continue;
+    }
+
+    if (valorTarifa === 0 && valorOperacao === 0) {
+      totalComValorZero++;
+    }
+
+    if (!temData) {
+      totalDescartadasPorFormato++;
+      continue;
+    }
+
+    const isEstorno = estornada && estornada.trim().length > 0;
+
+    transacoes.push({
+      origem: "marketplace" as const,
+      canal: "mercado_pago" as const,
+      data_transacao: dataValida,
+      descricao: detalhe,
+      pedido_id: numMov?.toString().trim() || null,
+      referencia_externa: numMov?.toString().trim() || null,
+      valor_bruto: valorOperacao || valorTarifa,
+      valor_liquido: valorTarifa,
+      tarifas: isEstorno ? 0 : valorTarifa,
+      tipo_transacao: tipoOp.toLowerCase() || "tarifa",
+      tipo_lancamento: isEstorno ? "credito" : "debito",
+    });
+  }
+
+  console.log("[parseCSVMercadoPagoFaturamento] Estatísticas:", {
+    totalLinhasArquivo,
+    totalTransacoesGeradas: transacoes.length,
+    totalComValorZero,
+    totalDescartadasPorFormato,
+    totalLinhasVazias,
+  });
+
+  return {
+    transacoes,
+    estatisticas: {
+      totalLinhasArquivo,
+      totalTransacoesGeradas: transacoes.length,
+      totalComValorZero,
+      totalDescartadasPorFormato,
+      totalLinhasVazias,
+    },
+  };
 }
 
-export async function parseXLSXMercadoPago(file: File): Promise<any[]> {
+export async function parseXLSXMercadoPago(file: File): Promise<ParseResult> {
   const fileExt = file.name.split(".").pop()?.toLowerCase();
   
   // Se é CSV, parse com PapaParse primeiro
@@ -307,8 +440,24 @@ export async function parseXLSXMercadoPago(file: File): Promise<any[]> {
 }
 
 // Parser para extrato de VENDAS do Mercado Pago (API export)
-function parseCSVMercadoPagoVendas(rows: any[]): any[] {
-  if (!rows || rows.length === 0) return [];
+function parseCSVMercadoPagoVendas(rows: any[]): ParseResult {
+  if (!rows || rows.length === 0) {
+    return {
+      transacoes: [],
+      estatisticas: {
+        totalLinhasArquivo: 0,
+        totalTransacoesGeradas: 0,
+        totalComValorZero: 0,
+        totalDescartadasPorFormato: 0,
+        totalLinhasVazias: 0,
+      },
+    };
+  }
+
+  const totalLinhasArquivo = rows.length;
+  let totalComValorZero = 0;
+  let totalDescartadasPorFormato = 0;
+  let totalLinhasVazias = 0;
   
   const keys = Object.keys(rows[0]);
   
@@ -348,61 +497,101 @@ function parseCSVMercadoPagoVendas(rows: any[]): any[] {
     ]),
   };
 
-  return rows
-    .filter(r => r && (r[keys[col.data]] || r[keys[col.valorBruto]] || r[keys[col.valorLiquido]]))
-    .map(r => {
-      const bruto = parseNumber(r[keys[col.valorBruto]]);
-      const tarifa = Math.abs(parseNumber(r[keys[col.tarifa]]));
-      let liquido = parseNumber(r[keys[col.valorLiquido]]);
-      
-      if (!liquido && bruto) liquido = bruto - tarifa;
+  const transacoes: any[] = [];
 
-      let descricao = "Transação MP";
-      if (col.descricao >= 0 && r[keys[col.descricao]]) {
-        descricao = String(r[keys[col.descricao]]).trim();
-      } else if (col.tipo >= 0 && r[keys[col.tipo]]) {
-        descricao = String(r[keys[col.tipo]]).trim();
-      }
+  for (const r of rows) {
+    const bruto = parseNumber(r[keys[col.valorBruto]]);
+    const tarifa = Math.abs(parseNumber(r[keys[col.tarifa]]));
+    let liquido = parseNumber(r[keys[col.valorLiquido]]);
+    
+    if (!liquido && bruto) liquido = bruto - tarifa;
 
-      const status = col.status >= 0 ? String(r[keys[col.status]] || "").toLowerCase() : "";
-      const tipoOp = col.tipo >= 0 ? String(r[keys[col.tipo]] || "").toLowerCase() : "";
-      const isDebito = tipoOp.includes("refund") || 
-                       tipoOp.includes("chargeback") || 
-                       tipoOp.includes("estorno") ||
-                       tipoOp.includes("devolução") ||
-                       liquido < 0;
+    const dataStr = r[keys[col.data]];
+    const dataValida = normalizeDate(dataStr);
+    const temData = !!dataValida;
+    const temValor = bruto !== 0 || liquido !== 0;
 
-      return {
-        origem: "marketplace" as const,
-        canal: "mercado_pago" as const,
-        data_transacao: normalizeDate(r[keys[col.data]]),
-        descricao,
-        pedido_id: col.pedido >= 0 ? r[keys[col.pedido]]?.toString().trim() || null : 
-                   col.referencia >= 0 ? r[keys[col.referencia]]?.toString().trim() || null : null,
-        referencia_externa: col.referencia >= 0 ? r[keys[col.referencia]]?.toString().trim() || null : null,
-        valor_bruto: Math.abs(bruto) || Math.abs(liquido),
-        valor_liquido: Math.abs(liquido) || Math.abs(bruto),
-        tarifas: tarifa,
-        status_original: status,
-        tipo_transacao: tipoOp || "payment",
-        tipo_lancamento: isDebito ? "debito" : "credito",
-      };
-    })
-    .filter(t => {
-      const hasValue = !isNaN(t.valor_liquido) && t.valor_liquido !== 0;
-      const isValid = !t.status_original.includes("pending") && 
-                      !t.status_original.includes("cancelled") &&
-                      !t.status_original.includes("rejected");
-      return hasValue && isValid;
-    })
-    .map(t => {
-      const { status_original, ...rest } = t;
-      return rest;
+    let descricao = "Transação MP";
+    if (col.descricao >= 0 && r[keys[col.descricao]]) {
+      descricao = String(r[keys[col.descricao]]).trim();
+    } else if (col.tipo >= 0 && r[keys[col.tipo]]) {
+      descricao = String(r[keys[col.tipo]]).trim();
+    }
+
+    const temDescricao = descricao !== "Transação MP";
+
+    if (!temData && !temDescricao && !temValor) {
+      totalLinhasVazias++;
+      continue;
+    }
+
+    if (liquido === 0 && bruto === 0) {
+      totalComValorZero++;
+    }
+
+    const status = col.status >= 0 ? String(r[keys[col.status]] || "").toLowerCase() : "";
+    
+    // Filtrar status inválidos
+    if (status.includes("pending") || status.includes("cancelled") || status.includes("rejected")) {
+      totalDescartadasPorFormato++;
+      continue;
+    }
+
+    if (!temData) {
+      totalDescartadasPorFormato++;
+      continue;
+    }
+
+    const tipoOp = col.tipo >= 0 ? String(r[keys[col.tipo]] || "").toLowerCase() : "";
+    const isDebito = tipoOp.includes("refund") || 
+                     tipoOp.includes("chargeback") || 
+                     tipoOp.includes("estorno") ||
+                     tipoOp.includes("devolução") ||
+                     liquido < 0;
+
+    transacoes.push({
+      origem: "marketplace" as const,
+      canal: "mercado_pago" as const,
+      data_transacao: dataValida,
+      descricao,
+      pedido_id: col.pedido >= 0 ? r[keys[col.pedido]]?.toString().trim() || null : 
+                 col.referencia >= 0 ? r[keys[col.referencia]]?.toString().trim() || null : null,
+      referencia_externa: col.referencia >= 0 ? r[keys[col.referencia]]?.toString().trim() || null : null,
+      valor_bruto: Math.abs(bruto) || Math.abs(liquido),
+      valor_liquido: Math.abs(liquido) || Math.abs(bruto),
+      tarifas: tarifa,
+      tipo_transacao: tipoOp || "payment",
+      tipo_lancamento: isDebito ? "debito" : "credito",
     });
+  }
+
+  console.log("[parseCSVMercadoPagoVendas] Estatísticas:", {
+    totalLinhasArquivo,
+    totalTransacoesGeradas: transacoes.length,
+    totalComValorZero,
+    totalDescartadasPorFormato,
+    totalLinhasVazias,
+  });
+
+  return {
+    transacoes,
+    estatisticas: {
+      totalLinhasArquivo,
+      totalTransacoesGeradas: transacoes.length,
+      totalComValorZero,
+      totalDescartadasPorFormato,
+      totalLinhasVazias,
+    },
+  };
 }
 
 // Parser XLSX para extrato de vendas MP
-function parseXLSXMercadoPagoVendas(header: string[], dataRows: any[][]): any[] {
+function parseXLSXMercadoPagoVendas(header: string[], dataRows: any[][]): ParseResult {
+  const totalLinhasArquivo = dataRows.length;
+  let totalComValorZero = 0;
+  let totalDescartadasPorFormato = 0;
+  let totalLinhasVazias = 0;
+
   const col = {
     data: findColumnIndex(header, [
       "date_created", "data de criação", "data", "fecha", "date",
@@ -437,43 +626,89 @@ function parseXLSXMercadoPagoVendas(header: string[], dataRows: any[][]): any[] 
     );
   }
 
-  return dataRows
-    .filter(r => r && (r[col.data] || r[col.valorBruto] || r[col.valorLiquido]))
-    .map(r => {
-      const bruto = parseNumber(r[col.valorBruto]);
-      const tarifa = Math.abs(parseNumber(r[col.tarifa]));
-      let liquido = parseNumber(r[col.valorLiquido]);
-      
-      if (!liquido && bruto) liquido = bruto - tarifa;
+  const transacoes: any[] = [];
 
-      let descricao = "Transação MP";
-      if (col.descricao >= 0 && r[col.descricao]) {
-        descricao = String(r[col.descricao]).trim();
-      } else if (col.tipo >= 0 && r[col.tipo]) {
-        descricao = String(r[col.tipo]).trim();
-      }
+  for (const r of dataRows) {
+    const bruto = parseNumber(r[col.valorBruto]);
+    const tarifa = Math.abs(parseNumber(r[col.tarifa]));
+    let liquido = parseNumber(r[col.valorLiquido]);
+    
+    if (!liquido && bruto) liquido = bruto - tarifa;
 
-      const status = col.status >= 0 ? String(r[col.status] || "").toLowerCase() : "";
-      const tipoOp = col.tipo >= 0 ? String(r[col.tipo] || "").toLowerCase() : "";
-      const isDebito = tipoOp.includes("refund") || 
-                       tipoOp.includes("chargeback") || 
-                       tipoOp.includes("estorno") ||
-                       liquido < 0;
+    const dataStr = r[col.data];
+    const dataValida = normalizeDate(dataStr);
+    const temData = !!dataValida;
+    const temValor = bruto !== 0 || liquido !== 0;
 
-      return {
-        origem: "marketplace" as const,
-        canal: "mercado_pago" as const,
-        data_transacao: normalizeDate(r[col.data]),
-        descricao,
-        pedido_id: col.pedido >= 0 ? r[col.pedido]?.toString().trim() || null : 
-                   col.referencia >= 0 ? r[col.referencia]?.toString().trim() || null : null,
-        referencia_externa: col.referencia >= 0 ? r[col.referencia]?.toString().trim() || null : null,
-        valor_bruto: Math.abs(bruto) || Math.abs(liquido),
-        valor_liquido: Math.abs(liquido) || Math.abs(bruto),
-        tarifas: tarifa,
-        tipo_transacao: tipoOp || "payment",
-        tipo_lancamento: isDebito ? "debito" : "credito",
-      };
-    })
-    .filter(t => !isNaN(t.valor_liquido) && t.valor_liquido !== 0);
+    let descricao = "Transação MP";
+    if (col.descricao >= 0 && r[col.descricao]) {
+      descricao = String(r[col.descricao]).trim();
+    } else if (col.tipo >= 0 && r[col.tipo]) {
+      descricao = String(r[col.tipo]).trim();
+    }
+
+    const temDescricao = descricao !== "Transação MP";
+
+    if (!temData && !temDescricao && !temValor) {
+      totalLinhasVazias++;
+      continue;
+    }
+
+    if (liquido === 0 && bruto === 0) {
+      totalComValorZero++;
+    }
+
+    const status = col.status >= 0 ? String(r[col.status] || "").toLowerCase() : "";
+    
+    if (status.includes("pending") || status.includes("cancelled") || status.includes("rejected")) {
+      totalDescartadasPorFormato++;
+      continue;
+    }
+
+    if (!temData) {
+      totalDescartadasPorFormato++;
+      continue;
+    }
+
+    const tipoOp = col.tipo >= 0 ? String(r[col.tipo] || "").toLowerCase() : "";
+    const isDebito = tipoOp.includes("refund") || 
+                     tipoOp.includes("chargeback") || 
+                     tipoOp.includes("estorno") ||
+                     tipoOp.includes("devolução") ||
+                     liquido < 0;
+
+    transacoes.push({
+      origem: "marketplace" as const,
+      canal: "mercado_pago" as const,
+      data_transacao: dataValida,
+      descricao,
+      pedido_id: col.pedido >= 0 ? r[col.pedido]?.toString().trim() || null : 
+                 col.referencia >= 0 ? r[col.referencia]?.toString().trim() || null : null,
+      referencia_externa: col.referencia >= 0 ? r[col.referencia]?.toString().trim() || null : null,
+      valor_bruto: Math.abs(bruto) || Math.abs(liquido),
+      valor_liquido: Math.abs(liquido) || Math.abs(bruto),
+      tarifas: tarifa,
+      tipo_transacao: tipoOp || "payment",
+      tipo_lancamento: isDebito ? "debito" : "credito",
+    });
+  }
+
+  console.log("[parseXLSXMercadoPagoVendas] Estatísticas:", {
+    totalLinhasArquivo,
+    totalTransacoesGeradas: transacoes.length,
+    totalComValorZero,
+    totalDescartadasPorFormato,
+    totalLinhasVazias,
+  });
+
+  return {
+    transacoes,
+    estatisticas: {
+      totalLinhasArquivo,
+      totalTransacoesGeradas: transacoes.length,
+      totalComValorZero,
+      totalDescartadasPorFormato,
+      totalLinhasVazias,
+    },
+  };
 }
