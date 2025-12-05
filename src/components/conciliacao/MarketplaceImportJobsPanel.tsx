@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMarketplaceImportJobs, MarketplaceImportJob, cancelarJob, excluirJob } from "@/hooks/useMarketplaceImportJobs";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -21,11 +21,11 @@ import {
   Eye,
   RefreshCw,
   Ban,
-  Trash2
+  Trash2,
+  Zap
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { cn } from "@/lib/utils";
 
 interface MarketplaceImportJobsPanelProps {
   empresaId?: string;
@@ -43,7 +43,7 @@ const CANAIS_LABELS: Record<string, string> = {
 };
 
 export function MarketplaceImportJobsPanel({ empresaId, onReprocessar }: MarketplaceImportJobsPanelProps) {
-  const { emAndamento, historico, isLoading, refetch } = useMarketplaceImportJobs({ empresaId });
+  const { emAndamento, historico, isLoading } = useMarketplaceImportJobs({ empresaId });
   const [expanded, setExpanded] = useState(true);
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [selectedError, setSelectedError] = useState<MarketplaceImportJob | null>(null);
@@ -74,7 +74,6 @@ export function MarketplaceImportJobsPanel({ empresaId, onReprocessar }: Marketp
     try {
       await cancelarJob(jobToCancel.id);
       toast.success("Importação cancelada");
-      refetch();
     } catch (error) {
       toast.error("Erro ao cancelar importação");
     } finally {
@@ -97,7 +96,6 @@ export function MarketplaceImportJobsPanel({ empresaId, onReprocessar }: Marketp
     try {
       await excluirJob(job.id);
       toast.success("Registro de importação excluído");
-      refetch();
     } catch (error) {
       toast.error("Erro ao excluir registro");
     } finally {
@@ -117,7 +115,15 @@ export function MarketplaceImportJobsPanel({ empresaId, onReprocessar }: Marketp
             <Upload className="h-4 w-4 text-primary" />
           </div>
           <div className="text-left">
-            <h3 className="font-semibold">Importações do Marketplace</h3>
+            <h3 className="font-semibold flex items-center gap-2">
+              Importações do Marketplace
+              {emAndamento.length > 0 && (
+                <Badge variant="secondary" className="animate-pulse bg-primary/20 text-primary text-[10px]">
+                  <Zap className="h-3 w-3 mr-1" />
+                  Tempo real
+                </Badge>
+              )}
+            </h3>
             <p className="text-xs text-muted-foreground">
               {emAndamento.length > 0 
                 ? `${emAndamento.length} importação em andamento`
@@ -349,17 +355,44 @@ export function MarketplaceImportJobsPanel({ empresaId, onReprocessar }: Marketp
   );
 }
 
-// Card de job em andamento
+// Card de job em andamento com progresso em tempo real
 function JobEmAndamentoCard({ job, onCancel }: { job: MarketplaceImportJob; onCancel: () => void }) {
-  const progress = job.total_linhas > 0 
+  const [animatedProgress, setAnimatedProgress] = useState(0);
+  
+  const targetProgress = job.total_linhas > 0 
     ? Math.round((job.linhas_processadas / job.total_linhas) * 100) 
     : 0;
 
+  // Animação suave do progresso
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAnimatedProgress(targetProgress);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [targetProgress]);
+
+  // Calcular velocidade de processamento
+  const tempoDecorrido = (new Date().getTime() - new Date(job.criado_em).getTime()) / 1000; // segundos
+  const velocidade = tempoDecorrido > 0 ? Math.round(job.linhas_processadas / tempoDecorrido) : 0;
+  const tempoRestante = velocidade > 0 
+    ? Math.round((job.total_linhas - job.linhas_processadas) / velocidade)
+    : 0;
+
+  const formatTempo = (segundos: number): string => {
+    if (segundos < 60) return `${segundos}s`;
+    const minutos = Math.floor(segundos / 60);
+    const seg = segundos % 60;
+    return `${minutos}m ${seg}s`;
+  };
+
   return (
-    <div className="p-4 rounded-lg bg-card border border-primary/20">
+    <div className="p-4 rounded-lg bg-card border border-primary/20 shadow-sm">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
-          <FileSpreadsheet className="h-4 w-4 text-primary" />
+          <div className="relative">
+            <FileSpreadsheet className="h-4 w-4 text-primary" />
+            <span className="absolute -top-1 -right-1 h-2 w-2 bg-primary rounded-full animate-ping" />
+          </div>
           <span className="font-medium text-sm">{job.arquivo_nome}</span>
           <Badge variant="outline" className="text-xs">
             {CANAIS_LABELS[job.canal] || job.canal}
@@ -381,37 +414,67 @@ function JobEmAndamentoCard({ job, onCancel }: { job: MarketplaceImportJob; onCa
         </div>
       </div>
 
-      {/* Barra de progresso */}
+      {/* Barra de progresso animada */}
       <div className="space-y-2">
-        <Progress value={progress} className="h-2" />
+        <div className="relative">
+          <Progress 
+            value={animatedProgress} 
+            className="h-3 transition-all duration-500"
+          />
+          {/* Indicador de atividade */}
+          <div 
+            className="absolute top-0 h-full w-8 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"
+            style={{ 
+              left: `${Math.max(0, animatedProgress - 5)}%`,
+              display: animatedProgress < 100 ? 'block' : 'none'
+            }}
+          />
+        </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">
-            {job.linhas_processadas.toLocaleString()} de {job.total_linhas.toLocaleString()} linhas processadas
-          </span>
-          <span className="font-medium">{progress}%</span>
+          <div className="flex items-center gap-3">
+            <span className="text-muted-foreground">
+              {job.linhas_processadas.toLocaleString()} de {job.total_linhas.toLocaleString()} linhas
+            </span>
+            {velocidade > 0 && (
+              <span className="text-primary/70">
+                ~{velocidade}/s
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {tempoRestante > 0 && animatedProgress < 100 && (
+              <span className="text-muted-foreground">
+                ~{formatTempo(tempoRestante)} restantes
+              </span>
+            )}
+            <span className="font-bold text-primary">{animatedProgress}%</span>
+          </div>
         </div>
       </div>
 
-      {/* Contadores */}
+      {/* Contadores em tempo real */}
       <div className="flex items-center gap-4 mt-3 text-xs">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-success/10">
           <Check className="h-3 w-3 text-success" />
           <span className="text-success font-medium">{job.linhas_importadas.toLocaleString()}</span>
-          <span className="text-muted-foreground">importadas</span>
+          <span className="text-success/70">importadas</span>
         </div>
-        <div className="flex items-center gap-1">
-          <AlertCircle className="h-3 w-3 text-muted-foreground" />
-          <span className="text-muted-foreground">{job.linhas_duplicadas.toLocaleString()}</span>
-          <span className="text-muted-foreground">duplicadas</span>
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10">
+          <AlertCircle className="h-3 w-3 text-amber-500" />
+          <span className="text-amber-600 font-medium">{job.linhas_duplicadas.toLocaleString()}</span>
+          <span className="text-amber-500/70">duplicadas</span>
         </div>
         {job.linhas_com_erro > 0 && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-destructive/10">
             <X className="h-3 w-3 text-destructive" />
             <span className="text-destructive font-medium">{job.linhas_com_erro.toLocaleString()}</span>
-            <span className="text-muted-foreground">erros</span>
+            <span className="text-destructive/70">erros</span>
           </div>
         )}
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary ml-auto" />
+        <div className="ml-auto flex items-center gap-1 text-primary">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span className="text-[10px] uppercase tracking-wide">Processando</span>
+        </div>
       </div>
     </div>
   );
