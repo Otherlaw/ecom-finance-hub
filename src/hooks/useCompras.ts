@@ -385,9 +385,8 @@ export function useRecebimentos(compraId: string | null) {
                 quantidade: item.quantidade_recebida,
                 custoUnitario: item.custo_unitario,
                 data: input.data_recebimento,
-                motivo: 'recebimento_compra',
+                origem: 'recebimento_compra',
                 referenciaId: recebimento.id,
-                documento: null,
                 observacoes: `Recebimento de compra - Item ${item.compra_item_id}`,
               });
             } catch (err) {
