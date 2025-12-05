@@ -430,24 +430,46 @@ export function ImportarMarketplaceModal({
     try {
       setIsProcessing(true);
       const tipo = detectarTipoArquivo(file);
-      let linhas: any[] = [];
+      let transacoes: TransacaoPreview[] = [];
+      let totalItens = 0;
 
       if (tipo === "csv") {
-        linhas = await parseCSVFile(file);
+        const linhas = await parseCSVFile(file);
+        const result = mapLinhasRelatorioParaTransacoes(linhas, canal);
+        transacoes = result.transacoes;
+        totalItens = result.totalItens;
       } else if (tipo === "xlsx") {
-        // Usa parser específico do Mercado Livre para XLSX
+        // Parser específico ML retorna objetos já mapeados
         if (canal === "mercado_livre") {
-          linhas = await parseXLSXMercadoLivre(file);
+          const linhasML = await parseXLSXMercadoLivre(file);
+          transacoes = linhasML.map(t => {
+            const hash = `${t.data_transacao}_${t.pedido_id || ""}_${t.valor_liquido}_${t.descricao}`.substring(0, 100);
+            return {
+              data_transacao: t.data_transacao,
+              descricao: t.descricao,
+              pedido_id: t.pedido_id,
+              tipo_transacao: t.descricao || "venda",
+              valor_bruto: t.valor_bruto,
+              tarifas: 0,
+              taxas: 0,
+              outros_descontos: 0,
+              valor_liquido: t.valor_liquido,
+              tipo_lancamento: t.valor_liquido >= 0 ? "credito" as const : "debito" as const,
+              referencia_externa: hash,
+              itens: [],
+            };
+          });
         } else {
-          linhas = await parseXLSXFile(file);
+          const linhas = await parseXLSXFile(file);
+          const result = mapLinhasRelatorioParaTransacoes(linhas, canal);
+          transacoes = result.transacoes;
+          totalItens = result.totalItens;
         }
       } else {
         setError("Formato não suportado. Use CSV ou XLSX.");
         setIsProcessing(false);
         return;
       }
-
-      const { transacoes, totalItens } = mapLinhasRelatorioParaTransacoes(linhas, canal);
 
       if (transacoes.length === 0) {
         setError("Nenhuma transação encontrada no arquivo. Verifique o formato.");
