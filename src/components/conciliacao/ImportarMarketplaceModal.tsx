@@ -790,10 +790,11 @@ async function processarImportacaoBackground(
   });
 
   try {
-    // PASSO 1: Gerar hashes SHA256 em batches
+    // PASSO 1: Gerar hashes SHA256 em batches COM atualização de progresso
     console.log('[Background Import] Passo 1/3: Gerando hashes SHA256...');
     
     const transacoesComHash: (MarketplaceTransactionInsert & { hash_duplicidade: string })[] = [];
+    const PROGRESS_UPDATE_INTERVAL = 200; // Atualizar progresso a cada 200 registros
     
     for (let i = 0; i < transacoesParaImportar.length; i++) {
       const t = transacoesParaImportar[i];
@@ -809,19 +810,37 @@ async function processarImportacaoBackground(
         ...t,
         hash_duplicidade: hash,
       });
+      
+      // Atualizar progresso durante geração de hashes (fase 1 = 30% do total)
+      if ((i + 1) % PROGRESS_UPDATE_INTERVAL === 0 || i === transacoesParaImportar.length - 1) {
+        const progressoHash = Math.floor(((i + 1) / transacoesParaImportar.length) * 30);
+        processados = Math.floor(((i + 1) / transacoesParaImportar.length) * TOTAL * 0.3);
+        
+        await atualizarProgressoComRetry(jobId, {
+          linhas_processadas: processados,
+          linhas_importadas: 0,
+          linhas_duplicadas: 0,
+          linhas_com_erro: 0,
+        });
+        
+        console.log(`[Background Import] Hashes: ${i + 1}/${transacoesParaImportar.length} (${progressoHash}%)`);
+      }
     }
     
     console.log('[Background Import] Hashes gerados:', transacoesComHash.length);
 
-    // PASSO 2: Verificar duplicatas no banco por hash
+    // PASSO 2: Verificar duplicatas no banco por hash COM atualização de progresso
     console.log('[Background Import] Passo 2/3: Verificando duplicatas no banco...');
     
     const hashesExistentes = new Set<string>();
     const hashesParaVerificar = transacoesComHash.map(t => t.hash_duplicidade);
+    const HASH_BATCH_SIZE = 5000;
+    const totalBatchesHash = Math.ceil(hashesParaVerificar.length / HASH_BATCH_SIZE);
     
     // Verificar em lotes de 5000 hashes
-    for (let i = 0; i < hashesParaVerificar.length; i += 5000) {
-      const batchHashes = hashesParaVerificar.slice(i, i + 5000);
+    for (let i = 0; i < hashesParaVerificar.length; i += HASH_BATCH_SIZE) {
+      const batchHashes = hashesParaVerificar.slice(i, i + HASH_BATCH_SIZE);
+      const batchIndex = Math.floor(i / HASH_BATCH_SIZE);
       
       const { data: existentes } = await supabase
         .from('marketplace_transactions')
@@ -832,6 +851,19 @@ async function processarImportacaoBackground(
       (existentes || []).forEach(e => {
         if (e.hash_duplicidade) hashesExistentes.add(e.hash_duplicidade);
       });
+      
+      // Atualizar progresso durante verificação (fase 2 = 30% a 50%)
+      const progressoVerificacao = 30 + Math.floor(((batchIndex + 1) / totalBatchesHash) * 20);
+      processados = Math.floor(TOTAL * progressoVerificacao / 100);
+      
+      await atualizarProgressoComRetry(jobId, {
+        linhas_processadas: processados,
+        linhas_importadas: 0,
+        linhas_duplicadas: hashesExistentes.size,
+        linhas_com_erro: 0,
+      });
+      
+      console.log(`[Background Import] Verificação: batch ${batchIndex + 1}/${totalBatchesHash} (${progressoVerificacao}%)`);
     }
     
     console.log('[Background Import] Hashes já existentes no banco:', hashesExistentes.size);
@@ -840,8 +872,8 @@ async function processarImportacaoBackground(
     const hashesVistas = new Set<string>();
     const transacoesParaInserir: (MarketplaceTransactionInsert & { hash_duplicidade: string })[] = [];
     
-    for (const t of transacoesComHash) {
-      processados++;
+    for (let i = 0; i < transacoesComHash.length; i++) {
+      const t = transacoesComHash[i];
       
       // Duplicata no banco?
       if (hashesExistentes.has(t.hash_duplicidade)) {
@@ -858,11 +890,16 @@ async function processarImportacaoBackground(
       hashesVistas.add(t.hash_duplicidade);
       transacoesParaInserir.push(t);
       
-      // Atualizar progresso a cada 500 registros analisados
-      if (processados % 500 === 0 || processados === TOTAL) {
+      // Atualizar progresso durante filtragem (fase 3 = 50% a 60%)
+      if ((i + 1) % PROGRESS_UPDATE_INTERVAL === 0 || i === transacoesComHash.length - 1) {
+        const progressoFiltragem = 50 + Math.floor(((i + 1) / transacoesComHash.length) * 10);
+        processados = Math.floor(TOTAL * progressoFiltragem / 100);
+        
         await atualizarProgressoComRetry(jobId, {
           linhas_processadas: processados,
+          linhas_importadas: 0,
           linhas_duplicadas: duplicados,
+          linhas_com_erro: 0,
         });
       }
     }
@@ -873,11 +910,14 @@ async function processarImportacaoBackground(
       paraInserir: transacoesParaInserir.length,
     });
 
-    // PASSO 4: Inserir transações únicas em batches
+    // PASSO 4: Inserir transações únicas em batches (60% a 100%)
     console.log('[Background Import] Passo 3/3: Inserindo', transacoesParaInserir.length, 'transações...');
+    
+    const totalBatchesInsercao = Math.ceil(transacoesParaInserir.length / BATCH_SIZE) || 1;
     
     for (let i = 0; i < transacoesParaInserir.length; i += BATCH_SIZE) {
       const batch = transacoesParaInserir.slice(i, i + BATCH_SIZE);
+      const batchIndex = Math.floor(i / BATCH_SIZE);
       
       try {
         const { data, error } = await supabase
@@ -904,13 +944,18 @@ async function processarImportacaoBackground(
         console.error("[Background Import] Erro no batch:", err);
       }
 
-      // Atualizar progresso após cada batch de inserção
+      // Atualizar progresso após cada batch de inserção (60% a 100%)
+      const progressoInsercao = 60 + Math.floor(((batchIndex + 1) / totalBatchesInsercao) * 40);
+      processados = Math.floor(TOTAL * progressoInsercao / 100);
+      
       await atualizarProgressoComRetry(jobId, {
         linhas_processadas: processados,
         linhas_importadas: importados,
         linhas_duplicadas: duplicados,
         linhas_com_erro: erros,
       });
+      
+      console.log(`[Background Import] Inserção: batch ${batchIndex + 1}/${totalBatchesInsercao} (${progressoInsercao}%)`);
     }
 
     // Se não há transações para inserir (todas duplicadas)
