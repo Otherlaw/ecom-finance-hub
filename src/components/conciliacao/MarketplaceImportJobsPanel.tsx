@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { useMarketplaceImportJobs, MarketplaceImportJob } from "@/hooks/useMarketplaceImportJobs";
+import { useMarketplaceImportJobs, MarketplaceImportJob, cancelarJob, excluirJob } from "@/hooks/useMarketplaceImportJobs";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 import { 
   Upload, 
   Check, 
@@ -17,7 +18,10 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
-  Eye
+  Eye,
+  RefreshCw,
+  Ban,
+  Trash2
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -25,6 +29,7 @@ import { cn } from "@/lib/utils";
 
 interface MarketplaceImportJobsPanelProps {
   empresaId?: string;
+  onReprocessar?: (job: MarketplaceImportJob) => void;
 }
 
 const CANAIS_LABELS: Record<string, string> = {
@@ -37,11 +42,15 @@ const CANAIS_LABELS: Record<string, string> = {
   outro: "Outro",
 };
 
-export function MarketplaceImportJobsPanel({ empresaId }: MarketplaceImportJobsPanelProps) {
-  const { emAndamento, historico, isLoading } = useMarketplaceImportJobs({ empresaId });
+export function MarketplaceImportJobsPanel({ empresaId, onReprocessar }: MarketplaceImportJobsPanelProps) {
+  const { emAndamento, historico, isLoading, refetch } = useMarketplaceImportJobs({ empresaId });
   const [expanded, setExpanded] = useState(true);
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [selectedError, setSelectedError] = useState<MarketplaceImportJob | null>(null);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [jobToCancel, setJobToCancel] = useState<MarketplaceImportJob | null>(null);
+  const [isCanceling, setIsCanceling] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   // Se não há jobs, não mostrar nada
   if (!isLoading && emAndamento.length === 0 && historico.length === 0) {
@@ -51,6 +60,49 @@ export function MarketplaceImportJobsPanel({ empresaId }: MarketplaceImportJobsP
   const handleViewError = (job: MarketplaceImportJob) => {
     setSelectedError(job);
     setErrorModalOpen(true);
+  };
+
+  const handleCancelClick = (job: MarketplaceImportJob) => {
+    setJobToCancel(job);
+    setCancelModalOpen(true);
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!jobToCancel) return;
+    
+    setIsCanceling(true);
+    try {
+      await cancelarJob(jobToCancel.id);
+      toast.success("Importação cancelada");
+      refetch();
+    } catch (error) {
+      toast.error("Erro ao cancelar importação");
+    } finally {
+      setIsCanceling(false);
+      setCancelModalOpen(false);
+      setJobToCancel(null);
+    }
+  };
+
+  const handleReprocessar = (job: MarketplaceImportJob) => {
+    if (onReprocessar) {
+      onReprocessar(job);
+    } else {
+      toast.info("Para reprocessar, importe o arquivo novamente pelo modal de importação");
+    }
+  };
+
+  const handleExcluirJob = async (job: MarketplaceImportJob) => {
+    setIsDeleting(job.id);
+    try {
+      await excluirJob(job.id);
+      toast.success("Registro de importação excluído");
+      refetch();
+    } catch (error) {
+      toast.error("Erro ao excluir registro");
+    } finally {
+      setIsDeleting(null);
+    }
   };
 
   return (
@@ -99,7 +151,11 @@ export function MarketplaceImportJobsPanel({ empresaId }: MarketplaceImportJobsP
                   </h4>
                   <div className="space-y-3">
                     {emAndamento.map((job) => (
-                      <JobEmAndamentoCard key={job.id} job={job} />
+                      <JobEmAndamentoCard 
+                        key={job.id} 
+                        job={job} 
+                        onCancel={() => handleCancelClick(job)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -123,7 +179,7 @@ export function MarketplaceImportJobsPanel({ empresaId }: MarketplaceImportJobsP
                           <TableHead className="text-right">Duplicadas</TableHead>
                           <TableHead className="text-right">Erros</TableHead>
                           <TableHead className="text-center">Status</TableHead>
-                          <TableHead className="text-center w-[60px]"></TableHead>
+                          <TableHead className="text-center w-[100px]">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -163,16 +219,44 @@ export function MarketplaceImportJobsPanel({ empresaId }: MarketplaceImportJobsP
                               )}
                             </TableCell>
                             <TableCell className="text-center">
-                              {job.status === 'erro' && job.mensagem_erro && (
+                              <div className="flex items-center justify-center gap-1">
+                                {job.status === 'erro' && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0"
+                                      onClick={() => handleViewError(job)}
+                                      title="Ver erro"
+                                    >
+                                      <Eye className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0 text-primary hover:text-primary"
+                                      onClick={() => handleReprocessar(job)}
+                                      title="Reprocessar"
+                                    >
+                                      <RefreshCw className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </>
+                                )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-7 w-7 p-0"
-                                  onClick={() => handleViewError(job)}
+                                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                                  onClick={() => handleExcluirJob(job)}
+                                  disabled={isDeleting === job.id}
+                                  title="Excluir registro"
                                 >
-                                  <Eye className="h-3.5 w-3.5" />
+                                  {isDeleting === job.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
                                 </Button>
-                              )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -225,12 +309,48 @@ export function MarketplaceImportJobsPanel({ empresaId }: MarketplaceImportJobsP
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Modal de confirmação de cancelamento */}
+      <Dialog open={cancelModalOpen} onOpenChange={setCancelModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Ban className="h-5 w-5 text-destructive" />
+              Cancelar Importação
+            </DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja cancelar esta importação? As linhas já processadas serão mantidas.
+            </DialogDescription>
+          </DialogHeader>
+          {jobToCancel && (
+            <div className="p-3 rounded-lg bg-muted/50 text-sm">
+              <p><strong>Arquivo:</strong> {jobToCancel.arquivo_nome}</p>
+              <p><strong>Progresso:</strong> {jobToCancel.linhas_processadas.toLocaleString()} de {jobToCancel.total_linhas.toLocaleString()} linhas</p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelModalOpen(false)} disabled={isCanceling}>
+              Voltar
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmCancel} disabled={isCanceling}>
+              {isCanceling ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Cancelando...
+                </>
+              ) : (
+                "Confirmar Cancelamento"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 // Card de job em andamento
-function JobEmAndamentoCard({ job }: { job: MarketplaceImportJob }) {
+function JobEmAndamentoCard({ job, onCancel }: { job: MarketplaceImportJob; onCancel: () => void }) {
   const progress = job.total_linhas > 0 
     ? Math.round((job.linhas_processadas / job.total_linhas) * 100) 
     : 0;
@@ -245,9 +365,20 @@ function JobEmAndamentoCard({ job }: { job: MarketplaceImportJob }) {
             {CANAIS_LABELS[job.canal] || job.canal}
           </Badge>
         </div>
-        <span className="text-xs text-muted-foreground">
-          {format(new Date(job.criado_em), "HH:mm", { locale: ptBR })}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {format(new Date(job.criado_em), "HH:mm", { locale: ptBR })}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+            onClick={onCancel}
+          >
+            <Ban className="h-3 w-3 mr-1" />
+            Cancelar
+          </Button>
+        </div>
       </div>
 
       {/* Barra de progresso */}
