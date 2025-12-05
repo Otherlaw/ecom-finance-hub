@@ -30,7 +30,7 @@ import { useEmpresas } from "@/hooks/useEmpresas";
 import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
-import { detectarTipoArquivo, parseCSVFile, parseXLSXFile } from "@/lib/parsers/arquivoFinanceiro";
+import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre } from "@/lib/parsers/arquivoFinanceiro";
 
 interface ImportarMarketplaceModalProps {
   open: boolean;
@@ -435,7 +435,12 @@ export function ImportarMarketplaceModal({
       if (tipo === "csv") {
         linhas = await parseCSVFile(file);
       } else if (tipo === "xlsx") {
-        linhas = await parseXLSXFile(file);
+        // Usa parser específico do Mercado Livre para XLSX
+        if (canal === "mercado_livre") {
+          linhas = await parseXLSXMercadoLivre(file);
+        } else {
+          linhas = await parseXLSXFile(file);
+        }
       } else {
         setError("Formato não suportado. Use CSV ou XLSX.");
         setIsProcessing(false);

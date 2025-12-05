@@ -27,20 +27,63 @@ export async function parseCSVFile(file: File): Promise<any[]> {
   });
 }
 
-// Parser XLSX → array de objetos
-// Prioriza aba 'REPORT' (padrão Mercado Livre), senão usa primeira aba
+// Parser XLSX genérico → array de objetos
 export async function parseXLSXFile(file: File): Promise<any[]> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
 
-  // Mercado Livre usa aba chamada 'REPORT'
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+  if (!sheet) {
+    throw new Error("Nenhuma aba encontrada no arquivo XLSX");
+  }
+
+  const json = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  return json as any[];
+}
+
+// Parser XLSX específico para relatórios Mercado Livre
+// Detecta cabeçalho dinamicamente buscando "data da tarifa"
+export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+
+  // Mercado Livre usa aba 'REPORT'
   const sheet = workbook.Sheets["REPORT"] || workbook.Sheets[workbook.SheetNames[0]];
 
   if (!sheet) {
     throw new Error("Nenhuma aba encontrada no arquivo XLSX");
   }
 
-  // Converte para array de objetos usando primeira linha como header
-  const json = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
-  return json as any[];
+  // Converte para array de arrays (sem header)
+  const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false });
+
+  // Encontra a linha do cabeçalho buscando "data da tarifa"
+  const headerIndex = rows.findIndex((row) =>
+    row.some(
+      (cell) =>
+        typeof cell === "string" &&
+        cell.toLowerCase().includes("data da tarifa")
+    )
+  );
+
+  if (headerIndex === -1) {
+    throw new Error("Cabeçalho não encontrado no XLSX do Mercado Livre. Procurando por 'data da tarifa'.");
+  }
+
+  const header = rows[headerIndex] as string[];
+  const dataRows = rows.slice(headerIndex + 1);
+
+  // Converte para array de objetos usando o header detectado
+  return dataRows
+    .filter((row) => row.some((cell) => cell !== "" && cell !== null && cell !== undefined))
+    .map((row) => {
+      const obj: Record<string, any> = {};
+      header.forEach((col, i) => {
+        if (col) {
+          obj[col.trim()] = row[i] ?? "";
+        }
+      });
+      return obj;
+    });
 }
