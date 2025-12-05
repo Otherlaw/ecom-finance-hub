@@ -108,16 +108,17 @@ export function ImportarMarketplaceModal({
     setHashesDuplicados(new Set());
   }, []);
 
-  // Função para gerar hash de duplicidade (mesma usada na importação)
+  // Função para gerar hash de duplicidade (DEVE ser idêntica à do hook useMarketplaceTransactions)
   const gerarHashDuplicidade = useCallback((t: TransacaoPreview, empId: string, canalVal: string): string => {
-    const str = `${empId}|${canalVal}|${t.data_transacao}|${t.descricao?.substring(0, 100) || ''}|${t.valor_liquido}|${t.pedido_id || ''}`;
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return Math.abs(hash).toString(16);
+    const partes = [
+      empId,
+      canalVal,
+      t.data_transacao,
+      t.descricao?.substring(0, 100) || "",
+      String(t.valor_liquido || 0),
+      t.pedido_id || "",
+    ];
+    return partes.map(p => String(p).toLowerCase().trim()).join("|");
   }, []);
 
   // Verificar duplicatas no banco durante prévia
