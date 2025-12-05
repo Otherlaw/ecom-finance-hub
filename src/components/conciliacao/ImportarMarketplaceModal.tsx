@@ -665,7 +665,7 @@ export function ImportarMarketplaceModal({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col">
+      <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] overflow-y-auto flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5" />
@@ -776,18 +776,18 @@ export function ImportarMarketplaceModal({
                 </div>
               )}
 
-              <ScrollArea className="h-[300px] border rounded-md">
-                <Table>
+              <div className="h-[300px] border rounded-md overflow-auto">
+                <Table className="min-w-[900px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Data</TableHead>
-                      <TableHead>Pedido</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead className="text-right">Valor Bruto</TableHead>
-                      <TableHead className="text-right">Valor Líquido</TableHead>
-                      <TableHead>Lançamento</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead className="w-24">Data</TableHead>
+                      <TableHead className="w-28">Pedido</TableHead>
+                      <TableHead className="w-24">Tipo</TableHead>
+                      <TableHead className="min-w-[180px]">Descrição</TableHead>
+                      <TableHead className="w-28 text-right">Valor Bruto</TableHead>
+                      <TableHead className="w-28 text-right">Valor Líquido</TableHead>
+                      <TableHead className="w-24">Lançamento</TableHead>
+                      <TableHead className="w-28">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -844,7 +844,7 @@ export function ImportarMarketplaceModal({
                     Mostrando 50 de {parsedData.length} transações
                   </p>
                 )}
-              </ScrollArea>
+              </div>
             </div>
           )}
         </div>
