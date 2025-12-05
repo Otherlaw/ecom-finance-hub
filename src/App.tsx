@@ -24,6 +24,7 @@ import CentrosCusto from "./pages/CentrosCusto";
 import PlanoContas from "./pages/PlanoContas";
 import RegrasCategorizacao from "./pages/RegrasCategorizacao";
 import RegrasMarketplace from "./pages/RegrasMarketplace";
+import MapeamentosMarketplace from "./pages/MapeamentosMarketplace";
 import Empresas from "./pages/Empresas";
 import Usuarios from "./pages/Usuarios";
 import Configuracoes from "./pages/Configuracoes";
@@ -68,6 +69,7 @@ const App = () => (
             <Route path="/plano-contas" element={<PlanoContas />} />
             <Route path="/regras-categorizacao" element={<RegrasCategorizacao />} />
             <Route path="/regras-marketplace" element={<RegrasMarketplace />} />
+            <Route path="/mapeamentos-marketplace" element={<MapeamentosMarketplace />} />
             <Route path="/assistant" element={<AssistantCenter />} />
             <Route path="/movimentos-manuais" element={<MovimentosManuais />} />
             <Route path="/movimentacoes-manuais" element={<MovimentosManuais />} />
