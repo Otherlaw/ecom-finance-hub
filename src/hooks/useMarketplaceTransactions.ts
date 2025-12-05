@@ -626,7 +626,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
   // Query para buscar transações duplicadas (mesmo hash)
   const duplicatesQuery = useQuery({
-    queryKey: ["marketplace_duplicates", params.empresaId],
+    queryKey: ["marketplace_duplicates", params?.empresaId],
     queryFn: async () => {
       // Buscar todas as transações com hash
       let query = supabase
@@ -636,7 +636,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         .order("hash_duplicidade")
         .order("criado_em", { ascending: true });
 
-      if (params.empresaId) {
+      if (params?.empresaId) {
         query = query.eq("empresa_id", params.empresaId);
       }
 
