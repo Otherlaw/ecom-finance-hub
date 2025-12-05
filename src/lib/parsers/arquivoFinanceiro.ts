@@ -89,23 +89,24 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
     return -1;
   };
 
-  // Índices das colunas obrigatórias do relatório ML (busca flexível)
+  // Índices das colunas do relatório ML (busca flexível com múltiplas variações)
   const col = {
-    dataTarifa: findColumnIndex(["data da tarifa", "data tarifa", "fecha"]),
-    tipoTarifa: findColumnIndex(["tipo de tarifa", "tipo tarifa", "type"]),
-    numeroVenda: findColumnIndex(["número da venda", "numero da venda", "order", "pedido"]),
-    canalVendas: findColumnIndex(["canal de vendas", "canal vendas", "channel"]),
-    valorTransacao: findColumnIndex(["valor da transação", "valor transação", "valor transacao", "gross"]),
-    valorLiquido: findColumnIndex(["valor líquido", "valor liquido", "net", "total"]),
+    dataTarifa: findColumnIndex(["data da tarifa", "data tarifa", "fecha", "data"]),
+    tipoTarifa: findColumnIndex(["tipo de tarifa", "tipo tarifa", "detalhe", "descrição", "descricao", "type"]),
+    numeroVenda: findColumnIndex(["número da venda", "numero da venda", "order", "pedido", "n° pedido"]),
+    canalVendas: findColumnIndex(["canal de vendas", "canal vendas", "channel", "marketplace"]),
+    valorTransacao: findColumnIndex(["valor da transação", "valor transação", "valor transacao", "valor bruto", "gross"]),
+    valorLiquido: findColumnIndex(["valor líquido", "valor liquido", "subtotal", "net", "total", "valor da tarifa"]),
   };
 
   // Log para debug
-  console.log("Colunas detectadas ML:", col, "Headers:", header.slice(0, 10));
+  console.log("Colunas detectadas ML:", col, "Headers:", header.slice(0, 15));
 
-  if (col.dataTarifa === -1 || col.tipoTarifa === -1 || col.valorLiquido === -1) {
+  // Apenas data e valor são realmente obrigatórios
+  if (col.dataTarifa === -1 || col.valorLiquido === -1) {
     throw new Error(
-      `Formato inesperado do relatório ML. Colunas encontradas: data=${col.dataTarifa}, tipo=${col.tipoTarifa}, liquido=${col.valorLiquido}. ` +
-      `Headers: ${header.slice(0, 8).join(", ")}`
+      `Formato inesperado do relatório ML. Colunas encontradas: data=${col.dataTarifa}, liquido=${col.valorLiquido}. ` +
+      `Headers: ${header.slice(0, 10).join(", ")}`
     );
   }
 
@@ -139,15 +140,23 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
     .map(r => {
       const bruto = parseNumber(r[col.valorTransacao]);
       const liquido = parseNumber(r[col.valorLiquido]);
+      
+      // Descrição: usa tipoTarifa se disponível, senão tenta outras colunas
+      let descricao = "Transação ML";
+      if (col.tipoTarifa >= 0 && r[col.tipoTarifa]) {
+        descricao = String(r[col.tipoTarifa]).trim();
+      } else if (col.valorTransacao >= 0 && r[col.valorTransacao]) {
+        descricao = `Tarifa: R$ ${bruto.toFixed(2)}`;
+      }
 
       return {
         origem: "marketplace" as const,
         canal: "mercado_livre" as const,
         data_transacao: normalizeDate(r[col.dataTarifa]),
-        descricao: String(r[col.tipoTarifa] || "").trim(),
-        pedido_id: r[col.numeroVenda]?.toString().trim() || null,
-        canal_venda: r[col.canalVendas]?.toString().trim() || null,
-        valor_bruto: bruto,
+        descricao,
+        pedido_id: col.numeroVenda >= 0 ? r[col.numeroVenda]?.toString().trim() || null : null,
+        canal_venda: col.canalVendas >= 0 ? r[col.canalVendas]?.toString().trim() || null : null,
+        valor_bruto: bruto || liquido,
         valor_liquido: liquido || bruto,
       };
     })
