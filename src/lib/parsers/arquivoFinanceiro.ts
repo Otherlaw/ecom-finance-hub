@@ -112,7 +112,7 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
     return new Date().toISOString().split("T")[0];
   };
 
-  // Mapear linhas para objetos estruturados
+  // Mapear linhas para objetos estruturados prontos para importação
   const transacoes = dataRows
     .filter(r => r && r[col.dataTarifa]) // ignora rodapés/linhas vazias
     .map(r => {
@@ -120,15 +120,17 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
       const liquido = parseNumber(r[col.valorLiquido]);
 
       return {
-        "Data da tarifa": normalizeDate(r[col.dataTarifa]),
-        "Tipo de tarifa": String(r[col.tipoTarifa] || "").trim(),
-        "Número da venda": r[col.numeroVenda]?.toString().trim() || null,
-        "Canal de vendas": r[col.canalVendas]?.toString().trim() || null,
-        "Valor da transação": bruto,
-        "Valor líquido da transação": liquido || bruto,
+        origem: "marketplace" as const,
+        canal: "mercado_livre" as const,
+        data_transacao: normalizeDate(r[col.dataTarifa]),
+        descricao: String(r[col.tipoTarifa] || "").trim(),
+        pedido_id: r[col.numeroVenda]?.toString().trim() || null,
+        canal_venda: r[col.canalVendas]?.toString().trim() || null,
+        valor_bruto: bruto,
+        valor_liquido: liquido || bruto,
       };
     })
-    .filter(t => !isNaN(t["Valor líquido da transação"]) && t["Valor líquido da transação"] !== 0);
+    .filter(t => !isNaN(t.valor_liquido) && t.valor_liquido !== 0);
 
   return transacoes;
 }
