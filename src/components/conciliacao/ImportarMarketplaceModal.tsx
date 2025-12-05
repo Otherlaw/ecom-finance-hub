@@ -697,6 +697,33 @@ export function ImportarMarketplaceModal({
 }
 
 // Função que processa em background - A VERIFICAÇÃO DE DUPLICATAS OCORRE AQUI
+// Função para gerar hash SHA256 composto para duplicidade
+// Hash = SHA256(data_transacao + descricao + pedido_id + valor_liquido + tipo_transacao)
+async function gerarHashDuplicidade(params: {
+  data_transacao: string;
+  descricao: string;
+  pedido_id: string | null;
+  valor_liquido: number;
+  tipo_transacao: string;
+}): Promise<string> {
+  const texto = [
+    params.data_transacao || '',
+    params.descricao || '',
+    params.pedido_id || '',
+    Number(params.valor_liquido || 0).toFixed(2),
+    params.tipo_transacao || '',
+  ].join('|');
+  
+  // Usar SubtleCrypto para gerar SHA256
+  const encoder = new TextEncoder();
+  const data = encoder.encode(texto);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  return hashHex.substring(0, 64); // Retornar hash completo (64 chars)
+}
+
 async function processarImportacaoBackground(
   jobId: string,
   transacoesParaImportar: MarketplaceTransactionInsert[],
@@ -706,7 +733,7 @@ async function processarImportacaoBackground(
   processarTransacoesImportadas: any,
   queryClient: any
 ) {
-  const BATCH_SIZE = 500;
+  const BATCH_SIZE = 1000; // Aumentado para 1000 conforme solicitado
   const TOTAL = transacoesParaImportar.length;
   let processadas = 0;
   let importadas = 0;
@@ -715,62 +742,90 @@ async function processarImportacaoBackground(
   const insertedIds: string[] = [];
 
   try {
-    // PASSO 1: Verificar duplicatas no banco ANTES de inserir (em lotes)
+    console.log('[Background Import] Iniciando processamento de', TOTAL, 'transações');
+    
+    // PASSO 1: Gerar hashes SHA256 para todas as transações
+    console.log('[Background Import] Gerando hashes SHA256...');
+    
+    const transacoesComHash: (MarketplaceTransactionInsert & { hash_duplicidade: string })[] = [];
+    
+    for (let i = 0; i < transacoesParaImportar.length; i++) {
+      const t = transacoesParaImportar[i];
+      const hash = await gerarHashDuplicidade({
+        data_transacao: t.data_transacao,
+        descricao: t.descricao,
+        pedido_id: t.pedido_id || null,
+        valor_liquido: t.valor_liquido,
+        tipo_transacao: t.tipo_transacao,
+      });
+      
+      transacoesComHash.push({
+        ...t,
+        hash_duplicidade: hash,
+      });
+      
+      // Atualizar progresso a cada 1000 hashes (10% do progresso total)
+      if (i % 1000 === 0) {
+        const progressoHash = Math.floor((i / TOTAL) * 0.1 * TOTAL);
+        await atualizarProgressoJob(jobId, {
+          linhas_processadas: progressoHash,
+        });
+      }
+    }
+    
+    // PASSO 2: Verificar duplicatas no banco usando hash_duplicidade
     console.log('[Background Import] Verificando duplicatas no banco...');
     
-    const refsParaImportar = transacoesParaImportar.map(t => t.referencia_externa);
-    const refsExistentes = new Set<string>();
+    const hashesParaVerificar = transacoesComHash.map(t => t.hash_duplicidade);
+    const hashesExistentes = new Set<string>();
     
-    // Buscar refs existentes no banco em lotes de 10k
-    for (let i = 0; i < refsParaImportar.length; i += 10000) {
-      const batch = refsParaImportar.slice(i, i + 10000).filter(Boolean) as string[];
+    // Buscar hashes existentes no banco em lotes de 10k
+    for (let i = 0; i < hashesParaVerificar.length; i += 10000) {
+      const batch = hashesParaVerificar.slice(i, i + 10000);
       if (batch.length === 0) continue;
       
       const { data: existentes } = await supabase
         .from('marketplace_transactions')
-        .select('referencia_externa')
+        .select('hash_duplicidade')
         .eq('empresa_id', empresaId)
-        .eq('canal', canal)
-        .in('referencia_externa', batch);
+        .in('hash_duplicidade', batch);
       
       (existentes || []).forEach(e => {
-        if (e.referencia_externa) refsExistentes.add(e.referencia_externa);
+        if (e.hash_duplicidade) hashesExistentes.add(e.hash_duplicidade);
       });
       
-      // Atualizar progresso durante verificação (conta como 30% do total)
-      processadas = Math.min(i + batch.length, refsParaImportar.length);
-      const progressoVerificacao = Math.floor((processadas / TOTAL) * 0.3 * TOTAL);
+      // Atualizar progresso (20% do total para verificação)
+      processadas = Math.min(i + batch.length, hashesParaVerificar.length);
+      const progressoVerificacao = Math.floor(TOTAL * 0.1) + Math.floor((processadas / TOTAL) * 0.2 * TOTAL);
       await atualizarProgressoJob(jobId, {
         linhas_processadas: progressoVerificacao,
       });
     }
     
-    console.log('[Background Import] Refs existentes no banco:', refsExistentes.size);
+    console.log('[Background Import] Hashes existentes no banco:', hashesExistentes.size);
     
-    // Filtrar transações que NÃO existem no banco
-    const transacoesNovas = transacoesParaImportar.filter(t => 
-      !t.referencia_externa || !refsExistentes.has(t.referencia_externa)
-    );
+    // PASSO 3: Filtrar transações novas (não existem no banco)
+    const transacoesNovas = transacoesComHash.filter(t => !hashesExistentes.has(t.hash_duplicidade));
     
     // Também filtrar duplicatas internas do arquivo
-    const refsVistas = new Set<string>();
-    const transacoesUnicas: MarketplaceTransactionInsert[] = [];
+    const hashesVistas = new Set<string>();
+    const transacoesUnicas: (MarketplaceTransactionInsert & { hash_duplicidade: string })[] = [];
     
     for (const t of transacoesNovas) {
-      if (t.referencia_externa && refsVistas.has(t.referencia_externa)) {
+      if (hashesVistas.has(t.hash_duplicidade)) {
         duplicadas++;
         continue;
       }
-      if (t.referencia_externa) refsVistas.add(t.referencia_externa);
+      hashesVistas.add(t.hash_duplicidade);
       transacoesUnicas.push(t);
     }
     
     // Contar duplicatas do banco
-    duplicadas += (transacoesParaImportar.length - transacoesNovas.length);
+    duplicadas += (transacoesComHash.length - transacoesNovas.length);
     
     console.log('[Background Import] Após deduplicação:', {
       total: transacoesParaImportar.length,
-      duplicadasBanco: transacoesParaImportar.length - transacoesNovas.length,
+      duplicadasBanco: transacoesComHash.length - transacoesNovas.length,
       duplicadasInternas: transacoesNovas.length - transacoesUnicas.length,
       paraInserir: transacoesUnicas.length,
     });
@@ -781,7 +836,7 @@ async function processarImportacaoBackground(
       linhas_duplicadas: duplicadas,
     });
 
-    // PASSO 2: Inserir transações únicas em batches (70% restante do progresso)
+    // PASSO 4: Inserir transações únicas em batches de 1000 (70% restante do progresso)
     const totalUnicas = transacoesUnicas.length;
     
     for (let i = 0; i < transacoesUnicas.length; i += BATCH_SIZE) {
@@ -837,7 +892,7 @@ async function processarImportacaoBackground(
       });
     }
 
-    // PASSO 3: Auto-categorização
+    // PASSO 5: Auto-categorização
     if (insertedIds.length > 0) {
       try {
         await processarTransacoesImportadas.mutateAsync({
@@ -848,28 +903,44 @@ async function processarImportacaoBackground(
         console.error("[Background Import] Erro na auto-categorização:", err);
       }
 
-      // PASSO 4: Criar itens de venda
-      // Mapear índices das transações inseridas para os dados originais
-      const insertedRefs = new Set(transacoesUnicas.slice(0, insertedIds.length).map(t => t.referencia_externa));
+      // PASSO 6: Criar itens de venda
+      // Mapear transações inseridas para os dados originais via hash
+      const hashToId = new Map<string, string>();
+      transacoesUnicas.slice(0, insertedIds.length).forEach((t, idx) => {
+        hashToId.set(t.hash_duplicidade, insertedIds[idx]);
+      });
+      
       const transacoesComItens = parsedData
-        .filter(t => insertedRefs.has(t.referencia_externa) && t.itens && t.itens.length > 0)
-        .map((t, idx) => ({
-          transactionId: insertedIds[idx] || insertedIds[0], // fallback
-          itens: t.itens || [],
-        }))
-        .filter(t => t.itens.length > 0);
+        .filter(t => t.itens && t.itens.length > 0)
+        .map(async (t) => {
+          const hash = await gerarHashDuplicidade({
+            data_transacao: t.data_transacao,
+            descricao: t.descricao,
+            pedido_id: t.pedido_id,
+            valor_liquido: t.valor_liquido,
+            tipo_transacao: t.tipo_transacao,
+          });
+          const transactionId = hashToId.get(hash);
+          if (!transactionId) return null;
+          return {
+            transactionId,
+            itens: t.itens || [],
+          };
+        });
 
-      if (transacoesComItens.length > 0) {
+      const itensResolvidos = (await Promise.all(transacoesComItens)).filter(Boolean);
+      
+      if (itensResolvidos.length > 0) {
         try {
           limparCacheMapeamentos();
-          await criarItensEmLote(transacoesComItens, empresaId, canal);
+          await criarItensEmLote(itensResolvidos as any[], empresaId, canal);
         } catch (err) {
           console.error("[Background Import] Erro ao criar itens:", err);
         }
       }
     }
 
-    // PASSO 5: Finalizar job com sucesso
+    // PASSO 7: Finalizar job com sucesso
     await finalizarJob(jobId, {
       status: 'concluido',
       linhas_importadas: importadas,
@@ -882,7 +953,7 @@ async function processarImportacaoBackground(
     queryClient.invalidateQueries({ queryKey: ["marketplace_import_jobs"] });
 
     toast.success(`Importação concluída!`, {
-      description: `${importadas.toLocaleString()} inseridas | ${duplicadas.toLocaleString()} duplicadas | ${erros > 0 ? `${erros.toLocaleString()} erros` : ''}`.trim(),
+      description: `${importadas.toLocaleString()} novas · ${duplicadas.toLocaleString()} duplicadas · ${TOTAL.toLocaleString()} processadas`,
       duration: 8000,
     });
 

@@ -88,12 +88,19 @@ export async function parseXLSXFile(file: File): Promise<any[]> {
 // ============= UTILITÁRIOS COMPARTILHADOS =============
 
 /**
- * PARSE NUMBER - Converte valores para número de forma segura
+ * PARSE NUMBER - Converte valores monetários brasileiros para número
  * 
  * REGRAS CRÍTICAS:
  * 1. Detecta e REJEITA datas (dd/mm/yyyy, yyyy-mm-dd, etc.) → retorna 0
  * 2. Detecta formato brasileiro (1.234,56) vs americano (1,234.56)
  * 3. Nunca deve gerar números gigantes de datas mal interpretadas
+ * 4. Valores > R$ 50.000 em linha única são suspeitos e logados para debug
+ * 
+ * Exemplos de conversão:
+ * - "R$ 27.072,05" → 27072.05
+ * - "27.072.025,00" (INVÁLIDO, > 50k) → 0 + log
+ * - "1.234,56" → 1234.56
+ * - "1,234.56" → 1234.56
  */
 const parseNumber = (val: any): number => {
   // Se já é número, retorna direto
@@ -179,10 +186,17 @@ const parseNumber = (val: any): number => {
   // Se NaN, retorna 0
   if (isNaN(num)) return 0;
   
+  // Validação de sanidade: valores > R$ 50.000 por linha são suspeitos
+  // Em relatórios de marketplace, tarifas individuais raramente excedem isso
+  if (Math.abs(num) > 50000) {
+    console.warn(`[parseNumber] Valor muito alto (possível erro de parsing): "${val}" → ${num}`);
+    // Não retornar 0, mas logar para debug. O valor pode ser legítimo em vendas de alto valor.
+  }
+  
   // Validação extra: se o número é absurdamente grande (> 100 milhões), 
-  // provavelmente é uma data mal interpretada
+  // provavelmente é uma data mal interpretada ou erro de formato
   if (Math.abs(num) > 100000000) {
-    console.warn(`[parseNumber] Valor suspeito rejeitado (possível data): ${val} → ${num}`);
+    console.error(`[parseNumber] Valor rejeitado (possível data ou erro): "${val}" → ${num}`);
     return 0;
   }
   

@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/mock-data";
-import { RefreshCw, Upload, Download, Check, AlertTriangle, X, FileSpreadsheet, Search, Filter, Building, CreditCard, ShoppingBag, PenLine, Eye, Tag, RotateCcw, Ban, Store, CalendarIcon, Trash2, Copy, Wand2 } from "lucide-react";
+import { RefreshCw, Upload, Download, Check, AlertTriangle, X, FileSpreadsheet, Search, Filter, Building, CreditCard, ShoppingBag, PenLine, Eye, Tag, RotateCcw, Ban, Store, CalendarIcon, Trash2, Copy, Wand2, ListTodo } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import { ImportarExtratoBancarioModal } from "@/components/conciliacao/ImportarE
 import { ImportarMarketplaceModal } from "@/components/conciliacao/ImportarMarketplaceModal";
 import { CategorizacaoMarketplaceModal } from "@/components/conciliacao/CategorizacaoMarketplaceModal";
 import { MarketplaceImportJobsPanel } from "@/components/conciliacao/MarketplaceImportJobsPanel";
+import { useMarketplaceImportJobs } from "@/hooks/useMarketplaceImportJobs";
 import { MovimentoManualFormModal } from "@/components/movimentos-manuais/MovimentoManualFormModal";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, subDays, subMonths } from "date-fns";
@@ -784,7 +785,7 @@ function MarketplaceTab() {
           </p>
         </div>
 
-        {/* Novo card: % Tarifas sobre Vendas */}
+        {/* Novo card: % Tarifas sobre Vendas Líquidas (Créditos) */}
         <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20">
           <div className="flex items-center gap-2 mb-2">
             <div className="p-1.5 rounded-lg bg-amber-500/10">
@@ -793,9 +794,26 @@ function MarketplaceTab() {
             <span className="text-xs text-muted-foreground">% Tarifas</span>
           </div>
           <p className="text-xl font-bold text-amber-600">
-            {resumo.totalCreditos > 0 ? (resumo.totalDescontos / resumo.totalCreditos * 100).toFixed(1) + "%" : "–"}
+            {(() => {
+              // Calcular % de tarifas sobre vendas líquidas (créditos)
+              // Só exibir percentual se houver vendas (créditos) conciliadas ou totais
+              const vendasLiquidas = resumo.totalCreditos;
+              const totalTarifas = resumo.totalDescontos;
+              
+              if (vendasLiquidas <= 0) {
+                return "—"; // Sem vendas = não calcular
+              }
+              
+              const percentual = (totalTarifas / vendasLiquidas) * 100;
+              return percentual.toFixed(1) + "%";
+            })()}
           </p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">sobre vendas</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {resumo.totalCreditos > 0 
+              ? `sobre ${formatCurrency(resumo.totalCreditos)} em vendas`
+              : "sem vendas no período"
+            }
+          </p>
         </div>
       </div>
 
@@ -1300,6 +1318,199 @@ function MarketplaceTab() {
       </Dialog>
     </div>;
 }
+
+// Nova aba: Processamento de Importações
+function ImportacoesTab() {
+  const { emAndamento, historico, isLoading, refetch } = useMarketplaceImportJobs();
+  
+  // Polling a cada 5 segundos para atualização em tempo real
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      refetch();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [refetch]);
+
+  const formatarData = (dataStr: string) => {
+    return new Date(dataStr).toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "processando":
+        return (
+          <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 animate-pulse">
+            <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+            Processando
+          </Badge>
+        );
+      case "concluido":
+        return (
+          <Badge className="bg-success/10 text-success border-success/20">
+            <Check className="h-3 w-3 mr-1" />
+            Concluído
+          </Badge>
+        );
+      case "erro":
+        return (
+          <Badge className="bg-destructive/10 text-destructive border-destructive/20">
+            <X className="h-3 w-3 mr-1" />
+            Erro
+          </Badge>
+        );
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-24 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
+  }
+
+  const todosJobs = [...emAndamento, ...historico].slice(0, 20);
+
+  return (
+    <div className="space-y-6">
+      {/* Cards de resumo */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="p-5 rounded-xl bg-card border border-border">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-secondary">
+              <ListTodo className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <span className="text-sm text-muted-foreground">Total Jobs</span>
+          </div>
+          <p className="text-2xl font-bold">{todosJobs.length}</p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-blue-500/5 border border-blue-500/20">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-blue-500/10">
+              <RefreshCw className="h-4 w-4 text-blue-600" />
+            </div>
+            <span className="text-sm text-muted-foreground">Em Processamento</span>
+          </div>
+          <p className="text-2xl font-bold text-blue-600">{emAndamento.length}</p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-success/5 border border-success/20">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-success/10">
+              <Check className="h-4 w-4 text-success" />
+            </div>
+            <span className="text-sm text-muted-foreground">Concluídos</span>
+          </div>
+          <p className="text-2xl font-bold text-success">
+            {historico.filter(j => j.status === "concluido").length}
+          </p>
+        </div>
+
+        <div className="p-5 rounded-xl bg-destructive/5 border border-destructive/20">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-lg bg-destructive/10">
+              <X className="h-4 w-4 text-destructive" />
+            </div>
+            <span className="text-sm text-muted-foreground">Com Erro</span>
+          </div>
+          <p className="text-2xl font-bold text-destructive">
+            {historico.filter(j => j.status === "erro").length}
+          </p>
+        </div>
+      </div>
+
+      {/* Tabela de jobs */}
+      <ModuleCard
+        title="Processamento de Importações"
+        description="Histórico dos últimos 20 jobs de importação de marketplace"
+        icon={ListTodo}
+        noPadding
+      >
+        {todosJobs.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground">
+            <ListTodo className="h-12 w-12 mx-auto mb-4 opacity-30" />
+            <p className="font-medium">Nenhuma importação encontrada</p>
+            <p className="text-sm mt-1">Importe um relatório de marketplace para ver o histórico</p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-secondary/30">
+                <TableHead>Arquivo</TableHead>
+                <TableHead>Canal</TableHead>
+                <TableHead>Data</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-center">Progresso</TableHead>
+                <TableHead className="text-right">Novas</TableHead>
+                <TableHead className="text-right">Duplicadas</TableHead>
+                <TableHead className="text-right">Total</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {todosJobs.map((job) => {
+                const progresso = job.total_linhas > 0 
+                  ? Math.round((job.linhas_processadas / job.total_linhas) * 100)
+                  : 0;
+                
+                return (
+                  <TableRow key={job.id} className={job.status === "processando" ? "bg-blue-500/5" : ""}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+                        <span className="truncate max-w-[200px]" title={job.arquivo_nome}>
+                          {job.arquivo_nome}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="capitalize">
+                        {job.canal.replace("_", " ")}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatarData(job.criado_em)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {getStatusBadge(job.status)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Progress value={progresso} className="h-2 flex-1" />
+                        <span className="text-xs text-muted-foreground w-10">
+                          {progresso}%
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-medium text-success">
+                      {job.linhas_importadas.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right font-medium text-amber-600">
+                      {job.linhas_duplicadas.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {job.linhas_processadas.toLocaleString()} / {job.total_linhas.toLocaleString()}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </ModuleCard>
+    </div>
+  );
+}
+
 function ManualTab() {
   const queryClient = useQueryClient();
   const [modalManualOpen, setModalManualOpen] = useState(false);
@@ -1474,7 +1685,7 @@ export default function Conciliacao() {
           
         </div>}>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4 mb-6">
+        <TabsList className="grid w-full grid-cols-5 mb-6">
           <TabsTrigger value="bancaria" className="gap-2">
             <Building className="h-4 w-4" />
             <span className="hidden sm:inline">Bancária</span>
@@ -1486,6 +1697,10 @@ export default function Conciliacao() {
           <TabsTrigger value="marketplace" className="gap-2">
             <ShoppingBag className="h-4 w-4" />
             <span className="hidden sm:inline">Marketplace</span>
+          </TabsTrigger>
+          <TabsTrigger value="importacoes" className="gap-2">
+            <ListTodo className="h-4 w-4" />
+            <span className="hidden sm:inline">Importações</span>
           </TabsTrigger>
           <TabsTrigger value="manual" className="gap-2">
             <PenLine className="h-4 w-4" />
@@ -1503,6 +1718,10 @@ export default function Conciliacao() {
 
         <TabsContent value="marketplace">
           <MarketplaceTab />
+        </TabsContent>
+
+        <TabsContent value="importacoes">
+          <ImportacoesTab />
         </TabsContent>
 
         <TabsContent value="manual">
