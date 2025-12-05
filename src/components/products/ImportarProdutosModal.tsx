@@ -23,13 +23,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Upload, Download, FileSpreadsheet, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Upload, Download, FileSpreadsheet, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useProdutos } from "@/hooks/useProdutos";
 import { importarMapeamentosEmLote } from "@/hooks/useProdutoSkuMap";
+import { 
+  criarJobImportacaoProduto, 
+  atualizarProgressoJobProduto, 
+  finalizarJobProduto 
+} from "@/hooks/useProdutoImportJobs";
 import { toast } from "sonner";
 import {
   processarArquivoProdutos,
@@ -75,26 +80,19 @@ export function ImportarProdutosModal({
 }: ImportarProdutosModalProps) {
   const { empresas = [] } = useEmpresas();
   const [empresaId, setEmpresaId] = useState<string>("");
-  const { produtos = [], criarProduto, atualizarProduto } = useProdutos({ empresaId });
+  const { produtos = [], criarProduto, atualizarProduto, refetch } = useProdutos({ empresaId });
 
-  const [step, setStep] = useState<"upload" | "preview" | "result">("upload");
+  const [step, setStep] = useState<"upload" | "preview">("upload");
   const [fileName, setFileName] = useState<string>("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ 
-    criados: number; 
-    atualizados: number; 
-    erros: number;
-    mapeamentos: number;
-  } | null>(null);
 
   const resetForm = useCallback(() => {
     setStep("upload");
     setFileName("");
     setPreview(null);
     setError(null);
-    setResult(null);
     setIsProcessing(false);
   }, []);
 
@@ -130,7 +128,6 @@ export function ImportarProdutosModal({
     try {
       const { headers, rows } = await processarArquivoProdutos(file);
       
-      // Mapear produtos existentes
       const produtosExistentes = produtos.map(p => ({
         codigo_interno: p.codigo_interno,
         id: p.id,
@@ -154,14 +151,43 @@ export function ImportarProdutosModal({
     }
   };
 
-  const handleImportar = async () => {
+  // Importação em segundo plano
+  const handleImportarBackground = async () => {
     if (!preview || !empresaId) return;
 
-    setIsProcessing(true);
+    const totalLinhas = preview.linhas.length;
+    
+    // Criar job de importação
+    let jobId: string;
+    try {
+      jobId = await criarJobImportacaoProduto({
+        empresa_id: empresaId,
+        arquivo_nome: fileName,
+        total_linhas: totalLinhas,
+      });
+    } catch (err) {
+      toast.error("Erro ao iniciar importação");
+      return;
+    }
+
+    // Fechar modal imediatamente
+    toast.success(`Importação de ${totalLinhas} produtos iniciada em segundo plano`);
+    handleClose();
+
+    // Processar em segundo plano
+    processarImportacaoBackground(jobId, preview, empresaId);
+  };
+
+  const processarImportacaoBackground = async (
+    jobId: string, 
+    previewData: ImportPreview, 
+    empresaIdParam: string
+  ) => {
     let criados = 0;
     let atualizados = 0;
     let erros = 0;
     let mapeamentosCount = 0;
+    let processados = 0;
 
     const produtosMap = new Map(produtos.map(p => [p.codigo_interno.toLowerCase(), p]));
     const mapeamentosParaImportar: Array<{
@@ -174,77 +200,122 @@ export function ImportarProdutosModal({
       variante_nome?: string;
     }> = [];
 
-    for (const linha of preview.linhas) {
-      try {
-        const existente = produtosMap.get(linha.sku_interno.toLowerCase());
+    const BATCH_SIZE = 50;
+    const UPDATE_INTERVAL = 10; // Atualizar progresso a cada 10 itens
 
-        if (existente) {
-          // Atualizar
-          await atualizarProduto.mutateAsync({
-            id: existente.id,
-            nome: linha.nome || linha.sku_interno,
-            descricao: linha.descricao,
-            categoria: linha.categoria,
-            custo_medio_atual: linha.preco_custo || 0,
-            preco_venda_sugerido: linha.preco_venda || 0,
-            unidade_medida: linha.unidade || 'un',
-            ncm: linha.ncm,
-            status: linha.ativo !== false ? 'ativo' : 'inativo',
-          });
-          atualizados++;
-        } else {
-          // Criar
-          await criarProduto.mutateAsync({
-            empresa_id: empresaId,
-            codigo_interno: linha.sku_interno,
-            nome: linha.nome || linha.sku_interno,
-            descricao: linha.descricao,
-            categoria: linha.categoria,
-            custo_medio_atual: linha.preco_custo || 0,
-            preco_venda_sugerido: linha.preco_venda || 0,
-            unidade_medida: linha.unidade || 'un',
-            ncm: linha.ncm,
-            status: linha.ativo !== false ? 'ativo' : 'inativo',
-          });
-          criados++;
-        }
+    try {
+      for (let i = 0; i < previewData.linhas.length; i++) {
+        const linha = previewData.linhas[i];
+        
+        try {
+          const existente = produtosMap.get(linha.sku_interno.toLowerCase());
 
-        // Coletar mapeamentos se tiver dados de marketplace
-        if (linha.anuncio_id || linha.nome_loja) {
-          const canal = detectarCanal(linha.nome_loja);
-          if (canal) {
-            mapeamentosParaImportar.push({
-              empresa_id: empresaId,
-              sku_interno: linha.sku_interno,
-              canal,
-              loja: linha.nome_loja,
-              anuncio_id: linha.anuncio_id,
-              variante_id: linha.variante_id,
-              variante_nome: linha.variante,
+          if (existente) {
+            await atualizarProduto.mutateAsync({
+              id: existente.id,
+              nome: linha.nome || linha.sku_interno,
+              descricao: linha.descricao,
+              categoria: linha.categoria,
+              custo_medio_atual: linha.preco_custo || 0,
+              preco_venda_sugerido: linha.preco_venda || 0,
+              unidade_medida: linha.unidade || 'un',
+              ncm: linha.ncm,
+              status: linha.ativo !== false ? 'ativo' : 'inativo',
             });
+            atualizados++;
+          } else {
+            await criarProduto.mutateAsync({
+              empresa_id: empresaIdParam,
+              codigo_interno: linha.sku_interno,
+              nome: linha.nome || linha.sku_interno,
+              descricao: linha.descricao,
+              categoria: linha.categoria,
+              custo_medio_atual: linha.preco_custo || 0,
+              preco_venda_sugerido: linha.preco_venda || 0,
+              unidade_medida: linha.unidade || 'un',
+              ncm: linha.ncm,
+              status: linha.ativo !== false ? 'ativo' : 'inativo',
+            });
+            criados++;
           }
+
+          // Coletar mapeamentos se tiver dados de marketplace
+          if (linha.anuncio_id || linha.nome_loja) {
+            const canal = detectarCanal(linha.nome_loja);
+            if (canal) {
+              mapeamentosParaImportar.push({
+                empresa_id: empresaIdParam,
+                sku_interno: linha.sku_interno,
+                canal,
+                loja: linha.nome_loja,
+                anuncio_id: linha.anuncio_id,
+                variante_id: linha.variante_id,
+                variante_nome: linha.variante,
+              });
+            }
+          }
+        } catch (err) {
+          console.error("Erro ao importar produto:", linha.sku_interno, err);
+          erros++;
         }
-      } catch (err) {
-        console.error("Erro ao importar produto:", linha.sku_interno, err);
-        erros++;
+
+        processados++;
+
+        // Atualizar progresso periodicamente
+        if (processados % UPDATE_INTERVAL === 0 || processados === previewData.linhas.length) {
+          await atualizarProgressoJobProduto(jobId, {
+            linhas_processadas: processados,
+            linhas_importadas: criados,
+            linhas_atualizadas: atualizados,
+            linhas_com_erro: erros,
+          });
+        }
+
+        // Pequena pausa a cada batch para não sobrecarregar
+        if (processados % BATCH_SIZE === 0) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
-    }
 
-    // Importar mapeamentos em lote
-    if (mapeamentosParaImportar.length > 0) {
-      try {
-        await importarMapeamentosEmLote(mapeamentosParaImportar);
-        mapeamentosCount = mapeamentosParaImportar.length;
-      } catch (err) {
-        console.error("Erro ao importar mapeamentos:", err);
+      // Importar mapeamentos em lote
+      if (mapeamentosParaImportar.length > 0) {
+        try {
+          await importarMapeamentosEmLote(mapeamentosParaImportar);
+          mapeamentosCount = mapeamentosParaImportar.length;
+        } catch (err) {
+          console.error("Erro ao importar mapeamentos:", err);
+        }
       }
+
+      // Finalizar job com sucesso
+      await finalizarJobProduto(jobId, {
+        status: 'concluido',
+        linhas_importadas: criados,
+        linhas_atualizadas: atualizados,
+        linhas_com_erro: erros,
+        mapeamentos_criados: mapeamentosCount,
+      });
+
+      // Refetch produtos
+      refetch();
+
+      if (onSuccess) onSuccess();
+
+      toast.success(`Importação concluída: ${criados} novos, ${atualizados} atualizados`);
+    } catch (err: any) {
+      console.error("Erro durante importação:", err);
+      
+      await finalizarJobProduto(jobId, {
+        status: 'erro',
+        linhas_importadas: criados,
+        linhas_atualizadas: atualizados,
+        linhas_com_erro: erros,
+        mapeamentos_criados: mapeamentosCount,
+        mensagem_erro: err.message || 'Erro desconhecido durante importação',
+      });
+
+      toast.error("Erro durante a importação");
     }
-
-    setResult({ criados, atualizados, erros, mapeamentos: mapeamentosCount });
-    setStep("result");
-    setIsProcessing(false);
-
-    if (onSuccess) onSuccess();
   };
 
   // Contar quantos têm mapeamento
@@ -395,35 +466,12 @@ export function ImportarProdutosModal({
                 </AlertDescription>
               </Alert>
             )}
-          </div>
-        )}
 
-        {step === "result" && result && (
-          <div className="py-8 text-center space-y-4">
-            <CheckCircle2 className="h-16 w-16 mx-auto text-success" />
-            <h3 className="text-xl font-semibold">Importação Concluída</h3>
-            <div className="flex justify-center gap-6 flex-wrap">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-success">{result.criados}</div>
-                <div className="text-sm text-muted-foreground">Criados</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-primary">{result.atualizados}</div>
-                <div className="text-sm text-muted-foreground">Atualizados</div>
-              </div>
-              {result.mapeamentos > 0 && (
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-500">{result.mapeamentos}</div>
-                  <div className="text-sm text-muted-foreground">Mapeamentos</div>
-                </div>
-              )}
-              {result.erros > 0 && (
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-destructive">{result.erros}</div>
-                  <div className="text-sm text-muted-foreground">Erros</div>
-                </div>
-              )}
-            </div>
+            <Alert>
+              <AlertDescription>
+                A importação será processada em segundo plano. Você pode continuar navegando no sistema.
+              </AlertDescription>
+            </Alert>
           </div>
         )}
 
@@ -434,13 +482,10 @@ export function ImportarProdutosModal({
           {step === "preview" && (
             <>
               <Button variant="outline" onClick={resetForm}>Voltar</Button>
-              <Button onClick={handleImportar} disabled={isProcessing || preview?.linhas.length === 0}>
-                {isProcessing ? "Importando..." : `Importar ${preview?.linhas.length || 0} produtos`}
+              <Button onClick={handleImportarBackground} disabled={isProcessing || preview?.linhas.length === 0}>
+                Iniciar Importação ({preview?.linhas.length || 0} produtos)
               </Button>
             </>
-          )}
-          {step === "result" && (
-            <Button onClick={handleClose}>Fechar</Button>
           )}
         </DialogFooter>
       </DialogContent>
