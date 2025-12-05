@@ -1,6 +1,6 @@
 /**
  * Utilitários para importação e exportação de produtos
- * Baseado na estrutura exportada do Upseller
+ * Formato compatível com Upseller para facilitar migração
  */
 
 import * as XLSX from 'xlsx';
@@ -9,12 +9,17 @@ import * as XLSX from 'xlsx';
 
 export interface ProdutoImportRow {
   sku_interno: string;
-  sku_marketplace?: string;
-  nome: string;
+  mapeado_sku_anuncio?: string;
+  variante?: string;
+  anuncio_id?: string;
+  variante_id?: string;
+  nome_loja?: string;
+  // Campos adicionais para cadastro de produto
+  nome?: string;
   descricao?: string;
   categoria?: string;
-  preco_custo: number;
-  preco_venda: number;
+  preco_custo?: number;
+  preco_venda?: number;
   unidade?: string;
   ncm?: string;
   ativo?: boolean;
@@ -36,12 +41,18 @@ export interface ImportPreview {
   erros: { linha: number; motivo: string }[];
 }
 
-// ============= MAPEAMENTO DE COLUNAS =============
+// ============= MAPEAMENTO DE COLUNAS (FORMATO UPSELLER) =============
 
 // Aceita variações de nomes de colunas (baseado no Upseller)
 const COLUMN_MAPPINGS: Record<string, string[]> = {
-  sku_interno: ['sku_interno', 'sku', 'codigo', 'codigo_interno', 'cod', 'id_produto', 'product_id'],
-  sku_marketplace: ['sku_marketplace', 'mlb', 'sku_ml', 'sku_shopee', 'anuncio_id', 'marketplace_sku'],
+  // Formato Upseller
+  sku_interno: ['sku', 'sku_interno', 'codigo', 'codigo_interno', 'cod', 'id_produto', 'product_id'],
+  mapeado_sku_anuncio: ['mapeado', 'mapeado sku do anúncio', 'mapeado_sku_anuncio', 'sku_marketplace', 'mlb', 'sku_ml', 'sku_shopee'],
+  variante: ['variante', 'variacao', 'variation', 'variação'],
+  anuncio_id: ['id do anúncio', 'id_anuncio', 'anuncio_id', 'id anuncio', 'announcement_id'],
+  variante_id: ['id da variante', 'id_variante', 'variante_id', 'id variante', 'variation_id'],
+  nome_loja: ['nome da loja', 'nome_loja', 'loja', 'store', 'canal'],
+  // Campos adicionais para cadastro
   nome: ['nome', 'titulo', 'title', 'name', 'produto', 'descricao_produto'],
   descricao: ['descricao', 'description', 'desc', 'detalhes'],
   categoria: ['categoria', 'category', 'cat', 'grupo'],
@@ -49,7 +60,7 @@ const COLUMN_MAPPINGS: Record<string, string[]> = {
   preco_venda: ['preco_venda', 'preco', 'price', 'valor', 'valor_venda', 'preco_unitario'],
   unidade: ['unidade', 'un', 'unit', 'unidade_medida'],
   ncm: ['ncm', 'codigo_ncm', 'ncm_code'],
-  ativo: ['ativo', 'active', 'status', 'situacao'],
+  ativo: ['ativo', 'active', 'status', 'situacao', 'atualizado'],
 };
 
 function findColumn(headers: string[], fieldName: string): string | null {
@@ -74,6 +85,7 @@ function parseNumber(value: any): number {
   
   // Detectar formato de data e rejeitar
   if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(str)) return 0;
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return 0;
   
   // Limpar formatação brasileira
   const cleaned = str
@@ -91,6 +103,31 @@ function parseBoolean(value: any): boolean {
   
   const str = String(value).toLowerCase().trim();
   return !['nao', 'não', 'no', 'false', '0', 'inativo', 'inactive'].includes(str);
+}
+
+// ============= DETECTAR CANAL A PARTIR DO NOME DA LOJA =============
+
+function detectarCanal(nomeLoja: string | null | undefined): string {
+  if (!nomeLoja) return '';
+  const loja = nomeLoja.toLowerCase().trim();
+  
+  if (loja.startsWith('mercado') || loja.includes('meli') || loja.includes('mlb')) {
+    return 'mercado_livre';
+  }
+  if (loja.startsWith('shopee') || loja.includes('shopee')) {
+    return 'shopee';
+  }
+  if (loja.startsWith('shein') || loja.includes('shein')) {
+    return 'shein';
+  }
+  if (loja.startsWith('tiktok') || loja.includes('tiktok')) {
+    return 'tiktok';
+  }
+  if (loja.startsWith('amazon') || loja.includes('amazon')) {
+    return 'amazon';
+  }
+  
+  return '';
 }
 
 // ============= PARSE CSV =============
@@ -190,15 +227,22 @@ export async function processarArquivoProdutos(file: File): Promise<{ headers: s
   }
 }
 
-// ============= MAPEAR LINHAS PARA PRODUTOS =============
+// ============= MAPEAR LINHAS PARA PRODUTOS (FORMATO UPSELLER) =============
 
 export function mapearLinhasParaProdutos(
   headers: string[],
   rows: Record<string, any>[],
   produtosExistentes: { codigo_interno: string; id: string }[]
 ): ImportPreview {
+  // Colunas formato Upseller
   const skuCol = findColumn(headers, 'sku_interno');
-  const skuMktCol = findColumn(headers, 'sku_marketplace');
+  const mapeadoCol = findColumn(headers, 'mapeado_sku_anuncio');
+  const varianteCol = findColumn(headers, 'variante');
+  const anuncioIdCol = findColumn(headers, 'anuncio_id');
+  const varianteIdCol = findColumn(headers, 'variante_id');
+  const lojaCol = findColumn(headers, 'nome_loja');
+  
+  // Colunas adicionais para cadastro de produto
   const nomeCol = findColumn(headers, 'nome');
   const descCol = findColumn(headers, 'descricao');
   const catCol = findColumn(headers, 'categoria');
@@ -215,18 +259,7 @@ export function mapearLinhasParaProdutos(
       existentes: 0,
       invalidos: rows.length,
       linhas: [],
-      erros: [{ linha: 0, motivo: 'Coluna SKU/código interno não encontrada' }],
-    };
-  }
-
-  if (!nomeCol) {
-    return {
-      total: 0,
-      novos: 0,
-      existentes: 0,
-      invalidos: rows.length,
-      linhas: [],
-      erros: [{ linha: 0, motivo: 'Coluna nome/título não encontrada' }],
+      erros: [{ linha: 0, motivo: 'Coluna SKU não encontrada. Esperado: "SKU" ou "sku_interno"' }],
     };
   }
 
@@ -238,8 +271,7 @@ export function mapearLinhasParaProdutos(
   let invalidos = 0;
 
   rows.forEach((row, index) => {
-    const sku = String(row[skuCol] || '').trim();
-    const nome = String(row[nomeCol] || '').trim();
+    const sku = String(row[skuCol] || '').trim().toUpperCase();
 
     // Validações
     if (!sku) {
@@ -248,27 +280,28 @@ export function mapearLinhasParaProdutos(
       return;
     }
 
-    if (!nome) {
-      erros.push({ linha: index + 2, motivo: 'Nome vazio' });
-      invalidos++;
-      return;
-    }
+    // Valores formato Upseller
+    const mapeado = mapeadoCol ? String(row[mapeadoCol] || '').trim() : undefined;
+    const variante = varianteCol ? String(row[varianteCol] || '').trim() : undefined;
+    const anuncioId = anuncioIdCol ? String(row[anuncioIdCol] || '').trim() : undefined;
+    const varianteId = varianteIdCol ? String(row[varianteIdCol] || '').trim() : undefined;
+    const nomeLoja = lojaCol ? String(row[lojaCol] || '').trim() : undefined;
 
+    // Valores adicionais para cadastro
     const custoRaw = custoCol ? row[custoCol] : 0;
     const vendaRaw = vendaCol ? row[vendaCol] : 0;
     const preco_custo = parseNumber(custoRaw);
     const preco_venda = parseNumber(vendaRaw);
 
-    if (preco_custo < 0 || preco_venda < 0) {
-      erros.push({ linha: index + 2, motivo: 'Preço negativo' });
-      invalidos++;
-      return;
-    }
-
     const produto: ProdutoImportRow = {
       sku_interno: sku,
-      sku_marketplace: skuMktCol ? String(row[skuMktCol] || '').trim() || undefined : undefined,
-      nome,
+      mapeado_sku_anuncio: mapeado || undefined,
+      variante: variante && variante !== '-' ? variante : undefined,
+      anuncio_id: anuncioId || undefined,
+      variante_id: varianteId || undefined,
+      nome_loja: nomeLoja || undefined,
+      // Campos de cadastro (usa SKU como nome se não tiver coluna nome)
+      nome: nomeCol ? String(row[nomeCol] || sku).trim() : sku,
       descricao: descCol ? String(row[descCol] || '').trim() || undefined : undefined,
       categoria: catCol ? String(row[catCol] || '').trim() || undefined : undefined,
       preco_custo,
@@ -297,32 +330,54 @@ export function mapearLinhasParaProdutos(
   };
 }
 
-// ============= GERAR PLANILHA MODELO =============
+// ============= GERAR PLANILHA MODELO (FORMATO UPSELLER) =============
 
 export function gerarPlanilhaModelo(formato: 'csv' | 'xlsx'): Blob {
+  // Headers no formato Upseller
   const headers = [
-    'sku_interno',
-    'sku_marketplace',
-    'nome',
-    'descricao',
-    'categoria',
-    'preco_custo',
-    'preco_venda',
-    'unidade',
-    'ncm',
-    'ativo',
+    'SKU',
+    'Mapeado SKU do Anúncio',
+    'Variante',
+    'ID do Anúncio',
+    'ID da Variante',
+    'Nome da Loja',
+    'Nome',
+    'Categoria',
+    'Custo',
+    'Preço Venda',
+    'Unidade',
+    'NCM',
   ];
 
   const exemploLinhas = [
-    ['SKU-001', 'MLB1234567890', 'Produto Exemplo 1', 'Descrição do produto', 'Eletrônicos', '100.00', '199.90', 'un', '85171231', 'sim'],
-    ['SKU-002', '', 'Produto Exemplo 2', '', 'Informática', '50.50', '99.00', 'un', '', 'sim'],
+    ['GU-CH-IN-ROS', '23897313367', 'ROSA', '23897313367', '267208618919', 'shopee-SHOPEE EXCHANGE', 'Guirlanda Chamas Rosa', 'Decoração', '15.50', '39.90', 'un', ''],
+    ['02-FL-NE-10-DO', 'MLB4116616322_191814572833', 'Dourado,Floco', 'MLB4116616322', '191814572833', 'mercado-MELI EX KIDS', 'Floco Neon 10cm Dourado', 'Natal', '8.00', '19.90', 'un', ''],
+    ['FL-10M-USB-BQ', 'MLB4338857361', '-', 'MLB4338857361', 'MLB4338857361', 'mercado-MELI EX KIDS', 'Fio LED USB 10m', 'Iluminação', '12.00', '34.90', 'un', ''],
+    ['AR-90-100-PL-VE-SH', 'AR-90-100-PL-VE-SH', 'Verde', 'h24110971270', 'I34ca93eke3b', 'shein-SHEIN EXCHANGE', 'Árvore Natal 90cm Verde', 'Natal', '45.00', '129.90', 'un', ''],
   ];
 
   if (formato === 'csv') {
     const linhas = [headers.join(';'), ...exemploLinhas.map(l => l.join(';'))];
-    return new Blob([linhas.join('\n')], { type: 'text/csv;charset=utf-8' });
+    return new Blob(['\ufeff' + linhas.join('\n')], { type: 'text/csv;charset=utf-8' });
   } else {
     const ws = XLSX.utils.aoa_to_sheet([headers, ...exemploLinhas]);
+    
+    // Ajustar largura das colunas
+    ws['!cols'] = [
+      { wch: 20 }, // SKU
+      { wch: 30 }, // Mapeado
+      { wch: 15 }, // Variante
+      { wch: 18 }, // ID Anúncio
+      { wch: 18 }, // ID Variante
+      { wch: 25 }, // Nome Loja
+      { wch: 30 }, // Nome
+      { wch: 15 }, // Categoria
+      { wch: 10 }, // Custo
+      { wch: 12 }, // Preço
+      { wch: 8 },  // Unidade
+      { wch: 12 }, // NCM
+    ];
+    
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Produtos');
     const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
@@ -330,7 +385,7 @@ export function gerarPlanilhaModelo(formato: 'csv' | 'xlsx'): Blob {
   }
 }
 
-// ============= EXPORTAR PRODUTOS =============
+// ============= EXPORTAR PRODUTOS (FORMATO UPSELLER) =============
 
 export function exportarProdutos(
   produtos: {
@@ -345,48 +400,179 @@ export function exportarProdutos(
     status: string;
     canais?: any[];
   }[],
-  formato: 'csv' | 'xlsx'
+  formato: 'csv' | 'xlsx',
+  mapeamentos?: {
+    sku_interno: string;
+    canal: string;
+    loja?: string | null;
+    anuncio_id?: string | null;
+    variante_id?: string | null;
+    variante_nome?: string | null;
+  }[]
 ): Blob {
+  // Headers no formato Upseller
   const headers = [
-    'sku_interno',
-    'sku_marketplace',
-    'nome',
-    'descricao',
-    'categoria',
-    'preco_custo',
-    'preco_venda',
-    'unidade',
-    'ncm',
-    'ativo',
+    'SKU',
+    'Mapeado SKU do Anúncio',
+    'Variante',
+    'ID do Anúncio',
+    'ID da Variante',
+    'Nome da Loja',
+    'Nome',
+    'Categoria',
+    'Custo',
+    'Preço Venda',
+    'Unidade',
+    'NCM',
   ];
 
-  const linhas = produtos.map(p => {
-    // Extrair primeiro SKU de marketplace se existir
-    const skuMkt = Array.isArray(p.canais) && p.canais.length > 0 
-      ? (p.canais[0]?.sku || p.canais[0]?.anuncioId || '') 
-      : '';
+  // Criar mapa de mapeamentos por SKU
+  const mapeamentosMap = new Map<string, typeof mapeamentos>();
+  if (mapeamentos) {
+    mapeamentos.forEach(m => {
+      const key = m.sku_interno.toUpperCase();
+      if (!mapeamentosMap.has(key)) {
+        mapeamentosMap.set(key, []);
+      }
+      mapeamentosMap.get(key)!.push(m);
+    });
+  }
 
+  const linhas: string[][] = [];
+
+  produtos.forEach(p => {
+    const skuMaps = mapeamentosMap.get(p.codigo_interno.toUpperCase()) || [];
+    
+    if (skuMaps.length === 0) {
+      // Produto sem mapeamento - exportar uma linha simples
+      linhas.push([
+        p.codigo_interno,
+        '',
+        '-',
+        '',
+        '',
+        '',
+        p.nome,
+        p.categoria || '',
+        p.custo_medio_atual.toFixed(2).replace('.', ','),
+        (p.preco_venda_sugerido || 0).toFixed(2).replace('.', ','),
+        p.unidade_medida,
+        p.ncm || '',
+      ]);
+    } else {
+      // Produto com mapeamentos - uma linha por mapeamento
+      skuMaps.forEach(m => {
+        const mapeadoSku = m.anuncio_id 
+          ? (m.variante_id && m.variante_id !== m.anuncio_id ? `${m.anuncio_id}_${m.variante_id}` : m.anuncio_id)
+          : '';
+        
+        linhas.push([
+          p.codigo_interno,
+          mapeadoSku,
+          m.variante_nome || '-',
+          m.anuncio_id || '',
+          m.variante_id || '',
+          m.loja || '',
+          p.nome,
+          p.categoria || '',
+          p.custo_medio_atual.toFixed(2).replace('.', ','),
+          (p.preco_venda_sugerido || 0).toFixed(2).replace('.', ','),
+          p.unidade_medida,
+          p.ncm || '',
+        ]);
+      });
+    }
+  });
+
+  if (formato === 'csv') {
+    const csv = [headers.join(';'), ...linhas.map(l => l.join(';'))].join('\n');
+    return new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  } else {
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...linhas]);
+    
+    // Ajustar largura das colunas
+    ws['!cols'] = [
+      { wch: 20 }, // SKU
+      { wch: 30 }, // Mapeado
+      { wch: 15 }, // Variante
+      { wch: 18 }, // ID Anúncio
+      { wch: 18 }, // ID Variante
+      { wch: 25 }, // Nome Loja
+      { wch: 30 }, // Nome
+      { wch: 15 }, // Categoria
+      { wch: 10 }, // Custo
+      { wch: 12 }, // Preço
+      { wch: 8 },  // Unidade
+      { wch: 12 }, // NCM
+    ];
+    
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Produtos');
+    const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+}
+
+// ============= EXPORTAR MAPEAMENTOS PARA UPSELLER =============
+
+export function exportarMapeamentosUpseller(
+  mapeamentos: {
+    sku_interno: string;
+    canal: string;
+    loja?: string | null;
+    anuncio_id?: string | null;
+    variante_id?: string | null;
+    variante_nome?: string | null;
+    updated_at?: string;
+  }[],
+  formato: 'csv' | 'xlsx'
+): Blob {
+  // Headers exatamente como no Upseller
+  const headers = [
+    'SKU',
+    'Mapeado SKU do Anúncio',
+    'Variante',
+    'ID do Anúncio',
+    'ID da Variante',
+    'Nome da Loja',
+    'Atualizado',
+  ];
+
+  const linhas = mapeamentos.map(m => {
+    const mapeadoSku = m.anuncio_id 
+      ? (m.variante_id && m.variante_id !== m.anuncio_id ? `${m.anuncio_id}_${m.variante_id}` : m.anuncio_id)
+      : m.sku_interno;
+    
     return [
-      p.codigo_interno,
-      skuMkt,
-      p.nome,
-      p.descricao || '',
-      p.categoria || '',
-      p.custo_medio_atual.toFixed(2).replace('.', ','),
-      (p.preco_venda_sugerido || 0).toFixed(2).replace('.', ','),
-      p.unidade_medida,
-      p.ncm || '',
-      p.status === 'ativo' ? 'sim' : 'nao',
+      m.sku_interno,
+      mapeadoSku,
+      m.variante_nome || '-',
+      m.anuncio_id || '',
+      m.variante_id || '',
+      m.loja || '',
+      m.updated_at || new Date().toISOString().replace('T', ' ').slice(0, 19),
     ];
   });
 
   if (formato === 'csv') {
     const csv = [headers.join(';'), ...linhas.map(l => l.join(';'))].join('\n');
-    return new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    return new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
   } else {
     const ws = XLSX.utils.aoa_to_sheet([headers, ...linhas]);
+    
+    // Ajustar largura das colunas
+    ws['!cols'] = [
+      { wch: 20 }, // SKU
+      { wch: 30 }, // Mapeado
+      { wch: 15 }, // Variante
+      { wch: 18 }, // ID Anúncio
+      { wch: 18 }, // ID Variante
+      { wch: 25 }, // Nome Loja
+      { wch: 20 }, // Atualizado
+    ];
+    
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Produtos');
+    XLSX.utils.book_append_sheet(wb, ws, 'SKU_Map_Relationship');
     const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   }

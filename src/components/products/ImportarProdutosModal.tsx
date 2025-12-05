@@ -29,19 +29,43 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useProdutos } from "@/hooks/useProdutos";
+import { importarMapeamentosEmLote } from "@/hooks/useProdutoSkuMap";
 import { toast } from "sonner";
 import {
   processarArquivoProdutos,
   mapearLinhasParaProdutos,
   gerarPlanilhaModelo,
   type ImportPreview,
-  type ProdutoImportRow,
 } from "@/lib/produtos-import-export";
 
 interface ImportarProdutosModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+}
+
+// Detectar canal a partir do nome da loja
+function detectarCanal(nomeLoja: string | null | undefined): string {
+  if (!nomeLoja) return '';
+  const loja = nomeLoja.toLowerCase().trim();
+  
+  if (loja.startsWith('mercado') || loja.includes('meli') || loja.includes('mlb')) {
+    return 'mercado_livre';
+  }
+  if (loja.startsWith('shopee') || loja.includes('shopee')) {
+    return 'shopee';
+  }
+  if (loja.startsWith('shein') || loja.includes('shein')) {
+    return 'shein';
+  }
+  if (loja.startsWith('tiktok') || loja.includes('tiktok')) {
+    return 'tiktok';
+  }
+  if (loja.startsWith('amazon') || loja.includes('amazon')) {
+    return 'amazon';
+  }
+  
+  return '';
 }
 
 export function ImportarProdutosModal({
@@ -58,7 +82,12 @@ export function ImportarProdutosModal({
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ criados: number; atualizados: number; erros: number } | null>(null);
+  const [result, setResult] = useState<{ 
+    criados: number; 
+    atualizados: number; 
+    erros: number;
+    mapeamentos: number;
+  } | null>(null);
 
   const resetForm = useCallback(() => {
     setStep("upload");
@@ -79,10 +108,10 @@ export function ImportarProdutosModal({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `modelo_produtos.${formato}`;
+    a.download = `modelo_produtos_upseller.${formato}`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success(`Planilha modelo ${formato.toUpperCase()} baixada`);
+    toast.success(`Planilha modelo ${formato.toUpperCase()} baixada (Formato Upseller)`);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -132,8 +161,18 @@ export function ImportarProdutosModal({
     let criados = 0;
     let atualizados = 0;
     let erros = 0;
+    let mapeamentosCount = 0;
 
     const produtosMap = new Map(produtos.map(p => [p.codigo_interno.toLowerCase(), p]));
+    const mapeamentosParaImportar: Array<{
+      empresa_id: string;
+      sku_interno: string;
+      canal: string;
+      loja?: string;
+      anuncio_id?: string;
+      variante_id?: string;
+      variante_nome?: string;
+    }> = [];
 
     for (const linha of preview.linhas) {
       try {
@@ -143,14 +182,14 @@ export function ImportarProdutosModal({
           // Atualizar
           await atualizarProduto.mutateAsync({
             id: existente.id,
-            nome: linha.nome,
+            nome: linha.nome || linha.sku_interno,
             descricao: linha.descricao,
             categoria: linha.categoria,
-            custo_medio_atual: linha.preco_custo,
-            preco_venda_sugerido: linha.preco_venda,
+            custo_medio_atual: linha.preco_custo || 0,
+            preco_venda_sugerido: linha.preco_venda || 0,
             unidade_medida: linha.unidade || 'un',
             ncm: linha.ncm,
-            status: linha.ativo ? 'ativo' : 'inativo',
+            status: linha.ativo !== false ? 'ativo' : 'inativo',
           });
           atualizados++;
         } else {
@@ -158,16 +197,32 @@ export function ImportarProdutosModal({
           await criarProduto.mutateAsync({
             empresa_id: empresaId,
             codigo_interno: linha.sku_interno,
-            nome: linha.nome,
+            nome: linha.nome || linha.sku_interno,
             descricao: linha.descricao,
             categoria: linha.categoria,
-            custo_medio_atual: linha.preco_custo,
-            preco_venda_sugerido: linha.preco_venda,
+            custo_medio_atual: linha.preco_custo || 0,
+            preco_venda_sugerido: linha.preco_venda || 0,
             unidade_medida: linha.unidade || 'un',
             ncm: linha.ncm,
-            status: linha.ativo ? 'ativo' : 'inativo',
+            status: linha.ativo !== false ? 'ativo' : 'inativo',
           });
           criados++;
+        }
+
+        // Coletar mapeamentos se tiver dados de marketplace
+        if (linha.anuncio_id || linha.nome_loja) {
+          const canal = detectarCanal(linha.nome_loja);
+          if (canal) {
+            mapeamentosParaImportar.push({
+              empresa_id: empresaId,
+              sku_interno: linha.sku_interno,
+              canal,
+              loja: linha.nome_loja,
+              anuncio_id: linha.anuncio_id,
+              variante_id: linha.variante_id,
+              variante_nome: linha.variante,
+            });
+          }
         }
       } catch (err) {
         console.error("Erro ao importar produto:", linha.sku_interno, err);
@@ -175,20 +230,33 @@ export function ImportarProdutosModal({
       }
     }
 
-    setResult({ criados, atualizados, erros });
+    // Importar mapeamentos em lote
+    if (mapeamentosParaImportar.length > 0) {
+      try {
+        await importarMapeamentosEmLote(mapeamentosParaImportar);
+        mapeamentosCount = mapeamentosParaImportar.length;
+      } catch (err) {
+        console.error("Erro ao importar mapeamentos:", err);
+      }
+    }
+
+    setResult({ criados, atualizados, erros, mapeamentos: mapeamentosCount });
     setStep("result");
     setIsProcessing(false);
 
     if (onSuccess) onSuccess();
   };
 
+  // Contar quantos têm mapeamento
+  const mapeamentosNoPreview = preview?.linhas.filter(l => l.anuncio_id || l.nome_loja).length || 0;
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5" />
-            Importar Produtos
+            Importar Produtos (Formato Upseller)
           </DialogTitle>
         </DialogHeader>
 
@@ -211,20 +279,26 @@ export function ImportarProdutosModal({
             </div>
 
             <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => handleBaixarModelo('xlsx')}>
+                <Download className="h-4 w-4 mr-2" />
+                Modelo XLSX (Upseller)
+              </Button>
               <Button variant="outline" size="sm" onClick={() => handleBaixarModelo('csv')}>
                 <Download className="h-4 w-4 mr-2" />
                 Modelo CSV
               </Button>
-              <Button variant="outline" size="sm" onClick={() => handleBaixarModelo('xlsx')}>
-                <Download className="h-4 w-4 mr-2" />
-                Modelo XLSX
-              </Button>
             </div>
+
+            <Alert>
+              <AlertDescription>
+                <strong>Formato compatível com Upseller:</strong> SKU, Mapeado SKU do Anúncio, Variante, ID do Anúncio, ID da Variante, Nome da Loja, Nome, Categoria, Custo, Preço Venda, Unidade, NCM
+              </AlertDescription>
+            </Alert>
 
             <div className="border-2 border-dashed rounded-lg p-8 text-center">
               <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <p className="text-muted-foreground mb-4">
-                Arraste um arquivo CSV ou XLSX ou clique para selecionar
+                Arraste um arquivo CSV ou XLSX (formato Upseller) ou clique para selecionar
               </p>
               <input
                 type="file"
@@ -256,10 +330,13 @@ export function ImportarProdutosModal({
               <div>
                 <p className="text-sm text-muted-foreground">Arquivo: {fileName}</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Badge variant="secondary">{preview.total} linhas</Badge>
                 <Badge variant="default">{preview.novos} novos</Badge>
                 <Badge variant="outline">{preview.existentes} atualizações</Badge>
+                {mapeamentosNoPreview > 0 && (
+                  <Badge className="bg-blue-500">{mapeamentosNoPreview} mapeamentos</Badge>
+                )}
                 {preview.invalidos > 0 && (
                   <Badge variant="destructive">{preview.invalidos} inválidos</Badge>
                 )}
@@ -272,36 +349,40 @@ export function ImportarProdutosModal({
                   <TableRow>
                     <TableHead>SKU</TableHead>
                     <TableHead>Nome</TableHead>
-                    <TableHead>Categoria</TableHead>
+                    <TableHead>ID Anúncio</TableHead>
+                    <TableHead>Variante</TableHead>
+                    <TableHead>Loja</TableHead>
                     <TableHead className="text-right">Custo</TableHead>
                     <TableHead className="text-right">Venda</TableHead>
-                    <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {preview.linhas.slice(0, 50).map((linha, i) => (
+                  {preview.linhas.slice(0, 100).map((linha, i) => (
                     <TableRow key={i}>
                       <TableCell className="font-mono text-sm">{linha.sku_interno}</TableCell>
-                      <TableCell className="max-w-48 truncate">{linha.nome}</TableCell>
-                      <TableCell>{linha.categoria || '-'}</TableCell>
-                      <TableCell className="text-right">
-                        {linha.preco_custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      <TableCell className="max-w-40 truncate">{linha.nome || '-'}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {linha.anuncio_id || '-'}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {linha.variante && linha.variante !== '-' ? linha.variante : '-'}
+                      </TableCell>
+                      <TableCell className="text-xs max-w-32 truncate">
+                        {linha.nome_loja || '-'}
                       </TableCell>
                       <TableCell className="text-right">
-                        {linha.preco_venda.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        {(linha.preco_custo || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </TableCell>
-                      <TableCell>
-                        <Badge variant={linha.ativo ? "default" : "secondary"}>
-                          {linha.ativo ? 'Ativo' : 'Inativo'}
-                        </Badge>
+                      <TableCell className="text-right">
+                        {(linha.preco_venda || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-              {preview.linhas.length > 50 && (
+              {preview.linhas.length > 100 && (
                 <p className="text-center text-sm text-muted-foreground py-2">
-                  ... e mais {preview.linhas.length - 50} produtos
+                  ... e mais {preview.linhas.length - 100} produtos
                 </p>
               )}
             </ScrollArea>
@@ -321,7 +402,7 @@ export function ImportarProdutosModal({
           <div className="py-8 text-center space-y-4">
             <CheckCircle2 className="h-16 w-16 mx-auto text-success" />
             <h3 className="text-xl font-semibold">Importação Concluída</h3>
-            <div className="flex justify-center gap-4">
+            <div className="flex justify-center gap-6 flex-wrap">
               <div className="text-center">
                 <div className="text-2xl font-bold text-success">{result.criados}</div>
                 <div className="text-sm text-muted-foreground">Criados</div>
@@ -330,6 +411,12 @@ export function ImportarProdutosModal({
                 <div className="text-2xl font-bold text-primary">{result.atualizados}</div>
                 <div className="text-sm text-muted-foreground">Atualizados</div>
               </div>
+              {result.mapeamentos > 0 && (
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-500">{result.mapeamentos}</div>
+                  <div className="text-sm text-muted-foreground">Mapeamentos</div>
+                </div>
+              )}
               {result.erros > 0 && (
                 <div className="text-center">
                   <div className="text-2xl font-bold text-destructive">{result.erros}</div>
