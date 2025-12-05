@@ -29,7 +29,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hooks/useMarketplaceTransactions";
-import { useMarketplaceRules } from "@/hooks/useMarketplaceRules";
+import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
 import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago } from "@/lib/parsers/arquivoFinanceiro";
@@ -74,7 +74,7 @@ export function ImportarMarketplaceModal({
 }: ImportarMarketplaceModalProps) {
   const { empresas } = useEmpresas();
   const { importarTransacoes } = useMarketplaceTransactions();
-  const { aplicarRegrasTransacoes } = useMarketplaceRules();
+  const { processarTransacoesImportadas } = useMarketplaceAutoCategorizacao();
   
   const [empresaId, setEmpresaId] = useState<string>("");
   const [canal, setCanal] = useState<string>("");
@@ -641,20 +641,28 @@ export function ImportarMarketplaceModal({
       },
     });
 
-    // Auto-categorização após importação
+    // Auto-categorização e conciliação automática após importação
     if (result.insertedIds && result.insertedIds.length > 0) {
-      setUploadLabel("Categorizando automaticamente...");
-      await aplicarRegrasTransacoes.mutateAsync({
-        transactionIds: result.insertedIds,
-        empresaId,
-      });
+      setUploadLabel("Categorizando e conciliando automaticamente...");
+      setUploadProgress(70);
+      
+      try {
+        await processarTransacoesImportadas.mutateAsync({
+          transactionIds: result.insertedIds,
+          empresaId,
+        });
+        setUploadProgress(100);
+      } catch (err) {
+        console.error("[Importação] Erro na auto-categorização:", err);
+        // Continua mesmo se a auto-categorização falhar
+      }
     }
 
     setUploadLabel("");
     setUploadProgress(null);
     onSuccess?.();
     handleClose();
-  }, [empresaId, canal, contaNome, parsedData, fileName, importarTransacoes, aplicarRegrasTransacoes, onSuccess, handleClose]);
+  }, [empresaId, canal, contaNome, parsedData, fileName, importarTransacoes, processarTransacoesImportadas, onSuccess, handleClose]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
