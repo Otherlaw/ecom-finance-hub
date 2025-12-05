@@ -129,6 +129,8 @@ export function ImportarMarketplaceModal({
     setDuplicatasPrevia(0);
     setTransacoesNovas(0);
     setHashesDuplicados(new Set());
+    setTransacoesDuplicadasIndices(new Set());
+    setIsVerificandoDuplicatas(false);
     setImportStats({
       totalLinhasArquivo: 0,
       totalTransacoesGeradas: 0,
@@ -140,7 +142,8 @@ export function ImportarMarketplaceModal({
     });
   }, []);
 
-  // Função para gerar hash de duplicidade mais robusto
+  // Função para gerar hash de duplicidade - DEVE SER IDÊNTICA À DO HOOK
+  // Formato: empresa_id|canal|data_transacao|descricao(100 chars)|valor_liquido|valor_bruto|referencia_externa
   const gerarHashDuplicidade = useCallback((t: TransacaoPreview, empId: string, canalVal: string): string => {
     // Normalizar valores para evitar problemas de precisão de ponto flutuante
     const valorLiquidoNorm = typeof t.valor_liquido === 'number' 
@@ -165,42 +168,101 @@ export function ImportarMarketplaceModal({
     return partes.map(p => String(p).toLowerCase().trim()).join("|");
   }, []);
 
-  // Verificar duplicatas no banco durante prévia
+  // Estado para armazenar quais transações são duplicadas (por índice)
+  const [transacoesDuplicadasIndices, setTransacoesDuplicadasIndices] = useState<Set<number>>(new Set());
+  const [isVerificandoDuplicatas, setIsVerificandoDuplicatas] = useState(false);
+
+  // Verificar duplicatas no banco durante prévia - BUSCA REAL NO BANCO
   const verificarDuplicatasPrevia = useCallback(async (transacoes: TransacaoPreview[], empId: string, canalVal: string) => {
     if (transacoes.length === 0) {
       setDuplicatasPrevia(0);
       setTransacoesNovas(0);
       setHashesDuplicados(new Set());
+      setTransacoesDuplicadasIndices(new Set());
       return 0;
     }
 
+    setIsVerificandoDuplicatas(true);
+    console.log('[Verificação Duplicatas] Iniciando verificação para', transacoes.length, 'transações');
+
     // Gerar hashes para as transações do arquivo
     const hashesArquivo = transacoes.map(t => gerarHashDuplicidade(t, empId, canalVal));
+    
+    // Também verificar duplicatas internas (dentro do próprio arquivo)
+    const hashesUnicos = new Set<string>();
+    const duplicatasInternas = new Set<number>();
+    hashesArquivo.forEach((hash, idx) => {
+      if (hashesUnicos.has(hash)) {
+        duplicatasInternas.add(idx);
+      } else {
+        hashesUnicos.add(hash);
+      }
+    });
+
+    console.log('[Verificação Duplicatas] Duplicatas internas no arquivo:', duplicatasInternas.size);
 
     // Buscar hashes existentes no banco em lotes (Supabase tem limite de IN clause)
     const BATCH_SIZE = 500;
-    const hashesExistentes = new Set<string>();
+    const hashesExistentesBanco = new Set<string>();
     
-    for (let i = 0; i < hashesArquivo.length; i += BATCH_SIZE) {
-      const batch = hashesArquivo.slice(i, i + BATCH_SIZE);
-      const { data: existentes } = await supabase
+    // Buscar apenas hashes únicos para economizar queries
+    const hashesParaBuscar = Array.from(hashesUnicos);
+    
+    for (let i = 0; i < hashesParaBuscar.length; i += BATCH_SIZE) {
+      const batch = hashesParaBuscar.slice(i, i + BATCH_SIZE);
+      
+      const { data: existentes, error } = await supabase
         .from('marketplace_transactions')
         .select('hash_duplicidade')
         .eq('empresa_id', empId)
         .in('hash_duplicidade', batch);
       
-      (existentes || []).forEach(e => hashesExistentes.add(e.hash_duplicidade));
+      if (error) {
+        console.error('[Verificação Duplicatas] Erro ao buscar hashes:', error);
+        continue;
+      }
+      
+      (existentes || []).forEach(e => {
+        if (e.hash_duplicidade) {
+          hashesExistentesBanco.add(e.hash_duplicidade);
+        }
+      });
+      
+      // Log de progresso a cada 10 batches
+      if ((i / BATCH_SIZE) % 10 === 0) {
+        console.log(`[Verificação Duplicatas] Verificando batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(hashesParaBuscar.length / BATCH_SIZE)}`);
+      }
     }
 
-    setHashesDuplicados(hashesExistentes);
-    
-    const duplicadas = hashesArquivo.filter(h => hashesExistentes.has(h)).length;
-    const novas = transacoes.length - duplicadas;
+    console.log('[Verificação Duplicatas] Hashes encontrados no banco:', hashesExistentesBanco.size);
 
-    setDuplicatasPrevia(duplicadas);
-    setTransacoesNovas(novas);
+    // Identificar quais transações são duplicatas (por índice)
+    const indicesDuplicados = new Set<number>();
+    hashesArquivo.forEach((hash, idx) => {
+      if (hashesExistentesBanco.has(hash) || duplicatasInternas.has(idx)) {
+        indicesDuplicados.add(idx);
+      }
+    });
+
+    setHashesDuplicados(hashesExistentesBanco);
+    setTransacoesDuplicadasIndices(indicesDuplicados);
     
-    return duplicadas;
+    const totalDuplicadas = indicesDuplicados.size;
+    const totalNovas = transacoes.length - totalDuplicadas;
+
+    setDuplicatasPrevia(totalDuplicadas);
+    setTransacoesNovas(totalNovas);
+    setIsVerificandoDuplicatas(false);
+
+    console.log('[Verificação Duplicatas] RESULTADO:', {
+      totalTransacoes: transacoes.length,
+      duplicatasBanco: hashesExistentesBanco.size,
+      duplicatasInternas: duplicatasInternas.size,
+      totalDuplicadas,
+      totalNovas,
+    });
+    
+    return totalDuplicadas;
   }, [gerarHashDuplicidade]);
 
   const handleClose = useCallback(() => {
@@ -541,33 +603,50 @@ export function ImportarMarketplaceModal({
     // Determinar origem do arquivo (csv ou xlsx)
     const origemExtrato = fileName.toLowerCase().endsWith('.xlsx') ? 'arquivo_xlsx' : 'arquivo_csv';
 
-    // Preparar transações para importação
-    const transacoes = parsedData.map(row => ({
-      empresa_id: empresaId,
-      canal,
-      conta_nome: contaNome || canal,
-      pedido_id: row.pedido_id,
-      referencia_externa: row.referencia_externa,
-      data_transacao: row.data_transacao,
-      data_repasse: null,
-      tipo_transacao: row.tipo_transacao,
-      descricao: row.descricao,
-      valor_bruto: row.valor_bruto,
-      valor_liquido: row.valor_liquido,
-      tipo_lancamento: row.tipo_lancamento,
-      status: 'importado',
-      categoria_id: null,
-      centro_custo_id: null,
-      responsavel_id: null,
-      origem_extrato: origemExtrato,
-    } as MarketplaceTransactionInsert));
+    // FILTRAR APENAS TRANSAÇÕES NOVAS (não duplicadas)
+    // Isso evita enviar duplicatas para o banco novamente
+    const transacoesParaImportar = parsedData
+      .filter((_, idx) => !transacoesDuplicadasIndices.has(idx))
+      .map(row => ({
+        empresa_id: empresaId,
+        canal,
+        conta_nome: contaNome || canal,
+        pedido_id: row.pedido_id,
+        referencia_externa: row.referencia_externa,
+        data_transacao: row.data_transacao,
+        data_repasse: null,
+        tipo_transacao: row.tipo_transacao,
+        descricao: row.descricao,
+        valor_bruto: row.valor_bruto,
+        valor_liquido: row.valor_liquido,
+        tipo_lancamento: row.tipo_lancamento,
+        status: 'importado',
+        categoria_id: null,
+        centro_custo_id: null,
+        responsavel_id: null,
+        origem_extrato: origemExtrato,
+      } as MarketplaceTransactionInsert));
+
+    console.log('[Importação] Transações filtradas:', {
+      total: parsedData.length,
+      duplicadas: transacoesDuplicadasIndices.size,
+      paraImportar: transacoesParaImportar.length,
+    });
+
+    if (transacoesParaImportar.length === 0) {
+      toast.info("Todas as transações já existem no banco. Nenhuma importação necessária.");
+      setUploadLabel("");
+      setUploadProgress(null);
+      handleClose();
+      return;
+    }
 
     // seta info pra UI
-    setUploadLabel(`Importando ${transacoesNovas} transações novas...`);
+    setUploadLabel(`Importando ${transacoesParaImportar.length} transações novas...`);
     setUploadProgress(0);
 
     const result = await importarTransacoes.mutateAsync({
-      transacoes,
+      transacoes: transacoesParaImportar,
       onProgress: (percent) => {
         setUploadProgress(percent * 0.6); // 60% para importação
       },
@@ -618,7 +697,7 @@ export function ImportarMarketplaceModal({
     setUploadProgress(null);
     onSuccess?.();
     handleClose();
-  }, [empresaId, canal, contaNome, parsedData, fileName, transacoesNovas, importStats, importarTransacoes, processarTransacoesImportadas, onSuccess, handleClose]);
+  }, [empresaId, canal, contaNome, parsedData, fileName, transacoesDuplicadasIndices, importStats, importarTransacoes, processarTransacoesImportadas, onSuccess, handleClose]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -745,16 +824,23 @@ export function ImportarMarketplaceModal({
               )}
 
               {/* Aviso de duplicatas na prévia */}
-              {(duplicatasPrevia > 0 || transacoesNovas > 0) && (
+              {isVerificandoDuplicatas && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">
+                  <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  Verificando duplicatas no banco de dados...
+                </div>
+              )}
+              
+              {!isVerificandoDuplicatas && (duplicatasPrevia > 0 || transacoesNovas > 0) && (
                 <div className="flex gap-3 text-sm">
-                  <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-md">
+                  <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1.5 rounded-md">
                     <Sparkles className="h-4 w-4" />
-                    {transacoesNovas.toLocaleString()} novas
+                    {transacoesNovas.toLocaleString()} novas (serão importadas)
                   </span>
                   {duplicatasPrevia > 0 && (
-                    <span className="flex items-center gap-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-md">
+                    <span className="flex items-center gap-1 text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 rounded-md">
                       <AlertTriangle className="h-4 w-4" />
-                      {duplicatasPrevia.toLocaleString()} duplicadas (serão ignoradas)
+                      {duplicatasPrevia.toLocaleString()} duplicadas (já existem no banco)
                     </span>
                   )}
                 </div>
@@ -776,8 +862,8 @@ export function ImportarMarketplaceModal({
                   </TableHeader>
                   <TableBody>
                     {parsedData.slice(0, 50).map((row, idx) => {
-                      const hash = gerarHashDuplicidade(row, empresaId, canal);
-                      const isDuplicada = hashesDuplicados.has(hash);
+                      // Usar o índice para verificar se é duplicada (mais eficiente)
+                      const isDuplicada = transacoesDuplicadasIndices.has(idx);
                       return (
                         <TableRow key={idx} className={isDuplicada ? "bg-amber-50 dark:bg-amber-950/30" : ""}>
                           <TableCell className={isDuplicada ? "text-muted-foreground" : ""}>{row.data_transacao}</TableCell>
@@ -848,16 +934,18 @@ export function ImportarMarketplaceModal({
           </Button>
           <Button
             onClick={handleImport}
-            disabled={!empresaId || !canal || parsedData.length === 0 || transacoesNovas === 0 || importarTransacoes.isPending}
+            disabled={!empresaId || !canal || parsedData.length === 0 || transacoesNovas === 0 || importarTransacoes.isPending || isVerificandoDuplicatas}
           >
             <Upload className="h-4 w-4 mr-2" />
-            {importarTransacoes.isPending 
-              ? "Importando..." 
-              : transacoesNovas > 0 
-                ? `Importar ${transacoesNovas.toLocaleString()} transações novas`
-                : parsedData.length > 0 
-                  ? "Todas duplicadas"
-                  : `Importar ${parsedData.length.toLocaleString()} transações`
+            {isVerificandoDuplicatas
+              ? "Verificando duplicatas..."
+              : importarTransacoes.isPending 
+                ? "Importando..." 
+                : transacoesNovas > 0 
+                  ? `Importar ${transacoesNovas.toLocaleString()} transações novas`
+                  : parsedData.length > 0 
+                    ? "Todas duplicadas"
+                    : `Importar ${parsedData.length.toLocaleString()} transações`
             }
           </Button>
         </DialogFooter>
