@@ -168,11 +168,100 @@ export async function parseXLSXMercadoLivre(file: File): Promise<any[]> {
 
 // ============= PARSER MERCADO PAGO XLSX/CSV =============
 
+// Parser para Relatório de Faturamento/Tarifas do Mercado Pago (formato CSV brasileiro)
+export async function parseCSVMercadoPagoFaturamento(rows: any[]): Promise<any[]> {
+  if (!rows || rows.length === 0) return [];
+
+  // Colunas do Relatório de Faturamento MP
+  const col = {
+    data: findColumnIndex(Object.keys(rows[0]), [
+      "data do movimento", "data movimento", "data", "fecha"
+    ]),
+    detalhe: findColumnIndex(Object.keys(rows[0]), [
+      "detalhe", "descrição", "descricao", "detail"
+    ]),
+    valorTarifa: findColumnIndex(Object.keys(rows[0]), [
+      "valor da tarifa", "valor tarifa", "tarifa"
+    ]),
+    valorOperacao: findColumnIndex(Object.keys(rows[0]), [
+      "valor da operação", "valor operação", "valor operacao"
+    ]),
+    tipoOperacao: findColumnIndex(Object.keys(rows[0]), [
+      "tipo de operação", "tipo operação", "tipo operacao", "tipo"
+    ]),
+    numeroMovimento: findColumnIndex(Object.keys(rows[0]), [
+      "número do movimento", "numero do movimento", "numero movimento"
+    ]),
+    nfe: findColumnIndex(Object.keys(rows[0]), [
+      "n° nf-e", "nf-e", "nota fiscal", "nfe"
+    ]),
+    statusTarifa: findColumnIndex(Object.keys(rows[0]), [
+      "status da tarifa", "status tarifa", "status"
+    ]),
+    tarifaEstornada: findColumnIndex(Object.keys(rows[0]), [
+      "tarifa estornada", "estornada"
+    ]),
+  };
+
+  const keys = Object.keys(rows[0]);
+  console.log("Colunas Faturamento MP:", col, "Keys:", keys);
+
+  return rows
+    .filter(r => r && (r[keys[col.data]] || r["Data do movimento"]))
+    .map(r => {
+      // Acesso flexível às colunas
+      const data = r[keys[col.data]] || r["Data do movimento"] || "";
+      const detalhe = r[keys[col.detalhe]] || r["Detalhe"] || "Tarifa MP";
+      const valorTarifa = parseNumber(r[keys[col.valorTarifa]] || r["Valor da tarifa"]);
+      const valorOperacao = parseNumber(r[keys[col.valorOperacao]] || r["Valor da operação"]);
+      const tipoOp = r[keys[col.tipoOperacao]] || r["Tipo de operação"] || "";
+      const numMov = r[keys[col.numeroMovimento]] || r["Número do movimento"] || "";
+      const estornada = r[keys[col.tarifaEstornada]] || r["Tarifa estornada"] || "";
+
+      // Se tarifa foi estornada, é um crédito (estorno)
+      const isEstorno = estornada && estornada.trim().length > 0;
+      
+      return {
+        origem: "marketplace" as const,
+        canal: "mercado_pago" as const,
+        data_transacao: normalizeDate(data),
+        descricao: detalhe,
+        pedido_id: numMov?.toString().trim() || null,
+        referencia_externa: numMov?.toString().trim() || null,
+        valor_bruto: valorOperacao || valorTarifa,
+        valor_liquido: valorTarifa,
+        tarifas: isEstorno ? 0 : valorTarifa,
+        tipo_transacao: tipoOp.toLowerCase() || "tarifa",
+        tipo_lancamento: isEstorno ? "credito" : "debito", // Tarifas são despesas (débito)
+      };
+    })
+    .filter(t => !isNaN(t.valor_liquido) && t.valor_liquido !== 0);
+}
+
 export async function parseXLSXMercadoPago(file: File): Promise<any[]> {
+  const fileExt = file.name.split(".").pop()?.toLowerCase();
+  
+  // Se é CSV, parse com PapaParse primeiro
+  if (fileExt === "csv") {
+    const rows = await parseCSVFile(file);
+    
+    // Verifica se é formato de Faturamento/Tarifas
+    if (rows[0] && (
+      Object.keys(rows[0]).some(k => k.toLowerCase().includes("valor da tarifa")) ||
+      Object.keys(rows[0]).some(k => k.toLowerCase().includes("data do movimento"))
+    )) {
+      console.log("Detectado formato Relatório de Faturamento MP");
+      return parseCSVMercadoPagoFaturamento(rows);
+    }
+    
+    // Senão, tenta formato de extrato de vendas
+    return parseCSVMercadoPagoVendas(rows);
+  }
+
+  // XLSX
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
 
-  // Mercado Pago pode usar diferentes abas
   const sheet = workbook.Sheets["Relatório"] || 
                 workbook.Sheets["Report"] || 
                 workbook.Sheets["Movimentos"] ||
@@ -184,7 +273,7 @@ export async function parseXLSXMercadoPago(file: File): Promise<any[]> {
 
   const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false });
 
-  // Encontra header buscando termos típicos de MP
+  // Encontra header
   const headerIndex = rows.findIndex((row) =>
     row.some(
       (cell) =>
@@ -193,8 +282,8 @@ export async function parseXLSXMercadoPago(file: File): Promise<any[]> {
          cell.toLowerCase().includes("date_created") ||
          cell.toLowerCase().includes("transaction_amount") ||
          cell.toLowerCase().includes("valor da transação") ||
-         cell.toLowerCase().includes("net_received_amount") ||
-         cell.toLowerCase().includes("valor líquido"))
+         cell.toLowerCase().includes("valor da tarifa") ||
+         cell.toLowerCase().includes("data do movimento"))
     )
   );
 
@@ -203,61 +292,144 @@ export async function parseXLSXMercadoPago(file: File): Promise<any[]> {
 
   console.log("Headers MP detectados:", header.slice(0, 20));
 
-  // Colunas típicas do Mercado Pago (API e exportação manual)
+  // Verifica se é formato de Faturamento
+  if (header.some(h => h && typeof h === "string" && h.toLowerCase().includes("valor da tarifa"))) {
+    const rowObjs = dataRows.map(r => {
+      const obj: any = {};
+      header.forEach((h, i) => { obj[h] = r[i]; });
+      return obj;
+    });
+    return parseCSVMercadoPagoFaturamento(rowObjs);
+  }
+
+  // Formato de extrato de vendas
+  return parseXLSXMercadoPagoVendas(header, dataRows);
+}
+
+// Parser para extrato de VENDAS do Mercado Pago (API export)
+function parseCSVMercadoPagoVendas(rows: any[]): any[] {
+  if (!rows || rows.length === 0) return [];
+  
+  const keys = Object.keys(rows[0]);
+  
   const col = {
-    // Data
+    data: findColumnIndex(keys, [
+      "date_created", "data de criação", "data", "fecha", "date",
+      "data de liberação", "date_approved", "money_release_date"
+    ]),
+    referencia: findColumnIndex(keys, [
+      "id", "operation_id", "id da operação", "reference", "external_reference",
+      "referência externa", "source_id"
+    ]),
+    tipo: findColumnIndex(keys, [
+      "operation_type", "tipo de operação", "tipo", "type", "reason",
+      "transaction_type", "tipo de transação", "payment_type"
+    ]),
+    descricao: findColumnIndex(keys, [
+      "description", "descrição", "descricao", "reason", "motivo",
+      "detail", "detalhe", "item_title", "título"
+    ]),
+    valorBruto: findColumnIndex(keys, [
+      "transaction_amount", "valor da transação", "valor bruto", "gross_amount",
+      "total_paid_amount", "valor total", "amount"
+    ]),
+    tarifa: findColumnIndex(keys, [
+      "fee_amount", "marketplace_fee", "tarifa", "comissão", "commission",
+      "mercadopago_fee", "mp_fee", "taxa mercadopago"
+    ]),
+    valorLiquido: findColumnIndex(keys, [
+      "net_received_amount", "valor líquido recebido", "valor líquido", "net_amount",
+      "valor_liquido", "net", "total received"
+    ]),
+    status: findColumnIndex(keys, ["status", "status_detail", "situação", "state"]),
+    pedido: findColumnIndex(keys, [
+      "order_id", "id do pedido", "pedido", "external_reference", 
+      "referência externa", "merchant_order_id"
+    ]),
+  };
+
+  return rows
+    .filter(r => r && (r[keys[col.data]] || r[keys[col.valorBruto]] || r[keys[col.valorLiquido]]))
+    .map(r => {
+      const bruto = parseNumber(r[keys[col.valorBruto]]);
+      const tarifa = Math.abs(parseNumber(r[keys[col.tarifa]]));
+      let liquido = parseNumber(r[keys[col.valorLiquido]]);
+      
+      if (!liquido && bruto) liquido = bruto - tarifa;
+
+      let descricao = "Transação MP";
+      if (col.descricao >= 0 && r[keys[col.descricao]]) {
+        descricao = String(r[keys[col.descricao]]).trim();
+      } else if (col.tipo >= 0 && r[keys[col.tipo]]) {
+        descricao = String(r[keys[col.tipo]]).trim();
+      }
+
+      const status = col.status >= 0 ? String(r[keys[col.status]] || "").toLowerCase() : "";
+      const tipoOp = col.tipo >= 0 ? String(r[keys[col.tipo]] || "").toLowerCase() : "";
+      const isDebito = tipoOp.includes("refund") || 
+                       tipoOp.includes("chargeback") || 
+                       tipoOp.includes("estorno") ||
+                       tipoOp.includes("devolução") ||
+                       liquido < 0;
+
+      return {
+        origem: "marketplace" as const,
+        canal: "mercado_pago" as const,
+        data_transacao: normalizeDate(r[keys[col.data]]),
+        descricao,
+        pedido_id: col.pedido >= 0 ? r[keys[col.pedido]]?.toString().trim() || null : 
+                   col.referencia >= 0 ? r[keys[col.referencia]]?.toString().trim() || null : null,
+        referencia_externa: col.referencia >= 0 ? r[keys[col.referencia]]?.toString().trim() || null : null,
+        valor_bruto: Math.abs(bruto) || Math.abs(liquido),
+        valor_liquido: Math.abs(liquido) || Math.abs(bruto),
+        tarifas: tarifa,
+        status_original: status,
+        tipo_transacao: tipoOp || "payment",
+        tipo_lancamento: isDebito ? "debito" : "credito",
+      };
+    })
+    .filter(t => {
+      const hasValue = !isNaN(t.valor_liquido) && t.valor_liquido !== 0;
+      const isValid = !t.status_original.includes("pending") && 
+                      !t.status_original.includes("cancelled") &&
+                      !t.status_original.includes("rejected");
+      return hasValue && isValid;
+    })
+    .map(t => {
+      const { status_original, ...rest } = t;
+      return rest;
+    });
+}
+
+// Parser XLSX para extrato de vendas MP
+function parseXLSXMercadoPagoVendas(header: string[], dataRows: any[][]): any[] {
+  const col = {
     data: findColumnIndex(header, [
       "date_created", "data de criação", "data", "fecha", "date",
       "data de liberação", "date_approved", "money_release_date"
     ]),
-    // ID da transação/referência
     referencia: findColumnIndex(header, [
-      "id", "operation_id", "id da operação", "reference", "external_reference",
-      "referência externa", "source_id"
+      "id", "operation_id", "id da operação", "reference", "external_reference"
     ]),
-    // Tipo de operação
     tipo: findColumnIndex(header, [
-      "operation_type", "tipo de operação", "tipo", "type", "reason",
-      "transaction_type", "tipo de transação", "payment_type"
+      "operation_type", "tipo de operação", "tipo", "type", "reason"
     ]),
-    // Descrição
     descricao: findColumnIndex(header, [
-      "description", "descrição", "descricao", "reason", "motivo",
-      "detail", "detalhe", "item_title", "título"
+      "description", "descrição", "descricao", "reason", "motivo", "detalhe"
     ]),
-    // Valor bruto
     valorBruto: findColumnIndex(header, [
-      "transaction_amount", "valor da transação", "valor bruto", "gross_amount",
-      "total_paid_amount", "valor total", "amount"
+      "transaction_amount", "valor da transação", "valor bruto", "gross_amount"
     ]),
-    // Tarifa/Comissão
     tarifa: findColumnIndex(header, [
-      "fee_amount", "marketplace_fee", "tarifa", "comissão", "commission",
-      "mercadopago_fee", "mp_fee", "taxa mercadopago"
+      "fee_amount", "marketplace_fee", "tarifa", "comissão"
     ]),
-    // Valor líquido
     valorLiquido: findColumnIndex(header, [
-      "net_received_amount", "valor líquido recebido", "valor líquido", "net_amount",
-      "valor_liquido", "net", "total received"
+      "net_received_amount", "valor líquido recebido", "valor líquido", "net_amount"
     ]),
-    // Status
-    status: findColumnIndex(header, [
-      "status", "status_detail", "situação", "state"
-    ]),
-    // Pedido/Order
-    pedido: findColumnIndex(header, [
-      "order_id", "id do pedido", "pedido", "external_reference", 
-      "referência externa", "merchant_order_id"
-    ]),
-    // Financiamento/Parcelas
-    parcelas: findColumnIndex(header, [
-      "installments", "parcelas", "financing_fee_amount"
-    ]),
+    status: findColumnIndex(header, ["status", "status_detail", "situação"]),
+    pedido: findColumnIndex(header, ["order_id", "id do pedido", "pedido", "external_reference"]),
   };
 
-  console.log("Colunas MP mapeadas:", col);
-
-  // Validar colunas mínimas
   if (col.data === -1 && col.valorBruto === -1 && col.valorLiquido === -1) {
     throw new Error(
       `Formato não reconhecido do relatório Mercado Pago. ` +
@@ -265,19 +437,15 @@ export async function parseXLSXMercadoPago(file: File): Promise<any[]> {
     );
   }
 
-  const transacoes = dataRows
+  return dataRows
     .filter(r => r && (r[col.data] || r[col.valorBruto] || r[col.valorLiquido]))
     .map(r => {
       const bruto = parseNumber(r[col.valorBruto]);
       const tarifa = Math.abs(parseNumber(r[col.tarifa]));
       let liquido = parseNumber(r[col.valorLiquido]);
       
-      // Se não tem valor líquido, calcula
-      if (!liquido && bruto) {
-        liquido = bruto - tarifa;
-      }
+      if (!liquido && bruto) liquido = bruto - tarifa;
 
-      // Descrição composta
       let descricao = "Transação MP";
       if (col.descricao >= 0 && r[col.descricao]) {
         descricao = String(r[col.descricao]).trim();
@@ -285,15 +453,11 @@ export async function parseXLSXMercadoPago(file: File): Promise<any[]> {
         descricao = String(r[col.tipo]).trim();
       }
 
-      // Status para filtrar
       const status = col.status >= 0 ? String(r[col.status] || "").toLowerCase() : "";
-      
-      // Determinar tipo de lançamento baseado no tipo de operação
       const tipoOp = col.tipo >= 0 ? String(r[col.tipo] || "").toLowerCase() : "";
       const isDebito = tipoOp.includes("refund") || 
                        tipoOp.includes("chargeback") || 
                        tipoOp.includes("estorno") ||
-                       tipoOp.includes("devolução") ||
                        liquido < 0;
 
       return {
@@ -307,24 +471,9 @@ export async function parseXLSXMercadoPago(file: File): Promise<any[]> {
         valor_bruto: Math.abs(bruto) || Math.abs(liquido),
         valor_liquido: Math.abs(liquido) || Math.abs(bruto),
         tarifas: tarifa,
-        status_original: status,
         tipo_transacao: tipoOp || "payment",
         tipo_lancamento: isDebito ? "debito" : "credito",
       };
     })
-    .filter(t => {
-      // Filtrar transações com valor e ignorar pendentes/cancelados
-      const hasValue = !isNaN(t.valor_liquido) && t.valor_liquido !== 0;
-      const isValid = !t.status_original.includes("pending") && 
-                      !t.status_original.includes("cancelled") &&
-                      !t.status_original.includes("rejected");
-      return hasValue && isValid;
-    })
-    .map(t => {
-      // Remove campo auxiliar
-      const { status_original, ...rest } = t;
-      return rest;
-    });
-
-  return transacoes;
+    .filter(t => !isNaN(t.valor_liquido) && t.valor_liquido !== 0);
 }
