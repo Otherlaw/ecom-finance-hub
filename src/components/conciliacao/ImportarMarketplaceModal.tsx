@@ -110,12 +110,17 @@ export function ImportarMarketplaceModal({
 
   // Função para gerar hash de duplicidade (DEVE ser idêntica à do hook useMarketplaceTransactions)
   const gerarHashDuplicidade = useCallback((t: TransacaoPreview, empId: string, canalVal: string): string => {
+    // Normalizar valor para evitar problemas de precisão de ponto flutuante
+    const valorNormalizado = typeof t.valor_liquido === 'number' 
+      ? parseFloat(t.valor_liquido.toFixed(2)).toString()
+      : String(t.valor_liquido || 0);
+    
     const partes = [
       empId,
       canalVal,
       t.data_transacao,
       t.descricao?.substring(0, 100) || "",
-      String(t.valor_liquido || 0),
+      valorNormalizado,
       t.pedido_id || "",
     ];
     return partes.map(p => String(p).toLowerCase().trim()).join("|");
