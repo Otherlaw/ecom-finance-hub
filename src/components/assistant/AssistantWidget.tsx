@@ -116,8 +116,8 @@ export function AssistantWidget() {
 
   return (
     <>
-      {/* Widget principal */}
-      <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2">
+      {/* Widget principal - bottom-20 para não sobrepor paginação */}
+      <div className="fixed bottom-20 right-4 z-40 flex flex-col items-end gap-2">
         {/* Mini lista de alertas recentes */}
         {isExpanded && !isChatOpen && (
           <div className="bg-card border rounded-xl shadow-xl w-80 max-h-96 overflow-hidden animate-in slide-in-from-bottom-2">
