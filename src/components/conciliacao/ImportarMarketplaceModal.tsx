@@ -32,7 +32,8 @@ import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hook
 import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
-import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago, parseShopee, type ParseResult } from "@/lib/parsers/arquivoFinanceiro";
+import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago, parseShopee, type ParseResult, type ItemVendaParser } from "@/lib/parsers/arquivoFinanceiro";
+import { criarItensEmLote, limparCacheMapeamentos } from "@/lib/marketplace-items-service";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -54,8 +55,8 @@ type TransacaoPreview = {
   valor_liquido: number;
   tipo_lancamento: 'credito' | 'debito';
   referencia_externa: string;
-  // Itens associados (novo)
-  itens: ItemVendaMarketplace[];
+  // Itens associados (extraídos do relatório)
+  itens: ItemVendaParser[];
 };
 
 // Interface para estatísticas de importação
@@ -319,7 +320,7 @@ export function ImportarMarketplaceModal({
           };
         });
       } else if (canal === "mercado_livre" && (tipo === "xlsx" || tipo === "csv")) {
-        // Parser específico ML retorna objetos já mapeados COM ESTATÍSTICAS
+        // Parser específico ML retorna objetos já mapeados COM ESTATÍSTICAS E ITENS
         const result: ParseResult = await parseXLSXMercadoLivre(file);
         stats = {
           ...stats,
@@ -333,17 +334,20 @@ export function ImportarMarketplaceModal({
             data_transacao: t.data_transacao,
             descricao: t.descricao,
             pedido_id: t.pedido_id,
-            tipo_transacao: t.descricao || "venda",
+            tipo_transacao: t.tipo_transacao || t.descricao || "venda",
             valor_bruto: t.valor_bruto,
-            tarifas: 0,
-            taxas: 0,
-            outros_descontos: 0,
+            tarifas: t.tarifas || 0,
+            taxas: t.taxas || 0,
+            outros_descontos: t.outros_descontos || 0,
             valor_liquido: t.valor_liquido,
-            tipo_lancamento: t.valor_liquido >= 0 ? "credito" as const : "debito" as const,
+            tipo_lancamento: t.tipo_lancamento || (t.valor_liquido >= 0 ? "credito" as const : "debito" as const),
             referencia_externa: t.referencia_externa || hash,
-            itens: [],
+            // Passar itens extraídos do relatório
+            itens: t.itens || [],
           };
         });
+        // Contar total de itens detectados
+        totalItens = transacoes.reduce((sum, t) => sum + (t.itens?.length || 0), 0);
       } else if (canal === "shopee" && (tipo === "xlsx" || tipo === "csv")) {
         // Parser específico Shopee retorna objetos já mapeados COM ESTATÍSTICAS
         const result: ParseResult = await parseShopee(file);
@@ -364,9 +368,11 @@ export function ImportarMarketplaceModal({
             valor_liquido: t.valor_liquido,
             tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
             referencia_externa: t.referencia_externa,
-            itens: [],
+            // Shopee pode ter itens no futuro
+            itens: t.itens || [],
           };
         });
+        totalItens = transacoes.reduce((sum, t) => sum + (t.itens?.length || 0), 0);
       } else if (tipo === "csv") {
         const linhas = await parseCSVFile(file);
         stats.totalLinhasArquivo = linhas.length;
@@ -642,6 +648,10 @@ export function ImportarMarketplaceModal({
         descricao: row.descricao,
         valor_bruto: row.valor_bruto,
         valor_liquido: row.valor_liquido,
+        // NOVOS: Tarifas, taxas e descontos extraídos do relatório
+        tarifas: row.tarifas || 0,
+        taxas: row.taxas || 0,
+        outros_descontos: row.outros_descontos || 0,
         tipo_lancamento: row.tipo_lancamento,
         status: 'importado',
         categoria_id: null,
@@ -702,11 +712,46 @@ export function ImportarMarketplaceModal({
           transactionIds: result.insertedIds,
           empresaId,
         });
-        setUploadProgress(100);
+        setUploadProgress(80);
       } catch (err) {
         console.error("[Importação] Erro na auto-categorização:", err);
         // Continua mesmo se a auto-categorização falhar
       }
+
+      // Criar itens de venda para transações com itens
+      // Mapeamos os índices das transações novas com os IDs inseridos
+      const transacoesNovasComIndice = parsedData
+        .map((t, idx) => ({ transacao: t, indiceOriginal: idx }))
+        .filter(({ indiceOriginal }) => !transacoesDuplicadasIndices.has(indiceOriginal));
+
+      const transacoesComItens = transacoesNovasComIndice
+        .map(({ transacao }, idx) => ({
+          transactionId: result.insertedIds[idx],
+          itens: transacao.itens || [],
+        }))
+        .filter(t => t.itens.length > 0);
+
+      if (transacoesComItens.length > 0) {
+        setUploadLabel("Criando registros de itens vendidos...");
+        setUploadProgress(85);
+        
+        try {
+          limparCacheMapeamentos();
+          const resultadoItens = await criarItensEmLote(transacoesComItens, empresaId, canal);
+          console.log("[Importação] Itens criados:", resultadoItens);
+          
+          if (resultadoItens.itensVinculados > 0) {
+            toast.info(
+              `${resultadoItens.itensVinculados} itens vinculados automaticamente a produtos`,
+              { duration: 5000 }
+            );
+          }
+        } catch (err) {
+          console.error("[Importação] Erro ao criar itens:", err);
+        }
+      }
+
+      setUploadProgress(100);
     }
 
     // Toast com resumo detalhado
