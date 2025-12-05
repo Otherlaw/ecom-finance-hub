@@ -707,6 +707,8 @@ async function processarImportacaoBackground(
   queryClient: any
 ) {
   const BATCH_SIZE = 500;
+  const TOTAL = transacoesParaImportar.length;
+  let processadas = 0;
   let importadas = 0;
   let duplicadas = 0;
   let erros = 0;
@@ -733,6 +735,13 @@ async function processarImportacaoBackground(
       
       (existentes || []).forEach(e => {
         if (e.referencia_externa) refsExistentes.add(e.referencia_externa);
+      });
+      
+      // Atualizar progresso durante verificação (conta como 30% do total)
+      processadas = Math.min(i + batch.length, refsParaImportar.length);
+      const progressoVerificacao = Math.floor((processadas / TOTAL) * 0.3 * TOTAL);
+      await atualizarProgressoJob(jobId, {
+        linhas_processadas: progressoVerificacao,
       });
     }
     
@@ -766,7 +775,15 @@ async function processarImportacaoBackground(
       paraInserir: transacoesUnicas.length,
     });
 
-    // PASSO 2: Inserir transações únicas em batches
+    // Atualizar progresso com contagem de duplicadas
+    await atualizarProgressoJob(jobId, {
+      linhas_processadas: Math.floor(TOTAL * 0.3),
+      linhas_duplicadas: duplicadas,
+    });
+
+    // PASSO 2: Inserir transações únicas em batches (70% restante do progresso)
+    const totalUnicas = transacoesUnicas.length;
+    
     for (let i = 0; i < transacoesUnicas.length; i += BATCH_SIZE) {
       const batch = transacoesUnicas.slice(i, i + BATCH_SIZE);
       
@@ -795,12 +812,28 @@ async function processarImportacaoBackground(
         console.error("[Background Import] Erro no batch:", err);
       }
 
+      // Calcular progresso: 30% verificação + 70% da inserção
+      const progressoInsercao = totalUnicas > 0 
+        ? Math.floor(((i + batch.length) / totalUnicas) * 0.7 * TOTAL)
+        : Math.floor(0.7 * TOTAL);
+      const progressoTotal = Math.floor(TOTAL * 0.3) + progressoInsercao;
+      
       // Atualizar progresso no banco após cada batch
       await atualizarProgressoJob(jobId, {
-        linhas_processadas: Math.min(i + batch.length, transacoesUnicas.length),
+        linhas_processadas: Math.min(progressoTotal, TOTAL),
         linhas_importadas: importadas,
         linhas_duplicadas: duplicadas,
         linhas_com_erro: erros,
+      });
+    }
+
+    // Se não há transações para inserir (todas duplicadas), marcar como 100%
+    if (transacoesUnicas.length === 0) {
+      await atualizarProgressoJob(jobId, {
+        linhas_processadas: TOTAL,
+        linhas_importadas: 0,
+        linhas_duplicadas: duplicadas,
+        linhas_com_erro: 0,
       });
     }
 
