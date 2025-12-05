@@ -24,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Upload, FileSpreadsheet, AlertCircle, Package, Sparkles, AlertTriangle } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, Package, Sparkles, AlertTriangle, Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { useEmpresas } from "@/hooks/useEmpresas";
@@ -32,8 +32,9 @@ import { useMarketplaceTransactions, MarketplaceTransactionInsert } from "@/hook
 import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
-import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago } from "@/lib/parsers/arquivoFinanceiro";
+import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago, type ParseResult } from "@/lib/parsers/arquivoFinanceiro";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface ImportarMarketplaceModalProps {
   open: boolean;
@@ -56,6 +57,17 @@ type TransacaoPreview = {
   // Itens associados (novo)
   itens: ItemVendaMarketplace[];
 };
+
+// Interface para estatísticas de importação
+interface ImportStats {
+  totalLinhasArquivo: number;
+  totalTransacoesGeradas: number;
+  totalComValorZero: number;
+  totalDescartadasPorFormato: number;
+  totalLinhasVazias: number;
+  totalDuplicadas: number;
+  totalInseridas: number;
+}
 
 const CANAIS = [
   { value: "mercado_livre", label: "Mercado Livre" },
@@ -90,6 +102,17 @@ export function ImportarMarketplaceModal({
   const [duplicatasPrevia, setDuplicatasPrevia] = useState<number>(0);
   const [transacoesNovas, setTransacoesNovas] = useState<number>(0);
   const [hashesDuplicados, setHashesDuplicados] = useState<Set<string>>(new Set());
+  
+  // Estatísticas de parse
+  const [importStats, setImportStats] = useState<ImportStats>({
+    totalLinhasArquivo: 0,
+    totalTransacoesGeradas: 0,
+    totalComValorZero: 0,
+    totalDescartadasPorFormato: 0,
+    totalLinhasVazias: 0,
+    totalDuplicadas: 0,
+    totalInseridas: 0,
+  });
 
   const resetForm = useCallback(() => {
     setEmpresaId("");
@@ -106,22 +129,38 @@ export function ImportarMarketplaceModal({
     setDuplicatasPrevia(0);
     setTransacoesNovas(0);
     setHashesDuplicados(new Set());
+    setImportStats({
+      totalLinhasArquivo: 0,
+      totalTransacoesGeradas: 0,
+      totalComValorZero: 0,
+      totalDescartadasPorFormato: 0,
+      totalLinhasVazias: 0,
+      totalDuplicadas: 0,
+      totalInseridas: 0,
+    });
   }, []);
 
-  // Função para gerar hash de duplicidade (DEVE ser idêntica à do hook useMarketplaceTransactions)
+  // Função para gerar hash de duplicidade mais robusto
   const gerarHashDuplicidade = useCallback((t: TransacaoPreview, empId: string, canalVal: string): string => {
-    // Normalizar valor para evitar problemas de precisão de ponto flutuante
-    const valorNormalizado = typeof t.valor_liquido === 'number' 
+    // Normalizar valores para evitar problemas de precisão de ponto flutuante
+    const valorLiquidoNorm = typeof t.valor_liquido === 'number' 
       ? parseFloat(t.valor_liquido.toFixed(2)).toString()
       : String(t.valor_liquido || 0);
+    const valorBrutoNorm = typeof t.valor_bruto === 'number'
+      ? parseFloat(t.valor_bruto.toFixed(2)).toString()
+      : String(t.valor_bruto || 0);
+    
+    // Se tiver referencia_externa (ID único do relatório), usar como base
+    const baseRef = t.referencia_externa || t.pedido_id || "";
     
     const partes = [
       empId,
       canalVal,
       t.data_transacao,
       t.descricao?.substring(0, 100) || "",
-      valorNormalizado,
-      t.pedido_id || "",
+      valorLiquidoNorm,
+      valorBrutoNorm,
+      baseRef,
     ];
     return partes.map(p => String(p).toLowerCase().trim()).join("|");
   }, []);
@@ -132,20 +171,27 @@ export function ImportarMarketplaceModal({
       setDuplicatasPrevia(0);
       setTransacoesNovas(0);
       setHashesDuplicados(new Set());
-      return;
+      return 0;
     }
 
     // Gerar hashes para as transações do arquivo
     const hashesArquivo = transacoes.map(t => gerarHashDuplicidade(t, empId, canalVal));
 
-    // Buscar hashes existentes no banco
-    const { data: existentes } = await supabase
-      .from('marketplace_transactions')
-      .select('hash_duplicidade')
-      .eq('empresa_id', empId)
-      .in('hash_duplicidade', hashesArquivo);
+    // Buscar hashes existentes no banco em lotes (Supabase tem limite de IN clause)
+    const BATCH_SIZE = 500;
+    const hashesExistentes = new Set<string>();
+    
+    for (let i = 0; i < hashesArquivo.length; i += BATCH_SIZE) {
+      const batch = hashesArquivo.slice(i, i + BATCH_SIZE);
+      const { data: existentes } = await supabase
+        .from('marketplace_transactions')
+        .select('hash_duplicidade')
+        .eq('empresa_id', empId)
+        .in('hash_duplicidade', batch);
+      
+      (existentes || []).forEach(e => hashesExistentes.add(e.hash_duplicidade));
+    }
 
-    const hashesExistentes = new Set((existentes || []).map(e => e.hash_duplicidade));
     setHashesDuplicados(hashesExistentes);
     
     const duplicadas = hashesArquivo.filter(h => hashesExistentes.has(h)).length;
@@ -153,6 +199,8 @@ export function ImportarMarketplaceModal({
 
     setDuplicatasPrevia(duplicadas);
     setTransacoesNovas(novas);
+    
+    return duplicadas;
   }, [gerarHashDuplicidade]);
 
   const handleClose = useCallback(() => {
@@ -160,188 +208,132 @@ export function ImportarMarketplaceModal({
     onOpenChange(false);
   }, [onOpenChange, resetForm]);
 
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const parseCSV = useCallback((content: string, selectedCanal: string): { transacoes: TransacaoPreview[]; totalItens: number } => {
-    const lines = content.split("\n").filter(line => line.trim());
-    if (lines.length < 2) return { transacoes: [], totalItens: 0 };
+    setError(null);
+    setFileName(file.name);
 
-    const header = lines[0].toLowerCase();
-    const transactions: TransacaoPreview[] = [];
-    let totalItens = 0;
-
-    // Detectar delimitador
-    const delimiter = header.includes(";") ? ";" : ",";
-    const headers = header.split(delimiter).map(h => h.trim().replace(/"/g, ""));
-
-    // Mapeamento de colunas por canal
-    const columnMappings: Record<string, {
-      data: string[];
-      pedido: string[];
-      tipo: string[];
-      descricao: string[];
-      valorBruto: string[];
-      valorLiquido: string[];
-      tarifas: string[];
-      taxas: string[];
-      outrosDescontos: string[];
-    }> = {
-      mercado_livre: {
-        data: ["data da tarifa", "date", "data", "fecha"],
-        pedido: ["número da venda", "order", "pedido", "pack_id", "order_id"],
-        tipo: ["tipo de tarifa", "type", "tipo", "reason"],
-        descricao: ["description", "descricao", "description_detail", "tipo de tarifa"],
-        valorBruto: ["valor da transação", "amount", "valor_bruto", "gross_amount"],
-        valorLiquido: ["valor líquido da transação", "net_amount", "valor_liquido", "total"],
-        tarifas: ["tarifa", "comissao", "commission", "fee"],
-        taxas: ["taxa", "imposto", "tax"],
-        outrosDescontos: ["desconto", "discount", "outros"],
-      },
-      mercado_pago: {
-        data: ["date_created", "data de criação", "data", "money_release_date", "date_approved"],
-        pedido: ["order_id", "external_reference", "referência externa", "merchant_order_id", "id"],
-        tipo: ["operation_type", "tipo de operação", "tipo", "payment_type", "transaction_type"],
-        descricao: ["description", "descrição", "reason", "item_title", "motivo"],
-        valorBruto: ["transaction_amount", "valor da transação", "valor bruto", "amount", "total_paid_amount"],
-        valorLiquido: ["net_received_amount", "valor líquido", "net_amount", "valor_liquido"],
-        tarifas: ["fee_amount", "marketplace_fee", "tarifa", "mercadopago_fee", "mp_fee"],
-        taxas: ["taxes_amount", "imposto", "tax"],
-        outrosDescontos: ["financing_fee_amount", "desconto", "coupon_amount"],
-      },
-      shopee: {
-        data: ["data do pedido", "order date", "data"],
-        pedido: ["nº do pedido", "order id", "pedido"],
-        tipo: ["tipo de transação", "transaction type", "tipo"],
-        descricao: ["descrição", "description", "observação"],
-        valorBruto: ["valor bruto", "gross value", "total do pedido"],
-        valorLiquido: ["valor líquido", "net value", "valor final"],
-        tarifas: ["comissão", "taxa de serviço", "fee"],
-        taxas: ["imposto", "tax"],
-        outrosDescontos: ["voucher", "desconto", "cupom"],
-      },
-      default: {
-        data: ["data", "date", "data_transacao"],
-        pedido: ["pedido", "order", "pedido_id"],
-        tipo: ["tipo", "type", "tipo_transacao"],
-        descricao: ["descricao", "description", "observacao"],
-        valorBruto: ["valor_bruto", "gross", "bruto"],
-        valorLiquido: ["valor_liquido", "net", "liquido", "valor"],
-        tarifas: ["tarifa", "comissao", "fee"],
-        taxas: ["taxa", "imposto", "tax"],
-        outrosDescontos: ["desconto", "outros", "discount"],
-      },
-    };
-
-    const mapping = columnMappings[selectedCanal] || columnMappings.default;
-
-    const findColumn = (possibleNames: string[]): number => {
-      for (const name of possibleNames) {
-        const idx = headers.findIndex(h => h.includes(name));
-        if (idx >= 0) return idx;
-      }
-      return -1;
-    };
-
-    const dataIdx = findColumn(mapping.data);
-    const pedidoIdx = findColumn(mapping.pedido);
-    const tipoIdx = findColumn(mapping.tipo);
-    const descricaoIdx = findColumn(mapping.descricao);
-    const valorBrutoIdx = findColumn(mapping.valorBruto);
-    const valorLiquidoIdx = findColumn(mapping.valorLiquido);
-    const tarifasIdx = findColumn(mapping.tarifas);
-    const taxasIdx = findColumn(mapping.taxas);
-    const outrosDescontosIdx = findColumn(mapping.outrosDescontos);
-
-    // Detectar se tem granularidade de itens
-    const temItens = detectarGranularidadeItens(headers);
-
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(delimiter).map(v => v.trim().replace(/"/g, ""));
-      if (values.length < 3) continue;
-
-      const parseDate = (dateStr: string): string => {
-        if (!dateStr) return new Date().toISOString().split("T")[0];
-        // Tentar formatos comuns
-        const parts = dateStr.split(/[\/\-]/);
-        if (parts.length === 3) {
-          if (parts[0].length === 4) {
-            return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
-          }
-          return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
-        }
-        return new Date().toISOString().split("T")[0];
+    try {
+      setIsProcessing(true);
+      const tipo = detectarTipoArquivo(file);
+      let transacoes: TransacaoPreview[] = [];
+      let totalItens = 0;
+      let stats: ImportStats = {
+        totalLinhasArquivo: 0,
+        totalTransacoesGeradas: 0,
+        totalComValorZero: 0,
+        totalDescartadasPorFormato: 0,
+        totalLinhasVazias: 0,
+        totalDuplicadas: 0,
+        totalInseridas: 0,
       };
 
-      const parseValue = (val: string): number => {
-        if (!val) return 0;
-        const cleaned = val.replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", ".");
-        return parseFloat(cleaned) || 0;
-      };
-
-      const valorLiquido = valorLiquidoIdx >= 0 ? parseValue(values[valorLiquidoIdx]) : 0;
-      const valorBruto = valorBrutoIdx >= 0 ? parseValue(values[valorBrutoIdx]) : valorLiquido;
-      const tarifas = tarifasIdx >= 0 ? parseValue(values[tarifasIdx]) : 0;
-      const taxas = taxasIdx >= 0 ? parseValue(values[taxasIdx]) : 0;
-      const outrosDescontos = outrosDescontosIdx >= 0 ? parseValue(values[outrosDescontosIdx]) : 0;
-      const tipoTransacao = tipoIdx >= 0 ? values[tipoIdx] || "venda" : "venda";
-
-      // Determinar se é crédito ou débito baseado no tipo e valor
-      let tipoLancamento: 'credito' | 'debito' = "credito";
-      const tipoLower = tipoTransacao.toLowerCase();
-      if (
-        tipoLower.includes("comiss") ||
-        tipoLower.includes("tarifa") ||
-        tipoLower.includes("taxa") ||
-        tipoLower.includes("frete") ||
-        tipoLower.includes("desconto") ||
-        valorLiquido < 0
-      ) {
-        tipoLancamento = "debito";
+      // Parser específico para Mercado Pago (CSV ou XLSX)
+      if (canal === "mercado_pago") {
+        const result: ParseResult = await parseXLSXMercadoPago(file);
+        stats = {
+          ...stats,
+          ...result.estatisticas,
+        };
+        transacoes = result.transacoes.map(t => {
+          // Usar referencia_externa se disponível, senão gerar hash
+          const hash = t.referencia_externa || 
+            `${t.data_transacao}_${t.pedido_id || ""}_${t.valor_bruto}_${t.valor_liquido}_${t.descricao}`.substring(0, 120);
+          return {
+            data_transacao: t.data_transacao,
+            descricao: t.descricao,
+            pedido_id: t.pedido_id,
+            tipo_transacao: t.tipo_transacao || "payment",
+            valor_bruto: t.valor_bruto,
+            tarifas: t.tarifas || 0,
+            taxas: 0,
+            outros_descontos: 0,
+            valor_liquido: t.valor_liquido,
+            tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
+            referencia_externa: t.referencia_externa || hash,
+            itens: [],
+          };
+        });
+      } else if (canal === "mercado_livre" && (tipo === "xlsx" || tipo === "csv")) {
+        // Parser específico ML retorna objetos já mapeados COM ESTATÍSTICAS
+        const result: ParseResult = await parseXLSXMercadoLivre(file);
+        stats = {
+          ...stats,
+          ...result.estatisticas,
+        };
+        transacoes = result.transacoes.map(t => {
+          // Usar referencia_externa se disponível (ID único do relatório), senão gerar hash
+          const hash = t.referencia_externa || 
+            `${t.data_transacao}_${t.pedido_id || ""}_${t.valor_bruto}_${t.valor_liquido}_${t.descricao}`.substring(0, 120);
+          return {
+            data_transacao: t.data_transacao,
+            descricao: t.descricao,
+            pedido_id: t.pedido_id,
+            tipo_transacao: t.descricao || "venda",
+            valor_bruto: t.valor_bruto,
+            tarifas: 0,
+            taxas: 0,
+            outros_descontos: 0,
+            valor_liquido: t.valor_liquido,
+            tipo_lancamento: t.valor_liquido >= 0 ? "credito" as const : "debito" as const,
+            referencia_externa: t.referencia_externa || hash,
+            itens: [],
+          };
+        });
+      } else if (tipo === "csv") {
+        const linhas = await parseCSVFile(file);
+        stats.totalLinhasArquivo = linhas.length;
+        const result = mapLinhasRelatorioParaTransacoes(linhas, canal);
+        transacoes = result.transacoes;
+        totalItens = result.totalItens;
+        stats.totalTransacoesGeradas = transacoes.length;
+      } else if (tipo === "xlsx") {
+        const linhas = await parseXLSXFile(file);
+        stats.totalLinhasArquivo = linhas.length;
+        const result = mapLinhasRelatorioParaTransacoes(linhas, canal);
+        transacoes = result.transacoes;
+        totalItens = result.totalItens;
+        stats.totalTransacoesGeradas = transacoes.length;
+      } else {
+        setError("Formato não suportado. Use CSV ou XLSX.");
+        setIsProcessing(false);
+        return;
       }
 
-      const pedidoIdValue = pedidoIdx >= 0 && values[pedidoIdx] ? values[pedidoIdx] : null;
-      const dataTransacao = dataIdx >= 0 ? parseDate(values[dataIdx]) : new Date().toISOString().split("T")[0];
-      const descricaoValue = descricaoIdx >= 0 ? values[descricaoIdx] || tipoTransacao : tipoTransacao;
-      
-      // Gerar hash para referencia_externa
-      const hashStr = `${dataTransacao}|${pedidoIdValue || ''}|${tipoTransacao}|${valorLiquido}`;
-      let hash = 0;
-      for (let j = 0; j < hashStr.length; j++) {
-        const char = hashStr.charCodeAt(j);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-      }
-      const referenciaExterna = Math.abs(hash).toString(16);
-
-      // Extrair item se houver granularidade
-      const itens: ItemVendaMarketplace[] = [];
-      if (temItens) {
-        const item = extrairItemDeLinhaCSV(selectedCanal, headers, values, pedidoIdValue);
-        if (item) {
-          itens.push(item);
-          totalItens++;
-        }
-      }
-
-      transactions.push({
-        data_transacao: dataTransacao,
-        pedido_id: pedidoIdValue,
-        tipo_transacao: tipoTransacao,
-        descricao: descricaoValue,
-        valor_bruto: Math.abs(valorBruto),
-        tarifas: Math.abs(tarifas),
-        taxas: Math.abs(taxas),
-        outros_descontos: Math.abs(outrosDescontos),
-        valor_liquido: Math.abs(valorLiquido),
-        tipo_lancamento: tipoLancamento,
-        referencia_externa: referenciaExterna,
-        itens,
+      console.log('[Importação Marketplace] Prévia completa', {
+        tipo,
+        canal,
+        ...stats,
+        totalTransacoes: transacoes.length,
+        totalItens,
       });
+
+      if (transacoes.length === 0) {
+        setError(`Nenhuma transação encontrada no arquivo. Arquivo tinha ${stats.totalLinhasArquivo} linhas, ${stats.totalLinhasVazias} vazias, ${stats.totalDescartadasPorFormato} descartadas por formato.`);
+        setIsProcessing(false);
+        return;
+      }
+
+      setParsedData(transacoes);
+      setTotalItensDetectados(totalItens);
+      setStep("preview");
+      
+      // Verificar duplicatas na prévia
+      const duplicadas = await verificarDuplicatasPrevia(transacoes, empresaId, canal);
+      stats.totalDuplicadas = duplicadas;
+      
+      setImportStats(stats);
+      setIsProcessing(false);
+    } catch (err) {
+      console.error("Erro ao processar arquivo:", err);
+      setError("Erro ao processar o arquivo. Verifique o formato.");
+      setIsProcessing(false);
     }
+  }, [canal, empresaId, verificarDuplicatasPrevia]);
 
-    return { transacoes: transactions, totalItens };
-  }, []);
-
-  // Mapeia linhas do relatório (CSV/XLSX) para TransacaoPreview[]
+  // Mapeia linhas do relatório (CSV/XLSX) para TransacaoPreview[] (parser genérico)
   const mapLinhasRelatorioParaTransacoes = useCallback((linhas: any[], selectedCanal: string): { transacoes: TransacaoPreview[]; totalItens: number } => {
     if (linhas.length === 0) return { transacoes: [], totalItens: 0 };
 
@@ -362,6 +354,7 @@ export function ImportarMarketplaceModal({
       tarifas: string[];
       taxas: string[];
       outrosDescontos: string[];
+      idUnico: string[];
     }> = {
       mercado_livre: {
         data: ["data da tarifa", "date", "data", "fecha"],
@@ -373,6 +366,7 @@ export function ImportarMarketplaceModal({
         tarifas: ["tarifa", "comissao", "commission", "fee"],
         taxas: ["taxa", "imposto", "tax"],
         outrosDescontos: ["desconto", "discount", "outros"],
+        idUnico: ["id da tarifa", "id tarifa", "id da transação", "id transacao", "id"],
       },
       mercado_pago: {
         data: ["date_created", "data de criação", "data", "money_release_date", "date_approved"],
@@ -384,6 +378,7 @@ export function ImportarMarketplaceModal({
         tarifas: ["fee_amount", "marketplace_fee", "tarifa", "mercadopago_fee", "mp_fee"],
         taxas: ["taxes_amount", "imposto", "tax"],
         outrosDescontos: ["financing_fee_amount", "desconto", "coupon_amount"],
+        idUnico: ["id", "operation_id", "id da operação"],
       },
       shopee: {
         data: ["data do pedido", "order date", "data"],
@@ -395,6 +390,7 @@ export function ImportarMarketplaceModal({
         tarifas: ["comissão", "taxa de serviço", "fee"],
         taxas: ["imposto", "tax"],
         outrosDescontos: ["voucher", "desconto", "cupom"],
+        idUnico: ["id", "order id"],
       },
       default: {
         data: ["data", "date", "data_transacao"],
@@ -406,6 +402,7 @@ export function ImportarMarketplaceModal({
         tarifas: ["tarifa", "comissao", "fee"],
         taxas: ["taxa", "imposto", "tax"],
         outrosDescontos: ["desconto", "outros", "discount"],
+        idUnico: ["id", "id_transacao"],
       },
     };
 
@@ -428,180 +425,115 @@ export function ImportarMarketplaceModal({
     const tarifasCol = findColumn(mapping.tarifas);
     const taxasCol = findColumn(mapping.taxas);
     const outrosDescontosCol = findColumn(mapping.outrosDescontos);
+    const idUnicoCol = findColumn(mapping.idUnico);
 
     // Detectar se tem granularidade de itens
     const temItens = detectarGranularidadeItens(headers);
 
-    const parseDate = (dateStr: string): string => {
-      if (!dateStr) return new Date().toISOString().split("T")[0];
-      const parts = String(dateStr).split(/[\/\-]/);
-      if (parts.length === 3) {
-        if (parts[0].length === 4) {
-          return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
-        }
-        return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
-      }
-      return new Date().toISOString().split("T")[0];
-    };
-
-    const parseValue = (val: any): number => {
-      if (typeof val === "number") return val;
-      if (!val) return 0;
-      const str = String(val).replace(/[^\d,.\-]/g, "").replace(",", ".");
-      return parseFloat(str) || 0;
-    };
-
-    const getVal = (linha: any, col: string | null): any => {
-      if (!col) return null;
-      // Procura a chave original (case-insensitive)
-      const key = Object.keys(linha).find(k => k.toLowerCase().trim() === col);
-      return key ? linha[key] : null;
-    };
-
     for (const linha of linhas) {
-      const dataTransacao = parseDate(getVal(linha, dataCol) || "");
-      const pedidoId = getVal(linha, pedidoCol) || null;
-      const tipoTransacao = getVal(linha, tipoCol) || "venda";
-      const descricao = getVal(linha, descricaoCol) || `Transação ${selectedCanal}`;
-      const valorBruto = parseValue(getVal(linha, valorBrutoCol));
-      const valorLiquido = parseValue(getVal(linha, valorLiquidoCol)) || valorBruto;
-      const tarifas = parseValue(getVal(linha, tarifasCol));
-      const taxas = parseValue(getVal(linha, taxasCol));
-      const outrosDescontos = parseValue(getVal(linha, outrosDescontosCol));
+      const keys = Object.keys(linha);
+      const getValue = (col: string | null): any => {
+        if (!col) return null;
+        // Buscar por correspondência exata ou parcial
+        const matchKey = keys.find(k => k.toLowerCase().trim() === col || k.toLowerCase().trim().includes(col));
+        return matchKey ? linha[matchKey] : null;
+      };
 
-      if (valorLiquido === 0 && valorBruto === 0) continue;
+      const parseDate = (dateStr: string): string => {
+        if (!dateStr) return "";
+        // Tentar formatos comuns
+        const parts = String(dateStr).split(/[\/\-]/);
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
+          }
+          return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+        }
+        return "";
+      };
 
-      const hash = `${dataTransacao}_${pedidoId || ""}_${valorLiquido}_${descricao}`.substring(0, 100);
+      const parseValue = (val: any): number => {
+        if (typeof val === 'number') return val;
+        if (!val) return 0;
+        const cleaned = String(val).replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", ".");
+        return parseFloat(cleaned) || 0;
+      };
 
-      // Extrair itens se disponível
-      let itens: ItemVendaMarketplace[] = [];
+      const valorLiquido = parseValue(getValue(valorLiquidoCol));
+      const valorBruto = parseValue(getValue(valorBrutoCol)) || valorLiquido;
+      const tarifas = parseValue(getValue(tarifasCol));
+      const taxas = parseValue(getValue(taxasCol));
+      const outrosDescontos = parseValue(getValue(outrosDescontosCol));
+      const tipoTransacao = getValue(tipoCol) || "venda";
+      const dataTransacao = parseDate(getValue(dataCol));
+      const descricao = getValue(descricaoCol) || tipoTransacao;
+      const pedidoId = getValue(pedidoCol)?.toString().trim() || null;
+      const idUnico = getValue(idUnicoCol)?.toString().trim() || null;
+
+      // Verificar se linha é válida (novo filtro menos restritivo)
+      const temData = !!dataTransacao;
+      const temDescricao = !!descricao && descricao !== "venda";
+      const temValor = valorLiquido !== 0 || valorBruto !== 0;
+
+      // Só descartar se não tiver NADA
+      if (!temData && !temDescricao && !temValor) continue;
+
+      // Se não tem data, pular (necessário para ordenação)
+      if (!temData) continue;
+
+      // Determinar se é crédito ou débito baseado no tipo e valor
+      let tipoLancamento: 'credito' | 'debito' = "credito";
+      const tipoLower = String(tipoTransacao).toLowerCase();
+      if (
+        tipoLower.includes("comiss") ||
+        tipoLower.includes("tarifa") ||
+        tipoLower.includes("taxa") ||
+        tipoLower.includes("frete") ||
+        tipoLower.includes("desconto") ||
+        valorLiquido < 0
+      ) {
+        tipoLancamento = "debito";
+      }
+
+      // Gerar hash para referencia_externa usando ID único se disponível
+      const baseRef = idUnico || pedidoId || "";
+      const hashStr = `${dataTransacao}|${baseRef}|${tipoTransacao}|${valorBruto}|${valorLiquido}`;
+      let hash = 0;
+      for (let j = 0; j < hashStr.length; j++) {
+        const char = hashStr.charCodeAt(j);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      const referenciaExterna = idUnico || Math.abs(hash).toString(16);
+
+      // Extrair item se houver granularidade
+      const itens: ItemVendaMarketplace[] = [];
       if (temItens) {
-        const headersArray = Object.keys(linha);
-        const valuesArray = headersArray.map(h => String(linha[h] ?? ""));
-        const item = extrairItemDeLinhaCSV(selectedCanal, headersArray, valuesArray, pedidoId);
+        const item = extrairItemDeLinhaCSV(selectedCanal, headers, Object.values(linha).map(String), pedidoId);
         if (item) {
-          itens = [item];
-          totalItens += 1;
+          itens.push(item);
+          totalItens++;
         }
       }
 
       transactions.push({
         data_transacao: dataTransacao,
-        descricao: String(descricao),
-        pedido_id: pedidoId ? String(pedidoId) : null,
-        tipo_transacao: String(tipoTransacao),
-        valor_bruto: valorBruto,
-        tarifas,
-        taxas,
-        outros_descontos: outrosDescontos,
-        valor_liquido: valorLiquido,
-        tipo_lancamento: valorLiquido >= 0 ? "credito" : "debito",
-        referencia_externa: hash,
+        pedido_id: pedidoId,
+        tipo_transacao: tipoTransacao,
+        descricao: descricao,
+        valor_bruto: Math.abs(valorBruto),
+        tarifas: Math.abs(tarifas),
+        taxas: Math.abs(taxas),
+        outros_descontos: Math.abs(outrosDescontos),
+        valor_liquido: Math.abs(valorLiquido),
+        tipo_lancamento: tipoLancamento,
+        referencia_externa: referenciaExterna,
         itens,
       });
     }
 
     return { transacoes: transactions, totalItens };
   }, []);
-
-  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setError(null);
-    setFileName(file.name);
-
-    try {
-      setIsProcessing(true);
-      const tipo = detectarTipoArquivo(file);
-      let transacoes: TransacaoPreview[] = [];
-      let totalItens = 0;
-
-      // Parser específico para Mercado Pago (CSV ou XLSX)
-      if (canal === "mercado_pago") {
-        const linhasMP = await parseXLSXMercadoPago(file);
-        transacoes = linhasMP.map(t => {
-          const hash = `${t.data_transacao}_${t.pedido_id || t.referencia_externa || ""}_${t.valor_liquido}_${t.descricao}`.substring(0, 100);
-          return {
-            data_transacao: t.data_transacao,
-            descricao: t.descricao,
-            pedido_id: t.pedido_id,
-            tipo_transacao: t.tipo_transacao || "payment",
-            valor_bruto: t.valor_bruto,
-            tarifas: t.tarifas || 0,
-            taxas: 0,
-            outros_descontos: 0,
-            valor_liquido: t.valor_liquido,
-            tipo_lancamento: t.tipo_lancamento as 'credito' | 'debito',
-            referencia_externa: t.referencia_externa || hash,
-            itens: [],
-          };
-        });
-      } else if (tipo === "csv") {
-        const linhas = await parseCSVFile(file);
-        const result = mapLinhasRelatorioParaTransacoes(linhas, canal);
-        transacoes = result.transacoes;
-        totalItens = result.totalItens;
-      } else if (tipo === "xlsx") {
-        // Parser específico ML retorna objetos já mapeados
-        if (canal === "mercado_livre") {
-          const linhasML = await parseXLSXMercadoLivre(file);
-          transacoes = linhasML.map(t => {
-            const hash = `${t.data_transacao}_${t.pedido_id || ""}_${t.valor_liquido}_${t.descricao}`.substring(0, 100);
-            return {
-              data_transacao: t.data_transacao,
-              descricao: t.descricao,
-              pedido_id: t.pedido_id,
-              tipo_transacao: t.descricao || "venda",
-              valor_bruto: t.valor_bruto,
-              tarifas: 0,
-              taxas: 0,
-              outros_descontos: 0,
-              valor_liquido: t.valor_liquido,
-              tipo_lancamento: t.valor_liquido >= 0 ? "credito" as const : "debito" as const,
-              referencia_externa: hash,
-              itens: [],
-            };
-          });
-        } else {
-          const linhas = await parseXLSXFile(file);
-          const result = mapLinhasRelatorioParaTransacoes(linhas, canal);
-          transacoes = result.transacoes;
-          totalItens = result.totalItens;
-        }
-      } else {
-        setError("Formato não suportado. Use CSV ou XLSX.");
-        setIsProcessing(false);
-        return;
-      }
-
-      console.log('[Importação Marketplace] Prévia', {
-        tipo,
-        canal,
-        totalTransacoes: transacoes.length,
-        totalItens,
-      });
-
-      if (transacoes.length === 0) {
-        setError("Nenhuma transação encontrada no arquivo. Verifique o formato.");
-        setIsProcessing(false);
-        return;
-      }
-
-      setParsedData(transacoes);
-      setTotalItensDetectados(totalItens);
-      setStep("preview");
-      
-      // Verificar duplicatas na prévia
-      await verificarDuplicatasPrevia(transacoes, empresaId, canal);
-      
-      setIsProcessing(false);
-    } catch (err) {
-      console.error("Erro ao processar arquivo:", err);
-      setError("Erro ao processar o arquivo. Verifique o formato.");
-      setIsProcessing(false);
-    }
-  }, [canal, empresaId, mapLinhasRelatorioParaTransacoes, verificarDuplicatasPrevia]);
 
   const handleImport = useCallback(async () => {
     if (!empresaId || !canal || parsedData.length === 0) return;
@@ -631,20 +563,34 @@ export function ImportarMarketplaceModal({
     } as MarketplaceTransactionInsert));
 
     // seta info pra UI
-    setUploadLabel(`Importando ${transacoes.length} transações...`);
+    setUploadLabel(`Importando ${transacoesNovas} transações novas...`);
     setUploadProgress(0);
 
     const result = await importarTransacoes.mutateAsync({
       transacoes,
       onProgress: (percent) => {
-        setUploadProgress(percent);
+        setUploadProgress(percent * 0.6); // 60% para importação
       },
+    });
+
+    // Atualizar estatísticas finais
+    const finalStats = {
+      ...importStats,
+      totalDuplicadas: result.duplicadas,
+      totalInseridas: result.importadas,
+    };
+    setImportStats(finalStats);
+
+    // Log completo para debug
+    console.log('[Importação Marketplace] RESULTADO FINAL:', {
+      arquivo: fileName,
+      ...finalStats,
     });
 
     // Auto-categorização e conciliação automática após importação
     if (result.insertedIds && result.insertedIds.length > 0) {
       setUploadLabel("Categorizando e conciliando automaticamente...");
-      setUploadProgress(70);
+      setUploadProgress(65);
       
       try {
         await processarTransacoesImportadas.mutateAsync({
@@ -658,11 +604,21 @@ export function ImportarMarketplaceModal({
       }
     }
 
+    // Toast com resumo detalhado
+    toast.success(
+      `Importação concluída! Arquivo: ${finalStats.totalLinhasArquivo} linhas | ` +
+      `Geradas: ${finalStats.totalTransacoesGeradas} | ` +
+      `Inseridas: ${finalStats.totalInseridas} | ` +
+      `Duplicadas: ${finalStats.totalDuplicadas} | ` +
+      `Ignoradas: ${finalStats.totalDescartadasPorFormato + finalStats.totalLinhasVazias}`,
+      { duration: 8000 }
+    );
+
     setUploadLabel("");
     setUploadProgress(null);
     onSuccess?.();
     handleClose();
-  }, [empresaId, canal, contaNome, parsedData, fileName, importarTransacoes, processarTransacoesImportadas, onSuccess, handleClose]);
+  }, [empresaId, canal, contaNome, parsedData, fileName, transacoesNovas, importStats, importarTransacoes, processarTransacoesImportadas, onSuccess, handleClose]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -768,17 +724,37 @@ export function ImportarMarketplaceModal({
                 )}
               </div>
 
+              {/* Estatísticas detalhadas de parse */}
+              {importStats.totalLinhasArquivo > 0 && (
+                <div className="text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md flex items-center gap-2">
+                  <Info className="h-3.5 w-3.5" />
+                  <span>
+                    Arquivo: <strong>{importStats.totalLinhasArquivo.toLocaleString()}</strong> linhas | 
+                    Geradas: <strong>{importStats.totalTransacoesGeradas.toLocaleString()}</strong> | 
+                    {importStats.totalComValorZero > 0 && (
+                      <>Valor zero: <strong>{importStats.totalComValorZero.toLocaleString()}</strong> | </>
+                    )}
+                    {importStats.totalDescartadasPorFormato > 0 && (
+                      <>Formato inválido: <strong>{importStats.totalDescartadasPorFormato.toLocaleString()}</strong> | </>
+                    )}
+                    {importStats.totalLinhasVazias > 0 && (
+                      <>Vazias: <strong>{importStats.totalLinhasVazias.toLocaleString()}</strong></>
+                    )}
+                  </span>
+                </div>
+              )}
+
               {/* Aviso de duplicatas na prévia */}
               {(duplicatasPrevia > 0 || transacoesNovas > 0) && (
                 <div className="flex gap-3 text-sm">
                   <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-md">
                     <Sparkles className="h-4 w-4" />
-                    {transacoesNovas} novas
+                    {transacoesNovas.toLocaleString()} novas
                   </span>
                   {duplicatasPrevia > 0 && (
                     <span className="flex items-center gap-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-md">
                       <AlertTriangle className="h-4 w-4" />
-                      {duplicatasPrevia} duplicadas (serão ignoradas)
+                      {duplicatasPrevia.toLocaleString()} duplicadas (serão ignoradas)
                     </span>
                   )}
                 </div>
@@ -849,7 +825,7 @@ export function ImportarMarketplaceModal({
                 </Table>
                 {parsedData.length > 50 && (
                   <p className="text-center text-sm text-muted-foreground py-2">
-                    Mostrando 50 de {parsedData.length} transações
+                    Mostrando 50 de {parsedData.length.toLocaleString()} transações
                   </p>
                 )}
               </div>
@@ -878,10 +854,10 @@ export function ImportarMarketplaceModal({
             {importarTransacoes.isPending 
               ? "Importando..." 
               : transacoesNovas > 0 
-                ? `Importar ${transacoesNovas} transações novas`
+                ? `Importar ${transacoesNovas.toLocaleString()} transações novas`
                 : parsedData.length > 0 
                   ? "Todas duplicadas"
-                  : `Importar ${parsedData.length} transações`
+                  : `Importar ${parsedData.length.toLocaleString()} transações`
             }
           </Button>
         </DialogFooter>
