@@ -216,6 +216,7 @@ export function ImportarMarketplaceModal({
         .from('marketplace_transactions')
         .select('hash_duplicidade')
         .eq('empresa_id', empId)
+        .eq('canal', canalVal)
         .in('hash_duplicidade', batch);
       
       if (error) {
