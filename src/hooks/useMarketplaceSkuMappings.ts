@@ -19,7 +19,7 @@ export interface MarketplaceSkuMapping {
     nome: string;
     codigo_interno: string;
   } | null;
-  sku?: {
+  mlb?: {
     id: string;
     codigo_sku: string;
     variacao: Record<string, string> | null;
@@ -43,7 +43,7 @@ export function useMarketplaceSkuMappings(params?: UseMarketplaceSkuMappingsPara
         .select(`
           *,
           produto:produtos(id, nome, codigo_interno),
-          sku:produto_skus(id, codigo_sku, variacao)
+          mlb:produto_skus(id, codigo_sku, variacao)
         `)
         .order("sku_marketplace", { ascending: true });
 
