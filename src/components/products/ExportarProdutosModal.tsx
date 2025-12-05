@@ -31,12 +31,12 @@ export function ExportarProdutosModal({
   open,
   onOpenChange,
 }: ExportarProdutosModalProps) {
-  const { empresas } = useEmpresas();
+  const { empresas = [] } = useEmpresas();
   const [empresaId, setEmpresaId] = useState<string>("todas");
   const [formato, setFormato] = useState<'csv' | 'xlsx'>('xlsx');
   const [isExporting, setIsExporting] = useState(false);
 
-  const { produtos, isLoading } = useProdutos({
+  const { produtos = [], isLoading } = useProdutos({
     empresaId: empresaId !== 'todas' ? empresaId : undefined,
   });
 

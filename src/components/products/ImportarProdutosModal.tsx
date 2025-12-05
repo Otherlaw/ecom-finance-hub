@@ -49,9 +49,9 @@ export function ImportarProdutosModal({
   onOpenChange,
   onSuccess,
 }: ImportarProdutosModalProps) {
-  const { empresas } = useEmpresas();
+  const { empresas = [] } = useEmpresas();
   const [empresaId, setEmpresaId] = useState<string>("");
-  const { produtos, criarProduto, atualizarProduto } = useProdutos({ empresaId });
+  const { produtos = [], criarProduto, atualizarProduto } = useProdutos({ empresaId });
 
   const [step, setStep] = useState<"upload" | "preview" | "result">("upload");
   const [fileName, setFileName] = useState<string>("");
