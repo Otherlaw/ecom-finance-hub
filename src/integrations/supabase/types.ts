@@ -807,6 +807,73 @@ export type Database = {
           },
         ]
       }
+      marketplace_rules: {
+        Row: {
+          ativo: boolean
+          canal: string
+          categoria_id: string | null
+          centro_custo_id: string | null
+          created_at: string
+          empresa_id: string
+          id: string
+          prioridade: number
+          texto_contem: string
+          tipo_lancamento: string
+          tipo_transacao: string | null
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          canal: string
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          created_at?: string
+          empresa_id: string
+          id?: string
+          prioridade?: number
+          texto_contem: string
+          tipo_lancamento: string
+          tipo_transacao?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          canal?: string
+          categoria_id?: string | null
+          centro_custo_id?: string | null
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          prioridade?: number
+          texto_contem?: string
+          tipo_lancamento?: string
+          tipo_transacao?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_rules_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_financeiras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_rules_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_rules_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       marketplace_sku_mappings: {
         Row: {
           canal: string
