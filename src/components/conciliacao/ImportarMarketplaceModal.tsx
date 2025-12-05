@@ -201,8 +201,8 @@ export function ImportarMarketplaceModal({
 
     console.log('[Verificação Duplicatas] Duplicatas internas no arquivo:', duplicatasInternas.size);
 
-    // Buscar hashes existentes no banco em lotes (Supabase tem limite de IN clause)
-    const BATCH_SIZE = 500;
+    // Buscar hashes existentes no banco em lotes de 10.000 para arquivos grandes
+    const BATCH_SIZE = 10000;
     const hashesExistentesBanco = new Set<string>();
     
     // Buscar apenas hashes únicos para economizar queries
