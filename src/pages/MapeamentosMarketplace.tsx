@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Link2, Search, Trash2, Package, Store, AlertCircle, Check, X } from "lucide-react";
+import { Link2, Search, Trash2, Package, Store, AlertCircle, Check, X, Upload } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,10 +28,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMarketplaceSkuMappings, MarketplaceSkuMapping } from "@/hooks/useMarketplaceSkuMappings";
+import { useProdutoSkuMap, ProdutoSkuMap } from "@/hooks/useProdutoSkuMap";
 import { useProdutos } from "@/hooks/useProdutos";
 import { useProdutoSkus } from "@/hooks/useProdutoSkus";
 import { useEmpresas } from "@/hooks/useEmpresas";
+import { ImportarMapeamentoUpsellerModal } from "@/components/products/ImportarMapeamentoUpsellerModal";
 import { toast } from "sonner";
 
 const CANAIS_MARKETPLACE = [
@@ -50,6 +53,7 @@ export default function MapeamentosMarketplace() {
   const [canalFilter, setCanalFilter] = useState<string>("todos");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [searchTerm, setSearchTerm] = useState("");
+  const [importUpsellerOpen, setImportUpsellerOpen] = useState(false);
 
   // Modal de edição
   const [editingMapping, setEditingMapping] = useState<MarketplaceSkuMapping | null>(null);
@@ -145,14 +149,20 @@ export default function MapeamentosMarketplace() {
       <main className="flex-1 p-6 overflow-auto">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Link2 className="h-6 w-6 text-primary" />
-              Mapeamentos MLB ↔ SKU
-            </h1>
-            <p className="text-muted-foreground">
-              Vincule os códigos de anúncio do marketplace aos produtos internos
-            </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <Link2 className="h-6 w-6 text-primary" />
+                Mapeamentos MLB ↔ SKU
+              </h1>
+              <p className="text-muted-foreground">
+                Vincule os códigos de anúncio do marketplace aos produtos internos
+              </p>
+            </div>
+            <Button onClick={() => setImportUpsellerOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Importar Upseller
+            </Button>
           </div>
 
           {/* Cards de resumo */}
@@ -440,6 +450,14 @@ export default function MapeamentosMarketplace() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ImportarMapeamentoUpsellerModal
+        open={importUpsellerOpen}
+        onOpenChange={setImportUpsellerOpen}
+        onSuccess={() => {
+          // Recarregar dados
+        }}
+      />
     </div>
   );
 }

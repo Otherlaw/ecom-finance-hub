@@ -1489,6 +1489,73 @@ export type Database = {
           },
         ]
       }
+      produto_sku_map: {
+        Row: {
+          anuncio_id: string | null
+          canal: string
+          created_at: string
+          empresa_id: string
+          id: string
+          loja: string | null
+          produto_id: string | null
+          sku_id: string | null
+          sku_interno: string
+          updated_at: string
+          variante_id: string | null
+          variante_nome: string | null
+        }
+        Insert: {
+          anuncio_id?: string | null
+          canal: string
+          created_at?: string
+          empresa_id: string
+          id?: string
+          loja?: string | null
+          produto_id?: string | null
+          sku_id?: string | null
+          sku_interno: string
+          updated_at?: string
+          variante_id?: string | null
+          variante_nome?: string | null
+        }
+        Update: {
+          anuncio_id?: string | null
+          canal?: string
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          loja?: string | null
+          produto_id?: string | null
+          sku_id?: string | null
+          sku_interno?: string
+          updated_at?: string
+          variante_id?: string | null
+          variante_nome?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "produto_sku_map_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produto_sku_map_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produto_sku_map_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "produto_skus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       produto_skus: {
         Row: {
           ativo: boolean
