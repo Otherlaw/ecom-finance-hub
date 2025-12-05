@@ -36,6 +36,7 @@ import { criarItensEmLote, limparCacheMapeamentos } from "@/lib/marketplace-item
 import { criarJobImportacao, atualizarProgressoJob, finalizarJob } from "@/hooks/useMarketplaceImportJobs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { getHashWorker, terminateHashWorker } from "@/lib/hash-worker";
 import { useQueryClient } from "@tanstack/react-query";
 
 interface ImportarMarketplaceModalProps {
@@ -697,8 +698,7 @@ export function ImportarMarketplaceModal({
 }
 
 // Função que processa em background - A VERIFICAÇÃO DE DUPLICATAS OCORRE AQUI
-// Função para gerar hash SHA256 composto para duplicidade
-// Hash = SHA256(data_transacao + descricao + pedido_id + valor_liquido + tipo_transacao)
+// Função para gerar hash SHA256 composto para duplicidade (fallback sem worker)
 async function gerarHashDuplicidade(params: {
   data_transacao: string;
   descricao: string;
@@ -714,14 +714,13 @@ async function gerarHashDuplicidade(params: {
     params.tipo_transacao || '',
   ].join('|');
   
-  // Usar SubtleCrypto para gerar SHA256
   const encoder = new TextEncoder();
   const data = encoder.encode(texto);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   
-  return hashHex.substring(0, 64); // Retornar hash completo (64 chars)
+  return hashHex.substring(0, 64);
 }
 
 // Função auxiliar para atualizar progresso com garantia de persistência
@@ -753,7 +752,6 @@ async function atualizarProgressoComRetry(
     } catch (err) {
       console.warn('[Job Progress] Erro no retry', i + 1, err);
     }
-    // Pequeno delay antes de retry
     await new Promise(r => setTimeout(r, 100));
   }
 }
@@ -770,10 +768,9 @@ async function processarImportacaoBackground(
   const BATCH_SIZE = 1000;
   const TOTAL = transacoesParaImportar.length;
   
-  // Contadores REAIS de progresso
-  let processados = 0;   // Total de registros já analisados (novos + duplicados)
-  let importados = 0;    // Registros inseridos com sucesso
-  let duplicados = 0;    // Registros ignorados por já existirem
+  let processados = 0;
+  let importados = 0;
+  let duplicados = 0;
   let erros = 0;
   const insertedIds: string[] = [];
 
@@ -781,7 +778,6 @@ async function processarImportacaoBackground(
   console.log('[Background Import] Iniciando processamento de', TOTAL, 'transações');
   console.log('[Background Import] Job ID:', jobId);
   
-  // Atualização inicial para confirmar que o job começou
   await atualizarProgressoComRetry(jobId, {
     linhas_processadas: 0,
     linhas_importadas: 0,
@@ -790,44 +786,72 @@ async function processarImportacaoBackground(
   });
 
   try {
-    // PASSO 1: Gerar hashes SHA256 em batches COM atualização de progresso
-    console.log('[Background Import] Passo 1/3: Gerando hashes SHA256...');
+    // PASSO 1: Gerar hashes usando Web Worker (não bloqueia UI)
+    console.log('[Background Import] Passo 1/3: Gerando hashes SHA256 via Web Worker...');
     
-    const transacoesComHash: (MarketplaceTransactionInsert & { hash_duplicidade: string })[] = [];
-    const PROGRESS_UPDATE_INTERVAL = 200; // Atualizar progresso a cada 200 registros
+    const transacoesParaHash = transacoesParaImportar.map(t => ({
+      data_transacao: t.data_transacao,
+      descricao: t.descricao,
+      pedido_id: t.pedido_id || null,
+      valor_liquido: t.valor_liquido,
+      tipo_transacao: t.tipo_transacao,
+    }));
     
-    for (let i = 0; i < transacoesParaImportar.length; i++) {
-      const t = transacoesParaImportar[i];
-      const hash = await gerarHashDuplicidade({
-        data_transacao: t.data_transacao,
-        descricao: t.descricao,
-        pedido_id: t.pedido_id || null,
-        valor_liquido: t.valor_liquido,
-        tipo_transacao: t.tipo_transacao,
-      });
+    let hashes: string[];
+    
+    try {
+      // Usar Web Worker para gerar hashes em paralelo
+      const hashWorker = getHashWorker();
       
-      transacoesComHash.push({
-        ...t,
-        hash_duplicidade: hash,
-      });
+      hashes = await hashWorker.processHashes(
+        transacoesParaHash,
+        async (processed, total) => {
+          // Callback de progresso do worker (fase 1 = 0-30%)
+          const progressoHash = Math.floor((processed / total) * 30);
+          processados = Math.floor((processed / total) * TOTAL * 0.3);
+          
+          await atualizarProgressoComRetry(jobId, {
+            linhas_processadas: processados,
+            linhas_importadas: 0,
+            linhas_duplicadas: 0,
+            linhas_com_erro: 0,
+          });
+          
+          console.log(`[Background Import] Hashes (Worker): ${processed}/${total} (${progressoHash}%)`);
+        }
+      );
       
-      // Atualizar progresso durante geração de hashes (fase 1 = 30% do total)
-      if ((i + 1) % PROGRESS_UPDATE_INTERVAL === 0 || i === transacoesParaImportar.length - 1) {
-        const progressoHash = Math.floor(((i + 1) / transacoesParaImportar.length) * 30);
-        processados = Math.floor(((i + 1) / transacoesParaImportar.length) * TOTAL * 0.3);
+      console.log('[Background Import] Hashes gerados via Worker:', hashes.length);
+    } catch (workerError) {
+      // Fallback: gerar hashes no main thread se o worker falhar
+      console.warn('[Background Import] Worker falhou, usando fallback:', workerError);
+      
+      hashes = [];
+      for (let i = 0; i < transacoesParaHash.length; i++) {
+        const hash = await gerarHashDuplicidade(transacoesParaHash[i]);
+        hashes.push(hash);
         
-        await atualizarProgressoComRetry(jobId, {
-          linhas_processadas: processados,
-          linhas_importadas: 0,
-          linhas_duplicadas: 0,
-          linhas_com_erro: 0,
-        });
-        
-        console.log(`[Background Import] Hashes: ${i + 1}/${transacoesParaImportar.length} (${progressoHash}%)`);
+        if ((i + 1) % 200 === 0 || i === transacoesParaHash.length - 1) {
+          const progressoHash = Math.floor(((i + 1) / transacoesParaHash.length) * 30);
+          processados = Math.floor(((i + 1) / transacoesParaHash.length) * TOTAL * 0.3);
+          
+          await atualizarProgressoComRetry(jobId, {
+            linhas_processadas: processados,
+            linhas_importadas: 0,
+            linhas_duplicadas: 0,
+            linhas_com_erro: 0,
+          });
+        }
       }
     }
     
-    console.log('[Background Import] Hashes gerados:', transacoesComHash.length);
+    // Montar transações com hash
+    const transacoesComHash = transacoesParaImportar.map((t, i) => ({
+      ...t,
+      hash_duplicidade: hashes[i],
+    }));
+    
+    console.log('[Background Import] Transações com hash:', transacoesComHash.length);
 
     // PASSO 2: Verificar duplicatas no banco por hash COM atualização de progresso
     console.log('[Background Import] Passo 2/3: Verificando duplicatas no banco...');
@@ -891,7 +915,7 @@ async function processarImportacaoBackground(
       transacoesParaInserir.push(t);
       
       // Atualizar progresso durante filtragem (fase 3 = 50% a 60%)
-      if ((i + 1) % PROGRESS_UPDATE_INTERVAL === 0 || i === transacoesComHash.length - 1) {
+      if ((i + 1) % 200 === 0 || i === transacoesComHash.length - 1) {
         const progressoFiltragem = 50 + Math.floor(((i + 1) / transacoesComHash.length) * 10);
         processados = Math.floor(TOTAL * progressoFiltragem / 100);
         
