@@ -491,31 +491,28 @@ export function ImportarMarketplaceModal({
   const handleImport = useCallback(async () => {
     if (!empresaId || !canal || parsedData.length === 0) return;
 
-    // Preparar transações com itens
-    const transactionsWithItems = parsedData.map(row => ({
-      transaction: {
-        empresa_id: empresaId,
-        canal,
-        conta_nome: contaNome || canal,
-        pedido_id: row.pedido_id,
-        referencia_externa: row.referencia_externa,
-        data_transacao: row.data_transacao,
-        data_repasse: null,
-        tipo_transacao: row.tipo_transacao,
-        descricao: row.descricao,
-        valor_bruto: row.valor_bruto,
-        valor_liquido: row.valor_liquido,
-        tipo_lancamento: row.tipo_lancamento,
-        status: 'importado',
-        categoria_id: null,
-        centro_custo_id: null,
-        responsavel_id: null,
-        origem_arquivo: 'csv',
-      } as MarketplaceTransactionInsert,
-      itens: row.itens,
-    }));
+    // Preparar transações para importação
+    const transacoes = parsedData.map(row => ({
+      empresa_id: empresaId,
+      canal,
+      conta_nome: contaNome || canal,
+      pedido_id: row.pedido_id,
+      referencia_externa: row.referencia_externa,
+      data_transacao: row.data_transacao,
+      data_repasse: null,
+      tipo_transacao: row.tipo_transacao,
+      descricao: row.descricao,
+      valor_bruto: row.valor_bruto,
+      valor_liquido: row.valor_liquido,
+      tipo_lancamento: row.tipo_lancamento,
+      status: 'importado',
+      categoria_id: null,
+      centro_custo_id: null,
+      responsavel_id: null,
+      origem_extrato: 'csv',
+    } as MarketplaceTransactionInsert));
 
-    await importarTransacoes.mutateAsync(transactionsWithItems);
+    await importarTransacoes.mutateAsync(transacoes);
     onSuccess?.();
     handleClose();
   }, [empresaId, canal, contaNome, parsedData, importarTransacoes, onSuccess, handleClose]);

@@ -140,7 +140,7 @@ interface UseMarketplaceTransactionsReturn {
   resumo: MarketplaceResumo;
   isLoading: boolean;
   refetch: () => void;
-  importarTransacoes: UseMutationResult<{ imported: number; skipped: number; itensCreated: number }, Error, TransactionWithItems[], unknown>;
+  importarTransacoes: UseMutationResult<{ importadas: number }, Error, MarketplaceTransactionInsert[], unknown>;
   atualizarTransacao: UseMutationResult<MarketplaceTransaction, Error, {
     id: string;
     categoriaId?: string;
@@ -199,123 +199,77 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
   const BATCH_SIZE = 500;
 
-  const importarTransacoes = useMutation({
-    mutationFn: async (transactionsWithItems: TransactionWithItems[]) => {
-      const transactionsToImport = transactionsWithItems.map(t => t.transaction);
-      
-      // Buscar referências existentes para evitar duplicatas (em lotes para grandes volumes)
-      const referencias = transactionsToImport
-        .filter(t => t.referencia_externa)
-        .map(t => t.referencia_externa);
+  // Função auxiliar para inserir transações em lotes
+  const insertMarketplaceTransactionsInBatches = async (
+    registros: MarketplaceTransactionInsert[]
+  ): Promise<{ importadas: number }> => {
+    if (!registros.length) {
+      return { importadas: 0 };
+    }
 
-      let existingRefs: string[] = [];
-      if (referencias.length > 0) {
-        // Buscar em lotes de 500 para evitar limite de IN clause
-        for (let i = 0; i < referencias.length; i += BATCH_SIZE) {
-          const batch = referencias.slice(i, i + BATCH_SIZE);
-          const { data: existing } = await supabase
-            .from("marketplace_transactions")
-            .select("referencia_externa")
-            .in("referencia_externa", batch as string[]);
-          
-          existingRefs.push(...(existing || []).map(e => e.referencia_externa).filter(Boolean) as string[]);
-        }
+    let importadas = 0;
+
+    for (let i = 0; i < registros.length; i += BATCH_SIZE) {
+      const batch = registros.slice(i, i + BATCH_SIZE);
+
+      const { data, error } = await supabase
+        .from("marketplace_transactions")
+        .insert(batch)
+        .select();
+
+      if (error) {
+        console.error(
+          "[Importação Marketplace] Erro ao inserir lote",
+          Math.floor(i / BATCH_SIZE) + 1,
+          error
+        );
+        throw error;
       }
 
-      // Filtrar transações que não são duplicatas
-      const newTransactionsWithItems = transactionsWithItems.filter(
-        t => !t.transaction.referencia_externa || !existingRefs.includes(t.transaction.referencia_externa)
+      importadas += data?.length ?? batch.length;
+    }
+
+    return { importadas };
+  };
+
+  const importarTransacoes = useMutation({
+    mutationFn: async (transacoes: MarketplaceTransactionInsert[]) => {
+      if (!transacoes || transacoes.length === 0) {
+        return { importadas: 0 };
+      }
+
+      console.log(
+        "[Importação Marketplace] Iniciando importação",
+        transacoes.length,
+        "registros"
       );
 
-      if (newTransactionsWithItems.length === 0) {
-        return { imported: 0, skipped: transactionsToImport.length, itensCreated: 0 };
-      }
+      const { importadas } = await insertMarketplaceTransactionsInBatches(transacoes);
 
-      // Inserir transações em lotes
-      const allInsertedTransactions: { id: string; referencia_externa: string | null }[] = [];
-      const transactionsData = newTransactionsWithItems.map(t => t.transaction);
-      
-      for (let i = 0; i < transactionsData.length; i += BATCH_SIZE) {
-        const batch = transactionsData.slice(i, i + BATCH_SIZE);
-        
-        const { data: insertedBatch, error } = await supabase
-          .from("marketplace_transactions")
-          .insert(batch)
-          .select("id, referencia_externa");
+      console.log(
+        "[Importação Marketplace] Finalizado. Registros importados:",
+        importadas
+      );
 
-        if (error) {
-          console.error(`[Marketplace Import] Erro no lote ${Math.floor(i / BATCH_SIZE) + 1}:`, error);
-          throw error;
-        }
-        
-        allInsertedTransactions.push(...(insertedBatch || []));
-      }
-
-      // Criar mapa de referência -> id
-      const refToIdMap = new Map<string, string>();
-      for (const t of allInsertedTransactions) {
-        if (t.referencia_externa) {
-          refToIdMap.set(t.referencia_externa, t.id);
-        }
-      }
-
-      // Inserir itens em lotes
-      let itensCreated = 0;
-      const allItensToInsert: any[] = [];
-      
-      for (const twi of newTransactionsWithItems) {
-        if (twi.itens.length === 0) continue;
-        
-        const transactionId = twi.transaction.referencia_externa 
-          ? refToIdMap.get(twi.transaction.referencia_externa)
-          : null;
-          
-        if (!transactionId) continue;
-
-        for (const item of twi.itens) {
-          allItensToInsert.push({
-            transaction_id: transactionId,
-            sku_marketplace: item.sku_marketplace,
-            descricao_item: item.descricao_item,
-            quantidade: item.quantidade,
-            preco_unitario: item.preco_unitario,
-            preco_total: item.preco_total,
-          });
-        }
-      }
-
-      // Inserir itens em lotes
-      for (let i = 0; i < allItensToInsert.length; i += BATCH_SIZE) {
-        const batch = allItensToInsert.slice(i, i + BATCH_SIZE);
-        
-        const { error: itensError } = await supabase
-          .from("marketplace_transaction_items")
-          .insert(batch);
-
-        if (!itensError) {
-          itensCreated += batch.length;
-        }
-      }
-
-      return { 
-        imported: newTransactionsWithItems.length, 
-        skipped: transactionsToImport.length - newTransactionsWithItems.length,
-        itensCreated,
-      };
+      return { importadas };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["marketplace_transaction_items"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
-      let msg = `${result.imported} transações importadas.`;
-      if (result.skipped > 0) msg += ` ${result.skipped} duplicadas ignoradas.`;
-      if (result.itensCreated > 0) msg += ` ${result.itensCreated} itens de produto criados.`;
-      toast.success(msg);
+
+      if (result?.importadas) {
+        toast.success(
+          `${result.importadas} transações de marketplace importadas com sucesso`
+        );
+      } else {
+        toast.success("Nenhuma transação nova para importar");
+      }
     },
     onError: (error) => {
-      console.error("Erro ao importar transações:", error);
-      toast.error("Erro ao importar transações do marketplace");
+      console.error("[Importação Marketplace] Erro:", error);
+      toast.error("Erro ao importar relatório de marketplace");
     },
   });
 
