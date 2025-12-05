@@ -180,48 +180,71 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
   const { data: transacoes = [], isLoading, refetch } = useQuery({
     queryKey: ["marketplace_transactions", params],
     queryFn: async () => {
-      let query = supabase
-        .from("marketplace_transactions")
-        .select(`
-          *,
-          categoria:categorias_financeiras(id, nome, tipo),
-          centro_custo:centros_de_custo(id, nome, codigo),
-          empresa:empresas(id, razao_social, nome_fantasia)
-        `)
-        .order("data_transacao", { ascending: false });
+      // Função auxiliar para buscar com paginação (Supabase limita a 1000 por requisição)
+      const fetchAllPages = async (): Promise<MarketplaceTransaction[]> => {
+        const PAGE_SIZE = 1000;
+        let allData: MarketplaceTransaction[] = [];
+        let from = 0;
+        let hasMore = true;
 
-      if (params?.empresaId) {
-        query = query.eq("empresa_id", params.empresaId);
-      }
+        while (hasMore) {
+          let query = supabase
+            .from("marketplace_transactions")
+            .select(`
+              *,
+              categoria:categorias_financeiras(id, nome, tipo),
+              centro_custo:centros_de_custo(id, nome, codigo),
+              empresa:empresas(id, razao_social, nome_fantasia)
+            `)
+            .order("data_transacao", { ascending: false })
+            .range(from, from + PAGE_SIZE - 1);
 
-      // Aceita tanto 'canal' quanto 'marketplace' como parâmetro
-      const canalFiltro = params?.canal || params?.marketplace;
-      if (canalFiltro) {
-        query = query.eq("canal", canalFiltro);
-      }
+          if (params?.empresaId) {
+            query = query.eq("empresa_id", params.empresaId);
+          }
 
-      if (params?.periodoInicio) {
-        query = query.gte("data_transacao", params.periodoInicio);
-      }
+          const canalFiltro = params?.canal || params?.marketplace;
+          if (canalFiltro) {
+            query = query.eq("canal", canalFiltro);
+          }
 
-      if (params?.periodoFim) {
-        query = query.lte("data_transacao", params.periodoFim);
-      }
+          if (params?.periodoInicio) {
+            query = query.gte("data_transacao", params.periodoInicio);
+          }
 
-      if (params?.status && params.status !== "todos") {
-        query = query.eq("status", params.status);
-      } else {
-        // Quando status é "todos" ou não especificado, exclui ignorados por padrão
-        query = query.neq("status", "ignorado");
-      }
+          if (params?.periodoFim) {
+            query = query.lte("data_transacao", params.periodoFim);
+          }
 
-      // Remover limite padrão de 1000 do Supabase - buscar até 50.000 registros
-      query = query.limit(50000);
+          if (params?.status && params.status !== "todos") {
+            query = query.eq("status", params.status);
+          } else {
+            query = query.neq("status", "ignorado");
+          }
 
-      const { data, error } = await query;
+          const { data, error } = await query;
 
-      if (error) throw error;
-      return data as MarketplaceTransaction[];
+          if (error) throw error;
+
+          if (data && data.length > 0) {
+            allData = [...allData, ...(data as MarketplaceTransaction[])];
+            from += PAGE_SIZE;
+            // Se retornou menos que PAGE_SIZE, não há mais páginas
+            hasMore = data.length === PAGE_SIZE;
+          } else {
+            hasMore = false;
+          }
+
+          // Limite de segurança: máximo 50.000 registros
+          if (allData.length >= 50000) {
+            hasMore = false;
+          }
+        }
+
+        return allData;
+      };
+
+      return await fetchAllPages();
     },
   });
 
