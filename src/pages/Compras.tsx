@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, FileText, Package, Link2, BarChart3, CheckCircle2 } from "lucide-react";
+import { Plus, Search, FileText, Package, BarChart3, CheckCircle2, Upload } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RegistrarRecebimentoModal } from "@/components/purchases/RegistrarRecebimentoModal";
+import { ImportarNFeXMLModal } from "@/components/purchases/ImportarNFeXMLModal";
 import { useToast } from "@/hooks/use-toast";
 import { useCompras, Compra } from "@/hooks/useCompras";
 import { useEmpresas } from "@/hooks/useEmpresas";
@@ -49,6 +50,12 @@ export default function Compras() {
 
   const [recebimentoModalOpen, setRecebimentoModalOpen] = useState(false);
   const [recebimentoPurchase, setRecebimentoPurchase] = useState<Compra | null>(null);
+  const [importXMLModalOpen, setImportXMLModalOpen] = useState(false);
+
+  // Chaves de acesso já importadas para evitar duplicatas
+  const existingKeys = useMemo(() => {
+    return compras.filter(c => c.chave_acesso).map(c => c.chave_acesso!);
+  }, [compras]);
 
   const filteredPurchases = useMemo(() => {
     return compras.filter((p) => {
@@ -102,10 +109,16 @@ export default function Compras() {
               <h1 className="text-2xl font-bold">Módulo de Compras</h1>
               <p className="text-muted-foreground">Gerencie compras, recebimentos e integração com NFs</p>
             </div>
-            <Button disabled>
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Compra Manual
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={() => setImportXMLModalOpen(true)}>
+                <Upload className="h-4 w-4 mr-2" />
+                Importar NF-e XML
+              </Button>
+              <Button variant="outline" disabled>
+                <Plus className="h-4 w-4 mr-2" />
+                Nova Compra Manual
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-4 gap-4">
@@ -284,6 +297,13 @@ export default function Compras() {
         onOpenChange={setRecebimentoModalOpen}
         compra={recebimentoPurchase}
         onSuccess={handleRecebimentoSuccess}
+      />
+
+      <ImportarNFeXMLModal
+        open={importXMLModalOpen}
+        onOpenChange={setImportXMLModalOpen}
+        onImportSuccess={() => refetch()}
+        existingKeys={existingKeys}
       />
     </div>
   );
