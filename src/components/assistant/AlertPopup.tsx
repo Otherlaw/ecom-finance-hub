@@ -55,7 +55,7 @@ export function AlertPopup({
   return (
     <div
       className={cn(
-        'fixed bottom-20 right-4 z-50 w-80 max-w-[calc(100vw-2rem)]',
+        'fixed bottom-36 right-4 z-50 w-80 max-w-[calc(100vw-2rem)]',
         'transform transition-all duration-300 ease-out',
         isVisible && !isExiting 
           ? 'translate-x-0 opacity-100' 
