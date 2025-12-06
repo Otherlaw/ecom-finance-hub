@@ -14,6 +14,50 @@ export type Database = {
   }
   public: {
     Tables: {
+      armazens: {
+        Row: {
+          ativo: boolean
+          codigo: string
+          created_at: string
+          empresa_id: string
+          endereco: string | null
+          id: string
+          nome: string
+          tipo: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          codigo: string
+          created_at?: string
+          empresa_id: string
+          endereco?: string | null
+          id?: string
+          nome: string
+          tipo?: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          codigo?: string
+          created_at?: string
+          empresa_id?: string
+          endereco?: string | null
+          id?: string
+          nome?: string
+          tipo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "armazens_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bank_transactions: {
         Row: {
           atualizado_em: string
@@ -176,10 +220,11 @@ export type Database = {
       }
       cmv_registros: {
         Row: {
+          armazem_id: string | null
           canal: string | null
           created_at: string
           custo_total: number
-          custo_unitario_momento: number
+          custo_unitario: number
           data: string
           empresa_id: string
           id: string
@@ -192,13 +237,13 @@ export type Database = {
           quantidade: number
           receita_total: number | null
           referencia_id: string | null
-          sku_id: string | null
         }
         Insert: {
+          armazem_id?: string | null
           canal?: string | null
           created_at?: string
           custo_total: number
-          custo_unitario_momento: number
+          custo_unitario: number
           data: string
           empresa_id: string
           id?: string
@@ -211,13 +256,13 @@ export type Database = {
           quantidade: number
           receita_total?: number | null
           referencia_id?: string | null
-          sku_id?: string | null
         }
         Update: {
+          armazem_id?: string | null
           canal?: string | null
           created_at?: string
           custo_total?: number
-          custo_unitario_momento?: number
+          custo_unitario?: number
           data?: string
           empresa_id?: string
           id?: string
@@ -230,9 +275,15 @@ export type Database = {
           quantidade?: number
           receita_total?: number | null
           referencia_id?: string | null
-          sku_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "cmv_registros_armazem_id_fkey"
+            columns: ["armazem_id"]
+            isOneToOne: false
+            referencedRelation: "armazens"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "cmv_registros_empresa_id_fkey"
             columns: ["empresa_id"]
@@ -247,59 +298,80 @@ export type Database = {
             referencedRelation: "produtos"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "cmv_registros_sku_id_fkey"
-            columns: ["sku_id"]
-            isOneToOne: false
-            referencedRelation: "produto_skus"
-            referencedColumns: ["id"]
-          },
         ]
       }
       compras: {
         Row: {
+          armazem_destino_id: string | null
           chave_acesso: string | null
           created_at: string
-          data_compra: string
+          data_nf: string | null
+          data_pedido: string
+          data_previsao: string | null
           empresa_id: string
           fornecedor_cnpj: string | null
           fornecedor_nome: string
           id: string
+          numero: string | null
           numero_nf: string | null
           observacoes: string | null
           status: string
           updated_at: string
+          valor_desconto: number
+          valor_frete: number
+          valor_produtos: number
           valor_total: number
         }
         Insert: {
+          armazem_destino_id?: string | null
           chave_acesso?: string | null
           created_at?: string
-          data_compra: string
+          data_nf?: string | null
+          data_pedido?: string
+          data_previsao?: string | null
           empresa_id: string
           fornecedor_cnpj?: string | null
           fornecedor_nome: string
           id?: string
+          numero?: string | null
           numero_nf?: string | null
           observacoes?: string | null
           status?: string
           updated_at?: string
+          valor_desconto?: number
+          valor_frete?: number
+          valor_produtos?: number
           valor_total?: number
         }
         Update: {
+          armazem_destino_id?: string | null
           chave_acesso?: string | null
           created_at?: string
-          data_compra?: string
+          data_nf?: string | null
+          data_pedido?: string
+          data_previsao?: string | null
           empresa_id?: string
           fornecedor_cnpj?: string | null
           fornecedor_nome?: string
           id?: string
+          numero?: string | null
           numero_nf?: string | null
           observacoes?: string | null
           status?: string
           updated_at?: string
+          valor_desconto?: number
+          valor_frete?: number
+          valor_produtos?: number
           valor_total?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "compras_armazem_destino_id_fkey"
+            columns: ["armazem_destino_id"]
+            isOneToOne: false
+            referencedRelation: "armazens"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "compras_empresa_id_fkey"
             columns: ["empresa_id"]
@@ -312,8 +384,9 @@ export type Database = {
       compras_itens: {
         Row: {
           aliquota_icms: number | null
+          aliquota_ipi: number | null
           cfop: string | null
-          codigo_produto_nf: string | null
+          codigo_nf: string | null
           compra_id: string
           created_at: string
           descricao_nf: string
@@ -323,16 +396,17 @@ export type Database = {
           produto_id: string | null
           quantidade: number
           quantidade_recebida: number
-          sku_id: string | null
           updated_at: string
           valor_icms: number | null
+          valor_ipi: number | null
           valor_total: number
           valor_unitario: number
         }
         Insert: {
           aliquota_icms?: number | null
+          aliquota_ipi?: number | null
           cfop?: string | null
-          codigo_produto_nf?: string | null
+          codigo_nf?: string | null
           compra_id: string
           created_at?: string
           descricao_nf: string
@@ -342,16 +416,17 @@ export type Database = {
           produto_id?: string | null
           quantidade?: number
           quantidade_recebida?: number
-          sku_id?: string | null
           updated_at?: string
           valor_icms?: number | null
+          valor_ipi?: number | null
           valor_total?: number
           valor_unitario?: number
         }
         Update: {
           aliquota_icms?: number | null
+          aliquota_ipi?: number | null
           cfop?: string | null
-          codigo_produto_nf?: string | null
+          codigo_nf?: string | null
           compra_id?: string
           created_at?: string
           descricao_nf?: string
@@ -361,9 +436,9 @@ export type Database = {
           produto_id?: string | null
           quantidade?: number
           quantidade_recebida?: number
-          sku_id?: string | null
           updated_at?: string
           valor_icms?: number | null
+          valor_ipi?: number | null
           valor_total?: number
           valor_unitario?: number
         }
@@ -380,13 +455,6 @@ export type Database = {
             columns: ["produto_id"]
             isOneToOne: false
             referencedRelation: "produtos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "compras_itens_sku_id_fkey"
-            columns: ["sku_id"]
-            isOneToOne: false
-            referencedRelation: "produto_skus"
             referencedColumns: ["id"]
           },
         ]
@@ -865,6 +933,85 @@ export type Database = {
         }
         Relationships: []
       }
+      estoque: {
+        Row: {
+          armazem_id: string
+          created_at: string
+          custo_medio: number
+          empresa_id: string
+          estoque_maximo: number | null
+          estoque_minimo: number | null
+          id: string
+          localizacao: string | null
+          lote: string | null
+          ponto_reposicao: number | null
+          produto_id: string
+          quantidade: number
+          quantidade_disponivel: number | null
+          quantidade_reservada: number
+          updated_at: string
+          validade: string | null
+        }
+        Insert: {
+          armazem_id: string
+          created_at?: string
+          custo_medio?: number
+          empresa_id: string
+          estoque_maximo?: number | null
+          estoque_minimo?: number | null
+          id?: string
+          localizacao?: string | null
+          lote?: string | null
+          ponto_reposicao?: number | null
+          produto_id: string
+          quantidade?: number
+          quantidade_disponivel?: number | null
+          quantidade_reservada?: number
+          updated_at?: string
+          validade?: string | null
+        }
+        Update: {
+          armazem_id?: string
+          created_at?: string
+          custo_medio?: number
+          empresa_id?: string
+          estoque_maximo?: number | null
+          estoque_minimo?: number | null
+          id?: string
+          localizacao?: string | null
+          lote?: string | null
+          ponto_reposicao?: number | null
+          produto_id?: string
+          quantidade?: number
+          quantidade_disponivel?: number | null
+          quantidade_reservada?: number
+          updated_at?: string
+          validade?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "estoque_armazem_id_fkey"
+            columns: ["armazem_id"]
+            isOneToOne: false
+            referencedRelation: "armazens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       manual_transactions: {
         Row: {
           categoria_id: string | null
@@ -1068,67 +1215,6 @@ export type Database = {
           },
         ]
       }
-      marketplace_sku_mappings: {
-        Row: {
-          canal: string
-          created_at: string | null
-          empresa_id: string
-          id: string
-          mapeado_automaticamente: boolean | null
-          nome_produto_marketplace: string | null
-          produto_id: string | null
-          sku_id: string | null
-          sku_marketplace: string
-          updated_at: string | null
-        }
-        Insert: {
-          canal: string
-          created_at?: string | null
-          empresa_id: string
-          id?: string
-          mapeado_automaticamente?: boolean | null
-          nome_produto_marketplace?: string | null
-          produto_id?: string | null
-          sku_id?: string | null
-          sku_marketplace: string
-          updated_at?: string | null
-        }
-        Update: {
-          canal?: string
-          created_at?: string | null
-          empresa_id?: string
-          id?: string
-          mapeado_automaticamente?: boolean | null
-          nome_produto_marketplace?: string | null
-          produto_id?: string | null
-          sku_id?: string | null
-          sku_marketplace?: string
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "marketplace_sku_mappings_empresa_id_fkey"
-            columns: ["empresa_id"]
-            isOneToOne: false
-            referencedRelation: "empresas"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "marketplace_sku_mappings_produto_id_fkey"
-            columns: ["produto_id"]
-            isOneToOne: false
-            referencedRelation: "produtos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "marketplace_sku_mappings_sku_id_fkey"
-            columns: ["sku_id"]
-            isOneToOne: false
-            referencedRelation: "produto_skus"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       marketplace_transaction_items: {
         Row: {
           anuncio_id: string | null
@@ -1139,7 +1225,6 @@ export type Database = {
           preco_unitario: number | null
           produto_id: string | null
           quantidade: number
-          sku_id: string | null
           sku_marketplace: string | null
           transaction_id: string
           updated_at: string
@@ -1154,7 +1239,6 @@ export type Database = {
           preco_unitario?: number | null
           produto_id?: string | null
           quantidade?: number
-          sku_id?: string | null
           sku_marketplace?: string | null
           transaction_id: string
           updated_at?: string
@@ -1169,7 +1253,6 @@ export type Database = {
           preco_unitario?: number | null
           produto_id?: string | null
           quantidade?: number
-          sku_id?: string | null
           sku_marketplace?: string | null
           transaction_id?: string
           updated_at?: string
@@ -1181,13 +1264,6 @@ export type Database = {
             columns: ["produto_id"]
             isOneToOne: false
             referencedRelation: "produtos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "marketplace_transaction_items_sku_id_fkey"
-            columns: ["sku_id"]
-            isOneToOne: false
-            referencedRelation: "produto_skus"
             referencedColumns: ["id"]
           },
           {
@@ -1314,12 +1390,13 @@ export type Database = {
       }
       movimentacoes_estoque: {
         Row: {
+          armazem_destino_id: string | null
+          armazem_id: string
           created_at: string
           custo_medio_anterior: number
           custo_medio_posterior: number
           custo_total: number
           custo_unitario: number
-          data: string
           documento: string | null
           empresa_id: string
           estoque_anterior: number
@@ -1331,20 +1408,20 @@ export type Database = {
           produto_id: string
           quantidade: number
           referencia_id: string | null
-          sku_id: string | null
           tipo: string
         }
         Insert: {
+          armazem_destino_id?: string | null
+          armazem_id: string
           created_at?: string
-          custo_medio_anterior: number
-          custo_medio_posterior: number
-          custo_total: number
-          custo_unitario: number
-          data: string
+          custo_medio_anterior?: number
+          custo_medio_posterior?: number
+          custo_total?: number
+          custo_unitario?: number
           documento?: string | null
           empresa_id: string
-          estoque_anterior: number
-          estoque_posterior: number
+          estoque_anterior?: number
+          estoque_posterior?: number
           id?: string
           motivo: string
           observacoes?: string | null
@@ -1352,16 +1429,16 @@ export type Database = {
           produto_id: string
           quantidade: number
           referencia_id?: string | null
-          sku_id?: string | null
           tipo: string
         }
         Update: {
+          armazem_destino_id?: string | null
+          armazem_id?: string
           created_at?: string
           custo_medio_anterior?: number
           custo_medio_posterior?: number
           custo_total?: number
           custo_unitario?: number
-          data?: string
           documento?: string | null
           empresa_id?: string
           estoque_anterior?: number
@@ -1373,10 +1450,23 @@ export type Database = {
           produto_id?: string
           quantidade?: number
           referencia_id?: string | null
-          sku_id?: string | null
           tipo?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "movimentacoes_estoque_armazem_destino_id_fkey"
+            columns: ["armazem_destino_id"]
+            isOneToOne: false
+            referencedRelation: "armazens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "movimentacoes_estoque_armazem_id_fkey"
+            columns: ["armazem_id"]
+            isOneToOne: false
+            referencedRelation: "armazens"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "movimentacoes_estoque_empresa_id_fkey"
             columns: ["empresa_id"]
@@ -1389,13 +1479,6 @@ export type Database = {
             columns: ["produto_id"]
             isOneToOne: false
             referencedRelation: "produtos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "movimentacoes_estoque_sku_id_fkey"
-            columns: ["sku_id"]
-            isOneToOne: false
-            referencedRelation: "produto_skus"
             referencedColumns: ["id"]
           },
         ]
@@ -1554,126 +1637,62 @@ export type Database = {
           },
         ]
       }
-      produto_sku_map: {
+      produto_marketplace_map: {
         Row: {
           anuncio_id: string | null
+          ativo: boolean
           canal: string
           created_at: string
           empresa_id: string
           id: string
-          loja: string | null
-          produto_id: string | null
-          sku_id: string | null
-          sku_interno: string
+          mapeado_automaticamente: boolean | null
+          nome_anuncio: string | null
+          nome_loja: string | null
+          produto_id: string
+          sku_marketplace: string
           updated_at: string
           variante_id: string | null
-          variante_nome: string | null
         }
         Insert: {
           anuncio_id?: string | null
+          ativo?: boolean
           canal: string
           created_at?: string
           empresa_id: string
           id?: string
-          loja?: string | null
-          produto_id?: string | null
-          sku_id?: string | null
-          sku_interno: string
+          mapeado_automaticamente?: boolean | null
+          nome_anuncio?: string | null
+          nome_loja?: string | null
+          produto_id: string
+          sku_marketplace: string
           updated_at?: string
           variante_id?: string | null
-          variante_nome?: string | null
         }
         Update: {
           anuncio_id?: string | null
+          ativo?: boolean
           canal?: string
           created_at?: string
           empresa_id?: string
           id?: string
-          loja?: string | null
-          produto_id?: string | null
-          sku_id?: string | null
-          sku_interno?: string
+          mapeado_automaticamente?: boolean | null
+          nome_anuncio?: string | null
+          nome_loja?: string | null
+          produto_id?: string
+          sku_marketplace?: string
           updated_at?: string
           variante_id?: string | null
-          variante_nome?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "produto_sku_map_empresa_id_fkey"
+            foreignKeyName: "produto_marketplace_map_empresa_id_fkey"
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresas"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "produto_sku_map_produto_id_fkey"
-            columns: ["produto_id"]
-            isOneToOne: false
-            referencedRelation: "produtos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "produto_sku_map_sku_id_fkey"
-            columns: ["sku_id"]
-            isOneToOne: false
-            referencedRelation: "produto_skus"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      produto_skus: {
-        Row: {
-          ativo: boolean
-          codigo_sku: string
-          created_at: string
-          custo_medio_atual: number
-          empresa_id: string
-          estoque_atual: number
-          id: string
-          observacoes: string | null
-          produto_id: string
-          ultima_atualizacao_custo: string | null
-          updated_at: string
-          variacao: Json | null
-        }
-        Insert: {
-          ativo?: boolean
-          codigo_sku: string
-          created_at?: string
-          custo_medio_atual?: number
-          empresa_id: string
-          estoque_atual?: number
-          id?: string
-          observacoes?: string | null
-          produto_id: string
-          ultima_atualizacao_custo?: string | null
-          updated_at?: string
-          variacao?: Json | null
-        }
-        Update: {
-          ativo?: boolean
-          codigo_sku?: string
-          created_at?: string
-          custo_medio_atual?: number
-          empresa_id?: string
-          estoque_atual?: number
-          id?: string
-          observacoes?: string | null
-          produto_id?: string
-          ultima_atualizacao_custo?: string | null
-          updated_at?: string
-          variacao?: Json | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "produto_skus_empresa_id_fkey"
-            columns: ["empresa_id"]
-            isOneToOne: false
-            referencedRelation: "empresas"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "produto_skus_produto_id_fkey"
+            foreignKeyName: "produto_marketplace_map_produto_id_fkey"
             columns: ["produto_id"]
             isOneToOne: false
             referencedRelation: "produtos"
@@ -1683,77 +1702,92 @@ export type Database = {
       }
       produtos: {
         Row: {
-          canais: Json | null
+          altura_cm: number | null
+          atributos_variacao: Json | null
           categoria: string | null
           cfop_compra: string | null
           cfop_venda: string | null
-          codigo_interno: string
           created_at: string
-          custo_medio_atual: number
+          custo_medio: number
           descricao: string | null
           empresa_id: string
-          estoque_atual: number
-          fornecedor_principal_id: string | null
-          fornecedor_principal_nome: string | null
+          fornecedor_id: string | null
+          fornecedor_nome: string | null
           id: string
+          kit_componentes: Json | null
+          largura_cm: number | null
+          marca: string | null
           ncm: string | null
           nome: string
-          observacoes: string | null
-          preco_venda_sugerido: number | null
+          parent_id: string | null
+          peso_kg: number | null
+          preco_venda: number
+          profundidade_cm: number | null
           situacao_tributaria: string | null
+          sku: string
           status: string
           subcategoria: string | null
-          ultima_atualizacao_custo: string | null
+          tipo: string
           unidade_medida: string
           updated_at: string
         }
         Insert: {
-          canais?: Json | null
+          altura_cm?: number | null
+          atributos_variacao?: Json | null
           categoria?: string | null
           cfop_compra?: string | null
           cfop_venda?: string | null
-          codigo_interno: string
           created_at?: string
-          custo_medio_atual?: number
+          custo_medio?: number
           descricao?: string | null
           empresa_id: string
-          estoque_atual?: number
-          fornecedor_principal_id?: string | null
-          fornecedor_principal_nome?: string | null
+          fornecedor_id?: string | null
+          fornecedor_nome?: string | null
           id?: string
+          kit_componentes?: Json | null
+          largura_cm?: number | null
+          marca?: string | null
           ncm?: string | null
           nome: string
-          observacoes?: string | null
-          preco_venda_sugerido?: number | null
+          parent_id?: string | null
+          peso_kg?: number | null
+          preco_venda?: number
+          profundidade_cm?: number | null
           situacao_tributaria?: string | null
+          sku: string
           status?: string
           subcategoria?: string | null
-          ultima_atualizacao_custo?: string | null
+          tipo?: string
           unidade_medida?: string
           updated_at?: string
         }
         Update: {
-          canais?: Json | null
+          altura_cm?: number | null
+          atributos_variacao?: Json | null
           categoria?: string | null
           cfop_compra?: string | null
           cfop_venda?: string | null
-          codigo_interno?: string
           created_at?: string
-          custo_medio_atual?: number
+          custo_medio?: number
           descricao?: string | null
           empresa_id?: string
-          estoque_atual?: number
-          fornecedor_principal_id?: string | null
-          fornecedor_principal_nome?: string | null
+          fornecedor_id?: string | null
+          fornecedor_nome?: string | null
           id?: string
+          kit_componentes?: Json | null
+          largura_cm?: number | null
+          marca?: string | null
           ncm?: string | null
           nome?: string
-          observacoes?: string | null
-          preco_venda_sugerido?: number | null
+          parent_id?: string | null
+          peso_kg?: number | null
+          preco_venda?: number
+          profundidade_cm?: number | null
           situacao_tributaria?: string | null
+          sku?: string
           status?: string
           subcategoria?: string | null
-          ultima_atualizacao_custo?: string | null
+          tipo?: string
           unidade_medida?: string
           updated_at?: string
         }
@@ -1765,36 +1799,50 @@ export type Database = {
             referencedRelation: "empresas"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "produtos_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
         ]
       }
-      recebimentos_compra: {
+      recebimentos: {
         Row: {
+          armazem_id: string
           compra_id: string
           created_at: string
           data_recebimento: string
           id: string
-          observacao: string | null
-          usuario_id: string | null
+          observacoes: string | null
         }
         Insert: {
+          armazem_id: string
           compra_id: string
           created_at?: string
           data_recebimento?: string
           id?: string
-          observacao?: string | null
-          usuario_id?: string | null
+          observacoes?: string | null
         }
         Update: {
+          armazem_id?: string
           compra_id?: string
           created_at?: string
           data_recebimento?: string
           id?: string
-          observacao?: string | null
-          usuario_id?: string | null
+          observacoes?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "recebimentos_compra_compra_id_fkey"
+            foreignKeyName: "recebimentos_armazem_id_fkey"
+            columns: ["armazem_id"]
+            isOneToOne: false
+            referencedRelation: "armazens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recebimentos_compra_id_fkey"
             columns: ["compra_id"]
             isOneToOne: false
             referencedRelation: "compras"
@@ -1808,42 +1856,42 @@ export type Database = {
           created_at: string
           custo_unitario: number
           id: string
+          localizacao: string | null
           lote: string | null
           observacao: string | null
           produto_id: string | null
           quantidade_devolvida: number
-          quantidade_pedida: number | null
           quantidade_recebida: number
           recebimento_id: string
-          sku_id: string | null
+          validade: string | null
         }
         Insert: {
           compra_item_id: string
           created_at?: string
           custo_unitario?: number
           id?: string
+          localizacao?: string | null
           lote?: string | null
           observacao?: string | null
           produto_id?: string | null
           quantidade_devolvida?: number
-          quantidade_pedida?: number | null
           quantidade_recebida?: number
           recebimento_id: string
-          sku_id?: string | null
+          validade?: string | null
         }
         Update: {
           compra_item_id?: string
           created_at?: string
           custo_unitario?: number
           id?: string
+          localizacao?: string | null
           lote?: string | null
           observacao?: string | null
           produto_id?: string | null
           quantidade_devolvida?: number
-          quantidade_pedida?: number | null
           quantidade_recebida?: number
           recebimento_id?: string
-          sku_id?: string | null
+          validade?: string | null
         }
         Relationships: [
           {
@@ -1864,14 +1912,7 @@ export type Database = {
             foreignKeyName: "recebimentos_itens_recebimento_id_fkey"
             columns: ["recebimento_id"]
             isOneToOne: false
-            referencedRelation: "recebimentos_compra"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "recebimentos_itens_sku_id_fkey"
-            columns: ["sku_id"]
-            isOneToOne: false
-            referencedRelation: "produto_skus"
+            referencedRelation: "recebimentos"
             referencedColumns: ["id"]
           },
         ]

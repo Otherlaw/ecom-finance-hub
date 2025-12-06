@@ -1,15 +1,25 @@
+/**
+ * Hook para mapeamento de SKUs de marketplace - Nova Estrutura V2
+ * Usa tabela produto_marketplace_map
+ */
+
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+// ============= TIPOS =============
+
 export interface MarketplaceSkuMapping {
   id: string;
   empresa_id: string;
+  produto_id: string;
   canal: string;
   sku_marketplace: string;
-  sku_id: string | null;
-  produto_id: string | null;
-  nome_produto_marketplace: string | null;
+  anuncio_id: string | null;
+  variante_id: string | null;
+  nome_loja: string | null;
+  nome_anuncio: string | null;
+  ativo: boolean;
   mapeado_automaticamente: boolean;
   created_at: string;
   updated_at: string;
@@ -17,12 +27,7 @@ export interface MarketplaceSkuMapping {
   produto?: {
     id: string;
     nome: string;
-    codigo_interno: string;
-  } | null;
-  sku?: {
-    id: string;
-    codigo_sku: string;
-    variacao: Record<string, string> | null;
+    sku: string;
   } | null;
 }
 
@@ -32,58 +37,57 @@ interface UseMarketplaceSkuMappingsParams {
   apenasMapeados?: boolean;
 }
 
+// ============= HOOK PRINCIPAL =============
+
 export function useMarketplaceSkuMappings(params?: UseMarketplaceSkuMappingsParams) {
   const queryClient = useQueryClient();
 
   const { data: mappings = [], isLoading, refetch } = useQuery({
-    queryKey: ["marketplace_sku_mappings", params],
+    queryKey: ["produto_marketplace_map", params],
     queryFn: async () => {
       let query = supabase
-        .from("marketplace_sku_mappings")
+        .from("produto_marketplace_map")
         .select(`
           *,
-          produto:produtos(id, nome, codigo_interno),
-          sku:produto_skus(id, codigo_sku, variacao)
+          produto:produtos(id, nome, sku)
         `)
         .order("sku_marketplace", { ascending: true });
 
-      if (params?.empresaId) {
-        query = query.eq("empresa_id", params.empresaId);
-      }
-      if (params?.canal) {
-        query = query.eq("canal", params.canal);
-      }
-      if (params?.apenasMapeados) {
-        query = query.or("sku_id.not.is.null,produto_id.not.is.null");
-      }
+      if (params?.empresaId) query = query.eq("empresa_id", params.empresaId);
+      if (params?.canal) query = query.eq("canal", params.canal);
+      if (params?.apenasMapeados) query = query.eq("ativo", true);
 
       const { data, error } = await query;
       if (error) throw error;
-      return data as MarketplaceSkuMapping[];
+      return (data || []) as MarketplaceSkuMapping[];
     },
   });
 
   const criarOuAtualizarMapping = useMutation({
     mutationFn: async (mapping: {
       empresaId: string;
+      produtoId: string;
       canal: string;
       skuMarketplace: string;
-      skuId?: string | null;
-      produtoId?: string | null;
-      nomeProdutoMarketplace?: string | null;
+      anuncioId?: string | null;
+      varianteId?: string | null;
+      nomeLoja?: string | null;
+      nomeAnuncio?: string | null;
       mapeadoAutomaticamente?: boolean;
     }) => {
       const { data, error } = await supabase
-        .from("marketplace_sku_mappings")
+        .from("produto_marketplace_map")
         .upsert({
           empresa_id: mapping.empresaId,
+          produto_id: mapping.produtoId,
           canal: mapping.canal,
           sku_marketplace: mapping.skuMarketplace,
-          sku_id: mapping.skuId || null,
-          produto_id: mapping.produtoId || null,
-          nome_produto_marketplace: mapping.nomeProdutoMarketplace || null,
+          anuncio_id: mapping.anuncioId || null,
+          variante_id: mapping.varianteId || null,
+          nome_loja: mapping.nomeLoja || null,
+          nome_anuncio: mapping.nomeAnuncio || null,
           mapeado_automaticamente: mapping.mapeadoAutomaticamente ?? false,
-          updated_at: new Date().toISOString(),
+          ativo: true,
         }, {
           onConflict: "empresa_id,canal,sku_marketplace",
         })
@@ -94,7 +98,7 @@ export function useMarketplaceSkuMappings(params?: UseMarketplaceSkuMappingsPara
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["marketplace_sku_mappings"] });
+      queryClient.invalidateQueries({ queryKey: ["produto_marketplace_map"] });
     },
     onError: (error) => {
       console.error("Erro ao salvar mapeamento:", error);
@@ -105,13 +109,13 @@ export function useMarketplaceSkuMappings(params?: UseMarketplaceSkuMappingsPara
   const removerMapping = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
-        .from("marketplace_sku_mappings")
+        .from("produto_marketplace_map")
         .delete()
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["marketplace_sku_mappings"] });
+      queryClient.invalidateQueries({ queryKey: ["produto_marketplace_map"] });
       toast.success("Mapeamento removido");
     },
     onError: (error) => {
@@ -129,55 +133,31 @@ export function useMarketplaceSkuMappings(params?: UseMarketplaceSkuMappingsPara
   };
 }
 
-// ============= FUNÇÕES AUXILIARES PARA BUSCA =============
+// ============= FUNÇÕES AUXILIARES =============
 
 /**
- * Resolve SKU do marketplace para SKU/Produto interno.
- * Tenta primeiro por sku_marketplace exato, depois por descrição (fallback).
+ * Resolve SKU do marketplace para produto interno
  */
 export async function resolverSkuMarketplace(params: {
   empresaId: string;
   canal: string;
   skuMarketplace?: string | null;
   descricaoItem?: string | null;
-}): Promise<{ skuId?: string; produtoId?: string } | null> {
-  const { empresaId, canal, skuMarketplace, descricaoItem } = params;
+}): Promise<{ produtoId?: string } | null> {
+  const { empresaId, canal, skuMarketplace } = params;
 
-  // 1. Tentar busca exata por sku_marketplace
   if (skuMarketplace) {
     const { data, error } = await supabase
-      .from("marketplace_sku_mappings")
-      .select("sku_id, produto_id")
+      .from("produto_marketplace_map")
+      .select("produto_id")
       .eq("empresa_id", empresaId)
       .eq("canal", canal)
       .eq("sku_marketplace", skuMarketplace)
+      .eq("ativo", true)
       .maybeSingle();
 
-    if (!error && data && (data.sku_id || data.produto_id)) {
-      return {
-        skuId: data.sku_id ?? undefined,
-        produtoId: data.produto_id ?? undefined,
-      };
-    }
-  }
-
-  // 2. Fallback: buscar por nome_produto_marketplace similar à descrição
-  if (descricaoItem) {
-    const { data, error } = await supabase
-      .from("marketplace_sku_mappings")
-      .select("sku_id, produto_id, nome_produto_marketplace")
-      .eq("empresa_id", empresaId)
-      .eq("canal", canal)
-      .or(`sku_id.not.is.null,produto_id.not.is.null`)
-      .ilike("nome_produto_marketplace", `%${descricaoItem.substring(0, 30)}%`)
-      .limit(1)
-      .maybeSingle();
-
-    if (!error && data && (data.sku_id || data.produto_id)) {
-      return {
-        skuId: data.sku_id ?? undefined,
-        produtoId: data.produto_id ?? undefined,
-      };
+    if (!error && data?.produto_id) {
+      return { produtoId: data.produto_id };
     }
   }
 
@@ -185,19 +165,20 @@ export async function resolverSkuMarketplace(params: {
 }
 
 /**
- * Busca mapeamento por SKU do marketplace (legacy, usa resolverSkuMarketplace internamente)
+ * Buscar mapeamento por SKU do marketplace
  */
 export async function buscarMapeamentoPorSkuMarketplace(
   empresaId: string,
   canal: string,
   skuMarketplace: string
-): Promise<{ skuId: string | null; produtoId: string | null } | null> {
+): Promise<{ produtoId: string | null } | null> {
   const { data, error } = await supabase
-    .from("marketplace_sku_mappings")
-    .select("sku_id, produto_id")
+    .from("produto_marketplace_map")
+    .select("produto_id")
     .eq("empresa_id", empresaId)
     .eq("canal", canal)
     .eq("sku_marketplace", skuMarketplace)
+    .eq("ativo", true)
     .maybeSingle();
 
   if (error) {
@@ -207,29 +188,27 @@ export async function buscarMapeamentoPorSkuMarketplace(
 
   if (!data) return null;
 
-  return {
-    skuId: data.sku_id,
-    produtoId: data.produto_id,
-  };
+  return { produtoId: data.produto_id };
 }
 
 /**
- * Cria mapeamentos em lote (para importação)
+ * Criar mapeamentos em lote
  */
 export async function criarMapeamentosEmLote(
   mappings: Array<{
     empresaId: string;
+    produtoId: string;
     canal: string;
     skuMarketplace: string;
-    nomeProdutoMarketplace?: string;
+    nomeAnuncio?: string;
   }>
 ): Promise<number> {
   if (mappings.length === 0) return 0;
 
-  // Buscar mapeamentos existentes
+  // Buscar existentes
   const skusMarketplace = mappings.map(m => m.skuMarketplace);
   const { data: existentes } = await supabase
-    .from("marketplace_sku_mappings")
+    .from("produto_marketplace_map")
     .select("sku_marketplace")
     .eq("empresa_id", mappings[0].empresaId)
     .eq("canal", mappings[0].canal)
@@ -237,20 +216,22 @@ export async function criarMapeamentosEmLote(
 
   const existentesSet = new Set((existentes || []).map(e => e.sku_marketplace));
   
-  // Filtrar apenas novos
+  // Filtrar novos
   const novos = mappings.filter(m => !existentesSet.has(m.skuMarketplace));
   
   if (novos.length === 0) return 0;
 
   const { error } = await supabase
-    .from("marketplace_sku_mappings")
+    .from("produto_marketplace_map")
     .insert(
       novos.map(m => ({
         empresa_id: m.empresaId,
+        produto_id: m.produtoId,
         canal: m.canal,
         sku_marketplace: m.skuMarketplace,
-        nome_produto_marketplace: m.nomeProdutoMarketplace || null,
+        nome_anuncio: m.nomeAnuncio || null,
         mapeado_automaticamente: false,
+        ativo: true,
       }))
     );
 

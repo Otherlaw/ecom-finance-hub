@@ -1,20 +1,18 @@
 /**
- * Hook para gerenciamento de compras com integração ao Supabase.
- * Suporta os novos status: em_compra, em_transito, parcial, concluido, cancelado
+ * Hook para gerenciamento de compras - Nova Estrutura V2
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { registrarEntradaEstoqueSKU } from "@/lib/motor-estoque-sku";
 
 // ============= TIPOS =============
 
-export type StatusCompra = 'em_compra' | 'em_transito' | 'parcial' | 'concluido' | 'cancelado';
+export type StatusCompra = 'rascunho' | 'confirmado' | 'parcial' | 'concluido' | 'cancelado';
 
 export const STATUS_COMPRA_LABELS: Record<StatusCompra, { label: string; color: string }> = {
-  em_compra: { label: "Em Compra", color: "bg-blue-100 text-blue-800" },
-  em_transito: { label: "Em Trânsito", color: "bg-yellow-100 text-yellow-800" },
+  rascunho: { label: "Rascunho", color: "bg-gray-100 text-gray-800" },
+  confirmado: { label: "Confirmado", color: "bg-blue-100 text-blue-800" },
   parcial: { label: "Parcial", color: "bg-orange-100 text-orange-800" },
   concluido: { label: "Concluído", color: "bg-green-100 text-green-800" },
   cancelado: { label: "Cancelado", color: "bg-red-100 text-red-800" },
@@ -24,8 +22,7 @@ export interface CompraItem {
   id: string;
   compra_id: string;
   produto_id: string | null;
-  sku_id: string | null;
-  codigo_produto_nf: string | null;
+  codigo_nf: string | null;
   descricao_nf: string;
   ncm: string | null;
   cfop: string | null;
@@ -35,6 +32,8 @@ export interface CompraItem {
   valor_total: number;
   aliquota_icms: number | null;
   valor_icms: number | null;
+  aliquota_ipi: number | null;
+  valor_ipi: number | null;
   mapeado: boolean;
   created_at: string;
   updated_at: string;
@@ -43,52 +42,42 @@ export interface CompraItem {
 export interface Compra {
   id: string;
   empresa_id: string;
+  numero: string | null;
   fornecedor_nome: string;
   fornecedor_cnpj: string | null;
-  data_compra: string;
+  data_pedido: string;
+  data_previsao: string | null;
+  valor_produtos: number;
+  valor_frete: number;
+  valor_desconto: number;
+  valor_total: number;
   numero_nf: string | null;
   chave_acesso: string | null;
-  valor_total: number;
+  data_nf: string | null;
   status: StatusCompra;
+  armazem_destino_id: string | null;
   observacoes: string | null;
   created_at: string;
   updated_at: string;
   itens?: CompraItem[];
 }
 
-export interface RecebimentoCompra {
-  id: string;
-  compra_id: string;
-  data_recebimento: string;
-  usuario_id: string | null;
-  observacao: string | null;
-  created_at: string;
-}
-
-export interface RecebimentoItem {
-  id: string;
-  recebimento_id: string;
-  compra_item_id: string;
-  produto_id: string | null;
-  sku_id: string | null;
-  quantidade_pedida: number;
-  quantidade_recebida: number;
-  quantidade_devolvida: number;
-  custo_unitario: number;
-  lote: string | null;
-  observacao: string | null;
-  created_at: string;
-}
-
 export interface CompraInsert {
   empresa_id: string;
+  numero?: string;
   fornecedor_nome: string;
   fornecedor_cnpj?: string;
-  data_compra: string;
+  data_pedido: string;
+  data_previsao?: string;
+  valor_produtos?: number;
+  valor_frete?: number;
+  valor_desconto?: number;
+  valor_total?: number;
   numero_nf?: string;
   chave_acesso?: string;
-  valor_total?: number;
+  data_nf?: string;
   status?: StatusCompra;
+  armazem_destino_id?: string;
   observacoes?: string;
 }
 
@@ -104,7 +93,6 @@ export function useCompras(params: UseComprasParams = {}) {
   const queryClient = useQueryClient();
   const { empresaId, status = 'todos', busca } = params;
 
-  // Query principal
   const {
     data: compras = [],
     isLoading,
@@ -118,19 +106,11 @@ export function useCompras(params: UseComprasParams = {}) {
           *,
           itens:compras_itens(*)
         `)
-        .order("data_compra", { ascending: false });
+        .order("data_pedido", { ascending: false });
 
-      if (empresaId) {
-        query = query.eq("empresa_id", empresaId);
-      }
-
-      if (status && status !== 'todos') {
-        query = query.eq("status", status);
-      }
-
-      if (busca) {
-        query = query.or(`fornecedor_nome.ilike.%${busca}%,numero_nf.ilike.%${busca}%`);
-      }
+      if (empresaId) query = query.eq("empresa_id", empresaId);
+      if (status && status !== 'todos') query = query.eq("status", status);
+      if (busca) query = query.or(`fornecedor_nome.ilike.%${busca}%,numero_nf.ilike.%${busca}%`);
 
       const { data, error } = await query;
 
@@ -142,22 +122,28 @@ export function useCompras(params: UseComprasParams = {}) {
       return (data || []).map((c): Compra => ({
         id: c.id,
         empresa_id: c.empresa_id,
+        numero: c.numero,
         fornecedor_nome: c.fornecedor_nome,
         fornecedor_cnpj: c.fornecedor_cnpj,
-        data_compra: c.data_compra,
+        data_pedido: c.data_pedido,
+        data_previsao: c.data_previsao,
+        valor_produtos: Number(c.valor_produtos) || 0,
+        valor_frete: Number(c.valor_frete) || 0,
+        valor_desconto: Number(c.valor_desconto) || 0,
+        valor_total: Number(c.valor_total) || 0,
         numero_nf: c.numero_nf,
         chave_acesso: c.chave_acesso,
-        valor_total: Number(c.valor_total) || 0,
+        data_nf: c.data_nf,
         status: c.status as StatusCompra,
+        armazem_destino_id: c.armazem_destino_id,
         observacoes: c.observacoes,
         created_at: c.created_at,
         updated_at: c.updated_at,
-        itens: c.itens?.map((i: any): CompraItem => ({
+        itens: (c.itens || []).map((i: any): CompraItem => ({
           id: i.id,
           compra_id: i.compra_id,
           produto_id: i.produto_id,
-          sku_id: i.sku_id,
-          codigo_produto_nf: i.codigo_produto_nf,
+          codigo_nf: i.codigo_nf,
           descricao_nf: i.descricao_nf,
           ncm: i.ncm,
           cfop: i.cfop,
@@ -167,10 +153,12 @@ export function useCompras(params: UseComprasParams = {}) {
           valor_total: Number(i.valor_total) || 0,
           aliquota_icms: i.aliquota_icms ? Number(i.aliquota_icms) : null,
           valor_icms: i.valor_icms ? Number(i.valor_icms) : null,
+          aliquota_ipi: i.aliquota_ipi ? Number(i.aliquota_ipi) : null,
+          valor_ipi: i.valor_ipi ? Number(i.valor_ipi) : null,
           mapeado: i.mapeado || false,
           created_at: i.created_at,
           updated_at: i.updated_at,
-        })) || [],
+        })),
       }));
     },
   });
@@ -184,13 +172,20 @@ export function useCompras(params: UseComprasParams = {}) {
         .from("compras")
         .insert({
           empresa_id: compraData.empresa_id,
+          numero: compraData.numero || null,
           fornecedor_nome: compraData.fornecedor_nome,
           fornecedor_cnpj: compraData.fornecedor_cnpj || null,
-          data_compra: compraData.data_compra,
+          data_pedido: compraData.data_pedido,
+          data_previsao: compraData.data_previsao || null,
+          valor_produtos: compraData.valor_produtos || 0,
+          valor_frete: compraData.valor_frete || 0,
+          valor_desconto: compraData.valor_desconto || 0,
+          valor_total: compraData.valor_total || 0,
           numero_nf: compraData.numero_nf || null,
           chave_acesso: compraData.chave_acesso || null,
-          valor_total: compraData.valor_total || 0,
-          status: compraData.status || 'em_compra',
+          data_nf: compraData.data_nf || null,
+          status: compraData.status || 'rascunho',
+          armazem_destino_id: compraData.armazem_destino_id || null,
           observacoes: compraData.observacoes || null,
         })
         .select()
@@ -198,13 +193,11 @@ export function useCompras(params: UseComprasParams = {}) {
 
       if (compraError) throw compraError;
 
-      // Inserir itens se fornecidos
       if (itens && itens.length > 0) {
         const itensParaInserir = itens.map(item => ({
           compra_id: compra.id,
           produto_id: item.produto_id || null,
-          sku_id: item.sku_id || null,
-          codigo_produto_nf: item.codigo_produto_nf || null,
+          codigo_nf: item.codigo_nf || null,
           descricao_nf: item.descricao_nf,
           ncm: item.ncm || null,
           cfop: item.cfop || null,
@@ -214,6 +207,8 @@ export function useCompras(params: UseComprasParams = {}) {
           valor_total: item.valor_total,
           aliquota_icms: item.aliquota_icms || null,
           valor_icms: item.valor_icms || null,
+          aliquota_ipi: item.aliquota_ipi || null,
+          valor_ipi: item.valor_ipi || null,
           mapeado: item.mapeado || false,
         }));
 
@@ -236,12 +231,12 @@ export function useCompras(params: UseComprasParams = {}) {
     },
   });
 
-  // Atualizar status da compra
+  // Atualizar status
   const atualizarStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: StatusCompra }) => {
       const { error } = await supabase
         .from("compras")
-        .update({ status, updated_at: new Date().toISOString() })
+        .update({ status })
         .eq("id", id);
 
       if (error) throw error;
@@ -258,9 +253,6 @@ export function useCompras(params: UseComprasParams = {}) {
   // Excluir compra
   const excluirCompra = useMutation({
     mutationFn: async (id: string) => {
-      // Primeiro deletar itens
-      await supabase.from("compras_itens").delete().eq("compra_id", id);
-      // Depois deletar compra
       const { error } = await supabase.from("compras").delete().eq("id", id);
       if (error) throw error;
     },
@@ -276,8 +268,8 @@ export function useCompras(params: UseComprasParams = {}) {
   // Resumo
   const resumo = {
     total: compras.length,
-    emCompra: compras.filter(c => c.status === 'em_compra').length,
-    emTransito: compras.filter(c => c.status === 'em_transito').length,
+    rascunho: compras.filter(c => c.status === 'rascunho').length,
+    confirmado: compras.filter(c => c.status === 'confirmado').length,
     parcial: compras.filter(c => c.status === 'parcial').length,
     concluido: compras.filter(c => c.status === 'concluido').length,
     cancelado: compras.filter(c => c.status === 'cancelado').length,
@@ -307,7 +299,7 @@ export function useRecebimentos(compraId: string | null) {
     enabled: !!compraId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("recebimentos_compra")
+        .from("recebimentos")
         .select(`
           *,
           itens:recebimentos_itens(*)
@@ -324,28 +316,29 @@ export function useRecebimentos(compraId: string | null) {
   const registrarRecebimento = useMutation({
     mutationFn: async (input: {
       compra_id: string;
-      empresa_id: string;
+      armazem_id: string;
       data_recebimento: string;
-      observacao?: string;
+      observacoes?: string;
       itens: {
         compra_item_id: string;
         produto_id: string | null;
-        sku_id: string | null;
-        quantidade_pedida: number;
         quantidade_recebida: number;
         quantidade_devolvida?: number;
         custo_unitario: number;
         lote?: string;
+        validade?: string;
+        localizacao?: string;
         observacao?: string;
       }[];
     }) => {
       // Criar registro de recebimento
       const { data: recebimento, error: recError } = await supabase
-        .from("recebimentos_compra")
+        .from("recebimentos")
         .insert({
           compra_id: input.compra_id,
+          armazem_id: input.armazem_id,
           data_recebimento: input.data_recebimento,
-          observacao: input.observacao || null,
+          observacoes: input.observacoes || null,
         })
         .select()
         .single();
@@ -359,12 +352,12 @@ export function useRecebimentos(compraId: string | null) {
           recebimento_id: recebimento.id,
           compra_item_id: item.compra_item_id,
           produto_id: item.produto_id,
-          sku_id: item.sku_id,
-          quantidade_pedida: item.quantidade_pedida,
           quantidade_recebida: item.quantidade_recebida,
           quantidade_devolvida: item.quantidade_devolvida || 0,
           custo_unitario: item.custo_unitario,
           lote: item.lote || null,
+          validade: item.validade || null,
+          localizacao: item.localizacao || null,
           observacao: item.observacao || null,
         }));
 
@@ -374,27 +367,6 @@ export function useRecebimentos(compraId: string | null) {
           .insert(itensParaInserir);
 
         if (itensError) throw itensError;
-
-        // Registrar entrada no estoque para cada item com SKU
-        for (const item of itensParaInserir) {
-          if (item.sku_id && item.quantidade_recebida > 0) {
-            try {
-              await registrarEntradaEstoqueSKU({
-                skuId: item.sku_id,
-                empresaId: input.empresa_id,
-                quantidade: item.quantidade_recebida,
-                custoUnitario: item.custo_unitario,
-                data: input.data_recebimento,
-                origem: 'compra',
-                referenciaId: recebimento.id,
-                observacoes: `Recebimento de compra - Item ${item.compra_item_id}`,
-              });
-            } catch (err) {
-              console.error('Erro ao registrar estoque:', err);
-              // Não falha o recebimento, apenas loga
-            }
-          }
-        }
       }
 
       return recebimento;
@@ -403,8 +375,7 @@ export function useRecebimentos(compraId: string | null) {
       toast.success("Recebimento registrado com sucesso");
       queryClient.invalidateQueries({ queryKey: ["recebimentos"] });
       queryClient.invalidateQueries({ queryKey: ["compras"] });
-      queryClient.invalidateQueries({ queryKey: ["produto_skus"] });
-      queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });
+      queryClient.invalidateQueries({ queryKey: ["estoque"] });
     },
     onError: (error: Error) => {
       console.error("Erro ao registrar recebimento:", error);
