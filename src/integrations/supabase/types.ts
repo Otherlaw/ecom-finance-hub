@@ -1131,6 +1131,7 @@ export type Database = {
       }
       marketplace_transaction_items: {
         Row: {
+          anuncio_id: string | null
           created_at: string
           descricao_item: string | null
           id: string
@@ -1142,8 +1143,10 @@ export type Database = {
           sku_marketplace: string | null
           transaction_id: string
           updated_at: string
+          variante_id: string | null
         }
         Insert: {
+          anuncio_id?: string | null
           created_at?: string
           descricao_item?: string | null
           id?: string
@@ -1155,8 +1158,10 @@ export type Database = {
           sku_marketplace?: string | null
           transaction_id: string
           updated_at?: string
+          variante_id?: string | null
         }
         Update: {
+          anuncio_id?: string | null
           created_at?: string
           descricao_item?: string | null
           id?: string
@@ -1168,6 +1173,7 @@ export type Database = {
           sku_marketplace?: string | null
           transaction_id?: string
           updated_at?: string
+          variante_id?: string | null
         }
         Relationships: [
           {
