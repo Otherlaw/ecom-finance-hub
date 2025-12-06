@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Link2, Search, Trash2, Package, Store, AlertCircle, Check, X, Upload } from "lucide-react";
+import { Link2, Search, Trash2, Package, Store, AlertCircle, Check, X, Upload, RefreshCw, Loader2 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,7 @@ import { useProdutos } from "@/hooks/useProdutos";
 import { useProdutoSkus } from "@/hooks/useProdutoSkus";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { ImportarMapeamentoUpsellerModal } from "@/components/products/ImportarMapeamentoUpsellerModal";
+import { backfillItensNaoMapeados, limparCacheMapeamentosPorEmpresa } from "@/lib/marketplace-sku-resolver";
 import { toast } from "sonner";
 
 const CANAIS_MARKETPLACE = [
@@ -54,6 +55,7 @@ export default function MapeamentosMarketplace() {
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [searchTerm, setSearchTerm] = useState("");
   const [importUpsellerOpen, setImportUpsellerOpen] = useState(false);
+  const [isBackfilling, setIsBackfilling] = useState(false);
 
   // Modal de edição
   const [editingMapping, setEditingMapping] = useState<MarketplaceSkuMapping | null>(null);
@@ -137,6 +139,37 @@ export default function MapeamentosMarketplace() {
     await removerMapping.mutateAsync(id);
   };
 
+  // Executar backfill de itens antigos
+  const handleBackfill = async () => {
+    if (!empresaId) {
+      toast.error("Selecione uma empresa primeiro");
+      return;
+    }
+    
+    const canal = canalFilter !== "todos" ? canalFilter : "mercado_livre";
+    
+    setIsBackfilling(true);
+    try {
+      // Limpar cache antes de backfill para pegar mapeamentos mais recentes
+      limparCacheMapeamentosPorEmpresa(empresaId, canal);
+      
+      const resultado = await backfillItensNaoMapeados(empresaId, canal, 5000);
+      
+      if (resultado.atualizados > 0) {
+        toast.success(`Backfill concluído: ${resultado.atualizados} itens vinculados`);
+      } else if (resultado.semMapeamento > 0) {
+        toast.info(`Nenhum item atualizado. ${resultado.semMapeamento} itens sem mapeamento disponível.`);
+      } else {
+        toast.info("Não há itens pendentes para vincular");
+      }
+    } catch (error) {
+      console.error("Erro no backfill:", error);
+      toast.error("Erro ao executar vinculação retroativa");
+    } finally {
+      setIsBackfilling(false);
+    }
+  };
+
   // SKUs do produto selecionado
   const skusDoProduto = useMemo(() => {
     if (!selectedProdutoId) return [];
@@ -159,10 +192,24 @@ export default function MapeamentosMarketplace() {
                 Vincule os códigos de anúncio do marketplace aos produtos internos
               </p>
             </div>
-            <Button onClick={() => setImportUpsellerOpen(true)}>
-              <Upload className="h-4 w-4 mr-2" />
-              Importar Upseller
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                onClick={handleBackfill}
+                disabled={isBackfilling || !empresaId}
+              >
+                {isBackfilling ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Vincular Itens Antigos
+              </Button>
+              <Button onClick={() => setImportUpsellerOpen(true)}>
+                <Upload className="h-4 w-4 mr-2" />
+                Importar Upseller
+              </Button>
+            </div>
           </div>
 
           {/* Cards de resumo */}
