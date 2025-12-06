@@ -73,20 +73,29 @@ export function ExcluirProdutoModal({
       return `Este produto possui ${cmvCount} registro(s) de CMV. Em vez de excluir, marque como inativo.`;
     }
 
-    // Verificar SKUs
-    const { count: skuCount } = await supabase
-      .from("produto_skus")
+    // Verificar estoque
+    const { count: estoqueCount } = await supabase
+      .from("estoque")
       .select("*", { count: "exact", head: true })
       .eq("produto_id", id);
 
-    if (skuCount && skuCount > 0) {
-      return `Este produto possui ${skuCount} SKU(s) vinculado(s). Exclua os SKUs primeiro ou marque como inativo.`;
+    if (estoqueCount && estoqueCount > 0) {
+      return `Este produto possui ${estoqueCount} registro(s) de estoque. Em vez de excluir, marque como inativo.`;
+    }
+
+    // Verificar variações (filhos)
+    const { count: variacoesCount } = await supabase
+      .from("produtos")
+      .select("*", { count: "exact", head: true })
+      .eq("parent_id", id);
+
+    if (variacoesCount && variacoesCount > 0) {
+      return `Este produto possui ${variacoesCount} variação(ões) vinculada(s). Exclua as variações primeiro ou marque como inativo.`;
     }
 
     return null;
   };
 
-  // Limpar erro ao abrir/fechar modal
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       setVinculoError(null);
@@ -101,7 +110,6 @@ export function ExcluirProdutoModal({
     setVinculoError(null);
 
     try {
-      // Verificar vínculos
       const vinculo = await verificarVinculos(produtoId);
       if (vinculo) {
         setVinculoError(vinculo);
@@ -109,7 +117,6 @@ export function ExcluirProdutoModal({
         return;
       }
 
-      // Excluir produto
       const { error } = await supabase
         .from("produtos")
         .delete()

@@ -1,34 +1,77 @@
 /**
- * Hook para gerenciamento de produtos com integração ao Motor de Custos V1.
+ * Hook para gerenciamento de produtos - Nova Estrutura V2
+ * Suporta: único, variation_parent, variation_child, kit
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import type { Produto, ChannelMapping } from "@/lib/motor-custos";
 
 // ============= TIPOS =============
 
+export type TipoProduto = 'unico' | 'variation_parent' | 'variation_child' | 'kit';
+export type StatusProduto = 'ativo' | 'inativo' | 'rascunho';
+
+export interface Produto {
+  id: string;
+  empresa_id: string;
+  sku: string;
+  nome: string;
+  descricao: string | null;
+  tipo: TipoProduto;
+  parent_id: string | null;
+  atributos_variacao: Record<string, string>;
+  kit_componentes: Array<{ sku: string; quantidade: number }>;
+  ncm: string | null;
+  cfop_venda: string | null;
+  cfop_compra: string | null;
+  situacao_tributaria: string | null;
+  custo_medio: number;
+  preco_venda: number;
+  peso_kg: number;
+  altura_cm: number;
+  largura_cm: number;
+  profundidade_cm: number;
+  categoria: string | null;
+  subcategoria: string | null;
+  marca: string | null;
+  unidade_medida: string;
+  fornecedor_id: string | null;
+  fornecedor_nome: string | null;
+  status: StatusProduto;
+  created_at: string;
+  updated_at: string;
+  // Joins
+  parent?: Produto | null;
+  variacoes?: Produto[];
+}
+
 export interface ProdutoInsert {
   empresa_id: string;
-  codigo_interno: string;
+  sku: string;
   nome: string;
   descricao?: string;
-  categoria?: string;
-  subcategoria?: string;
-  unidade_medida?: string;
+  tipo?: TipoProduto;
+  parent_id?: string;
+  atributos_variacao?: Record<string, string>;
+  kit_componentes?: Array<{ sku: string; quantidade: number }>;
   ncm?: string;
   cfop_venda?: string;
   cfop_compra?: string;
   situacao_tributaria?: string;
-  fornecedor_principal_id?: string;
-  fornecedor_principal_nome?: string;
-  preco_venda_sugerido?: number;
-  estoque_atual?: number;
-  custo_medio_atual?: number;
-  canais?: ChannelMapping[];
-  status?: "ativo" | "inativo";
-  observacoes?: string;
+  custo_medio?: number;
+  preco_venda?: number;
+  peso_kg?: number;
+  altura_cm?: number;
+  largura_cm?: number;
+  profundidade_cm?: number;
+  categoria?: string;
+  subcategoria?: string;
+  marca?: string;
+  unidade_medida?: string;
+  fornecedor_id?: string;
+  fornecedor_nome?: string;
+  status?: StatusProduto;
 }
 
 export interface ProdutoUpdate extends Partial<ProdutoInsert> {
@@ -37,24 +80,25 @@ export interface ProdutoUpdate extends Partial<ProdutoInsert> {
 
 export interface UseProdutosParams {
   empresaId?: string;
-  status?: "ativo" | "inativo" | "todos";
+  status?: StatusProduto | "todos";
+  tipo?: TipoProduto | "todos";
   categoria?: string;
   busca?: string;
+  apenasRaiz?: boolean; // Excluir variation_child
 }
 
 // ============= HOOK PRINCIPAL =============
 
 export function useProdutos(params: UseProdutosParams = {}) {
   const queryClient = useQueryClient();
-  const { empresaId, status = "todos", categoria, busca } = params;
+  const { empresaId, status = "todos", tipo = "todos", categoria, busca, apenasRaiz = true } = params;
 
-  // Query principal
   const {
     data: produtos = [],
     isLoading,
     refetch,
   } = useQuery({
-    queryKey: ["produtos", empresaId, status, categoria, busca],
+    queryKey: ["produtos", empresaId, status, tipo, categoria, busca, apenasRaiz],
     queryFn: async () => {
       let query = supabase
         .from("produtos")
@@ -69,12 +113,20 @@ export function useProdutos(params: UseProdutosParams = {}) {
         query = query.eq("status", status);
       }
 
+      if (tipo && tipo !== "todos") {
+        query = query.eq("tipo", tipo);
+      }
+
+      if (apenasRaiz) {
+        query = query.neq("tipo", "variation_child");
+      }
+
       if (categoria) {
         query = query.eq("categoria", categoria);
       }
 
       if (busca) {
-        query = query.or(`nome.ilike.%${busca}%,codigo_interno.ilike.%${busca}%,ncm.ilike.%${busca}%`);
+        query = query.or(`nome.ilike.%${busca}%,sku.ilike.%${busca}%,ncm.ilike.%${busca}%`);
       }
 
       const { data, error } = await query;
@@ -84,29 +136,33 @@ export function useProdutos(params: UseProdutosParams = {}) {
         throw error;
       }
 
-      // Mapear para o tipo Produto
       return (data || []).map((p): Produto => ({
         id: p.id,
         empresa_id: p.empresa_id,
-        codigo_interno: p.codigo_interno,
+        sku: p.sku,
         nome: p.nome,
         descricao: p.descricao,
-        categoria: p.categoria,
-        subcategoria: p.subcategoria,
-        unidade_medida: p.unidade_medida,
+        tipo: p.tipo as TipoProduto,
+        parent_id: p.parent_id,
+        atributos_variacao: (p.atributos_variacao as Record<string, string>) || {},
+        kit_componentes: (p.kit_componentes as Array<{ sku: string; quantidade: number }>) || [],
         ncm: p.ncm,
         cfop_venda: p.cfop_venda,
         cfop_compra: p.cfop_compra,
         situacao_tributaria: p.situacao_tributaria,
-        fornecedor_principal_id: p.fornecedor_principal_id,
-        fornecedor_principal_nome: p.fornecedor_principal_nome,
-        preco_venda_sugerido: Number(p.preco_venda_sugerido) || 0,
-        estoque_atual: Number(p.estoque_atual) || 0,
-        custo_medio_atual: Number(p.custo_medio_atual) || 0,
-        ultima_atualizacao_custo: p.ultima_atualizacao_custo,
-        canais: (p.canais as unknown as ChannelMapping[]) || [],
-        status: p.status as "ativo" | "inativo",
-        observacoes: p.observacoes,
+        custo_medio: Number(p.custo_medio) || 0,
+        preco_venda: Number(p.preco_venda) || 0,
+        peso_kg: Number(p.peso_kg) || 0,
+        altura_cm: Number(p.altura_cm) || 0,
+        largura_cm: Number(p.largura_cm) || 0,
+        profundidade_cm: Number(p.profundidade_cm) || 0,
+        categoria: p.categoria,
+        subcategoria: p.subcategoria,
+        marca: p.marca,
+        unidade_medida: p.unidade_medida,
+        fornecedor_id: p.fornecedor_id,
+        fornecedor_nome: p.fornecedor_nome,
+        status: p.status as StatusProduto,
         created_at: p.created_at,
         updated_at: p.updated_at,
       }));
@@ -116,31 +172,35 @@ export function useProdutos(params: UseProdutosParams = {}) {
   // Criar produto
   const criarProduto = useMutation({
     mutationFn: async (input: ProdutoInsert) => {
-      const insertData = {
-        empresa_id: input.empresa_id,
-        codigo_interno: input.codigo_interno,
-        nome: input.nome,
-        descricao: input.descricao || null,
-        categoria: input.categoria || null,
-        subcategoria: input.subcategoria || null,
-        unidade_medida: input.unidade_medida || "un",
-        ncm: input.ncm || null,
-        cfop_venda: input.cfop_venda || null,
-        cfop_compra: input.cfop_compra || null,
-        situacao_tributaria: input.situacao_tributaria || null,
-        fornecedor_principal_id: input.fornecedor_principal_id || null,
-        fornecedor_principal_nome: input.fornecedor_principal_nome || null,
-        preco_venda_sugerido: input.preco_venda_sugerido || 0,
-        estoque_atual: input.estoque_atual || 0,
-        custo_medio_atual: input.custo_medio_atual || 0,
-        canais: JSON.parse(JSON.stringify(input.canais || [])),
-        status: input.status || "ativo",
-        observacoes: input.observacoes || null,
-      };
-
       const { data, error } = await supabase
         .from("produtos")
-        .insert(insertData)
+        .insert({
+          empresa_id: input.empresa_id,
+          sku: input.sku,
+          nome: input.nome,
+          descricao: input.descricao || null,
+          tipo: input.tipo || "unico",
+          parent_id: input.parent_id || null,
+          atributos_variacao: input.atributos_variacao || {},
+          kit_componentes: input.kit_componentes || [],
+          ncm: input.ncm || null,
+          cfop_venda: input.cfop_venda || null,
+          cfop_compra: input.cfop_compra || null,
+          situacao_tributaria: input.situacao_tributaria || null,
+          custo_medio: input.custo_medio || 0,
+          preco_venda: input.preco_venda || 0,
+          peso_kg: input.peso_kg || 0,
+          altura_cm: input.altura_cm || 0,
+          largura_cm: input.largura_cm || 0,
+          profundidade_cm: input.profundidade_cm || 0,
+          categoria: input.categoria || null,
+          subcategoria: input.subcategoria || null,
+          marca: input.marca || null,
+          unidade_medida: input.unidade_medida || "un",
+          fornecedor_id: input.fornecedor_id || null,
+          fornecedor_nome: input.fornecedor_nome || null,
+          status: input.status || "ativo",
+        })
         .select()
         .single();
 
@@ -160,16 +220,11 @@ export function useProdutos(params: UseProdutosParams = {}) {
   // Atualizar produto
   const atualizarProduto = useMutation({
     mutationFn: async (input: ProdutoUpdate) => {
-      const { id, canais, ...restData } = input;
-
-      const updatePayload: Record<string, unknown> = { ...restData };
-      if (canais !== undefined) {
-        updatePayload.canais = canais as unknown as Record<string, unknown>[];
-      }
+      const { id, ...restData } = input;
 
       const { data, error } = await supabase
         .from("produtos")
-        .update(updatePayload)
+        .update(restData)
         .eq("id", id)
         .select()
         .single();
@@ -203,7 +258,7 @@ export function useProdutos(params: UseProdutosParams = {}) {
     },
   });
 
-  // Inativar produto (soft delete)
+  // Inativar produto
   const inativarProduto = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
@@ -227,9 +282,9 @@ export function useProdutos(params: UseProdutosParams = {}) {
     total: produtos.length,
     ativos: produtos.filter((p) => p.status === "ativo").length,
     inativos: produtos.filter((p) => p.status === "inativo").length,
-    valorEstoque: produtos.reduce((sum, p) => sum + p.estoque_atual * p.custo_medio_atual, 0),
-    produtosComEstoque: produtos.filter((p) => p.estoque_atual > 0).length,
-    produtosSemEstoque: produtos.filter((p) => p.estoque_atual <= 0).length,
+    unicos: produtos.filter((p) => p.tipo === "unico").length,
+    pais: produtos.filter((p) => p.tipo === "variation_parent").length,
+    kits: produtos.filter((p) => p.tipo === "kit").length,
   };
 
   return {
@@ -266,12 +321,44 @@ export function useProduto(id: string | null) {
 
       return {
         ...data,
-        estoque_atual: Number(data.estoque_atual) || 0,
-        custo_medio_atual: Number(data.custo_medio_atual) || 0,
-        preco_venda_sugerido: Number(data.preco_venda_sugerido) || 0,
-        canais: (data.canais as unknown as ChannelMapping[]) || [],
-        status: data.status as "ativo" | "inativo",
+        tipo: data.tipo as TipoProduto,
+        atributos_variacao: (data.atributos_variacao as Record<string, string>) || {},
+        kit_componentes: (data.kit_componentes as Array<{ sku: string; quantidade: number }>) || [],
+        custo_medio: Number(data.custo_medio) || 0,
+        preco_venda: Number(data.preco_venda) || 0,
+        status: data.status as StatusProduto,
       } as Produto;
+    },
+  });
+}
+
+// ============= HOOK PARA VARIAÇÕES =============
+
+export function useVariacoesProduto(parentId: string | null) {
+  return useQuery({
+    queryKey: ["variacoes", parentId],
+    enabled: !!parentId,
+    queryFn: async () => {
+      if (!parentId) return [];
+
+      const { data, error } = await supabase
+        .from("produtos")
+        .select("*")
+        .eq("parent_id", parentId)
+        .eq("tipo", "variation_child")
+        .order("sku");
+
+      if (error) throw error;
+
+      return (data || []).map((p): Produto => ({
+        ...p,
+        tipo: p.tipo as TipoProduto,
+        atributos_variacao: (p.atributos_variacao as Record<string, string>) || {},
+        kit_componentes: [],
+        custo_medio: Number(p.custo_medio) || 0,
+        preco_venda: Number(p.preco_venda) || 0,
+        status: p.status as StatusProduto,
+      }));
     },
   });
 }
