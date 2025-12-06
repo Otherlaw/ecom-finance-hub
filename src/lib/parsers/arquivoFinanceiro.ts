@@ -285,6 +285,9 @@ export interface ItemVendaParser {
   quantidade: number;
   preco_unitario: number | null;
   preco_total: number | null;
+  // Campos para mapeamento Upseller
+  anuncio_id?: string | null;
+  variante_id?: string | null;
 }
 
 // ============= PARSER MERCADO LIVRE XLSX COM ESTATÍSTICAS E EXTRAÇÃO DE ITENS =============
@@ -479,6 +482,9 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
     const precoUnit = col.precoUnitario >= 0 ? parseNumber(r[col.precoUnitario]) : null;
     const precoTot = col.precoTotal >= 0 ? parseNumber(r[col.precoTotal]) : null;
 
+    // Extrair ID de anúncio no formato MLB
+    const anuncioIdExtraido = mlbStr ? (mlbStr.match(/MLB\d+/i)?.[0]?.toUpperCase() || mlbStr) : null;
+    
     // Se tem MLB ou nome do item e é uma transação de venda, criar item
     if ((mlbStr || nomeItemStr) && (tipoTransacao === "venda" || descNormalizada.includes("venda"))) {
       itens.push({
@@ -487,6 +493,9 @@ export async function parseXLSXMercadoLivre(file: File): Promise<ParseResult> {
         quantidade: qtd,
         preco_unitario: precoUnit,
         preco_total: precoTot || (precoUnit ? precoUnit * qtd : null),
+        // Campos para mapeamento Upseller
+        anuncio_id: anuncioIdExtraido,
+        variante_id: null, // Mercado Livre geralmente não traz variação no relatório de tarifas
       });
     }
 

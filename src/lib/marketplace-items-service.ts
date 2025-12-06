@@ -3,10 +3,19 @@
  * 
  * Responsável por:
  * - Criar registros em marketplace_transaction_items
- * - Vincular automaticamente com produtos via marketplace_sku_mappings
+ * - Vincular automaticamente com produtos via mapeamento Upseller (produto_sku_map)
+ * - Fallback para marketplace_sku_mappings (legado)
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { 
+  carregarCacheMapeamentos, 
+  resolverSkuDoCache, 
+  extrairMLB,
+  limparCacheMapeamentosPorEmpresa,
+  type MapeamentoCache,
+  type ChaveMapMarketplace,
+} from "./marketplace-sku-resolver";
 
 export interface ItemParaInserir {
   sku_marketplace: string | null;
@@ -14,6 +23,9 @@ export interface ItemParaInserir {
   quantidade: number;
   preco_unitario: number | null;
   preco_total: number | null;
+  // Novos campos para mapeamento Upseller
+  anuncio_id?: string | null;
+  variante_id?: string | null;
 }
 
 export interface ResultadoCriacaoItens {
@@ -23,64 +35,16 @@ export interface ResultadoCriacaoItens {
   erros: number;
 }
 
-// Cache de mapeamentos SKU marketplace -> produto/sku interno
-let cacheMapeamentos: Map<string, { produto_id: string | null; sku_id: string | null }> = new Map();
-let cacheCarregado = false;
-
-/**
- * Carrega cache de mapeamentos MLB -> SKU interno
- */
-async function carregarCacheMapeamentos(empresaId: string, canal: string): Promise<void> {
-  if (cacheCarregado) return;
-
-  const { data: mapeamentos } = await supabase
-    .from("marketplace_sku_mappings")
-    .select("sku_marketplace, produto_id, sku_id")
-    .eq("empresa_id", empresaId)
-    .eq("canal", canal);
-
-  if (mapeamentos) {
-    mapeamentos.forEach(m => {
-      const key = `${canal}:${m.sku_marketplace}`.toLowerCase();
-      cacheMapeamentos.set(key, {
-        produto_id: m.produto_id,
-        sku_id: m.sku_id,
-      });
-    });
-  }
-
-  cacheCarregado = true;
-}
-
 /**
  * Limpa o cache de mapeamentos (chamar ao trocar de empresa ou canal)
  */
 export function limparCacheMapeamentos() {
-  cacheMapeamentos.clear();
-  cacheCarregado = false;
+  limparCacheMapeamentosPorEmpresa();
 }
 
 /**
- * Busca mapeamento para um SKU de marketplace
- */
-async function buscarMapeamento(
-  empresaId: string,
-  canal: string,
-  skuMarketplace: string
-): Promise<{ produto_id: string | null; sku_id: string | null }> {
-  await carregarCacheMapeamentos(empresaId, canal);
-
-  const key = `${canal}:${skuMarketplace}`.toLowerCase();
-  
-  if (cacheMapeamentos.has(key)) {
-    return cacheMapeamentos.get(key)!;
-  }
-
-  return { produto_id: null, sku_id: null };
-}
-
-/**
- * Cria um novo mapeamento MLB -> SKU interno (para uso futuro)
+ * Cria um novo mapeamento MLB -> SKU interno na tabela legada
+ * (mantido para compatibilidade)
  */
 export async function criarMapeamento(params: {
   empresaId: string;
@@ -115,13 +79,6 @@ export async function criarMapeamento(params: {
       return null;
     }
 
-    // Atualizar cache
-    const key = `${params.canal}:${params.skuMarketplace}`.toLowerCase();
-    cacheMapeamentos.set(key, {
-      produto_id: params.produtoId || null,
-      sku_id: params.skuId || null,
-    });
-
     return data.id;
   } catch (err) {
     console.warn("[Items] Erro ao criar mapeamento:", err);
@@ -131,6 +88,7 @@ export async function criarMapeamento(params: {
 
 /**
  * Cria registros de itens para uma transação de marketplace
+ * Usa o novo sistema de mapeamento Upseller
  */
 export async function criarItensTransacao(
   transactionId: string,
@@ -149,34 +107,42 @@ export async function criarItensTransacao(
     return resultado;
   }
 
+  // Carregar cache de mapeamentos
+  const cache = await carregarCacheMapeamentos(empresaId, canal);
   const itensParaInserir: any[] = [];
+  const mapeamentosPendentes: Array<{
+    empresaId: string;
+    canal: string;
+    skuMarketplace: string;
+    nomeMarketplace: string | null;
+  }> = [];
 
   for (const item of itens) {
-    let produtoId: string | null = null;
-    let skuId: string | null = null;
+    // Extrair anuncio_id do sku_marketplace se não fornecido
+    const anuncioId = item.anuncio_id || extrairMLB(item.sku_marketplace);
+    
+    // Resolver mapeamento
+    const mapeamento = resolverSkuDoCache(cache, {
+      canal,
+      anuncioId,
+      varianteId: item.variante_id || null,
+      skuMarketplace: item.sku_marketplace,
+    });
 
-    // Se tem SKU marketplace, tentar vincular
-    if (item.sku_marketplace) {
-      const mapeamento = await buscarMapeamento(empresaId, canal, item.sku_marketplace);
-      produtoId = mapeamento.produto_id;
-      skuId = mapeamento.sku_id;
-
-      if (produtoId || skuId) {
-        resultado.itensVinculados++;
-      } else {
-        resultado.itensSemVinculo++;
-        
-        // Criar mapeamento "pendente" para facilitar vinculação futura
-        await criarMapeamento({
+    if (mapeamento.produtoId || mapeamento.skuId) {
+      resultado.itensVinculados++;
+    } else {
+      resultado.itensSemVinculo++;
+      
+      // Criar mapeamento pendente para facilitar vinculação futura
+      if (item.sku_marketplace) {
+        mapeamentosPendentes.push({
           empresaId,
           canal,
           skuMarketplace: item.sku_marketplace,
           nomeMarketplace: item.descricao_item,
-          automatico: true,
         });
       }
-    } else {
-      resultado.itensSemVinculo++;
     }
 
     itensParaInserir.push({
@@ -186,8 +152,10 @@ export async function criarItensTransacao(
       quantidade: item.quantidade,
       preco_unitario: item.preco_unitario,
       preco_total: item.preco_total,
-      produto_id: produtoId,
-      sku_id: skuId,
+      anuncio_id: anuncioId,
+      variante_id: item.variante_id || null,
+      produto_id: mapeamento.produtoId,
+      sku_id: mapeamento.skuId,
     });
   }
 
@@ -203,11 +171,29 @@ export async function criarItensTransacao(
     }
   }
 
+  // Criar mapeamentos pendentes na tabela legada (para retrocompatibilidade)
+  if (mapeamentosPendentes.length > 0) {
+    const mapeamentosUnicos = mapeamentosPendentes.filter((m, idx, arr) =>
+      arr.findIndex(x => x.skuMarketplace === m.skuMarketplace && x.canal === m.canal) === idx
+    );
+
+    for (const m of mapeamentosUnicos) {
+      await criarMapeamento({
+        empresaId: m.empresaId,
+        canal: m.canal,
+        skuMarketplace: m.skuMarketplace,
+        nomeMarketplace: m.nomeMarketplace,
+        automatico: true,
+      });
+    }
+  }
+
   return resultado;
 }
 
 /**
- * Cria itens para múltiplas transações em lote
+ * Cria itens para múltiplas transações em lote (OTIMIZADO)
+ * Usa cache único para todos os itens, evitando N+1 queries
  */
 export async function criarItensEmLote(
   transacoesComItens: Array<{
@@ -224,52 +210,40 @@ export async function criarItensEmLote(
     erros: 0,
   };
 
-  // Carregar cache uma vez
-  await carregarCacheMapeamentos(empresaId, canal);
+  // Carregar cache UMA VEZ para toda a operação
+  const cache = await carregarCacheMapeamentos(empresaId, canal);
+  console.log(`[Items Lote] Cache carregado para ${canal}`);
 
   const todosItensParaInserir: any[] = [];
-  const mapeamentosPendentes: Array<{
-    empresaId: string;
-    canal: string;
-    skuMarketplace: string;
-    nomeMarketplace: string | null;
-  }> = [];
+  const mapeamentosPendentes: Map<string, { nomeMarketplace: string | null }> = new Map();
 
   for (const { transactionId, itens } of transacoesComItens) {
     resultadoTotal.totalItens += itens.length;
 
     for (const item of itens) {
-      let produtoId: string | null = null;
-      let skuId: string | null = null;
+      // Extrair anuncio_id do sku_marketplace se não fornecido
+      const anuncioId = item.anuncio_id || extrairMLB(item.sku_marketplace);
+      
+      // Resolver mapeamento usando cache (sem queries adicionais)
+      const mapeamento = resolverSkuDoCache(cache, {
+        canal,
+        anuncioId,
+        varianteId: item.variante_id || null,
+        skuMarketplace: item.sku_marketplace,
+      });
 
-      if (item.sku_marketplace) {
-        const key = `${canal}:${item.sku_marketplace}`.toLowerCase();
-        const mapeamento = cacheMapeamentos.get(key);
-
-        if (mapeamento) {
-          produtoId = mapeamento.produto_id;
-          skuId = mapeamento.sku_id;
-        }
-
-        if (produtoId || skuId) {
-          resultadoTotal.itensVinculados++;
-        } else {
-          resultadoTotal.itensSemVinculo++;
-          
-          // Guardar para criar mapeamento pendente depois
-          if (!cacheMapeamentos.has(key)) {
-            mapeamentosPendentes.push({
-              empresaId,
-              canal,
-              skuMarketplace: item.sku_marketplace,
-              nomeMarketplace: item.descricao_item,
-            });
-            // Marcar como "em processamento" para não duplicar
-            cacheMapeamentos.set(key, { produto_id: null, sku_id: null });
-          }
-        }
+      if (mapeamento.produtoId || mapeamento.skuId) {
+        resultadoTotal.itensVinculados++;
       } else {
         resultadoTotal.itensSemVinculo++;
+        
+        // Guardar para criar mapeamento pendente depois
+        if (item.sku_marketplace) {
+          const key = `${canal}:${item.sku_marketplace}`.toLowerCase();
+          if (!mapeamentosPendentes.has(key)) {
+            mapeamentosPendentes.set(key, { nomeMarketplace: item.descricao_item });
+          }
+        }
       }
 
       todosItensParaInserir.push({
@@ -279,15 +253,19 @@ export async function criarItensEmLote(
         quantidade: item.quantidade,
         preco_unitario: item.preco_unitario,
         preco_total: item.preco_total,
-        produto_id: produtoId,
-        sku_id: skuId,
+        anuncio_id: anuncioId,
+        variante_id: item.variante_id || null,
+        produto_id: mapeamento.produtoId,
+        sku_id: mapeamento.skuId,
       });
     }
   }
 
-  // Inserir todos os itens em lote
+  console.log(`[Items Lote] Preparados ${todosItensParaInserir.length} itens para inserção`);
+  console.log(`[Items Lote] Vinculados: ${resultadoTotal.itensVinculados}, Sem vínculo: ${resultadoTotal.itensSemVinculo}`);
+
+  // Inserir todos os itens em chunks de 500
   if (todosItensParaInserir.length > 0) {
-    // Inserir em chunks de 500
     const CHUNK_SIZE = 500;
     for (let i = 0; i < todosItensParaInserir.length; i += CHUNK_SIZE) {
       const chunk = todosItensParaInserir.slice(i, i + CHUNK_SIZE);
@@ -296,25 +274,24 @@ export async function criarItensEmLote(
         .insert(chunk);
 
       if (error) {
-        console.error("[Items] Erro ao inserir itens (lote):", error);
+        console.error("[Items Lote] Erro ao inserir itens:", error);
         resultadoTotal.erros += chunk.length;
       }
     }
   }
 
   // Criar mapeamentos pendentes em lote (ignorar duplicados)
-  if (mapeamentosPendentes.length > 0) {
-    const mapeamentosUnicos = mapeamentosPendentes.filter((m, idx, arr) =>
-      arr.findIndex(x => x.skuMarketplace === m.skuMarketplace && x.canal === m.canal) === idx
-    );
-
-    const mapeamentosParaInserir = mapeamentosUnicos.map(m => ({
-      empresa_id: m.empresaId,
-      canal: m.canal,
-      sku_marketplace: m.skuMarketplace,
-      nome_produto_marketplace: m.nomeMarketplace,
-      mapeado_automaticamente: true,
-    }));
+  if (mapeamentosPendentes.size > 0) {
+    const mapeamentosParaInserir = Array.from(mapeamentosPendentes.entries()).map(([key, val]) => {
+      const [canalPart, skuMarketplace] = key.split(':');
+      return {
+        empresa_id: empresaId,
+        canal: canalPart || canal,
+        sku_marketplace: skuMarketplace,
+        nome_produto_marketplace: val.nomeMarketplace,
+        mapeado_automaticamente: true,
+      };
+    });
 
     // Inserir em chunks de 500, ignorando conflitos
     for (let i = 0; i < mapeamentosParaInserir.length; i += 500) {
@@ -323,6 +300,8 @@ export async function criarItensEmLote(
         .from("marketplace_sku_mappings")
         .upsert(chunk, { onConflict: "empresa_id,canal,sku_marketplace", ignoreDuplicates: true });
     }
+    
+    console.log(`[Items Lote] ${mapeamentosPendentes.size} mapeamentos pendentes criados`);
   }
 
   return resultadoTotal;
