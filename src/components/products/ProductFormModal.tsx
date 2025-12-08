@@ -26,6 +26,7 @@ import {
   CANAIS_VENDA,
   validateProduct,
 } from "@/lib/products-data";
+import { mockFornecedores, Fornecedor } from "@/lib/fornecedores-data";
 
 interface ProductFormModalProps {
   open: boolean;
@@ -335,11 +336,22 @@ export function ProductFormModal({
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="fornecedor">Fornecedor Principal</Label>
-              <Input
-                id="fornecedor"
+              <Select
                 value={formData.fornecedorPrincipalNome || ""}
-                onChange={(e) => handleChange("fornecedorPrincipalNome", e.target.value)}
-              />
+                onValueChange={(value) => handleChange("fornecedorPrincipalNome", value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um fornecedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Nenhum</SelectItem>
+                  {mockFornecedores.filter(f => f.status === 'ativo').map((fornecedor) => (
+                    <SelectItem key={fornecedor.id} value={fornecedor.razaoSocial}>
+                      {fornecedor.nomeFantasia || fornecedor.razaoSocial}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
