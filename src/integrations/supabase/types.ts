@@ -888,6 +888,111 @@ export type Database = {
           },
         ]
       }
+      creditos_icms: {
+        Row: {
+          aliquota_icms: number
+          cfop: string | null
+          chave_acesso: string | null
+          created_at: string
+          data_competencia: string
+          data_lancamento: string
+          descricao: string
+          empresa_id: string
+          fornecedor_id: string | null
+          fornecedor_nome: string | null
+          id: string
+          ncm: string
+          numero_nf: string | null
+          observacoes: string | null
+          origem_credito: string
+          percentual_aproveitamento: number
+          quantidade: number
+          status_credito: string
+          tipo_credito: string
+          uf_origem: string | null
+          updated_at: string
+          valor_ajustes: number
+          valor_credito: number
+          valor_credito_bruto: number
+          valor_icms_destacado: number
+          valor_total: number
+          valor_unitario: number
+        }
+        Insert: {
+          aliquota_icms?: number
+          cfop?: string | null
+          chave_acesso?: string | null
+          created_at?: string
+          data_competencia: string
+          data_lancamento?: string
+          descricao: string
+          empresa_id: string
+          fornecedor_id?: string | null
+          fornecedor_nome?: string | null
+          id?: string
+          ncm: string
+          numero_nf?: string | null
+          observacoes?: string | null
+          origem_credito: string
+          percentual_aproveitamento?: number
+          quantidade?: number
+          status_credito?: string
+          tipo_credito: string
+          uf_origem?: string | null
+          updated_at?: string
+          valor_ajustes?: number
+          valor_credito?: number
+          valor_credito_bruto?: number
+          valor_icms_destacado?: number
+          valor_total?: number
+          valor_unitario?: number
+        }
+        Update: {
+          aliquota_icms?: number
+          cfop?: string | null
+          chave_acesso?: string | null
+          created_at?: string
+          data_competencia?: string
+          data_lancamento?: string
+          descricao?: string
+          empresa_id?: string
+          fornecedor_id?: string | null
+          fornecedor_nome?: string | null
+          id?: string
+          ncm?: string
+          numero_nf?: string | null
+          observacoes?: string | null
+          origem_credito?: string
+          percentual_aproveitamento?: number
+          quantidade?: number
+          status_credito?: string
+          tipo_credito?: string
+          uf_origem?: string | null
+          updated_at?: string
+          valor_ajustes?: number
+          valor_credito?: number
+          valor_credito_bruto?: number
+          valor_icms_destacado?: number
+          valor_total?: number
+          valor_unitario?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creditos_icms_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creditos_icms_fornecedor_id_fkey"
+            columns: ["fornecedor_id"]
+            isOneToOne: false
+            referencedRelation: "fornecedores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresas: {
         Row: {
           ativo: boolean

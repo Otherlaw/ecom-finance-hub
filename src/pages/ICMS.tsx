@@ -5,29 +5,33 @@ import { KPICard } from "@/components/KPICard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { icmsData } from "@/lib/mock-data";
+import { Skeleton } from "@/components/ui/skeleton";
 import { 
-  mockCreditosICMS, calculateRecommendation, formatCurrency, formatDate, 
-  CreditoICMS, calcularResumoEmpresa, ORIGEM_CREDITO_CONFIG, TIPO_CREDITO_CONFIG,
-  OrigemCredito, TipoCreditoICMS, NotaCreditoAdquirida, mockNotasAdquiridas
+  calculateRecommendation, formatCurrency, formatDate, 
+  ORIGEM_CREDITO_CONFIG, TIPO_CREDITO_CONFIG,
+  OrigemCredito, TipoCreditoICMS
 } from "@/lib/icms-data";
-import { mockEmpresas, REGIME_TRIBUTARIO_CONFIG, canUseICMSCredit, getEmpresaByName, Empresa } from "@/lib/empresas-data";
+import { REGIME_TRIBUTARIO_CONFIG, canUseICMSCredit } from "@/lib/empresas-data";
 import { XMLImportModal } from "@/components/icms/XMLImportModal";
 import { ICMSCalculatorModal } from "@/components/icms/ICMSCalculatorModal";
 import { ICMSRecommendationModal } from "@/components/icms/ICMSRecommendationModal";
 import { CreditoAdquiridoModal } from "@/components/icms/CreditoAdquiridoModal";
 import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
+import { useEmpresas } from "@/hooks/useEmpresas";
+import { useCreditosICMS, CreditoICMSDB, CreditoICMSInsert } from "@/hooks/useCreditosICMS";
 import { 
-  Receipt, Download, AlertTriangle, TrendingUp, TrendingDown, Calculator, 
-  FileText, Upload, Plus, Lightbulb, Trash2, Edit2, Info, Building2, 
-  CheckCircle2, XCircle, Filter, ShoppingBag
+  Receipt, AlertTriangle, TrendingDown, Calculator, 
+  Upload, Lightbulb, Trash2, Edit2, Info, Building2, 
+  CheckCircle2, Filter, ShoppingBag
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { toast } from "sonner";
+
+// Mock ICMS devido (futuramente virá de integração fiscal)
+const ICMS_DEVIDO_MOCK = 45000;
 
 export default function ICMS() {
   const { openChat } = useAssistantChatContext();
@@ -36,9 +40,7 @@ export default function ICMS() {
   const [recommendationOpen, setRecommendationOpen] = useState(false);
   const [creditoAdquiridoOpen, setCreditoAdquiridoOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [creditos, setCreditos] = useState<CreditoICMS[]>(mockCreditosICMS);
-  const [notasAdquiridas, setNotasAdquiridas] = useState<NotaCreditoAdquirida[]>(mockNotasAdquiridas);
-  const [editingCredit, setEditingCredit] = useState<CreditoICMS | null>(null);
+  const [editingCredit, setEditingCredit] = useState<CreditoICMSDB | null>(null);
   const [deletingCreditId, setDeletingCreditId] = useState<string | null>(null);
   
   // Filters
@@ -46,76 +48,109 @@ export default function ICMS() {
   const [tipoFilter, setTipoFilter] = useState<string>("todos");
   const [origemFilter, setOrigemFilter] = useState<string>("todas");
 
-  const empresas = mockEmpresas;
+  // Hooks
+  const { empresas, isLoading: empresasLoading } = useEmpresas();
+  const { 
+    creditos, 
+    isLoading: creditosLoading, 
+    existingKeys,
+    createCredito,
+    createMultipleCreditos,
+    updateCredito,
+    deleteCredito
+  } = useCreditosICMS();
+
+  const isLoading = empresasLoading || creditosLoading;
+
   const selectedEmpresa = useMemo(() => {
     if (empresaFilter === "todas") return null;
-    return empresas.find(e => e.nome.toUpperCase().includes(empresaFilter.toUpperCase()));
+    return empresas.find(e => e.id === empresaFilter);
   }, [empresaFilter, empresas]);
 
-  const isSimples = selectedEmpresa?.regimeTributario === 'simples_nacional';
-  const canUseCredits = selectedEmpresa ? canUseICMSCredit(selectedEmpresa.regimeTributario) : true;
+  const isSimples = selectedEmpresa?.regime_tributario === 'simples_nacional';
+  const canUseCredits = selectedEmpresa ? canUseICMSCredit(selectedEmpresa.regime_tributario as any) : true;
 
   // Filter creditos
   const filteredCreditos = useMemo(() => {
     return creditos.filter(c => {
-      const matchEmpresa = empresaFilter === "todas" || c.empresa.toUpperCase().includes(empresaFilter.toUpperCase());
-      const matchTipo = tipoFilter === "todos" || c.tipoCredito === tipoFilter;
-      const matchOrigem = origemFilter === "todas" || c.origemCredito === origemFilter;
-      return matchEmpresa && matchTipo && matchOrigem && c.statusCredito === 'ativo';
+      const matchEmpresa = empresaFilter === "todas" || c.empresa_id === empresaFilter;
+      const matchTipo = tipoFilter === "todos" || c.tipo_credito === tipoFilter;
+      const matchOrigem = origemFilter === "todas" || c.origem_credito === origemFilter;
+      return matchEmpresa && matchTipo && matchOrigem && c.status_credito === 'ativo';
     });
   }, [creditos, empresaFilter, tipoFilter, origemFilter]);
 
   // Separate compensable and non-compensable
   const creditosCompensaveis = useMemo(() => 
-    filteredCreditos.filter(c => c.tipoCredito === 'compensavel'), [filteredCreditos]);
+    filteredCreditos.filter(c => c.tipo_credito === 'compensavel'), [filteredCreditos]);
   const creditosNaoCompensaveis = useMemo(() => 
-    filteredCreditos.filter(c => c.tipoCredito === 'nao_compensavel'), [filteredCreditos]);
+    filteredCreditos.filter(c => c.tipo_credito === 'nao_compensavel'), [filteredCreditos]);
 
   // Calculate totals
   const totalCompensaveis = useMemo(() => 
-    creditosCompensaveis.reduce((sum, c) => sum + c.valorCredito, 0), [creditosCompensaveis]);
+    creditosCompensaveis.reduce((sum, c) => sum + Number(c.valor_credito), 0), [creditosCompensaveis]);
   const totalNaoCompensaveis = useMemo(() => 
-    creditosNaoCompensaveis.reduce((sum, c) => sum + c.valorCredito, 0), [creditosNaoCompensaveis]);
+    creditosNaoCompensaveis.reduce((sum, c) => sum + Number(c.valor_credito), 0), [creditosNaoCompensaveis]);
 
   // Get resumos per empresa (only regime normal)
   const resumosEmpresa = useMemo(() => {
-    const empresasNormais = empresas.filter(e => canUseICMSCredit(e.regimeTributario));
-    return empresasNormais.map(emp => 
-      calcularResumoEmpresa(creditos, emp.nome.split(' ')[0].toUpperCase(), icmsData.icmsDevido / empresasNormais.length)
-    );
+    const empresasNormais = empresas.filter(e => canUseICMSCredit(e.regime_tributario as any));
+    return empresasNormais.map(emp => {
+      const creditosEmp = creditos.filter(c => 
+        c.empresa_id === emp.id && c.tipo_credito === 'compensavel' && c.status_credito === 'ativo'
+      );
+      const total = creditosEmp.reduce((sum, c) => sum + Number(c.valor_credito), 0);
+      const icmsDebito = ICMS_DEVIDO_MOCK / empresasNormais.length;
+      const saldo = total - icmsDebito;
+      const percentual = icmsDebito > 0 ? (total / icmsDebito) * 100 : 100;
+      
+      return {
+        empresaId: emp.id,
+        empresaNome: emp.razao_social,
+        regimeTributario: emp.regime_tributario,
+        creditosBrutos: total,
+        icmsDebito,
+        saldoICMS: saldo,
+        percentualCobertura: percentual,
+      };
+    });
   }, [creditos, empresas]);
 
   // Recommendation
   const recommendation = useMemo(() => {
     if (isSimples) return null;
     const creditosParaCalculo = empresaFilter === "todas" 
-      ? creditos.filter(c => c.tipoCredito === 'compensavel' && c.statusCredito === 'ativo').reduce((s,c) => s + c.valorCredito, 0)
+      ? creditos.filter(c => c.tipo_credito === 'compensavel' && c.status_credito === 'ativo')
+          .reduce((s, c) => s + Number(c.valor_credito), 0)
       : totalCompensaveis;
-    return calculateRecommendation(icmsData.icmsDevido, creditosParaCalculo, totalNaoCompensaveis, 8);
+    return calculateRecommendation(ICMS_DEVIDO_MOCK, creditosParaCalculo, totalNaoCompensaveis, 8);
   }, [isSimples, empresaFilter, creditos, totalCompensaveis, totalNaoCompensaveis]);
 
-  const saldoProjetado = canUseCredits ? totalCompensaveis - icmsData.icmsDevido : 0;
+  const saldoProjetado = canUseCredits ? totalCompensaveis - ICMS_DEVIDO_MOCK : 0;
   const saldoNegativo = canUseCredits && saldoProjetado < 0;
 
-  const existingKeys = useMemo(() => creditos.filter((c) => c.chaveAcesso).map((c) => c.chaveAcesso!), [creditos]);
-
-  const handleImportSuccess = (newCredits: CreditoICMS[]) => setCreditos((prev) => [...prev, ...newCredits]);
+  // Handlers
+  const handleImportSuccess = async (newCredits: CreditoICMSInsert[]) => {
+    await createMultipleCreditos.mutateAsync(newCredits);
+  };
   
-  const handleSaveCredit = (credit: CreditoICMS) => { 
+  const handleSaveCredit = async (credit: any) => { 
     if (editingCredit) { 
-      setCreditos((prev) => prev.map((c) => (c.id === credit.id ? credit : c))); 
+      await updateCredito.mutateAsync({
+        id: editingCredit.id,
+        ...credit,
+      });
     } else { 
-      setCreditos((prev) => [...prev, credit]); 
+      await createCredito.mutateAsync(credit);
     } 
     setEditingCredit(null); 
   };
 
-  const handleSaveCreditoAdquirido = (credit: CreditoICMS, nota: NotaCreditoAdquirida) => {
-    setCreditos((prev) => [...prev, credit]);
-    setNotasAdquiridas((prev) => [...prev, nota]);
+  const handleSaveCreditoAdquirido = async (credit: CreditoICMSInsert) => {
+    await createCredito.mutateAsync(credit);
   };
   
-  const handleEditCredit = (credit: CreditoICMS) => { 
+  const handleEditCredit = (credit: CreditoICMSDB) => { 
     setEditingCredit(credit); 
     setCalculatorOpen(true); 
   };
@@ -125,10 +160,9 @@ export default function ICMS() {
     setDeleteDialogOpen(true); 
   };
   
-  const handleConfirmDelete = () => { 
+  const handleConfirmDelete = async () => { 
     if (deletingCreditId) { 
-      setCreditos((prev) => prev.filter((c) => c.id !== deletingCreditId)); 
-      toast.success("Crédito excluído com sucesso."); 
+      await deleteCredito.mutateAsync(deletingCreditId);
     } 
     setDeleteDialogOpen(false); 
     setDeletingCreditId(null); 
@@ -142,22 +176,34 @@ export default function ICMS() {
   const handleAskAssistant = () => {
     openChat('Explique a situação dos créditos de ICMS', {
       telaAtual: 'Créditos de ICMS',
-      empresa: selectedEmpresa ? { nome: selectedEmpresa.nome, regime: selectedEmpresa.regimeTributario } : undefined,
+      empresa: selectedEmpresa ? { nome: selectedEmpresa.razao_social, regime: selectedEmpresa.regime_tributario } : undefined,
       dadosAdicionais: {
         creditosCompensaveis: formatCurrency(totalCompensaveis),
         creditosNaoCompensaveis: formatCurrency(totalNaoCompensaveis),
-        icmsDevido: formatCurrency(icmsData.icmsDevido),
+        icmsDevido: formatCurrency(ICMS_DEVIDO_MOCK),
         saldoProjetado: formatCurrency(saldoProjetado),
         empresaSimples: isSimples,
       },
     });
   };
 
-  const getEmpresaRegimeInfo = (empresaNome: string) => {
-    const emp = getEmpresaByName(empresas, empresaNome);
-    if (!emp) return null;
-    return REGIME_TRIBUTARIO_CONFIG[emp.regimeTributario];
+  const getEmpresaNome = (empresaId: string) => {
+    const emp = empresas.find(e => e.id === empresaId);
+    return emp?.razao_social || 'N/A';
   };
+
+  if (isLoading) {
+    return (
+      <MainLayout title="Controle de Crédito de ICMS" subtitle="Carregando...">
+        <div className="space-y-4">
+          <div className="grid grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-32" />)}
+          </div>
+          <Skeleton className="h-64" />
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout 
@@ -191,8 +237,8 @@ export default function ICMS() {
           <SelectContent>
             <SelectItem value="todas">Todas as empresas</SelectItem>
             {empresas.map((emp) => (
-              <SelectItem key={emp.id} value={emp.nome.split(' ')[0].toUpperCase()}>
-                {emp.nome}
+              <SelectItem key={emp.id} value={emp.id}>
+                {emp.razao_social}
               </SelectItem>
             ))}
           </SelectContent>
@@ -221,8 +267,8 @@ export default function ICMS() {
           </SelectContent>
         </Select>
         {selectedEmpresa && (
-          <Badge variant="outline" className={`${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regimeTributario].bgColor} ${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regimeTributario].color} border`}>
-            {REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regimeTributario].label}
+          <Badge variant="outline" className={`${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.bgColor} ${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.color} border`}>
+            {REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.label}
           </Badge>
         )}
       </div>
@@ -272,7 +318,7 @@ export default function ICMS() {
         />
         <KPICard 
           title="ICMS Devido" 
-          value={formatCurrency(canUseCredits ? icmsData.icmsDevido : 0)} 
+          value={formatCurrency(canUseCredits ? ICMS_DEVIDO_MOCK : 0)} 
           icon={TrendingDown} 
           iconColor={isSimples ? "text-muted-foreground" : "text-destructive"} 
           trend={isSimples ? "neutral" : "down"}
@@ -287,7 +333,7 @@ export default function ICMS() {
       </div>
 
       {/* Resumos por Empresa (Regime Normal) */}
-      {empresaFilter === "todas" && (
+      {empresaFilter === "todas" && resumosEmpresa.length > 0 && (
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Building2 className="h-5 w-5" />
@@ -299,8 +345,8 @@ export default function ICMS() {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold">{resumo.empresaNome}</span>
-                    <Badge variant="outline" className={`${REGIME_TRIBUTARIO_CONFIG[resumo.regimeTributario].bgColor} ${REGIME_TRIBUTARIO_CONFIG[resumo.regimeTributario].color} border text-xs`}>
-                      {REGIME_TRIBUTARIO_CONFIG[resumo.regimeTributario].shortLabel}
+                    <Badge variant="outline" className={`${REGIME_TRIBUTARIO_CONFIG[resumo.regimeTributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.bgColor} ${REGIME_TRIBUTARIO_CONFIG[resumo.regimeTributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.color} border text-xs`}>
+                      {REGIME_TRIBUTARIO_CONFIG[resumo.regimeTributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.shortLabel}
                     </Badge>
                   </div>
                   <Badge variant={resumo.saldoICMS >= 0 ? "default" : "destructive"} className={resumo.saldoICMS >= 0 ? "bg-success/10 text-success border-success/20" : ""}>
@@ -373,26 +419,28 @@ export default function ICMS() {
               ) : (
                 creditosCompensaveis.map((credito) => (
                   <TableRow key={credito.id}>
-                    <TableCell className="font-medium">{credito.numeroNF || "-"}</TableCell>
+                    <TableCell className="font-medium">{credito.numero_nf || "-"}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{credito.empresa}</Badge>
+                      <Badge variant="outline">{getEmpresaNome(credito.empresa_id)}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={`${ORIGEM_CREDITO_CONFIG[credito.origemCredito].bgColor} ${ORIGEM_CREDITO_CONFIG[credito.origemCredito].color} text-xs`}>
-                        {ORIGEM_CREDITO_CONFIG[credito.origemCredito].label}
+                      <Badge variant="outline" className={`${ORIGEM_CREDITO_CONFIG[credito.origem_credito].bgColor} ${ORIGEM_CREDITO_CONFIG[credito.origem_credito].color} text-xs`}>
+                        {ORIGEM_CREDITO_CONFIG[credito.origem_credito].label}
                       </Badge>
                     </TableCell>
-                    <TableCell className="max-w-[200px] truncate">{credito.descricao}</TableCell>
-                    <TableCell>{credito.ufOrigem}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(credito.valorTotal)}</TableCell>
-                    <TableCell className="text-right text-success font-medium">{formatCurrency(credito.valorCredito)}</TableCell>
-                    <TableCell className="text-center text-muted-foreground text-sm">{formatDate(credito.dataLancamento)}</TableCell>
-                    <TableCell>
+                    <TableCell className="max-w-[200px] truncate" title={credito.descricao}>
+                      {credito.descricao}
+                    </TableCell>
+                    <TableCell>{credito.uf_origem || "-"}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(Number(credito.valor_total))}</TableCell>
+                    <TableCell className="text-right text-success font-medium">{formatCurrency(Number(credito.valor_credito))}</TableCell>
+                    <TableCell className="text-center">{formatDate(credito.data_lancamento)}</TableCell>
+                    <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditCredit(credito)}>
+                        <Button variant="ghost" size="icon" onClick={() => handleEditCredit(credito)}>
                           <Edit2 className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteClick(credito.id)}>
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteClick(credito.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -406,96 +454,151 @@ export default function ICMS() {
       </div>
 
       {/* Créditos Não Compensáveis */}
-      {creditosNaoCompensaveis.length > 0 && (
-        <div className="mb-6">
-          <ModuleCard 
-            title="Créditos Não Compensáveis (Informativos)" 
-            description="Créditos de empresas no Simples Nacional ou outros não utilizáveis para compensação"
-            icon={Info}
-            noPadding
-            actions={
-              <Badge className="bg-blue-100 text-blue-700 border-blue-200">
-                Total: {formatCurrency(totalNaoCompensaveis)}
-              </Badge>
-            }
-          >
-            <Alert className="m-4 bg-blue-50 border-blue-200">
-              <Info className="h-4 w-4 text-blue-600" />
-              <AlertDescription className="text-blue-700 text-sm">
-                Estes créditos são apenas para controle interno. <strong>Não são considerados</strong> no cálculo de compensação de ICMS nem nas recomendações de compra de notas.
-              </AlertDescription>
-            </Alert>
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-blue-50/50">
-                  <TableHead>NF</TableHead>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>Descrição</TableHead>
-                  <TableHead className="text-right">Valor Total</TableHead>
-                  <TableHead className="text-right">Crédito (Info)</TableHead>
-                  <TableHead className="text-center">Data</TableHead>
-                  <TableHead className="text-center">Ações</TableHead>
+      <div className="mb-6">
+        <ModuleCard 
+          title="Créditos Não Compensáveis (Informativo)" 
+          description="Créditos de empresas no Simples Nacional ou não elegíveis"
+          icon={Info}
+          noPadding
+          actions={
+            <Badge className="bg-blue-50 text-blue-600 border-blue-200">
+              Total: {formatCurrency(totalNaoCompensaveis)}
+            </Badge>
+          }
+        >
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-blue-50/50">
+                <TableHead>NF</TableHead>
+                <TableHead>Empresa</TableHead>
+                <TableHead>Origem</TableHead>
+                <TableHead>Descrição</TableHead>
+                <TableHead>UF</TableHead>
+                <TableHead className="text-right">Valor Total</TableHead>
+                <TableHead className="text-right">Crédito</TableHead>
+                <TableHead className="text-center">Data</TableHead>
+                <TableHead className="text-center">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {creditosNaoCompensaveis.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    Nenhum crédito não compensável encontrado.
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {creditosNaoCompensaveis.map((credito) => (
+              ) : (
+                creditosNaoCompensaveis.map((credito) => (
                   <TableRow key={credito.id}>
-                    <TableCell className="font-medium">{credito.numeroNF || "-"}</TableCell>
+                    <TableCell className="font-medium">{credito.numero_nf || "-"}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">{credito.empresa}</Badge>
-                        <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 text-xs">SN</Badge>
-                      </div>
+                      <Badge variant="outline">{getEmpresaNome(credito.empresa_id)}</Badge>
                     </TableCell>
-                    <TableCell className="max-w-[250px] truncate">{credito.descricao}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(credito.valorTotal)}</TableCell>
-                    <TableCell className="text-right text-blue-600 font-medium">{formatCurrency(credito.valorCredito)}</TableCell>
-                    <TableCell className="text-center text-muted-foreground text-sm">{formatDate(credito.dataLancamento)}</TableCell>
                     <TableCell>
+                      <Badge variant="outline" className={`${ORIGEM_CREDITO_CONFIG[credito.origem_credito].bgColor} ${ORIGEM_CREDITO_CONFIG[credito.origem_credito].color} text-xs`}>
+                        {ORIGEM_CREDITO_CONFIG[credito.origem_credito].label}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="max-w-[200px] truncate" title={credito.descricao}>
+                      {credito.descricao}
+                    </TableCell>
+                    <TableCell>{credito.uf_origem || "-"}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(Number(credito.valor_total))}</TableCell>
+                    <TableCell className="text-right text-blue-600 font-medium">{formatCurrency(Number(credito.valor_credito))}</TableCell>
+                    <TableCell className="text-center">{formatDate(credito.data_lancamento)}</TableCell>
+                    <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditCredit(credito)}>
+                        <Button variant="ghost" size="icon" onClick={() => handleEditCredit(credito)}>
                           <Edit2 className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteClick(credito.id)}>
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteClick(credito.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </ModuleCard>
-        </div>
-      )}
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </ModuleCard>
+      </div>
 
       {/* Recommendation Button */}
-      {canUseCredits && !isSimples && (
-        <div className="flex justify-center">
-          <Button variant="outline" size="lg" className="gap-2" onClick={() => setRecommendationOpen(true)}>
-            <Lightbulb className="h-5 w-5" />
+      {!isSimples && recommendation && !recommendation.suficiente && (
+        <div className="flex justify-center mb-6">
+          <Button 
+            variant="outline" 
+            className="gap-2 border-warning text-warning hover:bg-warning/10"
+            onClick={() => setRecommendationOpen(true)}
+          >
+            <Lightbulb className="h-4 w-4" />
             Ver Análise de Necessidade de Créditos
           </Button>
         </div>
       )}
 
       {/* Modals */}
-      <XMLImportModal open={xmlImportOpen} onOpenChange={setXmlImportOpen} onImportSuccess={handleImportSuccess} existingKeys={existingKeys} />
-      <ICMSCalculatorModal open={calculatorOpen} onOpenChange={setCalculatorOpen} onSave={handleSaveCredit} editingCredit={editingCredit} />
-      <CreditoAdquiridoModal open={creditoAdquiridoOpen} onOpenChange={setCreditoAdquiridoOpen} onSave={handleSaveCreditoAdquirido} />
+      <XMLImportModal 
+        open={xmlImportOpen} 
+        onOpenChange={setXmlImportOpen} 
+        onImportSuccess={handleImportSuccess}
+        existingKeys={existingKeys}
+      />
+      <ICMSCalculatorModal
+        open={calculatorOpen}
+        onOpenChange={setCalculatorOpen}
+        onSave={handleSaveCredit}
+        editingCredit={editingCredit ? {
+          id: editingCredit.id,
+          empresa: getEmpresaNome(editingCredit.empresa_id),
+          empresaId: editingCredit.empresa_id,
+          tipoCredito: editingCredit.tipo_credito,
+          origemCredito: editingCredit.origem_credito,
+          statusCredito: editingCredit.status_credito,
+          chaveAcesso: editingCredit.chave_acesso || undefined,
+          numeroNF: editingCredit.numero_nf || undefined,
+          ncm: editingCredit.ncm,
+          cfop: editingCredit.cfop || undefined,
+          descricao: editingCredit.descricao,
+          quantidade: Number(editingCredit.quantidade),
+          valorUnitario: Number(editingCredit.valor_unitario),
+          valorTotal: Number(editingCredit.valor_total),
+          ufOrigem: editingCredit.uf_origem || '',
+          aliquotaIcms: Number(editingCredit.aliquota_icms),
+          valorIcmsDestacado: Number(editingCredit.valor_icms_destacado),
+          percentualAproveitamento: Number(editingCredit.percentual_aproveitamento),
+          valorCreditoBruto: Number(editingCredit.valor_credito_bruto),
+          valorAjustes: Number(editingCredit.valor_ajustes),
+          valorCredito: Number(editingCredit.valor_credito),
+          dataLancamento: editingCredit.data_lancamento,
+          dataCompetencia: editingCredit.data_competencia,
+          observacoes: editingCredit.observacoes || undefined,
+        } : null}
+      />
       {recommendation && (
-        <ICMSRecommendationModal open={recommendationOpen} onOpenChange={setRecommendationOpen} recommendation={recommendation} periodo="Outubro/2024" />
+        <ICMSRecommendationModal
+          open={recommendationOpen}
+          onOpenChange={setRecommendationOpen}
+          recommendation={recommendation}
+          periodo={new Date().toISOString().substring(0, 7)}
+        />
       )}
-      
+
+      {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
-            <AlertDialogDescription>Tem certeza que deseja excluir este crédito de ICMS?</AlertDialogDescription>
+            <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este crédito de ICMS? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Excluir</AlertDialogAction>
+            <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
