@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Package, Search, AlertTriangle, TrendingDown, TrendingUp, Filter } from 'lucide-react';
+import { Package, Search, AlertTriangle, TrendingDown, TrendingUp, ArrowUpDown } from 'lucide-react';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,15 +10,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useEstoque } from '@/hooks/useEstoque';
 import { useProdutos } from '@/hooks/useProdutos';
 import { useArmazens } from '@/hooks/useArmazens';
+import { AjusteEstoqueModal } from '@/components/estoque/AjusteEstoqueModal';
 
 export default function EstoqueSKU() {
-  const { estoques: estoque, isLoading: isLoadingEstoque } = useEstoque();
+  const { estoques: estoque, isLoading: isLoadingEstoque, refetch } = useEstoque();
   const { produtos, isLoading: isLoadingProdutos } = useProdutos();
   const { armazens, isLoading: isLoadingArmazens } = useArmazens();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [armazemFilter, setArmazemFilter] = useState<string>('todos');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
+  const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
 
   const isLoading = isLoadingEstoque || isLoadingProdutos || isLoadingArmazens;
 
@@ -129,6 +131,10 @@ export default function EstoqueSKU() {
               <h1 className="text-2xl font-bold">Estoque por SKU</h1>
               <p className="text-muted-foreground">Controle de estoque por produto e armazém</p>
             </div>
+            <Button onClick={() => setAjusteModalOpen(true)}>
+              <ArrowUpDown className="h-4 w-4 mr-2" />
+              Ajustar Estoque
+            </Button>
           </div>
 
           {/* Cards de Estatísticas */}
@@ -273,6 +279,12 @@ export default function EstoqueSKU() {
           </Card>
         </div>
       </main>
+
+      <AjusteEstoqueModal
+        open={ajusteModalOpen}
+        onOpenChange={setAjusteModalOpen}
+        onSuccess={() => refetch()}
+      />
     </div>
   );
 }

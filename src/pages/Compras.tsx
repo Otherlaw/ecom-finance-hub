@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RegistrarRecebimentoModal } from "@/components/purchases/RegistrarRecebimentoModal";
 import { ImportarNFeXMLModal } from "@/components/purchases/ImportarNFeXMLModal";
+import { CompraManualFormModal } from "@/components/purchases/CompraManualFormModal";
 import { useToast } from "@/hooks/use-toast";
 import { useCompras, Compra } from "@/hooks/useCompras";
 import { useEmpresas } from "@/hooks/useEmpresas";
@@ -51,6 +52,7 @@ export default function Compras() {
   const [recebimentoModalOpen, setRecebimentoModalOpen] = useState(false);
   const [recebimentoPurchase, setRecebimentoPurchase] = useState<Compra | null>(null);
   const [importXMLModalOpen, setImportXMLModalOpen] = useState(false);
+  const [compraManualModalOpen, setCompraManualModalOpen] = useState(false);
 
   const existingKeys = useMemo(() => {
     return compras.filter(c => c.chave_acesso).map(c => c.chave_acesso!);
@@ -113,7 +115,7 @@ export default function Compras() {
                 <Upload className="h-4 w-4 mr-2" />
                 Importar NF-e XML
               </Button>
-              <Button variant="outline" disabled>
+              <Button variant="outline" onClick={() => setCompraManualModalOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Nova Compra Manual
               </Button>
@@ -305,6 +307,12 @@ export default function Compras() {
         onOpenChange={setImportXMLModalOpen}
         onImportSuccess={() => refetch()}
         existingKeys={existingKeys}
+      />
+
+      <CompraManualFormModal
+        open={compraManualModalOpen}
+        onOpenChange={setCompraManualModalOpen}
+        onSuccess={() => refetch()}
       />
     </div>
   );
