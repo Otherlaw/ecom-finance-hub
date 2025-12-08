@@ -54,7 +54,7 @@ import { useProdutos } from "@/hooks/useProdutos";
 interface CategorizacaoMarketplaceModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  transaction: MarketplaceTransaction;
+  transaction: MarketplaceTransaction | null;
   onSuccess?: () => void;
 }
 
@@ -70,7 +70,12 @@ export function CategorizacaoMarketplaceModal({
   const { categorias } = useCategoriasFinanceiras();
   const { centrosCusto } = useCentrosCusto();
   const { atualizarTransacao, conciliarTransacao, ignorarTransacao, reabrirTransacao } = useMarketplaceTransactions();
-  const { produtos } = useProdutos({ empresaId: transaction.empresa_id });
+  const { produtos } = useProdutos({ empresaId: transaction?.empresa_id || "" });
+
+  // Early return if no transaction (modal closed)
+  if (!transaction) {
+    return null;
+  }
 
   const [categoriaId, setCategoriaId] = useState<string>("");
   const [centroCustoId, setCentroCustoId] = useState<string>("");
