@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Package, CheckCircle2 } from "lucide-react";
+import { Package, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Compra, useRecebimentos } from "@/hooks/useCompras";
 import { useArmazens } from "@/hooks/useArmazens";
 import { ArmazemSelect } from "@/components/ArmazemSelect";
@@ -59,6 +60,7 @@ export function RegistrarRecebimentoModal({
   const [observacao, setObservacao] = useState("");
   const [itens, setItens] = useState<ItemRecebimento[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [encerrarPedido, setEncerrarPedido] = useState(false);
 
   useEffect(() => {
     if (compra?.itens) {
@@ -79,6 +81,9 @@ export function RegistrarRecebimentoModal({
     if (compra?.armazem_destino_id) {
       setArmazemId(compra.armazem_destino_id);
     }
+    
+    // Reset encerrar pedido ao abrir
+    setEncerrarPedido(false);
   }, [compra]);
 
   // Quando tem armazéns disponíveis e nenhum selecionado, selecionar o primeiro
@@ -106,18 +111,36 @@ export function RegistrarRecebimentoModal({
 
   const totalRecebendo = itens.reduce((sum, i) => sum + i.quantidade_receber, 0);
   const totalDevolvendo = itens.reduce((sum, i) => sum + i.quantidade_devolvida, 0);
+  const totalRestante = itens.reduce((sum, i) => sum + i.quantidade_restante, 0);
+  
+  // Permite submeter se: (tem algo para receber) OU (está encerrando o pedido)
+  const canSubmit = !isSubmitting && armazemId && (totalRecebendo > 0 || encerrarPedido);
 
   const handleSubmit = async () => {
-    if (!compra || totalRecebendo === 0 || !armazemId) return;
+    if (!compra || !armazemId) return;
+    if (totalRecebendo === 0 && !encerrarPedido) return;
 
     setIsSubmitting(true);
 
     try {
+      // Montar observação incluindo nota de encerramento manual se aplicável
+      let obsCompleta = observacao || "";
+      if (encerrarPedido && totalRecebendo === 0) {
+        const unidadesPendentes = totalRestante;
+        obsCompleta = `[ENCERRADO MANUALMENTE] Pedido concluído com ${unidadesPendentes} unidades pendentes não recebidas.${observacao ? ` | ${observacao}` : ''}`;
+      } else if (encerrarPedido && totalRecebendo > 0) {
+        const unidadesNaoRecebidas = totalRestante - totalRecebendo;
+        if (unidadesNaoRecebidas > 0) {
+          obsCompleta = `[ENCERRADO MANUALMENTE] Pedido concluído com ${unidadesNaoRecebidas} unidades restantes não recebidas.${observacao ? ` | ${observacao}` : ''}`;
+        }
+      }
+
       await registrarRecebimento.mutateAsync({
         compra_id: compra.id,
         armazem_id: armazemId,
         data_recebimento: dataRecebimento,
-        observacoes: observacao || undefined,
+        observacoes: obsCompleta || undefined,
+        forcar_conclusao: encerrarPedido,
         itens: itens
           .filter(item => item.quantidade_receber > 0 || item.quantidade_devolvida > 0)
           .map(item => ({
@@ -179,7 +202,7 @@ export function RegistrarRecebimentoModal({
 
           <div>
             <Label className="mb-2 block">Itens do Pedido</Label>
-            <ScrollArea className="border rounded-md h-[300px]">
+            <ScrollArea className="border rounded-md h-[250px]">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -248,6 +271,26 @@ export function RegistrarRecebimentoModal({
             </ScrollArea>
           </div>
 
+          {/* Opção de encerrar pedido - aparece quando há itens restantes */}
+          {totalRestante > 0 && (
+            <div className="flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+              <Switch 
+                checked={encerrarPedido} 
+                onCheckedChange={setEncerrarPedido}
+                id="encerrar-pedido"
+              />
+              <div className="flex-1">
+                <label htmlFor="encerrar-pedido" className="font-medium text-amber-800 dark:text-amber-200 cursor-pointer flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  Encerrar pedido sem receber o restante
+                </label>
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Marca como concluído mesmo com {totalRestante} {totalRestante === 1 ? 'unidade pendente' : 'unidades pendentes'}
+                </p>
+              </div>
+            </div>
+          )}
+
           <div>
             <Label>Observação</Label>
             <Textarea
@@ -276,8 +319,13 @@ export function RegistrarRecebimentoModal({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || totalRecebendo === 0 || !armazemId}>
-            {isSubmitting ? "Registrando..." : "Confirmar Recebimento"}
+          <Button onClick={handleSubmit} disabled={!canSubmit}>
+            {isSubmitting 
+              ? "Registrando..." 
+              : encerrarPedido && totalRecebendo === 0 
+                ? "Encerrar Pedido" 
+                : "Confirmar Recebimento"
+            }
           </Button>
         </DialogFooter>
       </DialogContent>

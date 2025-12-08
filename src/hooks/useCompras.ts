@@ -323,6 +323,7 @@ export function useRecebimentos(compraId: string | null) {
       armazem_id: string;
       data_recebimento: string;
       observacoes?: string;
+      forcar_conclusao?: boolean; // Novo: força status para concluído
       itens: {
         compra_item_id: string;
         produto_id: string | null;
@@ -349,7 +350,7 @@ export function useRecebimentos(compraId: string | null) {
 
       if (recError) throw recError;
 
-      // Inserir itens do recebimento
+      // Inserir itens do recebimento (se houver)
       const itensParaInserir = input.itens
         .filter(item => item.quantidade_recebida > 0)
         .map(item => ({
@@ -392,45 +393,58 @@ export function useRecebimentos(compraId: string | null) {
         }
       }
 
-      return recebimento;
+      return { recebimento, forcar_conclusao: input.forcar_conclusao };
     },
-    onSuccess: async (recebimento, variables) => {
+    onSuccess: async (result, variables) => {
+      const { forcar_conclusao } = result;
+      
       // Atualizar status da compra automaticamente baseado no recebimento
       try {
-        // Buscar compra atualizada (depois de atualizar os itens)
-        const { data: compra } = await supabase
-          .from("compras")
-          .select(`*, itens:compras_itens(*)`)
-          .eq("id", variables.compra_id)
-          .single();
-        
-        if (compra) {
-          const totalPedido = compra.itens.reduce((sum: number, i: any) => sum + Number(i.quantidade), 0);
-          const totalRecebido = compra.itens.reduce((sum: number, i: any) => sum + Number(i.quantidade_recebida), 0);
+        // Se forçar conclusão, vai direto para concluído
+        if (forcar_conclusao) {
+          await supabase
+            .from("compras")
+            .update({ status: 'concluido' })
+            .eq("id", variables.compra_id);
           
-          console.log("Status check:", { totalPedido, totalRecebido, currentStatus: compra.status });
+          toast.success("Pedido encerrado manualmente como concluído");
+        } else {
+          // Buscar compra atualizada (depois de atualizar os itens)
+          const { data: compra } = await supabase
+            .from("compras")
+            .select(`*, itens:compras_itens(*)`)
+            .eq("id", variables.compra_id)
+            .single();
           
-          // Determinar novo status
-          let novoStatus: StatusCompra = compra.status as StatusCompra;
-          if (totalRecebido >= totalPedido) {
-            novoStatus = 'concluido';
-          } else if (totalRecebido > 0) {
-            novoStatus = 'parcial';
+          if (compra) {
+            const totalPedido = compra.itens.reduce((sum: number, i: any) => sum + Number(i.quantidade), 0);
+            const totalRecebido = compra.itens.reduce((sum: number, i: any) => sum + Number(i.quantidade_recebida), 0);
+            
+            console.log("Status check:", { totalPedido, totalRecebido, currentStatus: compra.status });
+            
+            // Determinar novo status
+            let novoStatus: StatusCompra = compra.status as StatusCompra;
+            if (totalRecebido >= totalPedido) {
+              novoStatus = 'concluido';
+            } else if (totalRecebido > 0) {
+              novoStatus = 'parcial';
+            }
+            
+            // Atualizar status se mudou
+            if (novoStatus !== compra.status) {
+              await supabase
+                .from("compras")
+                .update({ status: novoStatus })
+                .eq("id", variables.compra_id);
+            }
           }
           
-          // Atualizar status se mudou
-          if (novoStatus !== compra.status) {
-            await supabase
-              .from("compras")
-              .update({ status: novoStatus })
-              .eq("id", variables.compra_id);
-          }
+          toast.success("Recebimento registrado com sucesso");
         }
       } catch (err) {
         console.error("Erro ao atualizar status após recebimento:", err);
       }
       
-      toast.success("Recebimento registrado com sucesso");
       queryClient.invalidateQueries({ queryKey: ["recebimentos"] });
       queryClient.invalidateQueries({ queryKey: ["compras"] });
       queryClient.invalidateQueries({ queryKey: ["estoque"] });
