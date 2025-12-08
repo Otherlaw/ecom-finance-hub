@@ -307,12 +307,25 @@ export async function parseUpsellerCSV(file: File): Promise<ParseUpsellerResult>
 }
 
 /**
+ * Tipo para inserção de mapeamento de SKU
+ */
+export interface SkuMapInsert {
+  empresa_id: string;
+  sku_interno: string;
+  canal: string;
+  loja: string | null;
+  anuncio_id: string | null;
+  variante_id: string | null;
+  variante_nome: string | null;
+}
+
+/**
  * Converte resultado do parser para formato de inserção no banco
  */
 export function converterParaInsert(
   rows: UpsellerRow[],
   empresaId: string
-): ProdutoSkuMapInsert[] {
+): SkuMapInsert[] {
   return rows.map(row => ({
     empresa_id: empresaId,
     sku_interno: row.sku_interno,

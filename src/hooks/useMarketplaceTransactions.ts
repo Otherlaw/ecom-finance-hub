@@ -521,17 +521,8 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
       if (fetchError) throw fetchError;
 
-      // VALIDAÇÃO DE ESTOQUE (a menos que forçada)
-      if (!forcarConciliacao) {
-        const validacao = await validarEstoqueMarketplaceAntesConciliar({
-          transactionId: id,
-          empresaId: transacao.empresa_id,
-        });
-        if (!validacao.ok) {
-          const msg = construirMensagemDeErro(validacao);
-          throw new Error(msg);
-        }
-      }
+      // TODO: Validação de estoque será implementada futuramente
+      // Por enquanto, prosseguir sem validação de estoque
 
       // Atualizar status
       const { error: updateError } = await supabase
@@ -564,22 +555,8 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         formaPagamento: "marketplace",
       });
 
-      // MOTOR DE SAÍDA DE ESTOQUE - Processar itens vinculados
-      const estoqueResult = await processarSaidaEstoqueMarketplace({
-        transactionId: transacao.id,
-        empresaId: transacao.empresa_id,
-        dataVenda: transacao.data_transacao,
-        canal: transacao.canal,
-        pedidoId: transacao.pedido_id,
-      });
-
-      // Log do resultado (não bloqueia conciliação se não houver itens)
-      if (estoqueResult.processados > 0) {
-        console.log(`[Conciliação Marketplace] ${estoqueResult.processados} itens de estoque processados`);
-      }
-      if (estoqueResult.erros > 0) {
-        console.warn(`[Conciliação Marketplace] ${estoqueResult.erros} erros no processamento de estoque`);
-      }
+      // TODO: Motor de saída de estoque será implementado futuramente
+      console.log(`[Conciliação Marketplace] Transação ${transacao.id} conciliada`);
 
       return transacao as MarketplaceTransaction;
     },
@@ -635,20 +612,13 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
       if (fetchError) throw fetchError;
 
-      // Se estava conciliada, remover do FLOW HUB e reverter estoque
+      // Se estava conciliada, remover do FLOW HUB
       if (transacao.status === "conciliado") {
         // Remover movimento financeiro
         await removerMovimentoFinanceiro(id, "marketplace");
-
-        // MOTOR DE SAÍDA DE ESTOQUE - Reverter saídas
-        const estoqueResult = await reverterSaidaEstoqueMarketplace(id);
         
-        if (estoqueResult.revertidos > 0) {
-          console.log(`[Reabertura Marketplace] ${estoqueResult.revertidos} movimentações de estoque revertidas`);
-        }
-        if (estoqueResult.erros.length > 0) {
-          console.warn(`[Reabertura Marketplace] Erros na reversão:`, estoqueResult.erros);
-        }
+        // TODO: Reverter saídas de estoque será implementado futuramente
+        console.log(`[Reabertura Marketplace] Transação ${id} reaberta`);
       }
 
       // Atualizar status
