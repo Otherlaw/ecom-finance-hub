@@ -4,29 +4,92 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { FornecedorFormModal } from '@/components/fornecedores/FornecedorFormModal';
 import { FornecedorDetailModal } from '@/components/fornecedores/FornecedorDetailModal';
-import { useToast } from '@/hooks/use-toast';
+import { useFornecedores, FornecedorDB, FornecedorInsert } from '@/hooks/useFornecedores';
 import {
-  Fornecedor,
-  mockFornecedores,
   TIPO_FORNECEDOR_CONFIG,
   SEGMENTO_FORNECEDOR_CONFIG,
-  formatCurrency,
-  canDeleteFornecedor,
-  TipoFornecedor,
+  Fornecedor,
 } from '@/lib/fornecedores-data';
 import { mockPurchases } from '@/lib/purchases-data';
 import { mockContasPagar } from '@/lib/contas-pagar-data';
 
+// Função para converter DB para formato do modal
+const dbToModalFormat = (db: FornecedorDB): Fornecedor => ({
+  id: db.id,
+  razaoSocial: db.razao_social,
+  nomeFantasia: db.nome_fantasia || '',
+  cnpj: db.cnpj || '',
+  inscricaoEstadual: db.inscricao_estadual || '',
+  regimeTributario: (db.regime_tributario || 'nao_informado') as any,
+  tipo: (db.tipo || 'mercadoria') as any,
+  segmento: (db.segmento || 'outros') as any,
+  origem: (db.origem || 'cadastro_manual') as any,
+  status: (db.status || 'ativo') as 'ativo' | 'inativo',
+  endereco: {
+    cep: db.endereco_cep || '',
+    logradouro: db.endereco_logradouro || '',
+    numero: db.endereco_numero || '',
+    complemento: db.endereco_complemento || '',
+    bairro: db.endereco_bairro || '',
+    cidade: db.endereco_cidade || '',
+    uf: db.endereco_uf || '',
+    pais: 'Brasil',
+  },
+  contato: {
+    nome: db.contato_nome || '',
+    email: db.contato_email || '',
+    telefoneFixo: db.contato_telefone || '',
+    celularWhatsApp: db.contato_celular || '',
+    site: '',
+  },
+  condicoesPagamento: {
+    prazoMedioDias: db.prazo_medio_dias || 30,
+    formaPagamento: (db.forma_pagamento_preferencial || 'boleto') as any,
+    observacoes: '',
+  },
+  observacoes: db.observacoes || '',
+  dataCadastro: db.created_at.split('T')[0],
+  dataAtualizacao: db.updated_at.split('T')[0],
+});
+
+// Função para converter formato do modal para DB
+const modalToDbFormat = (modal: Fornecedor): FornecedorInsert => ({
+  razao_social: modal.razaoSocial,
+  nome_fantasia: modal.nomeFantasia || null,
+  cnpj: modal.cnpj || null,
+  inscricao_estadual: modal.inscricaoEstadual || null,
+  regime_tributario: modal.regimeTributario || null,
+  tipo: modal.tipo,
+  segmento: modal.segmento,
+  origem: modal.origem || null,
+  status: modal.status,
+  endereco_cep: modal.endereco?.cep || null,
+  endereco_logradouro: modal.endereco?.logradouro || null,
+  endereco_numero: modal.endereco?.numero || null,
+  endereco_complemento: modal.endereco?.complemento || null,
+  endereco_bairro: modal.endereco?.bairro || null,
+  endereco_cidade: modal.endereco?.cidade || null,
+  endereco_uf: modal.endereco?.uf || null,
+  contato_nome: modal.contato?.nome || null,
+  contato_cargo: null,
+  contato_email: modal.contato?.email || null,
+  contato_telefone: modal.contato?.telefoneFixo || null,
+  contato_celular: modal.contato?.celularWhatsApp || null,
+  prazo_medio_dias: modal.condicoesPagamento?.prazoMedioDias || 30,
+  forma_pagamento_preferencial: modal.condicoesPagamento?.formaPagamento || null,
+  observacoes: modal.observacoes || null,
+  empresa_id: null,
+});
+
 export default function Fornecedores() {
-  const { toast } = useToast();
-  const [fornecedores, setFornecedores] = useState<Fornecedor[]>(mockFornecedores);
+  const { fornecedores: fornecedoresDB, isLoading, createFornecedor, updateFornecedor } = useFornecedores();
   const [searchTerm, setSearchTerm] = useState('');
   const [tipoFilter, setTipoFilter] = useState<string>('todos');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
@@ -36,7 +99,13 @@ export default function Fornecedores() {
   const [editingFornecedor, setEditingFornecedor] = useState<Fornecedor | null>(null);
   const [selectedFornecedor, setSelectedFornecedor] = useState<Fornecedor | null>(null);
   const [inactivateDialogOpen, setInactivateDialogOpen] = useState(false);
-  const [fornecedorToInactivate, setFornecedorToInactivate] = useState<Fornecedor | null>(null);
+  const [fornecedorToInactivate, setFornecedorToInactivate] = useState<FornecedorDB | null>(null);
+
+  // Converter fornecedores do DB para formato do modal
+  const fornecedores = useMemo(() => 
+    fornecedoresDB.map(dbToModalFormat), 
+    [fornecedoresDB]
+  );
 
   const filteredFornecedores = useMemo(() => {
     return fornecedores.filter((f) => {
@@ -45,7 +114,7 @@ export default function Fornecedores() {
         if (
           !f.razaoSocial.toLowerCase().includes(search) &&
           !f.nomeFantasia?.toLowerCase().includes(search) &&
-          !f.cnpj.includes(search)
+          !(f.cnpj || '').includes(search)
         ) {
           return false;
         }
@@ -64,15 +133,16 @@ export default function Fornecedores() {
   }), [fornecedores]);
 
   const handleSaveFornecedor = (fornecedor: Fornecedor) => {
-    setFornecedores((prev) => {
-      const index = prev.findIndex((f) => f.id === fornecedor.id);
-      if (index >= 0) {
-        const updated = [...prev];
-        updated[index] = fornecedor;
-        return updated;
-      }
-      return [...prev, fornecedor];
-    });
+    const dbData = modalToDbFormat(fornecedor);
+    
+    // Verificar se é edição (ID existe e não é gerado localmente)
+    const existingFornecedor = fornecedoresDB.find(f => f.id === fornecedor.id);
+    
+    if (existingFornecedor) {
+      updateFornecedor.mutate({ id: fornecedor.id, ...dbData });
+    } else {
+      createFornecedor.mutate(dbData);
+    }
   };
 
   const handleEdit = (fornecedor: Fornecedor) => {
@@ -86,27 +156,35 @@ export default function Fornecedores() {
   };
 
   const handleInactivateClick = (fornecedor: Fornecedor) => {
-    setFornecedorToInactivate(fornecedor);
-    setInactivateDialogOpen(true);
+    const dbFornecedor = fornecedoresDB.find(f => f.id === fornecedor.id);
+    if (dbFornecedor) {
+      setFornecedorToInactivate(dbFornecedor);
+      setInactivateDialogOpen(true);
+    }
   };
 
   const handleConfirmInactivate = () => {
     if (fornecedorToInactivate) {
-      setFornecedores((prev) =>
-        prev.map((f) =>
-          f.id === fornecedorToInactivate.id
-            ? { ...f, status: f.status === 'ativo' ? 'inativo' : 'ativo', dataAtualizacao: new Date().toISOString().split('T')[0] }
-            : f
-        )
-      );
-      toast({
-        title: fornecedorToInactivate.status === 'ativo' ? 'Fornecedor inativado' : 'Fornecedor ativado',
-        description: `${fornecedorToInactivate.razaoSocial} foi ${fornecedorToInactivate.status === 'ativo' ? 'inativado' : 'ativado'}.`,
+      const newStatus = fornecedorToInactivate.status === 'ativo' ? 'inativo' : 'ativo';
+      updateFornecedor.mutate({ 
+        id: fornecedorToInactivate.id, 
+        status: newStatus 
       });
     }
     setInactivateDialogOpen(false);
     setFornecedorToInactivate(null);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen w-full bg-background">
+        <AppSidebar />
+        <main className="flex-1 p-6 flex items-center justify-center">
+          <p className="text-muted-foreground">Carregando fornecedores...</p>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full bg-background">
@@ -220,13 +298,15 @@ export default function Fornecedores() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="font-mono text-sm">{fornecedor.cnpj}</TableCell>
+                        <TableCell className="font-mono text-sm">{fornecedor.cnpj || '-'}</TableCell>
                         <TableCell>
-                          <Badge className={`${tipoConfig.bgColor} ${tipoConfig.color} border-0`}>
-                            {tipoConfig.label}
-                          </Badge>
+                          {tipoConfig && (
+                            <Badge className={`${tipoConfig.bgColor} ${tipoConfig.color} border-0`}>
+                              {tipoConfig.label}
+                            </Badge>
+                          )}
                         </TableCell>
-                        <TableCell className="text-sm">{segmentoConfig.label}</TableCell>
+                        <TableCell className="text-sm">{segmentoConfig?.label || '-'}</TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             {fornecedor.contato.email && (
@@ -321,8 +401,8 @@ export default function Fornecedores() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {fornecedorToInactivate?.status === 'ativo'
-                ? `Deseja inativar o fornecedor "${fornecedorToInactivate?.razaoSocial}"? O fornecedor ficará indisponível para novas operações, mas o histórico será mantido.`
-                : `Deseja ativar o fornecedor "${fornecedorToInactivate?.razaoSocial}"?`
+                ? `Deseja inativar o fornecedor "${fornecedorToInactivate?.razao_social}"? O fornecedor ficará indisponível para novas operações, mas o histórico será mantido.`
+                : `Deseja ativar o fornecedor "${fornecedorToInactivate?.razao_social}"?`
               }
             </AlertDialogDescription>
           </AlertDialogHeader>
