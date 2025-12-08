@@ -95,6 +95,7 @@ export function ProdutoFormModalV2({
   const [larguraCm, setLarguraCm] = useState(0);
   const [profundidadeCm, setProfundidadeCm] = useState(0);
   const [status, setStatus] = useState<"ativo" | "inativo">("ativo");
+  const [imagemUrl, setImagemUrl] = useState("");
   
   // Variações
   const [atributosVariacao, setAtributosVariacao] = useState<AtributoVariacao[]>([]);
@@ -153,6 +154,7 @@ export function ProdutoFormModalV2({
         setProfundidadeCm(produto.profundidade_cm || 0);
         setStatus(produto.status === "inativo" ? "inativo" : "ativo");
         setKitComponentes(produto.kit_componentes || []);
+        setImagemUrl(produto.imagem_url || "");
       } else {
         resetForm();
       }
@@ -181,6 +183,7 @@ export function ProdutoFormModalV2({
     setAtributosVariacao([]);
     setVariacoes([]);
     setKitComponentes([]);
+    setImagemUrl("");
   };
 
   // Gerar variações a partir dos atributos
@@ -328,6 +331,7 @@ export function ProdutoFormModalV2({
         profundidade_cm: profundidadeCm,
         status,
         kit_componentes: tipo === "kit" ? kitComponentes.map(c => ({ sku: c.sku, quantidade: c.quantidade })) : [],
+        imagem_url: imagemUrl || undefined,
       };
 
       if (isEditing && produto) {
@@ -459,6 +463,27 @@ export function ProdutoFormModalV2({
                 rows={2}
                 placeholder="Descrição detalhada do produto"
               />
+            </div>
+
+            {/* Imagem do Produto */}
+            <div className="space-y-2">
+              <Label htmlFor="imagemUrl">URL da Imagem</Label>
+              <Input
+                id="imagemUrl"
+                value={imagemUrl}
+                onChange={(e) => setImagemUrl(e.target.value)}
+                placeholder="https://exemplo.com/imagem.jpg"
+              />
+              {imagemUrl && (
+                <div className="mt-2 w-24 h-24 rounded-lg border overflow-hidden">
+                  <img 
+                    src={imagemUrl} 
+                    alt="Preview" 
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-3 gap-4">

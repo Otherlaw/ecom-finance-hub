@@ -39,6 +39,7 @@ export interface Produto {
   fornecedor_id: string | null;
   fornecedor_nome: string | null;
   status: StatusProduto;
+  imagem_url: string | null;
   created_at: string;
   updated_at: string;
   // Joins
@@ -72,6 +73,7 @@ export interface ProdutoInsert {
   fornecedor_id?: string;
   fornecedor_nome?: string;
   status?: StatusProduto;
+  imagem_url?: string;
 }
 
 export interface ProdutoUpdate extends Partial<ProdutoInsert> {
@@ -163,6 +165,7 @@ export function useProdutos(params: UseProdutosParams = {}) {
         fornecedor_id: p.fornecedor_id,
         fornecedor_nome: p.fornecedor_nome,
         status: p.status as StatusProduto,
+        imagem_url: p.imagem_url || null,
         created_at: p.created_at,
         updated_at: p.updated_at,
       }));
@@ -200,6 +203,7 @@ export function useProdutos(params: UseProdutosParams = {}) {
           fornecedor_id: input.fornecedor_id || null,
           fornecedor_nome: input.fornecedor_nome || null,
           status: input.status || "ativo",
+          imagem_url: input.imagem_url || null,
         })
         .select()
         .single();
