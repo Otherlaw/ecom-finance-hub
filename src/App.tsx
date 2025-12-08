@@ -14,6 +14,7 @@ import ICMS from "./pages/ICMS";
 import Conciliacao from "./pages/Conciliacao";
 import ChecklistFechamento from "./pages/ChecklistFechamento";
 import Produtos from "./pages/Produtos";
+import EstoqueSKU from "./pages/EstoqueSKU";
 import Compras from "./pages/Compras";
 import ContasPagar from "./pages/ContasPagar";
 import ContasReceber from "./pages/ContasReceber";
@@ -56,6 +57,7 @@ const App = () => (
             <Route path="/conciliacao" element={<Conciliacao />} />
             <Route path="/checklist-fechamento" element={<ChecklistFechamento />} />
             <Route path="/produtos" element={<Produtos />} />
+            <Route path="/estoque-sku" element={<EstoqueSKU />} />
             <Route path="/cmv" element={<CMVRelatorio />} />
             <Route path="/compras" element={<Compras />} />
             <Route path="/contas-pagar" element={<ContasPagar />} />
