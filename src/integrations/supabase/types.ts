@@ -1012,6 +1012,107 @@ export type Database = {
           },
         ]
       }
+      fornecedores: {
+        Row: {
+          cnpj: string | null
+          contato_cargo: string | null
+          contato_celular: string | null
+          contato_email: string | null
+          contato_nome: string | null
+          contato_telefone: string | null
+          created_at: string
+          empresa_id: string | null
+          endereco_bairro: string | null
+          endereco_cep: string | null
+          endereco_cidade: string | null
+          endereco_complemento: string | null
+          endereco_logradouro: string | null
+          endereco_numero: string | null
+          endereco_uf: string | null
+          forma_pagamento_preferencial: string | null
+          id: string
+          inscricao_estadual: string | null
+          nome_fantasia: string | null
+          observacoes: string | null
+          origem: string | null
+          prazo_medio_dias: number | null
+          razao_social: string
+          regime_tributario: string | null
+          segmento: string
+          status: string
+          tipo: string
+          updated_at: string
+        }
+        Insert: {
+          cnpj?: string | null
+          contato_cargo?: string | null
+          contato_celular?: string | null
+          contato_email?: string | null
+          contato_nome?: string | null
+          contato_telefone?: string | null
+          created_at?: string
+          empresa_id?: string | null
+          endereco_bairro?: string | null
+          endereco_cep?: string | null
+          endereco_cidade?: string | null
+          endereco_complemento?: string | null
+          endereco_logradouro?: string | null
+          endereco_numero?: string | null
+          endereco_uf?: string | null
+          forma_pagamento_preferencial?: string | null
+          id?: string
+          inscricao_estadual?: string | null
+          nome_fantasia?: string | null
+          observacoes?: string | null
+          origem?: string | null
+          prazo_medio_dias?: number | null
+          razao_social: string
+          regime_tributario?: string | null
+          segmento?: string
+          status?: string
+          tipo?: string
+          updated_at?: string
+        }
+        Update: {
+          cnpj?: string | null
+          contato_cargo?: string | null
+          contato_celular?: string | null
+          contato_email?: string | null
+          contato_nome?: string | null
+          contato_telefone?: string | null
+          created_at?: string
+          empresa_id?: string | null
+          endereco_bairro?: string | null
+          endereco_cep?: string | null
+          endereco_cidade?: string | null
+          endereco_complemento?: string | null
+          endereco_logradouro?: string | null
+          endereco_numero?: string | null
+          endereco_uf?: string | null
+          forma_pagamento_preferencial?: string | null
+          id?: string
+          inscricao_estadual?: string | null
+          nome_fantasia?: string | null
+          observacoes?: string | null
+          origem?: string | null
+          prazo_medio_dias?: number | null
+          razao_social?: string
+          regime_tributario?: string | null
+          segmento?: string
+          status?: string
+          tipo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fornecedores_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       manual_transactions: {
         Row: {
           categoria_id: string | null
