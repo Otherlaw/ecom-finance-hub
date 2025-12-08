@@ -38,6 +38,9 @@ export function ExportarProdutosV2() {
   // Filtrar por tipo
   const produtosFiltrados = produtos.filter(p => {
     if (filtroTipo === "todos") return true;
+    if (filtroTipo === "variacao") {
+      return p.tipo === 'variation_parent' || p.tipo === 'variation_child';
+    }
     return p.tipo === filtroTipo;
   });
 
