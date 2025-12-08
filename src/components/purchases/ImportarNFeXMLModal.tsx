@@ -242,10 +242,25 @@ export function ImportarNFeXMLModal({
                   ? "border-primary/50 hover:border-primary cursor-pointer"
                   : "border-muted cursor-not-allowed opacity-50"
               }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (empresaId && !isProcessing && e.dataTransfer.files) {
+                  const input = document.getElementById("xml-upload-compras") as HTMLInputElement;
+                  if (input) {
+                    input.files = e.dataTransfer.files;
+                    input.dispatchEvent(new Event("change", { bubbles: true }));
+                  }
+                }
+              }}
             >
               <input
                 type="file"
-                accept=".xml"
+                accept=".xml,application/xml,text/xml"
                 multiple
                 onChange={handleFileSelect}
                 className="hidden"
@@ -260,7 +275,7 @@ export function ImportarNFeXMLModal({
                 <p className="text-lg font-medium">
                   {isProcessing
                     ? "Processando arquivos..."
-                    : "Clique para selecionar arquivos XML"}
+                    : "Clique ou arraste arquivos XML aqui"}
                 </p>
                 <p className="text-sm text-muted-foreground mt-2">
                   Aceita múltiplos arquivos XML de NF-e
