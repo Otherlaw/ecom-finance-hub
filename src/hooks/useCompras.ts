@@ -323,19 +323,35 @@ export function useRecebimentos(compraId: string | null) {
       armazem_id: string;
       data_recebimento: string;
       observacoes?: string;
-      forcar_conclusao?: boolean; // Novo: força status para concluído
+      forcar_conclusao?: boolean;
+      valor_frete?: number;
+      valor_produtos?: number;
       itens: {
         compra_item_id: string;
         produto_id: string | null;
         quantidade_recebida: number;
         quantidade_devolvida?: number;
         custo_unitario: number;
+        custo_efetivo?: number;
+        valor_ipi?: number;
+        valor_icms?: number;
+        aliquota_icms?: number;
+        ncm?: string | null;
         lote?: string;
         validade?: string;
         localizacao?: string;
         observacao?: string;
       }[];
     }) => {
+      // Buscar dados da compra para contexto
+      const { data: compraData } = await supabase
+        .from("compras")
+        .select("empresa_id, numero_nf, chave_acesso, data_nf, fornecedor_nome")
+        .eq("id", input.compra_id)
+        .single();
+
+      if (!compraData) throw new Error("Compra não encontrada");
+
       // Criar registro de recebimento
       const { data: recebimento, error: recError } = await supabase
         .from("recebimentos")
@@ -356,10 +372,10 @@ export function useRecebimentos(compraId: string | null) {
         .map(item => ({
           recebimento_id: recebimento.id,
           compra_item_id: item.compra_item_id,
-          produto_id: item.produto_id,
+          produto_id: item.produto_id || null, // Aceita null
           quantidade_recebida: item.quantidade_recebida,
           quantidade_devolvida: item.quantidade_devolvida || 0,
-          custo_unitario: item.custo_unitario,
+          custo_unitario: item.custo_efetivo || item.custo_unitario, // Usar custo efetivo
           lote: item.lote || null,
           validade: item.validade || null,
           localizacao: item.localizacao || null,
@@ -373,10 +389,10 @@ export function useRecebimentos(compraId: string | null) {
 
         if (itensError) throw itensError;
         
-        // Atualizar quantidade_recebida em cada item da compra
+        // Para cada item recebido, atualizar compra_itens E dar entrada no estoque
         for (const item of input.itens) {
           if (item.quantidade_recebida > 0) {
-            // Buscar quantidade já recebida do item
+            // 1. Atualizar quantidade_recebida no item da compra
             const { data: itemCompra } = await supabase
               .from("compras_itens")
               .select("quantidade_recebida")
@@ -389,11 +405,84 @@ export function useRecebimentos(compraId: string | null) {
               .from("compras_itens")
               .update({ quantidade_recebida: qtdAtual + item.quantidade_recebida })
               .eq("id", item.compra_item_id);
+
+            // 2. Dar entrada no estoque (se produto vinculado)
+            if (item.produto_id) {
+              const custoUnitario = item.custo_efetivo || item.custo_unitario;
+              
+              // Buscar estoque atual
+              const { data: estoqueAtual } = await supabase
+                .from("estoque")
+                .select("*")
+                .eq("produto_id", item.produto_id)
+                .eq("armazem_id", input.armazem_id)
+                .maybeSingle();
+              
+              const qtdAnterior = Number(estoqueAtual?.quantidade) || 0;
+              const custoMedioAnterior = Number(estoqueAtual?.custo_medio) || 0;
+              const qtdNova = qtdAnterior + item.quantidade_recebida;
+              
+              // Calcular custo médio ponderado
+              const valorAnterior = qtdAnterior * custoMedioAnterior;
+              const valorEntrada = item.quantidade_recebida * custoUnitario;
+              const novoCustoMedio = qtdNova > 0 ? (valorAnterior + valorEntrada) / qtdNova : custoUnitario;
+              
+              // Upsert estoque
+              if (estoqueAtual) {
+                await supabase
+                  .from("estoque")
+                  .update({
+                    quantidade: qtdNova,
+                    custo_medio: novoCustoMedio,
+                  })
+                  .eq("id", estoqueAtual.id);
+              } else {
+                await supabase
+                  .from("estoque")
+                  .insert({
+                    empresa_id: compraData.empresa_id,
+                    produto_id: item.produto_id,
+                    armazem_id: input.armazem_id,
+                    quantidade: qtdNova,
+                    custo_medio: novoCustoMedio,
+                  });
+              }
+              
+              // Registrar movimentação de estoque
+              await supabase.from("movimentacoes_estoque").insert({
+                empresa_id: compraData.empresa_id,
+                produto_id: item.produto_id,
+                armazem_id: input.armazem_id,
+                tipo: 'entrada',
+                motivo: 'Recebimento de Compra',
+                origem: 'compra',
+                quantidade: item.quantidade_recebida,
+                custo_unitario: custoUnitario,
+                custo_total: item.quantidade_recebida * custoUnitario,
+                estoque_anterior: qtdAnterior,
+                estoque_posterior: qtdNova,
+                custo_medio_anterior: custoMedioAnterior,
+                custo_medio_posterior: novoCustoMedio,
+                documento: compraData.numero_nf || null,
+                referencia_id: recebimento.id,
+              });
+
+              // Atualizar custo_medio no produto
+              await supabase
+                .from("produtos")
+                .update({ custo_medio: novoCustoMedio })
+                .eq("id", item.produto_id);
+            }
           }
         }
       }
 
-      return { recebimento, forcar_conclusao: input.forcar_conclusao };
+      return { 
+        recebimento, 
+        forcar_conclusao: input.forcar_conclusao,
+        compraData,
+        itens: input.itens,
+      };
     },
     onSuccess: async (result, variables) => {
       const { forcar_conclusao } = result;
