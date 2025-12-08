@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, BellOff, Settings, ChevronUp, Volume2, VolumeX, MessageCircle } from 'lucide-react';
+import { Bell, BellOff, Settings, ChevronUp, ChevronDown, Volume2, VolumeX, MessageCircle, Minus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -42,9 +42,17 @@ export function AssistantWidget() {
   const [selectedAlert, setSelectedAlert] = useState<AssistantAlert | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(() => {
+    return localStorage.getItem('fin-minimized') === 'true';
+  });
 
   const unreadCount = getUnreadCount();
   const isSilenced = config.silenciado && config.silenciadoAte && new Date() < config.silenciadoAte;
+
+  // Salvar preferência de minimizado
+  useEffect(() => {
+    localStorage.setItem('fin-minimized', String(isMinimized));
+  }, [isMinimized]);
 
   // Mostrar popup para novos alertas
   useEffect(() => {
@@ -114,6 +122,42 @@ export function AssistantWidget() {
     .filter(a => a.status === 'novo' || a.status === 'em_analise')
     .slice(0, 5);
 
+  // Widget minimizado - apenas ícone pequeno
+  if (isMinimized && !isChatOpen) {
+    return (
+      <>
+        <button
+          onClick={() => setIsMinimized(false)}
+          className={cn(
+            'fixed bottom-4 right-4 z-40',
+            'h-10 w-10 rounded-full shadow-lg transition-all hover:scale-110',
+            'bg-gradient-to-br from-primary to-primary/80',
+            'flex items-center justify-center'
+          )}
+        >
+          <AssistantCharacter size="sm" mood="neutral" />
+          {unreadCount > 0 && !isSilenced && (
+            <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
+        </button>
+
+        {/* Popup de alerta mesmo minimizado */}
+        {currentPopupAlert && !isSilenced && (
+          <AlertPopup
+            alert={currentPopupAlert}
+            onDismiss={handleDismissPopup}
+            onViewDetails={() => {
+              setIsMinimized(false);
+              handleViewDetails(currentPopupAlert);
+            }}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <>
       {/* Widget principal - bottom-20 para não sobrepor paginação */}
@@ -125,15 +169,26 @@ export function AssistantWidget() {
               <div className="flex items-center gap-2">
                 <AssistantCharacter size="sm" mood={isAnalyzing ? 'thinking' : 'neutral'} />
                 <div>
-                  <h3 className="font-semibold text-sm">Assis.Fin</h3>
+                  <h3 className="font-semibold text-sm">Fin</h3>
                   <p className="text-xs text-muted-foreground">
                     {isAnalyzing ? 'Analisando...' : `${unreadCount} alertas pendentes`}
                   </p>
                 </div>
               </div>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsExpanded(false)}>
-                <ChevronUp className="w-4 h-4" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-6 w-6" 
+                  onClick={() => setIsMinimized(true)}
+                  title="Minimizar"
+                >
+                  <Minus className="w-3 h-3" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsExpanded(false)}>
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
 
             {/* Botão de chat */}
@@ -145,7 +200,7 @@ export function AssistantWidget() {
                 onClick={() => openChat()}
               >
                 <MessageCircle className="w-4 h-4" />
-                Conversar com o Assis.Fin
+                Conversar com o Fin
               </Button>
             </div>
 
@@ -195,13 +250,24 @@ export function AssistantWidget() {
         {/* Botões principais do widget */}
         {!isChatOpen && (
           <div className="flex items-center gap-2">
+            {/* Botão de minimizar */}
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 rounded-full shadow-lg bg-card"
+              onClick={() => setIsMinimized(true)}
+              title="Minimizar Fin"
+            >
+              <Minus className="w-3 h-3" />
+            </Button>
+
             {/* Botão de chat rápido */}
             <Button
               variant="outline"
               size="icon"
               className="h-10 w-10 rounded-full shadow-lg bg-card"
               onClick={() => openChat()}
-              title="Conversar com o Assis.Fin"
+              title="Conversar com o Fin"
             >
               <MessageCircle className="w-4 h-4" />
             </Button>

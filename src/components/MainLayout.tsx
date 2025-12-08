@@ -27,7 +27,7 @@ export function MainLayout({
   const navigate = useNavigate();
 
   const handleNotificationsClick = () => {
-    navigate("/assistente");
+    navigate("/assistant");
   };
 
   return (

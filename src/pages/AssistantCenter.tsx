@@ -159,7 +159,7 @@ export default function AssistantCenter() {
   return (
     <MainLayout
       title="Central de Alertas"
-      subtitle="Assis.Fin - Seu assistente financeiro inteligente"
+      subtitle="Fin - Seu copiloto financeiro inteligente"
       actions={
         <div className="flex items-center gap-2">
           {isSilenced ? (
@@ -185,7 +185,7 @@ export default function AssistantCenter() {
         <div className="flex items-center gap-6">
           <AssistantCharacter size="lg" mood={isAnalyzing ? 'thinking' : stats.criticos > 0 ? 'critico' : 'neutral'} />
           <div className="flex-1">
-            <h2 className="text-2xl font-bold mb-1">Olá! Sou o Assis.Fin</h2>
+            <h2 className="text-2xl font-bold mb-1">Olá! Sou o Fin</h2>
             <p className="text-muted-foreground">
               {isAnalyzing 
                 ? 'Estou analisando seus dados financeiros, fiscais e operacionais...'
