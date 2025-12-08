@@ -1,51 +1,50 @@
 import { useState, useMemo } from 'react';
-import { Package, Search, AlertTriangle, TrendingDown, TrendingUp, ArrowUpDown } from 'lucide-react';
+import { Package, Search, AlertTriangle, TrendingDown, TrendingUp, ArrowUpDown, Warehouse } from 'lucide-react';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useEstoque } from '@/hooks/useEstoque';
 import { useProdutos } from '@/hooks/useProdutos';
-import { useCentrosCusto } from '@/hooks/useCentrosCusto';
-import { CentroCustoSelect } from '@/components/CentroCustoSelect';
+import { useArmazens } from '@/hooks/useArmazens';
 import { AjusteEstoqueModal } from '@/components/estoque/AjusteEstoqueModal';
 
 export default function EstoqueSKU() {
   const { estoques: estoque, isLoading: isLoadingEstoque, refetch } = useEstoque();
   const { produtos, isLoading: isLoadingProdutos } = useProdutos();
-  const { centrosFlat: centrosCusto, isLoading: isLoadingCentros } = useCentrosCusto();
+  const { armazens, isLoading: isLoadingArmazens } = useArmazens({ apenasAtivos: true });
   
   const [searchTerm, setSearchTerm] = useState('');
-  const [centroCustoFilter, setCentroCustoFilter] = useState<string | null>(null);
+  const [armazemFilter, setArmazemFilter] = useState<string>('todos');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
   const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
 
-  const isLoading = isLoadingEstoque || isLoadingProdutos || isLoadingCentros;
+  const isLoading = isLoadingEstoque || isLoadingProdutos || isLoadingArmazens;
 
-  // Criar mapa de produtos e centros de custo para lookup rápido
+  // Criar mapa de produtos e armazéns para lookup rápido
   const produtosMap = useMemo(() => {
     const map = new Map<string, typeof produtos[0]>();
     produtos.forEach(p => map.set(p.id, p));
     return map;
   }, [produtos]);
 
-  const centrosCustoMap = useMemo(() => {
-    const map = new Map<string, typeof centrosCusto[0]>();
-    centrosCusto.forEach(c => map.set(c.id, c));
+  const armazensMap = useMemo(() => {
+    const map = new Map<string, typeof armazens[0]>();
+    armazens.forEach(a => map.set(a.id, a));
     return map;
-  }, [centrosCusto]);
+  }, [armazens]);
 
-  // Combinar estoque com dados de produto e centro de custo
+  // Combinar estoque com dados de produto e armazém
   const estoqueEnriquecido = useMemo(() => {
     return estoque.map(e => ({
       ...e,
       produto: produtosMap.get(e.produto_id),
-      centroCusto: centrosCustoMap.get(e.armazem_id),
+      armazem: armazensMap.get(e.armazem_id),
     }));
-  }, [estoque, produtosMap, centrosCustoMap]);
+  }, [estoque, produtosMap, armazensMap]);
 
   // Filtrar estoque
   const filteredEstoque = useMemo(() => {
@@ -60,8 +59,8 @@ export default function EstoqueSKU() {
         }
       }
       
-      // Filtro de centro de custo
-      if (centroCustoFilter && e.armazem_id !== centroCustoFilter) {
+      // Filtro de armazém
+      if (armazemFilter !== 'todos' && e.armazem_id !== armazemFilter) {
         return false;
       }
       
@@ -78,7 +77,7 @@ export default function EstoqueSKU() {
       
       return true;
     });
-  }, [estoqueEnriquecido, searchTerm, centroCustoFilter, statusFilter]);
+  }, [estoqueEnriquecido, searchTerm, armazemFilter, statusFilter]);
 
   // Calcular estatísticas
   const stats = useMemo(() => {
@@ -130,7 +129,7 @@ export default function EstoqueSKU() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Estoque por SKU</h1>
-              <p className="text-muted-foreground">Controle de estoque por produto e centro de custo</p>
+              <p className="text-muted-foreground">Controle de estoque por produto e armazém</p>
             </div>
             <Button onClick={() => setAjusteModalOpen(true)}>
               <ArrowUpDown className="h-4 w-4 mr-2" />
@@ -199,12 +198,20 @@ export default function EstoqueSKU() {
                     className="pl-9"
                   />
                 </div>
-                <CentroCustoSelect
-                  value={centroCustoFilter}
-                  onValueChange={setCentroCustoFilter}
-                  placeholder="Todos os Centros de Custo"
-                  className="w-56"
-                />
+                <Select value={armazemFilter} onValueChange={setArmazemFilter}>
+                  <SelectTrigger className="w-56">
+                    <Warehouse className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <SelectValue placeholder="Armazém" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os Armazéns</SelectItem>
+                    {armazens.map((armazem) => (
+                      <SelectItem key={armazem.id} value={armazem.id}>
+                        {armazem.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger className="w-40">
                     <SelectValue placeholder="Status" />
@@ -224,7 +231,7 @@ export default function EstoqueSKU() {
                   <TableRow>
                     <TableHead>SKU</TableHead>
                     <TableHead>Produto</TableHead>
-                    <TableHead>Centro de Custo</TableHead>
+                    <TableHead>Armazém</TableHead>
                     <TableHead className="text-right">Quantidade</TableHead>
                     <TableHead className="text-right">Custo Médio</TableHead>
                     <TableHead className="text-right">Valor Total</TableHead>
@@ -245,7 +252,12 @@ export default function EstoqueSKU() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell>{item.centroCusto?.nome || '-'}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Warehouse className="h-4 w-4 text-muted-foreground" />
+                          {item.armazem?.nome || '-'}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right font-medium">
                         {item.quantidade} {item.produto?.unidade_medida || 'un'}
                       </TableCell>
