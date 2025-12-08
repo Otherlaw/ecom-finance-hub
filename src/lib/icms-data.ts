@@ -6,7 +6,7 @@ import { mockFornecedores, Fornecedor } from "./fornecedores-data";
 // ============= Enums & Types =============
 
 export type TipoCreditoICMS = 'compensavel' | 'nao_compensavel';
-export type OrigemCredito = 'compra_mercadoria' | 'devolucao_venda' | 'frete' | 'nota_adquirida' | 'outro';
+export type OrigemCredito = 'compra_mercadoria' | 'compra_insumo' | 'devolucao_venda' | 'frete' | 'energia_eletrica' | 'ativo_imobilizado' | 'outro';
 export type TipoAjuste = 'positivo' | 'negativo' | 'estorno';
 export type StatusCredito = 'ativo' | 'estornado' | 'compensado' | 'expirado';
 
@@ -169,9 +169,11 @@ export interface ResumoICMSEmpresa {
   // Por origem
   creditosPorOrigem: {
     compra_mercadoria: number;
+    compra_insumo: number;
     devolucao_venda: number;
     frete: number;
-    nota_adquirida: number;
+    energia_eletrica: number;
+    ativo_imobilizado: number;
     outro: number;
   };
   
@@ -185,9 +187,11 @@ export interface ResumoICMSEmpresa {
 
 export const ORIGEM_CREDITO_CONFIG: Record<OrigemCredito, { label: string; color: string; bgColor: string }> = {
   compra_mercadoria: { label: 'Compra de Mercadoria', color: 'text-blue-700', bgColor: 'bg-blue-100' },
+  compra_insumo: { label: 'Compra de Insumo', color: 'text-cyan-700', bgColor: 'bg-cyan-100' },
   devolucao_venda: { label: 'Devolução de Venda', color: 'text-emerald-700', bgColor: 'bg-emerald-100' },
   frete: { label: 'Frete', color: 'text-orange-700', bgColor: 'bg-orange-100' },
-  nota_adquirida: { label: 'Nota de Crédito Adquirida', color: 'text-purple-700', bgColor: 'bg-purple-100' },
+  energia_eletrica: { label: 'Energia Elétrica', color: 'text-yellow-700', bgColor: 'bg-yellow-100' },
+  ativo_imobilizado: { label: 'Ativo Imobilizado', color: 'text-purple-700', bgColor: 'bg-purple-100' },
   outro: { label: 'Outro', color: 'text-gray-700', bgColor: 'bg-gray-100' },
 };
 
@@ -458,9 +462,11 @@ export const calcularResumoEmpresa = (
     creditosInformativos,
     creditosPorOrigem: {
       compra_mercadoria: creditosCompensaveis.filter(c => c.origemCredito === 'compra_mercadoria').reduce((s, c) => s + c.valorCredito, 0),
+      compra_insumo: creditosCompensaveis.filter(c => c.origemCredito === 'compra_insumo').reduce((s, c) => s + c.valorCredito, 0),
       devolucao_venda: creditosCompensaveis.filter(c => c.origemCredito === 'devolucao_venda').reduce((s, c) => s + c.valorCredito, 0),
       frete: creditosCompensaveis.filter(c => c.origemCredito === 'frete').reduce((s, c) => s + c.valorCredito, 0),
-      nota_adquirida: creditosCompensaveis.filter(c => c.origemCredito === 'nota_adquirida').reduce((s, c) => s + c.valorCredito, 0),
+      energia_eletrica: creditosCompensaveis.filter(c => c.origemCredito === 'energia_eletrica').reduce((s, c) => s + c.valorCredito, 0),
+      ativo_imobilizado: creditosCompensaveis.filter(c => c.origemCredito === 'ativo_imobilizado').reduce((s, c) => s + c.valorCredito, 0),
       outro: creditosCompensaveis.filter(c => c.origemCredito === 'outro').reduce((s, c) => s + c.valorCredito, 0),
     },
     icmsDebito: debitoEfetivo,
@@ -658,7 +664,7 @@ export const mockCreditosICMS: CreditoICMS[] = [
     id: "cred-005",
     empresa: "EXCHANGE",
     tipoCredito: "compensavel",
-    origemCredito: "nota_adquirida",
+    origemCredito: "ativo_imobilizado",
     statusCredito: "ativo",
     numeroNF: "77777",
     ncm: "99999999",

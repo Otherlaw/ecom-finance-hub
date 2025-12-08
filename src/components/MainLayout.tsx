@@ -1,21 +1,37 @@
 import { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
-import { Bell, Search, Upload } from "lucide-react";
+import { Bell, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
 interface MainLayoutProps {
   children: ReactNode;
   title: string;
   subtitle?: string;
   actions?: ReactNode;
 }
+
 export function MainLayout({
   children,
   title,
   subtitle,
   actions
 }: MainLayoutProps) {
-  return <div className="flex min-h-screen w-full bg-background">
+  const navigate = useNavigate();
+
+  const handleNotificationsClick = () => {
+    navigate("/assistente");
+  };
+
+  return (
+    <div className="flex min-h-screen w-full bg-background">
       <AppSidebar />
       
       <div className="flex-1 flex flex-col min-w-0">
@@ -29,11 +45,24 @@ export function MainLayout({
           </div>
           
           <div className="flex items-center gap-2">
-            
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="h-5 w-5" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="relative"
+                    onClick={handleNotificationsClick}
+                  >
+                    <Bell className="h-5 w-5" />
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Central de Alertas</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </header>
 
@@ -53,5 +82,6 @@ export function MainLayout({
           {children}
         </main>
       </div>
-    </div>;
+    </div>
+  );
 }

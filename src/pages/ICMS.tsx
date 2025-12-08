@@ -15,7 +15,6 @@ import { REGIME_TRIBUTARIO_CONFIG, canUseICMSCredit } from "@/lib/empresas-data"
 import { XMLImportModal } from "@/components/icms/XMLImportModal";
 import { ICMSCalculatorModal } from "@/components/icms/ICMSCalculatorModal";
 import { ICMSRecommendationModal } from "@/components/icms/ICMSRecommendationModal";
-import { CreditoAdquiridoModal } from "@/components/icms/CreditoAdquiridoModal";
 import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import { useEmpresas } from "@/hooks/useEmpresas";
@@ -23,7 +22,7 @@ import { useCreditosICMS, CreditoICMSDB, CreditoICMSInsert } from "@/hooks/useCr
 import { 
   Receipt, AlertTriangle, TrendingDown, Calculator, 
   Upload, Lightbulb, Trash2, Edit2, Info, Building2, 
-  CheckCircle2, Filter, ShoppingBag
+  CheckCircle2, Filter
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
@@ -38,7 +37,6 @@ export default function ICMS() {
   const [xmlImportOpen, setXmlImportOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [recommendationOpen, setRecommendationOpen] = useState(false);
-  const [creditoAdquiridoOpen, setCreditoAdquiridoOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingCredit, setEditingCredit] = useState<CreditoICMSDB | null>(null);
   const [deletingCreditId, setDeletingCreditId] = useState<string | null>(null);
@@ -146,9 +144,6 @@ export default function ICMS() {
     setEditingCredit(null); 
   };
 
-  const handleSaveCreditoAdquirido = async (credit: CreditoICMSInsert) => {
-    await createCredito.mutateAsync(credit);
-  };
   
   const handleEditCredit = (credit: CreditoICMSDB) => { 
     setEditingCredit(credit); 
@@ -214,9 +209,6 @@ export default function ICMS() {
           <AskAssistantButton onClick={handleAskAssistant} label="Perguntar" />
           <Button variant="outline" className="gap-2" onClick={() => setXmlImportOpen(true)}>
             <Upload className="h-4 w-4" />Importar XML
-          </Button>
-          <Button variant="outline" className="gap-2" onClick={() => setCreditoAdquiridoOpen(true)}>
-            <ShoppingBag className="h-4 w-4" />Nota Adquirida
           </Button>
           <Button className="gap-2" onClick={handleNewCredit}>
             <Calculator className="h-4 w-4" />Novo Crédito
