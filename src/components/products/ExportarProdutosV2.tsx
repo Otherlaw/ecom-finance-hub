@@ -45,7 +45,7 @@ export function ExportarProdutosV2() {
   const contagem = {
     total: produtos.length,
     unico: produtos.filter(p => p.tipo === 'unico').length,
-    variacao: produtos.filter(p => p.tipo === 'variacao').length,
+    variacao: produtos.filter(p => p.tipo === 'variation_parent' || p.tipo === 'variation_child').length,
     kit: produtos.filter(p => p.tipo === 'kit').length,
   };
 
