@@ -159,13 +159,15 @@ export function ImportarProdutosV2() {
           }
 
           if (existente) {
+            // Mapear tipo do arquivo para tipo do banco
+            const tipoMapeado = linha.tipo === 'single' ? 'unico' : linha.tipo;
             await atualizarProduto.mutateAsync({
               id: existente.id,
               nome: linha.nome,
               descricao: linha.descricao,
               categoria: linha.categoria,
               subcategoria: linha.subcategoria,
-              tipo: linha.tipo === 'single' ? 'unico' : linha.tipo === 'variation_parent' ? 'variacao' : linha.tipo === 'kit' ? 'kit' : 'unico',
+              tipo: tipoMapeado,
               parent_id: parentId,
               atributos_variacao: linha.atributos_variacao,
               kit_componentes: linha.kit_components,
@@ -182,6 +184,8 @@ export function ImportarProdutosV2() {
             });
             atualizados++;
           } else {
+            // Mapear tipo do arquivo para tipo do banco
+            const tipoMapeado = linha.tipo === 'single' ? 'unico' : linha.tipo;
             const result = await criarProduto.mutateAsync({
               empresa_id: empresaIdParam,
               sku: linha.sku,
@@ -189,7 +193,7 @@ export function ImportarProdutosV2() {
               descricao: linha.descricao,
               categoria: linha.categoria,
               subcategoria: linha.subcategoria,
-              tipo: linha.tipo === 'single' ? 'unico' : linha.tipo === 'variation_parent' ? 'variacao' : linha.tipo === 'kit' ? 'kit' : 'unico',
+              tipo: tipoMapeado,
               parent_id: parentId,
               atributos_variacao: linha.atributos_variacao,
               kit_componentes: linha.kit_components,
