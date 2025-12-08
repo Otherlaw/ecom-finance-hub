@@ -9,9 +9,10 @@ import { useMarketplaceTransactions } from "@/hooks/useMarketplaceTransactions";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useEmpresas } from "@/hooks/useEmpresas";
+import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
 import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { format, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -26,6 +27,7 @@ import {
   TrendingUp,
   TrendingDown,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -58,6 +60,16 @@ export default function Fechamento() {
   const { resumo: contasPagarResumo, contas: contasPagar, isLoading: isCPLoading } = useContasPagar({ dataInicio: periodoInicio, dataFim: periodoFim });
   const { resumo: contasReceberResumo, contas: contasReceber, isLoading: isCRLoading } = useContasReceber({ dataInicio: periodoInicio, dataFim: periodoFim });
   const { empresas } = useEmpresas();
+  
+  // Sincronização MEU
+  const { temPendencias, totalPendentes, sincronizar, isSincronizando } = useSincronizacaoMEU();
+
+  // Sincronizar automaticamente se houver pendências
+  useEffect(() => {
+    if (temPendencias && !isSincronizando) {
+      sincronizar.mutate();
+    }
+  }, [temPendencias]);
 
   const isLoading = isDRELoading || isFluxoLoading || isMktLoading || isCPLoading || isCRLoading;
 
@@ -204,6 +216,17 @@ export default function Fechamento() {
       actions={
         <div className="flex items-center gap-2">
           <AskAssistantButton onClick={handleAskAssistant} label="Perguntar" />
+          {temPendencias && (
+            <Button 
+              variant="outline" 
+              className="gap-2" 
+              onClick={() => sincronizar.mutate()}
+              disabled={isSincronizando}
+            >
+              <RefreshCw className={`h-4 w-4 ${isSincronizando ? 'animate-spin' : ''}`} />
+              Sincronizar ({totalPendentes})
+            </Button>
+          )}
           <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
             <SelectTrigger className="w-[180px]">
               <SelectValue />

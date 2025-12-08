@@ -8,8 +8,9 @@ import { useFluxoCaixa } from "@/hooks/useFluxoCaixa";
 import { useMarketplaceTransactions } from "@/hooks/useMarketplaceTransactions";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
-import { useMemo, useState } from "react";
-import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
+import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
+import { useMemo, useState, useEffect } from "react";
+import { format, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   DollarSign,
@@ -20,21 +21,19 @@ import {
   CreditCard,
   BarChart3,
   PieChart,
-  ArrowRight,
   Download,
   Calendar,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import {
-  AreaChart,
-  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
   PieChart as RechartsPieChart,
   Pie,
   Cell,
@@ -79,6 +78,16 @@ export default function Dashboard() {
   const { resumo: contasPagarResumo, isLoading: isCPLoading } = useContasPagar({ dataInicio: periodoInicio, dataFim: periodoFim });
   const { resumo: contasReceberResumo, isLoading: isCRLoading } = useContasReceber({ dataInicio: periodoInicio, dataFim: periodoFim });
   const { data: periodosDisponiveis } = usePeridosDisponiveis();
+  
+  // Sincronização MEU
+  const { temPendencias, totalPendentes, sincronizar, isSincronizando, refetchPendentes } = useSincronizacaoMEU();
+
+  // Sincronizar automaticamente se houver pendências
+  useEffect(() => {
+    if (temPendencias && !isSincronizando) {
+      sincronizar.mutate();
+    }
+  }, [temPendencias]);
 
   const isLoading = isDRELoading || isFluxoLoading || isMktLoading || isCPLoading || isCRLoading;
 
@@ -173,6 +182,17 @@ export default function Dashboard() {
       subtitle="Visão geral consolidada do seu e-commerce"
       actions={
         <div className="flex items-center gap-2">
+          {temPendencias && (
+            <Button 
+              variant="outline" 
+              className="gap-2" 
+              onClick={() => sincronizar.mutate()}
+              disabled={isSincronizando}
+            >
+              <RefreshCw className={`h-4 w-4 ${isSincronizando ? 'animate-spin' : ''}`} />
+              Sincronizar ({totalPendentes})
+            </Button>
+          )}
           <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
             <SelectTrigger className="w-[180px]">
               <Calendar className="h-4 w-4 mr-2" />
