@@ -1,18 +1,19 @@
+import { useState } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { ModuleCard } from "@/components/ModuleCard";
-import { KPICard } from "@/components/KPICard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { projections, formatCurrency } from "@/lib/mock-data";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useProjecoesData } from "@/hooks/useProjecoesData";
 import {
   LineChart,
   Download,
   TrendingUp,
-  TrendingDown,
   Target,
   Sparkles,
   AlertCircle,
   ArrowRight,
+  Info,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -26,37 +27,37 @@ import {
   Legend,
 } from "recharts";
 
-const projectionData = [
-  { month: "Nov", otimista: 950000, realista: 820000, pessimista: 680000 },
-  { month: "Dez", otimista: 1100000, realista: 920000, pessimista: 720000 },
-  { month: "Jan", otimista: 850000, realista: 750000, pessimista: 600000 },
-  { month: "Fev", otimista: 880000, realista: 780000, pessimista: 620000 },
-  { month: "Mar", otimista: 920000, realista: 810000, pessimista: 660000 },
-];
-
-const lucroProjection = [
-  { month: "Nov", otimista: 85000, realista: 35000, pessimista: -25000 },
-  { month: "Dez", otimista: 110000, realista: 52000, pessimista: -15000 },
-  { month: "Jan", otimista: 72000, realista: 28000, pessimista: -35000 },
-  { month: "Fev", otimista: 78000, realista: 32000, pessimista: -28000 },
-  { month: "Mar", otimista: 85000, realista: 38000, pessimista: -22000 },
-];
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 
 export default function Projecoes() {
+  const [mesesProjecao, setMesesProjecao] = useState(6);
+  
+  const {
+    isLoading,
+    hasData,
+    cenarios,
+    projecaoFaturamento,
+    projecaoLucro,
+  } = useProjecoesData(mesesProjecao);
+
   return (
     <MainLayout
       title="Projeções Financeiras"
-      subtitle="Cenários e previsões baseadas no histórico"
+      subtitle="Cenários e previsões baseadas no histórico real"
       actions={
         <div className="flex items-center gap-2">
-          <Select defaultValue="6m">
+          <Select 
+            value={String(mesesProjecao)} 
+            onValueChange={(v) => setMesesProjecao(Number(v))}
+          >
             <SelectTrigger className="w-[140px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="3m">3 meses</SelectItem>
-              <SelectItem value="6m">6 meses</SelectItem>
-              <SelectItem value="12m">12 meses</SelectItem>
+              <SelectItem value="3">3 meses</SelectItem>
+              <SelectItem value="6">6 meses</SelectItem>
+              <SelectItem value="12">12 meses</SelectItem>
             </SelectContent>
           </Select>
           <Button className="gap-2">
@@ -66,6 +67,20 @@ export default function Projecoes() {
         </div>
       }
     >
+      {/* Aviso se não houver dados */}
+      {!isLoading && !hasData && (
+        <div className="mb-6 p-4 rounded-lg bg-muted/50 border border-border flex items-start gap-3">
+          <Info className="h-5 w-5 text-muted-foreground mt-0.5" />
+          <div>
+            <p className="font-medium">Dados históricos insuficientes</p>
+            <p className="text-sm text-muted-foreground">
+              As projeções são calculadas com base nos movimentos financeiros dos últimos 6 meses. 
+              Categorize mais transações em Conciliações para gerar projeções mais precisas.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Cenários */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         {/* Otimista */}
@@ -76,21 +91,34 @@ export default function Projecoes() {
             </div>
             <div>
               <h3 className="font-semibold">Cenário Otimista</h3>
-              <p className="text-sm text-muted-foreground">Melhor caso</p>
+              <p className="text-sm text-muted-foreground">+20% vendas, -10% custos</p>
             </div>
           </div>
           <div className="space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground">Faturamento</p>
-              <p className="text-2xl font-bold text-success">{formatCurrency(projections.otimista.faturamento)}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Lucro Líquido</p>
-              <p className="text-xl font-bold">{formatCurrency(projections.otimista.lucroLiquido)}</p>
-            </div>
-            <Badge className="bg-success/10 text-success border-success/20">
-              Margem {projections.otimista.margem}%
-            </Badge>
+            {isLoading ? (
+              <>
+                <Skeleton className="h-8 w-32" />
+                <Skeleton className="h-6 w-24" />
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="text-sm text-muted-foreground">Faturamento Projetado</p>
+                  <p className="text-2xl font-bold text-success">
+                    {formatCurrency(cenarios.otimista.faturamento)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Lucro Líquido</p>
+                  <p className="text-xl font-bold">
+                    {formatCurrency(cenarios.otimista.lucroLiquido)}
+                  </p>
+                </div>
+                <Badge className="bg-success/10 text-success border-success/20">
+                  Margem {cenarios.otimista.margem}%
+                </Badge>
+              </>
+            )}
           </div>
         </div>
 
@@ -102,21 +130,34 @@ export default function Projecoes() {
             </div>
             <div>
               <h3 className="font-semibold">Cenário Realista</h3>
-              <p className="text-sm text-muted-foreground">Mais provável</p>
+              <p className="text-sm text-muted-foreground">+5% vendas, custos estáveis</p>
             </div>
           </div>
           <div className="space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground">Faturamento</p>
-              <p className="text-2xl font-bold text-info">{formatCurrency(projections.realista.faturamento)}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Lucro Líquido</p>
-              <p className="text-xl font-bold">{formatCurrency(projections.realista.lucroLiquido)}</p>
-            </div>
-            <Badge className="bg-info/10 text-info border-info/20">
-              Margem {projections.realista.margem}%
-            </Badge>
+            {isLoading ? (
+              <>
+                <Skeleton className="h-8 w-32" />
+                <Skeleton className="h-6 w-24" />
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="text-sm text-muted-foreground">Faturamento Projetado</p>
+                  <p className="text-2xl font-bold text-info">
+                    {formatCurrency(cenarios.realista.faturamento)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Lucro Líquido</p>
+                  <p className="text-xl font-bold">
+                    {formatCurrency(cenarios.realista.lucroLiquido)}
+                  </p>
+                </div>
+                <Badge className="bg-info/10 text-info border-info/20">
+                  Margem {cenarios.realista.margem}%
+                </Badge>
+              </>
+            )}
           </div>
         </div>
 
@@ -128,21 +169,34 @@ export default function Projecoes() {
             </div>
             <div>
               <h3 className="font-semibold">Cenário Pessimista</h3>
-              <p className="text-sm text-muted-foreground">Pior caso</p>
+              <p className="text-sm text-muted-foreground">-15% vendas, +5% custos</p>
             </div>
           </div>
           <div className="space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground">Faturamento</p>
-              <p className="text-2xl font-bold text-destructive">{formatCurrency(projections.pessimista.faturamento)}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Lucro Líquido</p>
-              <p className="text-xl font-bold">{formatCurrency(projections.pessimista.lucroLiquido)}</p>
-            </div>
-            <Badge className="bg-destructive/10 text-destructive border-destructive/20">
-              Margem {projections.pessimista.margem}%
-            </Badge>
+            {isLoading ? (
+              <>
+                <Skeleton className="h-8 w-32" />
+                <Skeleton className="h-6 w-24" />
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="text-sm text-muted-foreground">Faturamento Projetado</p>
+                  <p className="text-2xl font-bold text-destructive">
+                    {formatCurrency(cenarios.pessimista.faturamento)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Lucro Líquido</p>
+                  <p className="text-xl font-bold">
+                    {formatCurrency(cenarios.pessimista.lucroLiquido)}
+                  </p>
+                </div>
+                <Badge className="bg-destructive/10 text-destructive border-destructive/20">
+                  Margem {cenarios.pessimista.margem}%
+                </Badge>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -152,128 +206,140 @@ export default function Projecoes() {
         {/* Projeção de Faturamento */}
         <ModuleCard
           title="Projeção de Faturamento"
-          description="Próximos 5 meses"
+          description={`Próximos ${mesesProjecao} meses`}
           icon={TrendingUp}
         >
           <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={projectionData}>
-                <defs>
-                  <linearGradient id="colorOtimista" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(142, 71%, 45%)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="hsl(142, 71%, 45%)" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorRealista" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorPessimista" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(4, 86%, 55%)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="hsl(4, 86%, 55%)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 91%)" />
-                <XAxis dataKey="month" stroke="hsl(220, 10%, 46%)" fontSize={12} />
-                <YAxis
-                  stroke="hsl(220, 10%, 46%)"
-                  fontSize={12}
-                  tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(0, 0%, 100%)",
-                    border: "1px solid hsl(220, 13%, 91%)",
-                    borderRadius: "8px",
-                  }}
-                  formatter={(value: number) => formatCurrency(value)}
-                />
-                <Legend />
-                <Area
-                  type="monotone"
-                  dataKey="otimista"
-                  name="Otimista"
-                  stroke="hsl(142, 71%, 45%)"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorOtimista)"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="realista"
-                  name="Realista"
-                  stroke="hsl(217, 91%, 60%)"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorRealista)"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="pessimista"
-                  name="Pessimista"
-                  stroke="hsl(4, 86%, 55%)"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorPessimista)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {isLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <Skeleton className="h-[250px] w-full" />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={projecaoFaturamento}>
+                  <defs>
+                    <linearGradient id="colorOtimista" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(142, 71%, 45%)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="hsl(142, 71%, 45%)" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="colorRealista" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="colorPessimista" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(4, 86%, 55%)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="hsl(4, 86%, 55%)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <YAxis
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                    tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--background))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                    }}
+                    formatter={(value: number) => formatCurrency(value)}
+                  />
+                  <Legend />
+                  <Area
+                    type="monotone"
+                    dataKey="otimista"
+                    name="Otimista"
+                    stroke="hsl(142, 71%, 45%)"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#colorOtimista)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="realista"
+                    name="Realista"
+                    stroke="hsl(217, 91%, 60%)"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#colorRealista)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="pessimista"
+                    name="Pessimista"
+                    stroke="hsl(4, 86%, 55%)"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#colorPessimista)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </ModuleCard>
 
         {/* Projeção de Lucro */}
         <ModuleCard
           title="Projeção de Lucro"
-          description="Próximos 5 meses"
+          description={`Próximos ${mesesProjecao} meses`}
           icon={LineChart}
         >
           <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={lucroProjection}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 91%)" />
-                <XAxis dataKey="month" stroke="hsl(220, 10%, 46%)" fontSize={12} />
-                <YAxis
-                  stroke="hsl(220, 10%, 46%)"
-                  fontSize={12}
-                  tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(0, 0%, 100%)",
-                    border: "1px solid hsl(220, 13%, 91%)",
-                    borderRadius: "8px",
-                  }}
-                  formatter={(value: number) => formatCurrency(value)}
-                />
-                <Legend />
-                <Area
-                  type="monotone"
-                  dataKey="otimista"
-                  name="Otimista"
-                  stroke="hsl(142, 71%, 45%)"
-                  strokeWidth={2}
-                  fillOpacity={0.3}
-                  fill="hsl(142, 71%, 45%)"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="realista"
-                  name="Realista"
-                  stroke="hsl(217, 91%, 60%)"
-                  strokeWidth={2}
-                  fillOpacity={0.3}
-                  fill="hsl(217, 91%, 60%)"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="pessimista"
-                  name="Pessimista"
-                  stroke="hsl(4, 86%, 55%)"
-                  strokeWidth={2}
-                  fillOpacity={0.3}
-                  fill="hsl(4, 86%, 55%)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {isLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <Skeleton className="h-[250px] w-full" />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={projecaoLucro}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                  <YAxis
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                    tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--background))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                    }}
+                    formatter={(value: number) => formatCurrency(value)}
+                  />
+                  <Legend />
+                  <Area
+                    type="monotone"
+                    dataKey="otimista"
+                    name="Otimista"
+                    stroke="hsl(142, 71%, 45%)"
+                    strokeWidth={2}
+                    fillOpacity={0.3}
+                    fill="hsl(142, 71%, 45%)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="realista"
+                    name="Realista"
+                    stroke="hsl(217, 91%, 60%)"
+                    strokeWidth={2}
+                    fillOpacity={0.3}
+                    fill="hsl(217, 91%, 60%)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="pessimista"
+                    name="Pessimista"
+                    stroke="hsl(4, 86%, 55%)"
+                    strokeWidth={2}
+                    fillOpacity={0.3}
+                    fill="hsl(4, 86%, 55%)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </ModuleCard>
       </div>

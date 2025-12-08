@@ -1,13 +1,18 @@
 import { useState, useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
-import { differenceInDays, format } from "date-fns";
-import { 
-  kpis as baseKpis, 
-  channelData as baseChannelData,
-  formatCurrency,
-  formatNumber,
-  formatPercentage,
-} from "@/lib/mock-data";
+import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
+
+// Helpers de formatação
+export const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+
+export const formatNumber = (value: number) =>
+  new Intl.NumberFormat("pt-BR").format(value);
+
+export const formatPercentage = (value: number) =>
+  `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 
 export interface KPIDataState {
   faturamentoMensal: number;
@@ -51,85 +56,187 @@ export interface KPICategory {
   kpis: KPICategoryItem[];
 }
 
-// Simulates different data for different periods
-// In a real app, this would fetch from the database
-function calculateKPIsForPeriod(dateRange: DateRange): KPIDataState {
-  const days = differenceInDays(dateRange.to, dateRange.from) + 1;
-  
-  // Apply a multiplier based on the period length
-  // This simulates having less data for shorter periods
-  const periodMultiplier = Math.min(days / 30, 1);
-  
-  // Add some variance based on the date range to simulate real data
-  const variance = (dateRange.from.getDate() % 10) / 100;
-  
-  const faturamento = Math.round(baseKpis.faturamentoMensal * periodMultiplier * (1 + variance));
-  const cmv = Math.round(baseKpis.cmv * periodMultiplier * (1 + variance * 0.5));
-  const custoOp = Math.round(baseKpis.custoOperacional * periodMultiplier * (1 - variance * 0.3));
-  const lucro = faturamento - cmv - custoOp;
-  const pedidos = Math.round(baseKpis.pedidos * periodMultiplier * (1 + variance * 0.8));
-  
-  return {
-    faturamentoMensal: faturamento,
-    faturamentoVariacao: baseKpis.faturamentoVariacao * (1 + variance),
-    lucroLiquido: lucro,
-    lucroVariacao: lucro >= 0 ? 5.2 : -165.2,
-    margemBruta: Number(((faturamento - cmv) / faturamento * 100).toFixed(1)),
-    margemBrutaVariacao: baseKpis.margemBrutaVariacao,
-    margemLiquida: Number((lucro / faturamento * 100).toFixed(1)),
-    margemLiquidaVariacao: lucro >= 0 ? 2.1 : -15.8,
-    ticketMedio: pedidos > 0 ? Math.round(faturamento / pedidos * 100) / 100 : 0,
-    ticketMedioVariacao: baseKpis.ticketMedioVariacao,
-    pedidos: pedidos,
-    pedidosVariacao: baseKpis.pedidosVariacao * (1 - variance * 0.5),
-    cmv: cmv,
-    cmvPercentual: Number((cmv / faturamento * 100).toFixed(1)),
-    custoOperacional: custoOp,
-    custoOperacionalPercentual: Number((custoOp / faturamento * 100).toFixed(1)),
-  };
-}
-
-function calculateChannelDataForPeriod(dateRange: DateRange): ChannelKPIData[] {
-  const days = differenceInDays(dateRange.to, dateRange.from) + 1;
-  const periodMultiplier = Math.min(days / 30, 1);
-  const variance = (dateRange.from.getDate() % 10) / 100;
-  
-  return baseChannelData
-    .map((channel, index) => {
-      const adjustedReceita = Math.round(channel.receitaBruta * periodMultiplier * (1 + variance * (index + 1) * 0.1));
-      return {
-        channel: channel.channel,
-        color: channel.color,
-        receitaBruta: adjustedReceita,
-        percentual: channel.percentual,
-        crescimento: Number((Math.random() * 20 - 5).toFixed(1)),
-      };
-    });
-}
+const CHANNEL_COLORS: Record<string, string> = {
+  "mercado_livre": "#FFE600",
+  "mercado livre": "#FFE600",
+  "shopee": "#EE4D2D",
+  "shein": "#000000",
+  "tiktok": "#00F2EA",
+  "tiktok shop": "#00F2EA",
+  "amazon": "#FF9900",
+  "magalu": "#0086FF",
+  "outros": "#9CA3AF",
+};
 
 export function useKPIData() {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("30days");
   const [dateRange, setDateRange] = useState<DateRange>(() => getDateRangeForPeriod("30days"));
-  const [isLoading, setIsLoading] = useState(false);
+
+  const periodoInicio = format(dateRange.from, "yyyy-MM-dd");
+  const periodoFim = format(dateRange.to, "yyyy-MM-dd");
+
+  // Período anterior para cálculo de variação
+  const daysDiff = Math.ceil((dateRange.to.getTime() - dateRange.from.getTime()) / (1000 * 60 * 60 * 24));
+  const periodoAnteriorFim = format(subMonths(dateRange.from, 0), "yyyy-MM-dd");
+  const periodoAnteriorInicio = format(new Date(dateRange.from.getTime() - daysDiff * 24 * 60 * 60 * 1000), "yyyy-MM-dd");
+
+  // Query para movimentos financeiros do período atual
+  const { data: movimentosAtuais, isLoading: loadingAtuais } = useQuery({
+    queryKey: ["kpi-movimentos", periodoInicio, periodoFim],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("movimentos_financeiros")
+        .select("id, data, tipo, valor, origem, categoria_id")
+        .gte("data", periodoInicio)
+        .lte("data", periodoFim);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Query para movimentos do período anterior (comparação)
+  const { data: movimentosAnteriores, isLoading: loadingAnteriores } = useQuery({
+    queryKey: ["kpi-movimentos-anterior", periodoAnteriorInicio, periodoAnteriorFim],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("movimentos_financeiros")
+        .select("id, data, tipo, valor, origem")
+        .gte("data", periodoAnteriorInicio)
+        .lt("data", periodoInicio);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Query para marketplace transactions por canal
+  const { data: marketplaceData, isLoading: loadingMarketplace } = useQuery({
+    queryKey: ["kpi-marketplace", periodoInicio, periodoFim],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("marketplace_transactions")
+        .select("id, canal, valor_liquido, valor_bruto, data_transacao, status")
+        .gte("data_transacao", periodoInicio)
+        .lte("data_transacao", periodoFim);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Query para pedidos (contas a receber)
+  const { data: pedidosData, isLoading: loadingPedidos } = useQuery({
+    queryKey: ["kpi-pedidos", periodoInicio, periodoFim],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("contas_a_receber")
+        .select("id, valor_total, data_emissao")
+        .gte("data_emissao", periodoInicio)
+        .lte("data_emissao", periodoFim);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Query para CMV
+  const { data: cmvData, isLoading: loadingCmv } = useQuery({
+    queryKey: ["kpi-cmv", periodoInicio, periodoFim],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cmv_registros")
+        .select("id, custo_total, data")
+        .gte("data", periodoInicio)
+        .lte("data", periodoFim);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const isLoading = loadingAtuais || loadingAnteriores || loadingMarketplace || loadingPedidos || loadingCmv;
+
+  // Cálculos dos KPIs
+  const kpiData = useMemo((): KPIDataState => {
+    const entradas = movimentosAtuais?.filter((m) => m.tipo === "entrada") || [];
+    const saidas = movimentosAtuais?.filter((m) => m.tipo === "saida") || [];
+    
+    const faturamento = entradas.reduce((acc, m) => acc + Number(m.valor), 0);
+    const despesas = saidas.reduce((acc, m) => acc + Number(m.valor), 0);
+    const lucro = faturamento - despesas;
+
+    // Período anterior
+    const entradasAnt = movimentosAnteriores?.filter((m) => m.tipo === "entrada") || [];
+    const saidasAnt = movimentosAnteriores?.filter((m) => m.tipo === "saida") || [];
+    const faturamentoAnt = entradasAnt.reduce((acc, m) => acc + Number(m.valor), 0);
+    const despesasAnt = saidasAnt.reduce((acc, m) => acc + Number(m.valor), 0);
+    const lucroAnt = faturamentoAnt - despesasAnt;
+
+    // Variações
+    const faturamentoVariacao = faturamentoAnt > 0 ? ((faturamento - faturamentoAnt) / faturamentoAnt) * 100 : 0;
+    const lucroVariacao = lucroAnt !== 0 ? ((lucro - lucroAnt) / Math.abs(lucroAnt)) * 100 : 0;
+
+    // CMV
+    const cmvTotal = cmvData?.reduce((acc, c) => acc + Number(c.custo_total), 0) || 0;
+    const cmvPercentual = faturamento > 0 ? (cmvTotal / faturamento) * 100 : 0;
+
+    // Pedidos
+    const pedidos = pedidosData?.length || marketplaceData?.length || 0;
+    const ticketMedio = pedidos > 0 ? faturamento / pedidos : 0;
+
+    // Margens
+    const margemBruta = faturamento > 0 ? ((faturamento - cmvTotal) / faturamento) * 100 : 0;
+    const margemLiquida = faturamento > 0 ? (lucro / faturamento) * 100 : 0;
+
+    // Custo operacional (despesas exceto CMV)
+    const custoOperacional = despesas;
+    const custoOperacionalPercentual = faturamento > 0 ? (custoOperacional / faturamento) * 100 : 0;
+
+    return {
+      faturamentoMensal: faturamento,
+      faturamentoVariacao,
+      lucroLiquido: lucro,
+      lucroVariacao,
+      margemBruta: Number(margemBruta.toFixed(1)),
+      margemBrutaVariacao: 0, // Simplificado
+      margemLiquida: Number(margemLiquida.toFixed(1)),
+      margemLiquidaVariacao: 0,
+      ticketMedio,
+      ticketMedioVariacao: 0,
+      pedidos,
+      pedidosVariacao: 0,
+      cmv: cmvTotal,
+      cmvPercentual: Number(cmvPercentual.toFixed(1)),
+      custoOperacional,
+      custoOperacionalPercentual: Number(custoOperacionalPercentual.toFixed(1)),
+    };
+  }, [movimentosAtuais, movimentosAnteriores, cmvData, pedidosData, marketplaceData]);
+
+  // Performance por canal
+  const channelData = useMemo((): ChannelKPIData[] => {
+    if (!marketplaceData || marketplaceData.length === 0) return [];
+
+    const channelTotals: Record<string, number> = {};
+    
+    marketplaceData.forEach((t) => {
+      const canal = (t.canal || "outros").toLowerCase();
+      if (!channelTotals[canal]) channelTotals[canal] = 0;
+      channelTotals[canal] += Number(t.valor_liquido || 0);
+    });
+
+    const totalReceita = Object.values(channelTotals).reduce((a, b) => a + b, 0);
+
+    return Object.entries(channelTotals)
+      .map(([channel, receita]) => ({
+        channel: channel.charAt(0).toUpperCase() + channel.slice(1).replace("_", " "),
+        color: CHANNEL_COLORS[channel] || CHANNEL_COLORS["outros"],
+        receitaBruta: receita,
+        percentual: totalReceita > 0 ? Number(((receita / totalReceita) * 100).toFixed(1)) : 0,
+        crescimento: 0, // Simplificado
+      }))
+      .sort((a, b) => b.receitaBruta - a.receitaBruta);
+  }, [marketplaceData]);
 
   const handlePeriodChange = useCallback((period: PeriodOption, newDateRange: DateRange) => {
-    setIsLoading(true);
     setSelectedPeriod(period);
     setDateRange(newDateRange);
-    
-    // Simulate API call delay
-    setTimeout(() => {
-      setIsLoading(false);
-    }, 500);
   }, []);
-
-  const kpiData = useMemo(() => {
-    return calculateKPIsForPeriod(dateRange);
-  }, [dateRange]);
-
-  const channelData = useMemo(() => {
-    return calculateChannelDataForPeriod(dateRange);
-  }, [dateRange]);
 
   const kpiCategories = useMemo((): Omit<KPICategory, 'icon'>[] => {
     return [
@@ -204,10 +311,10 @@ export function useKPIData() {
           },
           { 
             label: "CAC Médio", 
-            value: formatCurrency(12.5 * (1 + (kpiData.pedidosVariacao / 100))), 
-            change: -5.2, 
+            value: formatCurrency(kpiData.pedidos > 0 ? kpiData.custoOperacional / kpiData.pedidos * 0.1 : 0), 
+            change: 0, 
             target: 10, 
-            current: 12.5 * (1 + (kpiData.pedidosVariacao / 100))
+            current: kpiData.pedidos > 0 ? kpiData.custoOperacional / kpiData.pedidos * 0.1 : 0
           },
         ],
       },
@@ -248,6 +355,8 @@ export function useKPIData() {
     return `${format(dateRange.from, "dd/MM/yyyy")} - ${format(dateRange.to, "dd/MM/yyyy")}`;
   }, [dateRange]);
 
+  const hasData = (movimentosAtuais?.length || 0) > 0 || (marketplaceData?.length || 0) > 0;
+
   return {
     selectedPeriod,
     dateRange,
@@ -263,5 +372,6 @@ export function useKPIData() {
     formatCurrency,
     formatNumber,
     formatPercentage,
+    hasData,
   };
 }
