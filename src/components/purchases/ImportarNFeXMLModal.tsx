@@ -31,7 +31,7 @@ import { Upload, FileX, FileCheck, AlertTriangle, CheckCircle2, Package } from "
 import { toast } from "sonner";
 import { parseNFeXML, NotaFiscalXML, formatCurrency } from "@/lib/icms-data";
 import { useEmpresas } from "@/hooks/useEmpresas";
-import { useCompras, CompraItem } from "@/hooks/useCompras";
+import { useCompras } from "@/hooks/useCompras";
 
 interface ImportarNFeXMLModalProps {
   open: boolean;
@@ -146,32 +146,32 @@ export function ImportarNFeXMLModal({
         const nfe = file.nfe!;
 
         // Converter itens da NF para formato do sistema
-        const itens: Omit<CompraItem, 'id' | 'compra_id' | 'created_at' | 'updated_at'>[] = 
-          nfe.itens.map((item) => ({
-            produto_id: null,
-            sku_id: null,
-            codigo_produto_nf: item.codigo,
-            descricao_nf: item.descricao,
-            ncm: item.ncm,
-            cfop: item.cfop,
-            quantidade: item.quantidade,
-            quantidade_recebida: 0,
-            valor_unitario: item.valorUnitario,
-            valor_total: item.valorTotal,
-            aliquota_icms: item.aliquotaIcms,
-            valor_icms: item.valorIcms,
-            mapeado: false,
-          }));
+        const itens = nfe.itens.map((item) => ({
+          produto_id: null,
+          codigo_nf: item.codigo,
+          descricao_nf: item.descricao,
+          ncm: item.ncm,
+          cfop: item.cfop,
+          quantidade: item.quantidade,
+          quantidade_recebida: 0,
+          valor_unitario: item.valorUnitario,
+          valor_total: item.valorTotal,
+          aliquota_icms: item.aliquotaIcms,
+          valor_icms: item.valorIcms,
+          aliquota_ipi: 0,
+          valor_ipi: 0,
+          mapeado: false,
+        }));
 
         await criarCompra.mutateAsync({
           empresa_id: empresaId,
           fornecedor_nome: nfe.emitente.razaoSocial,
           fornecedor_cnpj: nfe.emitente.cnpj,
-          data_compra: nfe.dataEmissao,
+          data_pedido: nfe.dataEmissao,
           numero_nf: nfe.numero,
           chave_acesso: nfe.chaveAcesso,
           valor_total: nfe.valorTotal,
-          status: 'em_compra',
+          status: 'confirmado',
           itens,
         });
       }

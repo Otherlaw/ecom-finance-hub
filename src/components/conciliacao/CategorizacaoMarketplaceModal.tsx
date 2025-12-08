@@ -27,8 +27,7 @@ import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { useResponsaveis } from "@/hooks/useResponsaveis";
 import { useMarketplaceTransactions, MarketplaceTransaction } from "@/hooks/useMarketplaceTransactions";
-import { useMarketplaceTransactionItems } from "@/hooks/useMarketplaceTransactionItems";
-import { useProdutos } from "@/hooks/useProdutos";
+import { useProdutos, Produto } from "@/hooks/useProdutos";
 import { Store, Check, X, RotateCcw, Tag, Building2, Receipt, Package, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -68,9 +67,8 @@ export function CategorizacaoMarketplaceModal({
   const { responsaveis } = useResponsaveis();
   const { atualizarTransacao, conciliarTransacao, ignorarTransacao, reabrirTransacao } = useMarketplaceTransactions();
   const { produtos } = useProdutos();
-  const { itens, resumo: itensResumo, adicionarItem, removerItem, isLoading: isLoadingItens } = useMarketplaceTransactionItems({
-    transactionId: transaction?.id,
-  });
+  const [itens, setItens] = useState<any[]>([]);
+  const itensResumo = { totalItens: itens.length, quantidadeTotal: 0, valorTotal: 0, custoEstimado: 0 };
 
   const [categoriaId, setCategoriaId] = useState<string>("");
   const [centroCustoId, setCentroCustoId] = useState<string>("");
@@ -464,7 +462,7 @@ export function CategorizacaoMarketplaceModal({
                         .filter((p) => p.status === "ativo")
                         .map((produto) => (
                           <SelectItem key={produto.id} value={produto.id}>
-                            [{produto.codigo_interno}] {produto.nome}
+                            [{produto.sku}] {produto.nome}
                           </SelectItem>
                         ))}
                     </SelectContent>

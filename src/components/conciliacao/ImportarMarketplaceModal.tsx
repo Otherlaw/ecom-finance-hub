@@ -32,7 +32,6 @@ import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCateg
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { detectarGranularidadeItens, extrairItemDeLinhaCSV, type ItemVendaMarketplace } from "@/lib/marketplace-item-parser";
 import { detectarTipoArquivo, parseCSVFile, parseXLSXFile, parseXLSXMercadoLivre, parseXLSXMercadoPago, parseShopee, type ParseResult, type ItemVendaParser } from "@/lib/parsers/arquivoFinanceiro";
-import { criarItensEmLote, limparCacheMapeamentos } from "@/lib/marketplace-items-service";
 import { criarJobImportacao, atualizarProgressoJob, finalizarJob } from "@/hooks/useMarketplaceImportJobs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
