@@ -8,13 +8,13 @@ import { toast } from "sonner";
 
 // ============= TIPOS =============
 
-export type StatusCompra = 'rascunho' | 'confirmado' | 'em_transito' | 'parcial' | 'concluido' | 'cancelado';
+export type StatusCompra = 'rascunho' | 'pago' | 'em_transito' | 'parcial' | 'concluido' | 'cancelado';
 
-export const STATUS_LIST: StatusCompra[] = ['rascunho', 'confirmado', 'em_transito', 'parcial', 'concluido', 'cancelado'];
+export const STATUS_LIST: StatusCompra[] = ['rascunho', 'pago', 'em_transito', 'parcial', 'concluido', 'cancelado'];
 
 export const STATUS_COMPRA_LABELS: Record<StatusCompra, { label: string; color: string }> = {
   rascunho: { label: "Rascunho", color: "bg-gray-100 text-gray-800" },
-  confirmado: { label: "Confirmado", color: "bg-blue-100 text-blue-800" },
+  pago: { label: "Pago", color: "bg-blue-100 text-blue-800" },
   em_transito: { label: "Em Trânsito", color: "bg-yellow-100 text-yellow-800" },
   parcial: { label: "Parcial", color: "bg-orange-100 text-orange-800" },
   concluido: { label: "Concluído", color: "bg-green-100 text-green-800" },
@@ -272,7 +272,7 @@ export function useCompras(params: UseComprasParams = {}) {
   const resumo = {
     total: compras.length,
     rascunho: compras.filter(c => c.status === 'rascunho').length,
-    confirmado: compras.filter(c => c.status === 'confirmado').length,
+    pago: compras.filter(c => c.status === 'pago').length,
     em_transito: compras.filter(c => c.status === 'em_transito').length,
     parcial: compras.filter(c => c.status === 'parcial').length,
     concluido: compras.filter(c => c.status === 'concluido').length,
@@ -375,7 +375,40 @@ export function useRecebimentos(compraId: string | null) {
 
       return recebimento;
     },
-    onSuccess: () => {
+    onSuccess: async (recebimento, variables) => {
+      // Atualizar status da compra automaticamente baseado no recebimento
+      try {
+        // Buscar compra atualizada
+        const { data: compra } = await supabase
+          .from("compras")
+          .select(`*, itens:compras_itens(*)`)
+          .eq("id", variables.compra_id)
+          .single();
+        
+        if (compra) {
+          const totalPedido = compra.itens.reduce((sum: number, i: any) => sum + Number(i.quantidade), 0);
+          const totalRecebido = compra.itens.reduce((sum: number, i: any) => sum + Number(i.quantidade_recebida), 0);
+          
+          // Determinar novo status
+          let novoStatus: StatusCompra = compra.status as StatusCompra;
+          if (totalRecebido >= totalPedido) {
+            novoStatus = 'concluido';
+          } else if (totalRecebido > 0) {
+            novoStatus = 'parcial';
+          }
+          
+          // Atualizar status se mudou
+          if (novoStatus !== compra.status) {
+            await supabase
+              .from("compras")
+              .update({ status: novoStatus })
+              .eq("id", variables.compra_id);
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao atualizar status após recebimento:", err);
+      }
+      
       toast.success("Recebimento registrado com sucesso");
       queryClient.invalidateQueries({ queryKey: ["recebimentos"] });
       queryClient.invalidateQueries({ queryKey: ["compras"] });

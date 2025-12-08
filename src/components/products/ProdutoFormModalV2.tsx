@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, Check, ChevronsUpDown, Search, Package, Layers, Box } from "lucide-react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { Plus, Trash2, Check, ChevronsUpDown, Search, Package, Layers, Box, Upload, Link, Clipboard } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -466,22 +467,70 @@ export function ProdutoFormModalV2({
             </div>
 
             {/* Imagem do Produto */}
-            <div className="space-y-2">
-              <Label htmlFor="imagemUrl">URL da Imagem</Label>
-              <Input
-                id="imagemUrl"
-                value={imagemUrl}
-                onChange={(e) => setImagemUrl(e.target.value)}
-                placeholder="https://exemplo.com/imagem.jpg"
-              />
+            <div className="space-y-3">
+              <Label>Imagem do Produto</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={imagemUrl}
+                  onChange={(e) => setImagemUrl(e.target.value)}
+                  placeholder="Cole uma URL ou use os botões ao lado"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = 'image/*';
+                    input.onchange = async (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0];
+                      if (!file) return;
+                      const fileName = `${Date.now()}-${file.name}`;
+                      const { data, error } = await supabase.storage.from('product-images').upload(fileName, file);
+                      if (error) { toast.error('Erro ao fazer upload'); return; }
+                      const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(fileName);
+                      setImagemUrl(urlData.publicUrl);
+                      toast.success('Imagem enviada!');
+                    };
+                    input.click();
+                  }}
+                  title="Upload do computador"
+                >
+                  <Upload className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={async () => {
+                    try {
+                      const items = await navigator.clipboard.read();
+                      for (const item of items) {
+                        const imgType = item.types.find(t => t.startsWith('image/'));
+                        if (imgType) {
+                          const blob = await item.getType(imgType);
+                          const file = new File([blob], `paste-${Date.now()}.png`, { type: imgType });
+                          const { error } = await supabase.storage.from('product-images').upload(file.name, file);
+                          if (error) { toast.error('Erro ao fazer upload'); return; }
+                          const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(file.name);
+                          setImagemUrl(urlData.publicUrl);
+                          toast.success('Imagem colada e enviada!');
+                          return;
+                        }
+                      }
+                      toast.error('Nenhuma imagem encontrada na área de transferência');
+                    } catch { toast.error('Não foi possível acessar a área de transferência'); }
+                  }}
+                  title="Colar imagem"
+                >
+                  <Clipboard className="h-4 w-4" />
+                </Button>
+              </div>
               {imagemUrl && (
-                <div className="mt-2 w-24 h-24 rounded-lg border overflow-hidden">
-                  <img 
-                    src={imagemUrl} 
-                    alt="Preview" 
-                    className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
+                <div className="w-24 h-24 rounded-lg border overflow-hidden">
+                  <img src={imagemUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                 </div>
               )}
             </div>

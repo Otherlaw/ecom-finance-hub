@@ -20,7 +20,8 @@ import {
 } from "@/components/ui/select";
 import { Package, ArrowUpDown } from "lucide-react";
 import { useProdutos } from "@/hooks/useProdutos";
-import { useArmazens } from "@/hooks/useArmazens";
+import { useCentrosCusto } from "@/hooks/useCentrosCusto";
+import { CentroCustoSelect } from "@/components/CentroCustoSelect";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useEstoque } from "@/hooks/useEstoque";
 
@@ -47,19 +48,19 @@ export function AjusteEstoqueModal({
 }: AjusteEstoqueModalProps) {
   const { empresas = [] } = useEmpresas();
   const { produtos = [] } = useProdutos();
-  const { armazens = [] } = useArmazens();
+  const { centrosFlat: centrosCusto } = useCentrosCusto();
   const { estoques, ajustarEstoque } = useEstoque();
 
   const [empresaId, setEmpresaId] = useState("");
   const [produtoId, setProdutoId] = useState("");
-  const [armazemId, setArmazemId] = useState("");
+  const [centroCustoId, setCentroCustoId] = useState<string | null>(null);
   const [novaQuantidade, setNovaQuantidade] = useState("");
   const [motivo, setMotivo] = useState("");
   const [observacoes, setObservacoes] = useState("");
 
-  // Buscar estoque atual do produto/armazém selecionado
+  // Buscar estoque atual do produto/centro de custo selecionado
   const estoqueAtual = estoques.find(
-    (e) => e.produto_id === produtoId && e.armazem_id === armazemId
+    (e) => e.produto_id === produtoId && e.armazem_id === centroCustoId
   );
   const quantidadeAtual = estoqueAtual?.quantidade || 0;
 
@@ -68,7 +69,7 @@ export function AjusteEstoqueModal({
     if (open) {
       setEmpresaId(empresas[0]?.id || "");
       setProdutoId("");
-      setArmazemId("");
+      setCentroCustoId(null);
       setNovaQuantidade("");
       setMotivo("");
       setObservacoes("");
@@ -76,14 +77,14 @@ export function AjusteEstoqueModal({
   }, [open, empresas]);
 
   const handleSubmit = async () => {
-    if (!empresaId || !produtoId || !armazemId || !novaQuantidade || !motivo) {
+    if (!empresaId || !produtoId || !centroCustoId || !novaQuantidade || !motivo) {
       return;
     }
 
     await ajustarEstoque.mutateAsync({
       empresaId,
       produtoId,
-      armazemId,
+      armazemId: centroCustoId,
       novaQuantidade: Number(novaQuantidade),
       motivo,
       observacoes: observacoes || undefined,
@@ -94,7 +95,7 @@ export function AjusteEstoqueModal({
   };
 
   const isValid =
-    empresaId && produtoId && armazemId && novaQuantidade !== "" && motivo;
+    empresaId && produtoId && centroCustoId && novaQuantidade !== "" && motivo;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -147,21 +148,14 @@ export function AjusteEstoqueModal({
             </Select>
           </div>
 
-          {/* Armazém */}
+          {/* Centro de Custo */}
           <div className="space-y-2">
-            <Label htmlFor="armazem">Armazém *</Label>
-            <Select value={armazemId} onValueChange={setArmazemId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione o armazém" />
-              </SelectTrigger>
-              <SelectContent>
-                {armazens.map((arm) => (
-                  <SelectItem key={arm.id} value={arm.id}>
-                    {arm.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>Centro de Custo *</Label>
+            <CentroCustoSelect
+              value={centroCustoId}
+              onValueChange={setCentroCustoId}
+              placeholder="Selecione o centro de custo"
+            />
           </div>
 
           {/* Quantidade Atual e Nova */}

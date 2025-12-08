@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 const STATUS_COMPRA: Record<string, { label: string; color: string; icon: React.ElementType }> = {
   rascunho: { label: "Rascunho", color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200", icon: Clock },
-  confirmado: { label: "Confirmado", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", icon: CheckCircle2 },
+  pago: { label: "Pago", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", icon: CheckCircle2 },
   em_transito: { label: "Em Trânsito", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200", icon: Truck },
   parcial: { label: "Parcial", color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", icon: Package },
   concluido: { label: "Concluído", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", icon: CheckCircle2 },
@@ -43,12 +43,22 @@ const formatDate = (date: string) => {
 const STATUS_TABS: { key: string; label: string; icon: React.ElementType }[] = [
   { key: "todos", label: "Todas", icon: LayoutList },
   { key: "rascunho", label: "Rascunho", icon: Clock },
-  { key: "confirmado", label: "Confirmado", icon: ShoppingCart },
+  { key: "pago", label: "Pago", icon: ShoppingCart },
   { key: "em_transito", label: "Em Trânsito", icon: Truck },
   { key: "parcial", label: "Parcial", icon: Package },
   { key: "concluido", label: "Concluído", icon: CheckCircle2 },
   { key: "cancelado", label: "Cancelado", icon: XCircle },
 ];
+
+// Hierarquia de status para impedir retrocesso
+const STATUS_ORDEM: Record<string, number> = {
+  rascunho: 1,
+  pago: 2,
+  em_transito: 3,
+  parcial: 4,
+  concluido: 5,
+  cancelado: 99, // Pode ser selecionado a qualquer momento
+};
 
 export default function Compras() {
   const { toast } = useToast();
@@ -100,7 +110,19 @@ export default function Compras() {
     setRecebimentoModalOpen(true);
   };
 
-  const handleStatusChange = async (compraId: string, novoStatus: string) => {
+  const handleStatusChange = async (compraId: string, novoStatus: string, statusAtual: string) => {
+    // Parcial e Concluído só podem ser alterados automaticamente pelo sistema
+    if (novoStatus === 'parcial' || novoStatus === 'concluido') {
+      toast({ title: "Ação não permitida", description: "Status Parcial e Concluído são definidos automaticamente após recebimento.", variant: "destructive" });
+      return;
+    }
+    
+    // Impedir retrocesso de status (exceto cancelamento)
+    if (novoStatus !== 'cancelado' && STATUS_ORDEM[novoStatus] < STATUS_ORDEM[statusAtual]) {
+      toast({ title: "Ação não permitida", description: "Não é possível retroceder o status.", variant: "destructive" });
+      return;
+    }
+    
     try {
       await atualizarStatus.mutateAsync({ id: compraId, status: novoStatus as StatusCompra });
       toast({ title: "Status atualizado", description: `Compra alterada para ${STATUS_COMPRA[novoStatus]?.label}` });
@@ -168,13 +190,7 @@ export default function Compras() {
             </Card>
           </div>
 
-          <Tabs defaultValue="compras">
-            <TabsList>
-              <TabsTrigger value="compras"><FileText className="h-4 w-4 mr-2" />Compras</TabsTrigger>
-              <TabsTrigger value="curva-abc" disabled><BarChart3 className="h-4 w-4 mr-2" />Curva ABC</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="compras" className="mt-4">
+          <div className="mt-4">
               <div className="flex gap-6">
                 {/* Sidebar de Status */}
                 <div className="w-56 shrink-0 space-y-1">
@@ -282,17 +298,15 @@ export default function Compras() {
                                       </div>
                                       <Select 
                                         value={purchase.status} 
-                                        onValueChange={(value) => handleStatusChange(purchase.id, value)}
+                                        onValueChange={(value) => handleStatusChange(purchase.id, value, purchase.status)}
                                       >
                                         <SelectTrigger className="w-36 h-8" onClick={(e) => e.stopPropagation()}>
                                           <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
                                         </SelectTrigger>
                                         <SelectContent>
                                           <SelectItem value="rascunho">Rascunho</SelectItem>
-                                          <SelectItem value="confirmado">Confirmado</SelectItem>
+                                          <SelectItem value="pago">Pago</SelectItem>
                                           <SelectItem value="em_transito">Em Trânsito</SelectItem>
-                                          <SelectItem value="parcial">Parcial</SelectItem>
-                                          <SelectItem value="concluido">Concluído</SelectItem>
                                           <SelectItem value="cancelado">Cancelado</SelectItem>
                                         </SelectContent>
                                       </Select>
@@ -323,16 +337,7 @@ export default function Compras() {
                   </CardContent>
                 </Card>
               </div>
-            </TabsContent>
-
-            <TabsContent value="curva-abc" className="mt-4">
-              <Card>
-                <CardContent className="py-8 text-center text-muted-foreground">
-                  Análise de Curva ABC disponível em breve
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+          </div>
         </div>
       </main>
 
