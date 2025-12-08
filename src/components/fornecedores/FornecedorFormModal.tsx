@@ -172,7 +172,7 @@ export function FornecedorFormModal({ open, onOpenChange, fornecedor, onSave }: 
                   />
                 </div>
                 <div>
-                  <Label>CNPJ *</Label>
+                  <Label>CNPJ</Label>
                   <Input
                     value={formData.cnpj || ''}
                     onChange={(e) => handleCNPJChange(e.target.value)}

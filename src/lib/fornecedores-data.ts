@@ -592,9 +592,8 @@ export const validateFornecedor = (fornecedor: Partial<Fornecedor>): FornecedorV
     errors.razaoSocial = 'Razão Social é obrigatória';
   }
 
-  if (!fornecedor.cnpj?.trim()) {
-    errors.cnpj = 'CNPJ é obrigatório';
-  } else {
+  // CNPJ é opcional, mas se informado deve ter 14 dígitos
+  if (fornecedor.cnpj?.trim()) {
     const cnpjNumbers = fornecedor.cnpj.replace(/\D/g, '');
     if (cnpjNumbers.length !== 14) {
       errors.cnpj = 'CNPJ deve ter 14 dígitos';
