@@ -1,6 +1,5 @@
 /**
  * Relatório de CMV & Margem por Produto
- * Motor de Custos V1
  */
 
 import { useState, useMemo } from "react";
@@ -8,7 +7,6 @@ import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { 
   TrendingUp, 
-  TrendingDown, 
   Package, 
   DollarSign, 
   Percent, 
@@ -40,7 +38,6 @@ import {
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useCMV, useCMVPorProduto } from "@/hooks/useCMV";
 
-// Formatação
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 
@@ -50,14 +47,12 @@ const formatNumber = (value: number) =>
   new Intl.NumberFormat("pt-BR").format(value);
 
 export default function CMVRelatorio() {
-  // Período padrão: mês atual
   const hoje = new Date();
   const [dataInicio, setDataInicio] = useState(format(startOfMonth(hoje), "yyyy-MM-dd"));
   const [dataFim, setDataFim] = useState(format(endOfMonth(hoje), "yyyy-MM-dd"));
   const [empresaId, setEmpresaId] = useState<string>("");
   const [periodoPreset, setPeriodoPreset] = useState<string>("mes_atual");
 
-  // Dados
   const { empresas, isLoading: isLoadingEmpresas } = useEmpresas();
   const { registros, resumo, isLoading: isLoadingCMV, refetch } = useCMV({
     empresaId: empresaId || undefined,
@@ -70,14 +65,12 @@ export default function CMVRelatorio() {
     dataFim,
   });
 
-  // Selecionar primeira empresa automaticamente
   useMemo(() => {
     if (empresas && empresas.length > 0 && !empresaId) {
       setEmpresaId(empresas[0].id);
     }
   }, [empresas, empresaId]);
 
-  // Presets de período
   const handlePeriodoChange = (preset: string) => {
     setPeriodoPreset(preset);
     const hoje = new Date();
@@ -114,7 +107,6 @@ export default function CMVRelatorio() {
       <AppSidebar />
       <main className="flex-1 p-6 overflow-auto">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* Header */}
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -122,7 +114,7 @@ export default function CMVRelatorio() {
                 Relatório de CMV & Margem
               </h1>
               <p className="text-muted-foreground">
-                Motor de Custos V1 - Custo Médio Contínuo
+                Custo de Mercadoria Vendida
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -137,7 +129,6 @@ export default function CMVRelatorio() {
             </div>
           </div>
 
-          {/* Filtros */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
@@ -208,7 +199,6 @@ export default function CMVRelatorio() {
             </CardContent>
           </Card>
 
-          {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Card>
               <CardContent className="pt-6">
@@ -295,7 +285,6 @@ export default function CMVRelatorio() {
             </Card>
           </div>
 
-          {/* Tabela de CMV por Produto */}
           <Card>
             <CardHeader>
               <CardTitle>CMV por Produto</CardTitle>
@@ -314,9 +303,6 @@ export default function CMVRelatorio() {
                 <div className="text-center py-12 text-muted-foreground">
                   <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>Nenhum registro de CMV encontrado no período.</p>
-                  <p className="text-sm mt-2">
-                    Registre vendas para visualizar o custo de mercadoria vendida.
-                  </p>
                 </div>
               ) : (
                 <Table>
@@ -339,7 +325,7 @@ export default function CMVRelatorio() {
                           <div>
                             <div className="font-medium">{item.produto.nome}</div>
                             <div className="text-xs text-muted-foreground font-mono">
-                              {item.produto.codigo_interno}
+                              {item.produto.sku}
                             </div>
                           </div>
                         </TableCell>
@@ -354,7 +340,7 @@ export default function CMVRelatorio() {
                           {formatNumber(item.quantidade)}
                         </TableCell>
                         <TableCell className="text-right">
-                          {formatCurrency(item.produto.custo_medio_atual)}
+                          {formatCurrency(item.produto.custo_medio)}
                         </TableCell>
                         <TableCell className="text-right text-destructive font-medium">
                           {formatCurrency(item.custoTotal)}
@@ -386,7 +372,6 @@ export default function CMVRelatorio() {
             </CardContent>
           </Card>
 
-          {/* Tabela de Registros Detalhados */}
           <Card>
             <CardHeader>
               <CardTitle>Registros Detalhados de CMV</CardTitle>
@@ -438,25 +423,23 @@ export default function CMVRelatorio() {
                           {r.canal ? (
                             <Badge variant="secondary">{r.canal}</Badge>
                           ) : (
-                            <span className="text-muted-foreground">-</span>
+                            "-"
                           )}
                         </TableCell>
-                        <TableCell className="text-right">
-                          {formatNumber(r.quantidade)}
+                        <TableCell className="text-right">{r.quantidade}</TableCell>
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(r.custo_unitario)}
                         </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(r.custo_unitario_momento)}
-                        </TableCell>
-                        <TableCell className="text-right text-destructive">
+                        <TableCell className="text-right font-medium text-destructive">
                           {formatCurrency(r.custo_total)}
                         </TableCell>
-                        <TableCell className="text-right text-success">
-                          {r.receita_total ? formatCurrency(r.receita_total) : "-"}
+                        <TableCell className="text-right font-medium text-success">
+                          {formatCurrency(r.receita_total || 0)}
                         </TableCell>
                         <TableCell className="text-right">
-                          {r.margem_percentual !== undefined ? (
-                            <span className={r.margem_percentual >= 0 ? "text-success" : "text-destructive"}>
-                              {formatPercent(r.margem_percentual)}
+                          {r.margem_bruta !== null ? (
+                            <span className={r.margem_bruta >= 0 ? "text-success" : "text-destructive"}>
+                              {formatCurrency(r.margem_bruta)}
                             </span>
                           ) : (
                             "-"
@@ -466,11 +449,6 @@ export default function CMVRelatorio() {
                     ))}
                   </TableBody>
                 </Table>
-              )}
-              {registros.length > 50 && (
-                <div className="text-center py-4 text-sm text-muted-foreground">
-                  Exibindo 50 de {registros.length} registros
-                </div>
               )}
             </CardContent>
           </Card>

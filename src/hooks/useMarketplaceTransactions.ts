@@ -2,8 +2,6 @@ import { useQuery, useMutation, useQueryClient, UseMutationResult } from "@tanst
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { registrarMovimentoFinanceiro, removerMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
-import { processarSaidaEstoqueMarketplace, reverterSaidaEstoqueMarketplace } from "@/lib/motor-saida-marketplace";
-import { validarEstoqueMarketplaceAntesConciliar } from "@/lib/validacao-estoque-marketplace";
 
 // ============= HELPER DE MENSAGEM DE ERRO =============
 function construirMensagemDeErro(validacao: {

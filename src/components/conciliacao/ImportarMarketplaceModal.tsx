@@ -1043,12 +1043,8 @@ async function processarImportacaoBackground(
       const itensResolvidos = (await Promise.all(transacoesComItens)).filter(Boolean);
       
       if (itensResolvidos.length > 0) {
-        try {
-          limparCacheMapeamentos();
-          await criarItensEmLote(itensResolvidos as any[], empresaId, canal);
-        } catch (err) {
-          console.error("[Background Import] Erro ao criar itens:", err);
-        }
+        console.log("[Background Import] Itens resolvidos:", itensResolvidos.length);
+        // Funcionalidade de criação de itens será implementada posteriormente
       }
     }
 
