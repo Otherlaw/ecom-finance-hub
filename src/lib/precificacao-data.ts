@@ -666,6 +666,34 @@ export const isFreteGratisML = (precoVenda: number): boolean => {
   return precoVenda > 0 && precoVenda <= 79;
 };
 
+// ============= Taxa Fixa Dinâmica do Mercado Livre =============
+// Regras de taxa fixa por faixa de preço (para produtos novos)
+export const calcularTaxaFixaML = (precoVenda: number): number => {
+  if (precoVenda <= 0) return 0;
+  if (precoVenda >= 79) return 0; // Sem taxa fixa acima de R$79 (frete grátis obrigatório)
+  if (precoVenda >= 50) return 6.75;
+  if (precoVenda >= 29) return 6.50;
+  if (precoVenda >= 12.50) return 6.25;
+  return 0.50; // Menor que R$12,50
+};
+
+export const getDescricaoTaxaFixaML = (precoVenda: number): string => {
+  if (precoVenda <= 0) return 'Informe o preço para calcular';
+  if (precoVenda >= 79) return 'Sem taxa fixa (frete grátis obrigatório)';
+  if (precoVenda >= 50) return 'Faixa R$50-79: R$6,75/un';
+  if (precoVenda >= 29) return 'Faixa R$29-50: R$6,50/un';
+  if (precoVenda >= 12.50) return 'Faixa R$12,50-29: R$6,25/un';
+  return 'Faixa <R$12,50: R$0,50/un';
+};
+
+export const FAIXAS_TAXA_FIXA_ML = [
+  { faixaInicio: 0, faixaFim: 12.50, taxa: 0.50, label: '< R$12,50' },
+  { faixaInicio: 12.50, faixaFim: 29, taxa: 6.25, label: 'R$12,50 a R$29' },
+  { faixaInicio: 29, faixaFim: 50, taxa: 6.50, label: 'R$29 a R$50' },
+  { faixaInicio: 50, faixaFim: 79, taxa: 6.75, label: 'R$50 a R$79' },
+  { faixaInicio: 79, faixaFim: Infinity, taxa: 0, label: '> R$79 (frete grátis)' },
+];
+
 // Verificar se deve habilitar configuração de frete para ML
 export const deveHabilitarFreteML = (simulacao: SimulacaoPrecificacao): boolean => {
   // Se já tem preço manual > 79, habilita
