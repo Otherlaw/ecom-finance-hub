@@ -119,7 +119,7 @@ export default function Produtos() {
     setDeleteModalOpen(true);
   };
 
-  const convertToModalProduct = (product: Produto | null) => {
+  const convertToModalProduct = (product: Produto | null): import("@/lib/products-data").Product | null => {
     if (!product) return null;
     return {
       id: product.id,
@@ -127,19 +127,19 @@ export default function Produtos() {
       nome: product.nome,
       descricao: product.descricao || "",
       categoria: product.categoria || "",
-      subcategoria: product.subcategoria,
+      subcategoria: product.subcategoria || undefined,
       unidadeMedida: product.unidade_medida,
       ncm: product.ncm || "",
-      cfopVenda: product.cfop_venda,
-      cfopCompra: product.cfop_compra,
-      fornecedorPrincipalNome: product.fornecedor_nome,
-      custoMedio: product.custo_medio,
-      precoVendaSugerido: product.preco_venda,
+      cfopVenda: product.cfop_venda || undefined,
+      cfopCompra: product.cfop_compra || undefined,
+      fornecedorPrincipalNome: product.fornecedor_nome || undefined,
+      custoMedio: product.custo_medio ?? 0,
+      precoVendaSugerido: product.preco_venda ?? 0,
       canais: [],
-      status: product.status as "ativo" | "inativo",
+      status: (product.status === "ativo" || product.status === "inativo") ? product.status : "ativo",
       observacoes: "",
-      dataCadastro: product.created_at?.split("T")[0] || "",
-      dataAtualizacao: product.updated_at?.split("T")[0] || "",
+      dataCadastro: product.created_at?.split("T")[0] || new Date().toISOString().split("T")[0],
+      dataAtualizacao: product.updated_at?.split("T")[0] || new Date().toISOString().split("T")[0],
     };
   };
 
