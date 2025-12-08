@@ -33,7 +33,51 @@ export function ExcluirProdutoModal({
   const [vinculoError, setVinculoError] = useState<string | null>(null);
 
   const verificarVinculos = async (id: string): Promise<string | null> => {
-    // Verificar movimentações de estoque
+    // 1. Verificar se possui estoque positivo
+    const { data: estoqueData } = await supabase
+      .from("estoque")
+      .select("quantidade")
+      .eq("produto_id", id);
+
+    if (estoqueData && estoqueData.some(e => Number(e.quantidade) > 0)) {
+      return `Este produto possui estoque positivo. Zere o estoque antes de excluir ou marque como inativo.`;
+    }
+
+    // 2. Verificar se é usado como componente de algum kit
+    const { data: produtos } = await supabase
+      .from("produtos")
+      .select("sku, kit_componentes")
+      .eq("tipo", "kit");
+
+    if (produtos) {
+      // Buscar SKU do produto atual
+      const { data: produtoAtual } = await supabase
+        .from("produtos")
+        .select("sku")
+        .eq("id", id)
+        .single();
+
+      if (produtoAtual) {
+        for (const p of produtos) {
+          const componentes = (p.kit_componentes as Array<{ sku: string; quantidade: number }>) || [];
+          if (componentes.some(c => c.sku === produtoAtual.sku)) {
+            return `Este produto é componente do kit "${p.sku}". Remova-o do kit antes de excluir.`;
+          }
+        }
+      }
+    }
+
+    // 3. Verificar se tem variações (filhos) ativas
+    const { count: variacoesCount } = await supabase
+      .from("produtos")
+      .select("*", { count: "exact", head: true })
+      .eq("parent_id", id);
+
+    if (variacoesCount && variacoesCount > 0) {
+      return `Este produto possui ${variacoesCount} variação(ões) vinculada(s). Exclua as variações primeiro.`;
+    }
+
+    // 4. Verificar movimentações de estoque
     const { count: movEstoque } = await supabase
       .from("movimentacoes_estoque")
       .select("*", { count: "exact", head: true })
@@ -43,7 +87,7 @@ export function ExcluirProdutoModal({
       return `Este produto possui ${movEstoque} movimentação(ões) de estoque. Em vez de excluir, marque como inativo.`;
     }
 
-    // Verificar itens de transação marketplace
+    // 5. Verificar itens de transação marketplace
     const { count: mktItems } = await supabase
       .from("marketplace_transaction_items")
       .select("*", { count: "exact", head: true })
@@ -53,7 +97,7 @@ export function ExcluirProdutoModal({
       return `Este produto está vinculado a ${mktItems} transação(ões) de marketplace. Em vez de excluir, marque como inativo.`;
     }
 
-    // Verificar itens de compra
+    // 6. Verificar itens de compra
     const { count: compraItems } = await supabase
       .from("compras_itens")
       .select("*", { count: "exact", head: true })
@@ -63,7 +107,7 @@ export function ExcluirProdutoModal({
       return `Este produto está vinculado a ${compraItems} item(ns) de compra. Em vez de excluir, marque como inativo.`;
     }
 
-    // Verificar registros CMV
+    // 7. Verificar registros CMV
     const { count: cmvCount } = await supabase
       .from("cmv_registros")
       .select("*", { count: "exact", head: true })
@@ -71,26 +115,6 @@ export function ExcluirProdutoModal({
 
     if (cmvCount && cmvCount > 0) {
       return `Este produto possui ${cmvCount} registro(s) de CMV. Em vez de excluir, marque como inativo.`;
-    }
-
-    // Verificar estoque
-    const { count: estoqueCount } = await supabase
-      .from("estoque")
-      .select("*", { count: "exact", head: true })
-      .eq("produto_id", id);
-
-    if (estoqueCount && estoqueCount > 0) {
-      return `Este produto possui ${estoqueCount} registro(s) de estoque. Em vez de excluir, marque como inativo.`;
-    }
-
-    // Verificar variações (filhos)
-    const { count: variacoesCount } = await supabase
-      .from("produtos")
-      .select("*", { count: "exact", head: true })
-      .eq("parent_id", id);
-
-    if (variacoesCount && variacoesCount > 0) {
-      return `Este produto possui ${variacoesCount} variação(ões) vinculada(s). Exclua as variações primeiro ou marque como inativo.`;
     }
 
     return null;

@@ -8,11 +8,12 @@ import { toast } from "sonner";
 
 // ============= TIPOS =============
 
-export type StatusCompra = 'rascunho' | 'confirmado' | 'parcial' | 'concluido' | 'cancelado';
+export type StatusCompra = 'rascunho' | 'confirmado' | 'em_transito' | 'parcial' | 'concluido' | 'cancelado';
 
 export const STATUS_COMPRA_LABELS: Record<StatusCompra, { label: string; color: string }> = {
   rascunho: { label: "Rascunho", color: "bg-gray-100 text-gray-800" },
   confirmado: { label: "Confirmado", color: "bg-blue-100 text-blue-800" },
+  em_transito: { label: "Em Trânsito", color: "bg-yellow-100 text-yellow-800" },
   parcial: { label: "Parcial", color: "bg-orange-100 text-orange-800" },
   concluido: { label: "Concluído", color: "bg-green-100 text-green-800" },
   cancelado: { label: "Cancelado", color: "bg-red-100 text-red-800" },
