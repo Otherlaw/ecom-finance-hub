@@ -15,13 +15,13 @@ import { useCompras, Compra } from "@/hooks/useCompras";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { format } from "date-fns";
 
-// Status labels e cores
 const STATUS_COMPRA: Record<string, { label: string; color: string }> = {
-  em_compra: { label: "Em Compra", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
+  rascunho: { label: "Rascunho", color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200" },
+  confirmada: { label: "Confirmada", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
   em_transito: { label: "Em Trânsito", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
   parcial: { label: "Parcial", color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" },
   concluido: { label: "Concluído", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
-  cancelado: { label: "Cancelado", color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" },
+  cancelada: { label: "Cancelada", color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" },
 };
 
 const formatCurrency = (value: number) => {
@@ -52,7 +52,6 @@ export default function Compras() {
   const [recebimentoPurchase, setRecebimentoPurchase] = useState<Compra | null>(null);
   const [importXMLModalOpen, setImportXMLModalOpen] = useState(false);
 
-  // Chaves de acesso já importadas para evitar duplicatas
   const existingKeys = useMemo(() => {
     return compras.filter(c => c.chave_acesso).map(c => c.chave_acesso!);
   }, [compras]);
@@ -186,11 +185,12 @@ export default function Compras() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="todos">Todos</SelectItem>
-                        <SelectItem value="em_compra">Em Compra</SelectItem>
+                        <SelectItem value="rascunho">Rascunho</SelectItem>
+                        <SelectItem value="confirmada">Confirmada</SelectItem>
                         <SelectItem value="em_transito">Em Trânsito</SelectItem>
                         <SelectItem value="parcial">Parcial</SelectItem>
                         <SelectItem value="concluido">Concluído</SelectItem>
-                        <SelectItem value="cancelado">Cancelado</SelectItem>
+                        <SelectItem value="cancelada">Cancelada</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -218,12 +218,12 @@ export default function Compras() {
                       <TableBody>
                         {filteredPurchases.map((purchase) => {
                           const unmapped = purchase.itens?.filter((i) => !i.mapeado).length || 0;
-                          const statusInfo = STATUS_COMPRA[purchase.status] || STATUS_COMPRA.em_compra;
+                          const statusInfo = STATUS_COMPRA[purchase.status] || STATUS_COMPRA.rascunho;
                           const podeReceber = purchase.status !== 'concluido' && purchase.status !== 'cancelado';
                           
                           return (
                             <TableRow key={purchase.id}>
-                              <TableCell>{formatDate(purchase.data_compra)}</TableCell>
+                              <TableCell>{formatDate(purchase.data_pedido)}</TableCell>
                               <TableCell className="font-mono">{purchase.numero_nf || "-"}</TableCell>
                               <TableCell className="max-w-48 truncate">{purchase.fornecedor_nome}</TableCell>
                               <TableCell className="text-center">
@@ -246,11 +246,12 @@ export default function Compras() {
                                     <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="em_compra">Em Compra</SelectItem>
+                                    <SelectItem value="rascunho">Rascunho</SelectItem>
+                                    <SelectItem value="confirmada">Confirmada</SelectItem>
                                     <SelectItem value="em_transito">Em Trânsito</SelectItem>
                                     <SelectItem value="parcial">Parcial</SelectItem>
                                     <SelectItem value="concluido">Concluído</SelectItem>
-                                    <SelectItem value="cancelado">Cancelado</SelectItem>
+                                    <SelectItem value="cancelada">Cancelada</SelectItem>
                                   </SelectContent>
                                 </Select>
                               </TableCell>

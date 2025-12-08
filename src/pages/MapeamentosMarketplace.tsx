@@ -1,10 +1,10 @@
 import { useState, useMemo } from "react";
-import { Link2, Search, Trash2, Package, Store, AlertCircle, Check, X, Upload } from "lucide-react";
+import { Link2, Search, Trash2, Package, Store, AlertCircle, Check } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -28,13 +28,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMarketplaceSkuMappings, MarketplaceSkuMapping } from "@/hooks/useMarketplaceSkuMappings";
-import { useProdutoSkuMap, ProdutoSkuMap } from "@/hooks/useProdutoSkuMap";
 import { useProdutos } from "@/hooks/useProdutos";
-import { useProdutoSkus } from "@/hooks/useProdutoSkus";
 import { useEmpresas } from "@/hooks/useEmpresas";
-import { ImportarMapeamentoUpsellerModal } from "@/components/products/ImportarMapeamentoUpsellerModal";
 import { toast } from "sonner";
 
 const CANAIS_MARKETPLACE = [
@@ -53,12 +49,9 @@ export default function MapeamentosMarketplace() {
   const [canalFilter, setCanalFilter] = useState<string>("todos");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [searchTerm, setSearchTerm] = useState("");
-  const [importUpsellerOpen, setImportUpsellerOpen] = useState(false);
 
-  // Modal de edição
   const [editingMapping, setEditingMapping] = useState<MarketplaceSkuMapping | null>(null);
   const [selectedProdutoId, setSelectedProdutoId] = useState<string>("");
-  const [selectedSkuId, setSelectedSkuId] = useState<string>("");
 
   const { mappings, isLoading, criarOuAtualizarMapping, removerMapping } = useMarketplaceSkuMappings({
     empresaId: empresaId || undefined,
@@ -66,29 +59,24 @@ export default function MapeamentosMarketplace() {
   });
 
   const { produtos } = useProdutos({ empresaId: empresaId || undefined, status: "ativo" });
-  const { skus } = useProdutoSkus({ empresaId: empresaId || undefined });
 
-  // Atualizar empresaId quando empresas carregarem
   useMemo(() => {
     if (!empresaId && empresas.length > 0) {
       setEmpresaId(empresas[0].id);
     }
   }, [empresas, empresaId]);
 
-  // Filtrar mapeamentos
   const filteredMappings = useMemo(() => {
     return mappings.filter((m) => {
-      // Filtro de status
-      if (statusFilter === "mapeados" && !m.produto_id && !m.sku_id) return false;
-      if (statusFilter === "pendentes" && (m.produto_id || m.sku_id)) return false;
+      if (statusFilter === "mapeados" && !m.produto_id) return false;
+      if (statusFilter === "pendentes" && m.produto_id) return false;
 
-      // Filtro de busca
       if (searchTerm) {
         const search = searchTerm.toLowerCase();
         const matchSku = m.sku_marketplace.toLowerCase().includes(search);
-        const matchNome = m.nome_produto_marketplace?.toLowerCase().includes(search);
+        const matchNome = m.nome_anuncio?.toLowerCase().includes(search);
         const matchProduto = m.produto?.nome?.toLowerCase().includes(search);
-        const matchCodigo = m.produto?.codigo_interno?.toLowerCase().includes(search);
+        const matchCodigo = m.produto?.sku?.toLowerCase().includes(search);
         if (!matchSku && !matchNome && !matchProduto && !matchCodigo) return false;
       }
 
@@ -96,21 +84,17 @@ export default function MapeamentosMarketplace() {
     });
   }, [mappings, statusFilter, searchTerm]);
 
-  // Estatísticas
   const stats = useMemo(() => ({
     total: mappings.length,
-    mapeados: mappings.filter((m) => m.produto_id || m.sku_id).length,
-    pendentes: mappings.filter((m) => !m.produto_id && !m.sku_id).length,
+    mapeados: mappings.filter((m) => m.produto_id).length,
+    pendentes: mappings.filter((m) => !m.produto_id).length,
   }), [mappings]);
 
-  // Abrir modal de edição
   const handleEdit = (mapping: MarketplaceSkuMapping) => {
     setEditingMapping(mapping);
     setSelectedProdutoId(mapping.produto_id || "");
-    setSelectedSkuId(mapping.sku_id || "");
   };
 
-  // Salvar mapeamento
   const handleSave = async () => {
     if (!editingMapping) return;
 
@@ -119,9 +103,8 @@ export default function MapeamentosMarketplace() {
         empresaId: editingMapping.empresa_id,
         canal: editingMapping.canal,
         skuMarketplace: editingMapping.sku_marketplace,
-        produtoId: selectedProdutoId || null,
-        skuId: selectedSkuId || null,
-        nomeProdutoMarketplace: editingMapping.nome_produto_marketplace,
+        produtoId: selectedProdutoId || editingMapping.produto_id || "",
+        nomeAnuncio: editingMapping.nome_anuncio,
         mapeadoAutomaticamente: false,
       });
       toast.success("Mapeamento salvo com sucesso");
@@ -131,24 +114,16 @@ export default function MapeamentosMarketplace() {
     }
   };
 
-  // Remover mapeamento
   const handleRemove = async (id: string) => {
     if (!confirm("Deseja realmente remover este mapeamento?")) return;
     await removerMapping.mutateAsync(id);
   };
-
-  // SKUs do produto selecionado
-  const skusDoProduto = useMemo(() => {
-    if (!selectedProdutoId) return [];
-    return skus.filter((s) => s.produto_id === selectedProdutoId);
-  }, [selectedProdutoId, skus]);
 
   return (
     <div className="flex min-h-screen w-full bg-background">
       <AppSidebar />
       <main className="flex-1 p-6 overflow-auto">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* Header */}
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -159,13 +134,8 @@ export default function MapeamentosMarketplace() {
                 Vincule os códigos de anúncio do marketplace aos produtos internos
               </p>
             </div>
-            <Button onClick={() => setImportUpsellerOpen(true)}>
-              <Upload className="h-4 w-4 mr-2" />
-              Importar Upseller
-            </Button>
           </div>
 
-          {/* Cards de resumo */}
           <div className="grid grid-cols-3 gap-4">
             <Card>
               <CardContent className="pt-6">
@@ -202,7 +172,6 @@ export default function MapeamentosMarketplace() {
             </Card>
           </div>
 
-          {/* Filtros */}
           <Card>
             <CardHeader>
               <div className="flex flex-wrap items-center gap-4">
@@ -258,7 +227,7 @@ export default function MapeamentosMarketplace() {
                 <div className="text-center py-8 text-muted-foreground">Carregando...</div>
               ) : filteredMappings.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  Nenhum mapeamento encontrado. Importe transações de marketplace para criar mapeamentos automaticamente.
+                  Nenhum mapeamento encontrado.
                 </div>
               ) : (
                 <Table>
@@ -268,7 +237,6 @@ export default function MapeamentosMarketplace() {
                       <TableHead>MLB / SKU Marketplace</TableHead>
                       <TableHead>Nome no Marketplace</TableHead>
                       <TableHead>Produto Interno</TableHead>
-                      <TableHead>SKU Interno</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -285,14 +253,14 @@ export default function MapeamentosMarketplace() {
                           {mapping.sku_marketplace}
                         </TableCell>
                         <TableCell className="max-w-48 truncate text-sm text-muted-foreground">
-                          {mapping.nome_produto_marketplace || "-"}
+                          {mapping.nome_anuncio || "-"}
                         </TableCell>
                         <TableCell>
                           {mapping.produto ? (
                             <div>
                               <div className="font-medium">{mapping.produto.nome}</div>
                               <div className="text-xs text-muted-foreground font-mono">
-                                {mapping.produto.codigo_interno}
+                                {mapping.produto.sku}
                               </div>
                             </div>
                           ) : (
@@ -300,16 +268,7 @@ export default function MapeamentosMarketplace() {
                           )}
                         </TableCell>
                         <TableCell>
-                          {mapping.sku ? (
-                            <Badge variant="secondary" className="font-mono">
-                              {mapping.sku.codigo_sku}
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {mapping.produto_id || mapping.sku_id ? (
+                          {mapping.produto_id ? (
                             <Badge variant="default" className="bg-success">
                               <Check className="h-3 w-3 mr-1" />
                               Mapeado
@@ -351,7 +310,6 @@ export default function MapeamentosMarketplace() {
         </div>
       </main>
 
-      {/* Modal de Edição */}
       <Dialog open={!!editingMapping} onOpenChange={(open) => !open && setEditingMapping(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -366,7 +324,6 @@ export default function MapeamentosMarketplace() {
 
           {editingMapping && (
             <div className="space-y-4 py-4">
-              {/* Informações do Marketplace */}
               <div className="p-4 bg-muted rounded-lg space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Canal:</span>
@@ -378,21 +335,17 @@ export default function MapeamentosMarketplace() {
                   <span className="text-muted-foreground">MLB / SKU:</span>
                   <span className="font-mono">{editingMapping.sku_marketplace}</span>
                 </div>
-                {editingMapping.nome_produto_marketplace && (
+                {editingMapping.nome_anuncio && (
                   <div className="text-sm">
                     <span className="text-muted-foreground">Nome:</span>
-                    <p className="mt-1 text-sm">{editingMapping.nome_produto_marketplace}</p>
+                    <p className="mt-1 text-sm">{editingMapping.nome_anuncio}</p>
                   </div>
                 )}
               </div>
 
-              {/* Seleção de Produto */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">Produto Interno</label>
-                <Select value={selectedProdutoId} onValueChange={(v) => {
-                  setSelectedProdutoId(v);
-                  setSelectedSkuId(""); // Reset SKU ao mudar produto
-                }}>
+                <Select value={selectedProdutoId} onValueChange={setSelectedProdutoId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione um produto" />
                   </SelectTrigger>
@@ -404,7 +357,7 @@ export default function MapeamentosMarketplace() {
                           <Package className="h-4 w-4 text-muted-foreground" />
                           <span>{p.nome}</span>
                           <span className="text-xs text-muted-foreground font-mono">
-                            ({p.codigo_interno})
+                            ({p.sku})
                           </span>
                         </div>
                       </SelectItem>
@@ -412,31 +365,6 @@ export default function MapeamentosMarketplace() {
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Seleção de SKU (se produto selecionado) */}
-              {selectedProdutoId && skusDoProduto.length > 0 && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">SKU / Variação (opcional)</label>
-                  <Select value={selectedSkuId} onValueChange={setSelectedSkuId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione um SKU" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">Nenhum (usar produto)</SelectItem>
-                      {skusDoProduto.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          <span className="font-mono">{s.codigo_sku}</span>
-                          {s.variacao && Object.keys(s.variacao).length > 0 && (
-                            <span className="text-xs text-muted-foreground ml-2">
-                              ({Object.values(s.variacao).join(", ")})
-                            </span>
-                          )}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
             </div>
           )}
 
@@ -445,19 +373,11 @@ export default function MapeamentosMarketplace() {
               Cancelar
             </Button>
             <Button onClick={handleSave} disabled={criarOuAtualizarMapping.isPending}>
-              {criarOuAtualizarMapping.isPending ? "Salvando..." : "Salvar"}
+              Salvar Mapeamento
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <ImportarMapeamentoUpsellerModal
-        open={importUpsellerOpen}
-        onOpenChange={setImportUpsellerOpen}
-        onSuccess={() => {
-          // Recarregar dados
-        }}
-      />
     </div>
   );
 }
