@@ -27,7 +27,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Trash2, ShoppingCart, ImageOff } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Plus, Trash2, ShoppingCart, ImageOff, CreditCard } from "lucide-react";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useFornecedores } from "@/hooks/useFornecedores";
 import { useProdutos, Produto } from "@/hooks/useProdutos";
@@ -73,6 +74,12 @@ export function CompraManualFormModal({
   const [centroCustoId, setCentroCustoId] = useState<string | null>(null);
   const [itens, setItens] = useState<ItemCompra[]>([]);
   const [selectedItemForHistory, setSelectedItemForHistory] = useState<string | null>(null);
+  
+  // Campos de pagamento
+  const [formaPagamento, setFormaPagamento] = useState("");
+  const [condicaoPagamento, setCondicaoPagamento] = useState("a_vista");
+  const [prazoDias, setPrazoDias] = useState("");
+  const [gerarContaPagar, setGerarContaPagar] = useState(false);
 
   // Reset form when modal opens
   useEffect(() => {
@@ -87,6 +94,10 @@ export function CompraManualFormModal({
       setCentroCustoId(null);
       setItens([]);
       setSelectedItemForHistory(null);
+      setFormaPagamento("");
+      setCondicaoPagamento("a_vista");
+      setPrazoDias("");
+      setGerarContaPagar(false);
     }
   }, [open, empresas]);
 
@@ -177,6 +188,10 @@ export function CompraManualFormModal({
       valor_total: valorTotal,
       status: "rascunho",
       observacoes: observacoes || undefined,
+      forma_pagamento: formaPagamento || undefined,
+      condicao_pagamento: condicaoPagamento,
+      prazo_dias: prazoDias ? Number(prazoDias) : undefined,
+      gerar_conta_pagar: gerarContaPagar,
       itens: itens.map((item) => ({
         produto_id: item.produto_id,
         codigo_nf: null,
@@ -297,6 +312,71 @@ export function CompraManualFormModal({
                   placeholder="Selecione..."
                   showOnlyActive
                 />
+              </div>
+            </div>
+
+            {/* Condições de Pagamento */}
+            <div className="p-4 rounded-lg border bg-muted/50 space-y-4">
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4" />
+                <Label className="font-semibold">Condições de Pagamento</Label>
+              </div>
+              
+              <div className="grid grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label>Forma de Pagamento</Label>
+                  <Select value={formaPagamento} onValueChange={setFormaPagamento}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pix">PIX</SelectItem>
+                      <SelectItem value="boleto">Boleto</SelectItem>
+                      <SelectItem value="transferencia">Transferência</SelectItem>
+                      <SelectItem value="cartao">Cartão</SelectItem>
+                      <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Condição</Label>
+                  <Select value={condicaoPagamento} onValueChange={setCondicaoPagamento}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="a_vista">À Vista</SelectItem>
+                      <SelectItem value="a_prazo">A Prazo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {condicaoPagamento === "a_prazo" && (
+                  <div className="space-y-2">
+                    <Label>Prazo (dias)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={prazoDias}
+                      onChange={(e) => setPrazoDias(e.target.value)}
+                      placeholder="30"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label>Gerar Conta a Pagar</Label>
+                  <div className="flex items-center gap-2 h-10">
+                    <Switch
+                      checked={gerarContaPagar}
+                      onCheckedChange={setGerarContaPagar}
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      {gerarContaPagar ? "Sim" : "Não"}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 

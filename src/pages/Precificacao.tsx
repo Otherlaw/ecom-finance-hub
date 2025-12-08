@@ -1019,6 +1019,63 @@ export default function Precificacao() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
+                    {/* BLOCO CBS/IBS - SEMPRE VISÍVEL */}
+                    <div className="p-3 rounded-lg border border-blue-200 bg-blue-50 space-y-3 mb-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <TrendingUp className="h-4 w-4 text-blue-600" />
+                          <Label className="font-semibold text-blue-800">CBS + IBS (Reforma Tributária 2025+)</Label>
+                        </div>
+                        <Switch
+                          checked={simulacao?.tributacao.simularReformaTributaria || false}
+                          onCheckedChange={(checked) => handleTributacaoChange('simularReformaTributaria', checked)}
+                        />
+                      </div>
+                      
+                      <p className="text-xs text-muted-foreground">
+                        Impostos em vigor desde 2025 (fase de transição). Ative para incluir no cálculo.
+                      </p>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label className="text-sm">CBS - IVA Federal (%)</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            placeholder="0.9"
+                            value={simulacao?.tributacao.cbsAliquota || ''}
+                            onChange={(e) => handleTributacaoChange('cbsAliquota', parseFloat(e.target.value) || 0)}
+                            className="bg-background"
+                            disabled={!simulacao?.tributacao.simularReformaTributaria}
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">Valor atual: 0,9%</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm">IBS - IVA Estadual/Municipal (%)</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            placeholder="0.1"
+                            value={simulacao?.tributacao.ibsAliquota || ''}
+                            onChange={(e) => handleTributacaoChange('ibsAliquota', parseFloat(e.target.value) || 0)}
+                            className="bg-background"
+                            disabled={!simulacao?.tributacao.simularReformaTributaria}
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">Valor atual: 0,1%</p>
+                        </div>
+                      </div>
+                      
+                      {simulacao?.tributacao.simularReformaTributaria && (
+                        <Alert className="bg-blue-100 border-blue-300">
+                          <Info className="h-4 w-4 text-blue-600" />
+                          <AlertDescription className="text-blue-700 text-xs">
+                            Total IVA Dual: {formatPercent((simulacao?.tributacao.cbsAliquota || 0) + (simulacao?.tributacao.ibsAliquota || 0))}
+                            {' '}será somado aos demais impostos no cálculo.
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </div>
+
                     {/* Opção de usar alíquota média estipulada */}
                     <div className="p-3 rounded-lg border border-primary/30 bg-primary/5 space-y-3 mb-4">
                       <div className="flex items-center justify-between">
@@ -1064,13 +1121,13 @@ export default function Precificacao() {
                             </div>
                           </div>
                           
-                          {/* Simulação Reforma Tributária 2026+ */}
+                          {/* Simulação Reforma Tributária 2026+ - CBS e IBS */}
                           <Separator />
                           <div className="space-y-3">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <TrendingUp className="h-4 w-4 text-blue-600" />
-                                <Label className="font-semibold text-blue-800">Simular Reforma Tributária (2026+)</Label>
+                                <Label className="font-semibold text-blue-800">Incluir CBS + IBS (Reforma Tributária)</Label>
                               </div>
                               <Switch
                                 checked={simulacao?.tributacao.simularReformaTributaria || false}
@@ -1079,7 +1136,7 @@ export default function Precificacao() {
                             </div>
                             
                             <p className="text-xs text-muted-foreground">
-                              Compare a margem com o novo IVA Dual (CBS + IBS) previsto na Reforma Tributária.
+                              CBS e IBS já estão em vigor desde 2025 (transição). Ative para incluir no cálculo de custos.
                             </p>
                             
                             <div className="grid grid-cols-2 gap-4">
@@ -1088,24 +1145,24 @@ export default function Precificacao() {
                                 <Input
                                   type="number"
                                   step="0.1"
-                                  placeholder="8.8"
+                                  placeholder="0.9"
                                   value={simulacao?.tributacao.cbsAliquota || ''}
                                   onChange={(e) => handleTributacaoChange('cbsAliquota', parseFloat(e.target.value) || 0)}
                                   className="bg-background"
                                 />
-                                <p className="text-xs text-muted-foreground mt-1">Previsão: ~8.8%</p>
+                                <p className="text-xs text-muted-foreground mt-1">Valor atual (transição): 0,9%</p>
                               </div>
                               <div>
                                 <Label className="text-sm">IBS - IVA Estadual/Municipal (%)</Label>
                                 <Input
                                   type="number"
                                   step="0.1"
-                                  placeholder="17.7"
+                                  placeholder="0.1"
                                   value={simulacao?.tributacao.ibsAliquota || ''}
                                   onChange={(e) => handleTributacaoChange('ibsAliquota', parseFloat(e.target.value) || 0)}
                                   className="bg-background"
                                 />
-                                <p className="text-xs text-muted-foreground mt-1">Previsão: ~17.7%</p>
+                                <p className="text-xs text-muted-foreground mt-1">Valor atual (transição): 0,1%</p>
                               </div>
                             </div>
                             

@@ -242,6 +242,20 @@ export function RegistrarRecebimentoModal({
             </div>
           </div>
 
+          {/* Alerta de itens não mapeados */}
+          {itens.some(i => !i.produto_id) && (
+            <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-amber-800">Itens sem produto vinculado</p>
+                <p className="text-sm text-amber-700">
+                  {itens.filter(i => !i.produto_id).length} item(ns) não darão entrada no estoque. 
+                  Vincule os produtos no módulo de Compras para registrar movimentação de estoque.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="flex-1 overflow-hidden">
             <Label className="mb-2 block">Itens do Pedido</Label>
             <div className="border rounded-md overflow-auto h-[280px]">
