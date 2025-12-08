@@ -49,7 +49,7 @@ export default function Fechamento() {
     return format(now, "yyyy-MM");
   });
 
-  const [mes, ano] = selectedPeriod.split("-");
+  const [ano, mes] = selectedPeriod.split("-");
   const periodoInicio = `${ano}-${mes}-01`;
   const periodoFim = format(endOfMonth(new Date(parseInt(ano), parseInt(mes) - 1)), "yyyy-MM-dd");
 
