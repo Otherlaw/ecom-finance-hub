@@ -16,11 +16,11 @@ export interface Estoque {
   armazem_id: string;
   quantidade: number;
   quantidade_reservada: number;
-  quantidade_disponivel: number;
+  quantidade_disponivel: number | null;
   custo_medio: number;
-  estoque_minimo: number;
-  estoque_maximo: number;
-  ponto_reposicao: number;
+  estoque_minimo: number | null;
+  estoque_maximo: number | null;
+  ponto_reposicao: number | null;
   localizacao: string | null;
   lote: string | null;
   validade: string | null;
@@ -98,7 +98,7 @@ export function useEstoque(params: UseEstoqueParams = {}) {
         .select(`
           *,
           produto:produtos(id, nome, sku, tipo),
-          armazem:armazens(id, nome, codigo)
+          armazem:armazens!estoque_armazem_id_fkey(id, nome, codigo)
         `)
         .order("created_at", { ascending: false });
 
@@ -121,11 +121,11 @@ export function useEstoque(params: UseEstoqueParams = {}) {
         armazem_id: e.armazem_id,
         quantidade: Number(e.quantidade) || 0,
         quantidade_reservada: Number(e.quantidade_reservada) || 0,
-        quantidade_disponivel: Number(e.quantidade_disponivel) || 0,
+        quantidade_disponivel: e.quantidade_disponivel != null ? Number(e.quantidade_disponivel) : null,
         custo_medio: Number(e.custo_medio) || 0,
-        estoque_minimo: Number(e.estoque_minimo) || 0,
-        estoque_maximo: Number(e.estoque_maximo) || 0,
-        ponto_reposicao: Number(e.ponto_reposicao) || 0,
+        estoque_minimo: e.estoque_minimo != null ? Number(e.estoque_minimo) : null,
+        estoque_maximo: e.estoque_maximo != null ? Number(e.estoque_maximo) : null,
+        ponto_reposicao: e.ponto_reposicao != null ? Number(e.ponto_reposicao) : null,
         localizacao: e.localizacao,
         lote: e.lote,
         validade: e.validade,
@@ -212,7 +212,7 @@ export function useEstoque(params: UseEstoqueParams = {}) {
     totalItens: estoques.length,
     quantidadeTotal: estoques.reduce((sum, e) => sum + e.quantidade, 0),
     valorTotal: estoques.reduce((sum, e) => sum + e.quantidade * e.custo_medio, 0),
-    abaixoMinimo: estoques.filter(e => e.quantidade < e.estoque_minimo).length,
+    abaixoMinimo: estoques.filter(e => e.estoque_minimo && e.quantidade < e.estoque_minimo).length,
     zerados: estoques.filter(e => e.quantidade <= 0).length,
   };
 
@@ -238,7 +238,7 @@ export function useMovimentacoesEstoque(params: UseEstoqueParams & { dataInicio?
         .select(`
           *,
           produto:produtos(id, nome, sku),
-          armazem:armazens(id, nome, codigo)
+          armazem:armazens!movimentacoes_estoque_armazem_id_fkey(id, nome, codigo)
         `)
         .order("created_at", { ascending: false });
 

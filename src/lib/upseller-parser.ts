@@ -1,12 +1,9 @@
 /**
  * PARSER DE ARQUIVO UPSELLER (XLSX)
- * 
  * Extrai mapeamentos de SKU interno → Anúncios/Variações de Marketplace
- * do arquivo exportado pelo Upseller.
  */
 
 import * as XLSX from 'xlsx';
-import { ProdutoSkuMapInsert } from '@/hooks/useProdutoSkuMap';
 
 export interface UpsellerRow {
   sku_interno: string;

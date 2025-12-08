@@ -18,10 +18,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Package, CheckCircle2 } from "lucide-react";
 import { Compra, CompraItem, useRecebimentos } from "@/hooks/useCompras";
+import { useArmazens } from "@/hooks/useArmazens";
 import { format } from "date-fns";
 
 interface RegistrarRecebimentoModalProps {
@@ -34,7 +42,6 @@ interface RegistrarRecebimentoModalProps {
 interface ItemRecebimento {
   compra_item_id: string;
   produto_id: string | null;
-  sku_id: string | null;
   descricao: string;
   quantidade_pedida: number;
   quantidade_ja_recebida: number;
@@ -51,7 +58,9 @@ export function RegistrarRecebimentoModal({
   onSuccess,
 }: RegistrarRecebimentoModalProps) {
   const { registrarRecebimento } = useRecebimentos(compra?.id || null);
+  const { armazens } = useArmazens({ empresaId: compra?.empresa_id });
   
+  const [armazemId, setArmazemId] = useState("");
   const [dataRecebimento, setDataRecebimento] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [observacao, setObservacao] = useState("");
   const [itens, setItens] = useState<ItemRecebimento[]>([]);
@@ -62,7 +71,6 @@ export function RegistrarRecebimentoModal({
       setItens(compra.itens.map(item => ({
         compra_item_id: item.id,
         produto_id: item.produto_id,
-        sku_id: item.sku_id,
         descricao: item.descricao_nf,
         quantidade_pedida: item.quantidade,
         quantidade_ja_recebida: item.quantidade_recebida,
@@ -72,7 +80,14 @@ export function RegistrarRecebimentoModal({
         custo_unitario: item.valor_unitario,
       })));
     }
-  }, [compra]);
+    
+    // Default armazém
+    if (compra?.armazem_destino_id) {
+      setArmazemId(compra.armazem_destino_id);
+    } else if (armazens.length > 0 && !armazemId) {
+      setArmazemId(armazens[0].id);
+    }
+  }, [compra, armazens]);
 
   const handleQuantidadeChange = (index: number, value: number) => {
     setItens(prev => prev.map((item, i) => {
@@ -94,23 +109,21 @@ export function RegistrarRecebimentoModal({
   const totalDevolvendo = itens.reduce((sum, i) => sum + i.quantidade_devolvida, 0);
 
   const handleSubmit = async () => {
-    if (!compra || totalRecebendo === 0) return;
+    if (!compra || totalRecebendo === 0 || !armazemId) return;
 
     setIsSubmitting(true);
 
     try {
       await registrarRecebimento.mutateAsync({
         compra_id: compra.id,
-        empresa_id: compra.empresa_id,
+        armazem_id: armazemId,
         data_recebimento: dataRecebimento,
-        observacao: observacao || undefined,
+        observacoes: observacao || undefined,
         itens: itens
           .filter(item => item.quantidade_receber > 0 || item.quantidade_devolvida > 0)
           .map(item => ({
             compra_item_id: item.compra_item_id,
-            produto_id: item.produto_id,
-            sku_id: item.sku_id,
-            quantidade_pedida: item.quantidade_pedida,
+            produto_id: item.produto_id || '',
             quantidade_recebida: item.quantidade_receber,
             quantidade_devolvida: item.quantidade_devolvida,
             custo_unitario: item.custo_unitario,
@@ -139,12 +152,27 @@ export function RegistrarRecebimentoModal({
         </DialogHeader>
 
         <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <Label>NF / Fornecedor</Label>
               <p className="text-sm font-medium">
                 {compra.numero_nf ? `NF ${compra.numero_nf} - ` : ''}{compra.fornecedor_nome}
               </p>
+            </div>
+            <div>
+              <Label>Armazém de Destino</Label>
+              <Select value={armazemId} onValueChange={setArmazemId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o armazém" />
+                </SelectTrigger>
+                <SelectContent>
+                  {armazens.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.nome} ({a.codigo})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Data do Recebimento</Label>
@@ -178,7 +206,7 @@ export function RegistrarRecebimentoModal({
                         <div className="max-w-64 truncate" title={item.descricao}>
                           {item.descricao}
                         </div>
-                        {item.sku_id && (
+                        {item.produto_id && (
                           <Badge variant="outline" className="mt-1 text-xs">SKU vinculado</Badge>
                         )}
                       </TableCell>
@@ -255,7 +283,7 @@ export function RegistrarRecebimentoModal({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || totalRecebendo === 0}>
+          <Button onClick={handleSubmit} disabled={isSubmitting || totalRecebendo === 0 || !armazemId}>
             {isSubmitting ? "Registrando..." : "Confirmar Recebimento"}
           </Button>
         </DialogFooter>
