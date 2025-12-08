@@ -18,19 +18,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Package, CheckCircle2 } from "lucide-react";
-import { Compra, CompraItem, useRecebimentos } from "@/hooks/useCompras";
-import { useCentrosCusto } from "@/hooks/useCentrosCusto";
-import { CentroCustoSelect } from "@/components/CentroCustoSelect";
+import { Compra, useRecebimentos } from "@/hooks/useCompras";
+import { useArmazens } from "@/hooks/useArmazens";
+import { ArmazemSelect } from "@/components/ArmazemSelect";
 import { format } from "date-fns";
 
 interface RegistrarRecebimentoModalProps {
@@ -59,9 +52,9 @@ export function RegistrarRecebimentoModal({
   onSuccess,
 }: RegistrarRecebimentoModalProps) {
   const { registrarRecebimento } = useRecebimentos(compra?.id || null);
-  const { centrosFlat: centrosCusto } = useCentrosCusto();
+  const { armazens } = useArmazens({ empresaId: compra?.empresa_id, apenasAtivos: true });
   
-  const [centroCustoId, setCentroCustoId] = useState<string | null>(null);
+  const [armazemId, setArmazemId] = useState<string | null>(null);
   const [dataRecebimento, setDataRecebimento] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [observacao, setObservacao] = useState("");
   const [itens, setItens] = useState<ItemRecebimento[]>([]);
@@ -82,13 +75,18 @@ export function RegistrarRecebimentoModal({
       })));
     }
     
-    // Default centro de custo
+    // Default armazém
     if (compra?.armazem_destino_id) {
-      setCentroCustoId(compra.armazem_destino_id);
-    } else if (centrosCusto.length > 0 && !centroCustoId) {
-      setCentroCustoId(centrosCusto[0].id);
+      setArmazemId(compra.armazem_destino_id);
     }
-  }, [compra, centrosCusto]);
+  }, [compra]);
+
+  // Quando tem armazéns disponíveis e nenhum selecionado, selecionar o primeiro
+  useEffect(() => {
+    if (armazens.length > 0 && !armazemId && !compra?.armazem_destino_id) {
+      setArmazemId(armazens[0].id);
+    }
+  }, [armazens, armazemId, compra?.armazem_destino_id]);
 
   const handleQuantidadeChange = (index: number, value: number) => {
     setItens(prev => prev.map((item, i) => {
@@ -110,14 +108,14 @@ export function RegistrarRecebimentoModal({
   const totalDevolvendo = itens.reduce((sum, i) => sum + i.quantidade_devolvida, 0);
 
   const handleSubmit = async () => {
-    if (!compra || totalRecebendo === 0 || !centroCustoId) return;
+    if (!compra || totalRecebendo === 0 || !armazemId) return;
 
     setIsSubmitting(true);
 
     try {
       await registrarRecebimento.mutateAsync({
         compra_id: compra.id,
-        armazem_id: centroCustoId,
+        armazem_id: armazemId,
         data_recebimento: dataRecebimento,
         observacoes: observacao || undefined,
         itens: itens
@@ -161,11 +159,12 @@ export function RegistrarRecebimentoModal({
               </p>
             </div>
             <div>
-              <Label>Centro de Custo</Label>
-              <CentroCustoSelect
-                value={centroCustoId}
-                onValueChange={setCentroCustoId}
-                placeholder="Selecione o centro de custo"
+              <Label>Armazém Destino</Label>
+              <ArmazemSelect
+                value={armazemId}
+                onValueChange={setArmazemId}
+                empresaId={compra.empresa_id}
+                placeholder="Selecione o armazém"
               />
             </div>
             <div>
@@ -277,7 +276,7 @@ export function RegistrarRecebimentoModal({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || totalRecebendo === 0 || !centroCustoId}>
+          <Button onClick={handleSubmit} disabled={isSubmitting || totalRecebendo === 0 || !armazemId}>
             {isSubmitting ? "Registrando..." : "Confirmar Recebimento"}
           </Button>
         </DialogFooter>
