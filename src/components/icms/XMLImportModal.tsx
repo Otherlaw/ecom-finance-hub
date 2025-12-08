@@ -32,22 +32,19 @@ import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   parseNFeXML,
-  generateCreditsFromNFe,
   formatCurrency,
   NotaFiscalXML,
-  CreditoICMS,
+  TipoCreditoICMS,
+  OrigemCredito,
 } from "@/lib/icms-data";
-import {
-  mockEmpresas,
-  REGIME_TRIBUTARIO_CONFIG,
-  canUseICMSCredit,
-  SIMPLES_NACIONAL_ICMS_WARNING,
-} from "@/lib/empresas-data";
+import { REGIME_TRIBUTARIO_CONFIG, canUseICMSCredit } from "@/lib/empresas-data";
+import { useEmpresas } from "@/hooks/useEmpresas";
+import { CreditoICMSInsert } from "@/hooks/useCreditosICMS";
 
 interface XMLImportModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onImportSuccess: (credits: CreditoICMS[]) => void;
+  onImportSuccess: (credits: CreditoICMSInsert[]) => void;
   existingKeys: string[];
 }
 
@@ -58,29 +55,91 @@ interface ParsedFile {
   isDuplicate?: boolean;
 }
 
+interface PreviewCredit {
+  empresaId: string;
+  tipoCredito: TipoCreditoICMS;
+  origemCredito: OrigemCredito;
+  chaveAcesso: string;
+  numeroNF: string;
+  ncm: string;
+  cfop: string;
+  descricao: string;
+  quantidade: number;
+  valorUnitario: number;
+  valorTotal: number;
+  ufOrigem: string;
+  aliquotaIcms: number;
+  valorIcmsDestacado: number;
+  percentualAproveitamento: number;
+  valorCreditoBruto: number;
+  valorCredito: number;
+  dataCompetencia: string;
+  fornecedorNome: string;
+}
+
 export function XMLImportModal({
   open,
   onOpenChange,
   onImportSuccess,
   existingKeys,
 }: XMLImportModalProps) {
-  const [empresa, setEmpresa] = useState<string>("");
+  const [empresaId, setEmpresaId] = useState<string>("");
   const [parsedFiles, setParsedFiles] = useState<ParsedFile[]>([]);
-  const [previewCredits, setPreviewCredits] = useState<CreditoICMS[]>([]);
+  const [previewCredits, setPreviewCredits] = useState<PreviewCredit[]>([]);
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const empresas = mockEmpresas;
-  const selectedEmpresa = empresas.find(e => e.nome.toUpperCase().includes(empresa.toUpperCase()));
-  const isSimples = selectedEmpresa?.regimeTributario === 'simples_nacional';
-  const canUseCredits = selectedEmpresa ? canUseICMSCredit(selectedEmpresa.regimeTributario) : true;
+  const { empresas, isLoading: empresasLoading } = useEmpresas();
+  
+  const selectedEmpresa = empresas.find(e => e.id === empresaId);
+  const isSimples = selectedEmpresa?.regime_tributario === 'simples_nacional';
+  const canUseCredits = selectedEmpresa ? canUseICMSCredit(selectedEmpresa.regime_tributario as any) : true;
+
+  // Generate credits from NF-e for preview
+  const generatePreviewCredits = (
+    nfe: NotaFiscalXML,
+    empId: string,
+    tipoCredito: TipoCreditoICMS
+  ): PreviewCredit[] => {
+    const credits: PreviewCredit[] = [];
+    const hoje = new Date().toISOString().split("T")[0];
+    const competencia = `${hoje.substring(0, 7)}`;
+
+    nfe.itens.forEach((item) => {
+      if (item.valorIcms > 0) {
+        credits.push({
+          empresaId: empId,
+          tipoCredito,
+          origemCredito: 'compra_mercadoria',
+          chaveAcesso: nfe.chaveAcesso,
+          numeroNF: nfe.numero,
+          ncm: item.ncm,
+          cfop: item.cfop,
+          descricao: item.descricao,
+          quantidade: item.quantidade,
+          valorUnitario: item.valorUnitario,
+          valorTotal: item.valorTotal,
+          ufOrigem: nfe.emitente.uf,
+          aliquotaIcms: item.aliquotaIcms,
+          valorIcmsDestacado: item.valorIcms,
+          percentualAproveitamento: 100,
+          valorCreditoBruto: item.valorIcms,
+          valorCredito: item.valorIcms,
+          dataCompetencia: competencia,
+          fornecedorNome: nfe.emitente.razaoSocial,
+        });
+      }
+    });
+
+    return credits;
+  };
 
   const handleFileSelect = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = event.target.files;
       if (!files || files.length === 0) return;
 
-      if (!empresa) {
+      if (!empresaId) {
         toast.error("Selecione uma empresa antes de importar os arquivos XML.");
         return;
       }
@@ -91,7 +150,6 @@ export function XMLImportModal({
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
 
-        // Validate extension
         if (!file.name.toLowerCase().endsWith(".xml")) {
           results.push({
             fileName: file.name,
@@ -114,7 +172,6 @@ export function XMLImportModal({
             continue;
           }
 
-          // Check for duplicate
           const isDuplicate = existingKeys.includes(nfe.chaveAcesso);
 
           results.push({
@@ -141,8 +198,9 @@ export function XMLImportModal({
         .filter((r) => r.nfe && !r.isDuplicate)
         .map((r) => r.nfe!);
 
+      const tipoCredito: TipoCreditoICMS = isSimples ? 'nao_compensavel' : 'compensavel';
       const credits = validNFes.flatMap((nfe) =>
-        generateCreditsFromNFe(nfe, empresa)
+        generatePreviewCredits(nfe, empresaId, tipoCredito)
       );
       setPreviewCredits(credits);
 
@@ -151,11 +209,9 @@ export function XMLImportModal({
       }
 
       setIsProcessing(false);
-
-      // Reset input
       event.target.value = "";
     },
-    [empresa, existingKeys]
+    [empresaId, existingKeys, isSimples]
   );
 
   const handleConfirmImport = () => {
@@ -164,10 +220,31 @@ export function XMLImportModal({
       return;
     }
 
-    onImportSuccess(previewCredits);
-    toast.success(
-      `Créditos de ICMS importados com sucesso a partir de ${parsedFiles.filter((f) => f.nfe && !f.isDuplicate).length} NF(s).`
-    );
+    // Convert preview credits to insert format
+    const creditsToInsert: CreditoICMSInsert[] = previewCredits.map((c) => ({
+      empresa_id: c.empresaId,
+      tipo_credito: c.tipoCredito,
+      origem_credito: c.origemCredito,
+      chave_acesso: c.chaveAcesso,
+      numero_nf: c.numeroNF,
+      ncm: c.ncm,
+      cfop: c.cfop,
+      descricao: c.descricao,
+      quantidade: c.quantidade,
+      valor_unitario: c.valorUnitario,
+      valor_total: c.valorTotal,
+      uf_origem: c.ufOrigem,
+      aliquota_icms: c.aliquotaIcms,
+      valor_icms_destacado: c.valorIcmsDestacado,
+      percentual_aproveitamento: c.percentualAproveitamento,
+      valor_credito_bruto: c.valorCreditoBruto,
+      valor_ajustes: 0,
+      valor_credito: c.valorCredito,
+      data_competencia: c.dataCompetencia,
+      fornecedor_nome: c.fornecedorNome,
+    }));
+
+    onImportSuccess(creditsToInsert);
     handleClose();
   };
 
@@ -175,7 +252,7 @@ export function XMLImportModal({
     setParsedFiles([]);
     setPreviewCredits([]);
     setStep("upload");
-    setEmpresa("");
+    setEmpresaId("");
     onOpenChange(false);
   };
 
@@ -200,20 +277,22 @@ export function XMLImportModal({
           <div className="space-y-6 py-4">
             <div className="space-y-2">
               <Label htmlFor="empresa">Empresa *</Label>
-              <Select value={empresa} onValueChange={setEmpresa}>
+              <Select value={empresaId} onValueChange={setEmpresaId} disabled={empresasLoading}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione a empresa" />
+                  <SelectValue placeholder={empresasLoading ? "Carregando..." : "Selecione a empresa"} />
                 </SelectTrigger>
                 <SelectContent>
                   {empresas.map((emp) => {
-                    const regime = REGIME_TRIBUTARIO_CONFIG[emp.regimeTributario];
+                    const regime = REGIME_TRIBUTARIO_CONFIG[emp.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG];
                     return (
-                      <SelectItem key={emp.id} value={emp.nome.split(' ')[0].toUpperCase()}>
+                      <SelectItem key={emp.id} value={emp.id}>
                         <div className="flex items-center gap-2">
-                          <Badge variant="outline" className={`${regime.bgColor} ${regime.color} border text-xs`}>
-                            {regime.shortLabel}
-                          </Badge>
-                          {emp.nome}
+                          {regime && (
+                            <Badge variant="outline" className={`${regime.bgColor} ${regime.color} border text-xs`}>
+                              {regime.shortLabel}
+                            </Badge>
+                          )}
+                          {emp.razao_social}
                         </div>
                       </SelectItem>
                     );
@@ -233,7 +312,7 @@ export function XMLImportModal({
 
             <div
               className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-                empresa
+                empresaId
                   ? "border-primary/50 hover:border-primary cursor-pointer"
                   : "border-muted cursor-not-allowed opacity-50"
               }`}
@@ -245,11 +324,11 @@ export function XMLImportModal({
                 onChange={handleFileSelect}
                 className="hidden"
                 id="xml-upload"
-                disabled={!empresa || isProcessing}
+                disabled={!empresaId || isProcessing}
               />
               <label
                 htmlFor="xml-upload"
-                className={empresa ? "cursor-pointer" : "cursor-not-allowed"}
+                className={empresaId ? "cursor-pointer" : "cursor-not-allowed"}
               >
                 <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-lg font-medium">
