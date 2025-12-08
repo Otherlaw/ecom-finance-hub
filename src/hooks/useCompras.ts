@@ -10,6 +10,8 @@ import { toast } from "sonner";
 
 export type StatusCompra = 'rascunho' | 'confirmado' | 'em_transito' | 'parcial' | 'concluido' | 'cancelado';
 
+export const STATUS_LIST: StatusCompra[] = ['rascunho', 'confirmado', 'em_transito', 'parcial', 'concluido', 'cancelado'];
+
 export const STATUS_COMPRA_LABELS: Record<StatusCompra, { label: string; color: string }> = {
   rascunho: { label: "Rascunho", color: "bg-gray-100 text-gray-800" },
   confirmado: { label: "Confirmado", color: "bg-blue-100 text-blue-800" },
@@ -271,6 +273,7 @@ export function useCompras(params: UseComprasParams = {}) {
     total: compras.length,
     rascunho: compras.filter(c => c.status === 'rascunho').length,
     confirmado: compras.filter(c => c.status === 'confirmado').length,
+    em_transito: compras.filter(c => c.status === 'em_transito').length,
     parcial: compras.filter(c => c.status === 'parcial').length,
     concluido: compras.filter(c => c.status === 'concluido').length,
     cancelado: compras.filter(c => c.status === 'cancelado').length,

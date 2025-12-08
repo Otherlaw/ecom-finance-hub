@@ -1920,6 +1920,7 @@ export type Database = {
           fornecedor_id: string | null
           fornecedor_nome: string | null
           id: string
+          imagem_url: string | null
           kit_componentes: Json | null
           largura_cm: number | null
           marca: string | null
@@ -1950,6 +1951,7 @@ export type Database = {
           fornecedor_id?: string | null
           fornecedor_nome?: string | null
           id?: string
+          imagem_url?: string | null
           kit_componentes?: Json | null
           largura_cm?: number | null
           marca?: string | null
@@ -1980,6 +1982,7 @@ export type Database = {
           fornecedor_id?: string | null
           fornecedor_nome?: string | null
           id?: string
+          imagem_url?: string | null
           kit_componentes?: Json | null
           largura_cm?: number | null
           marca?: string | null

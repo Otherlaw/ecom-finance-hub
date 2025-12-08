@@ -27,11 +27,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Trash2, ShoppingCart } from "lucide-react";
+import { Plus, Trash2, ShoppingCart, ImageOff } from "lucide-react";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useFornecedores } from "@/hooks/useFornecedores";
-import { useProdutos } from "@/hooks/useProdutos";
+import { useProdutos, Produto } from "@/hooks/useProdutos";
+import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { useCompras } from "@/hooks/useCompras";
+import { HistoricoComprasProduto } from "./HistoricoComprasProduto";
+import { CentroCustoSelect } from "@/components/CentroCustoSelect";
 import { format } from "date-fns";
 
 interface CompraManualFormModalProps {
@@ -43,6 +46,7 @@ interface CompraManualFormModalProps {
 interface ItemCompra {
   id: string;
   produto_id: string | null;
+  produto?: Produto | null;
   descricao_nf: string;
   quantidade: number;
   valor_unitario: number;
@@ -56,7 +60,7 @@ export function CompraManualFormModal({
 }: CompraManualFormModalProps) {
   const { empresas = [] } = useEmpresas();
   const { fornecedores = [] } = useFornecedores();
-  const { produtos = [] } = useProdutos();
+  const { produtos = [] } = useProdutos({ apenasRaiz: false });
   const { criarCompra } = useCompras();
 
   const [empresaId, setEmpresaId] = useState("");
@@ -66,7 +70,9 @@ export function CompraManualFormModal({
   const [dataPrevisao, setDataPrevisao] = useState("");
   const [valorFrete, setValorFrete] = useState("");
   const [observacoes, setObservacoes] = useState("");
+  const [centroCustoId, setCentroCustoId] = useState<string | null>(null);
   const [itens, setItens] = useState<ItemCompra[]>([]);
+  const [selectedItemForHistory, setSelectedItemForHistory] = useState<string | null>(null);
 
   // Reset form when modal opens
   useEffect(() => {
@@ -78,7 +84,9 @@ export function CompraManualFormModal({
       setDataPrevisao("");
       setValorFrete("");
       setObservacoes("");
+      setCentroCustoId(null);
       setItens([]);
+      setSelectedItemForHistory(null);
     }
   }, [open, empresas]);
 
@@ -96,6 +104,7 @@ export function CompraManualFormModal({
     const newItem: ItemCompra = {
       id: crypto.randomUUID(),
       produto_id: null,
+      produto: null,
       descricao_nf: "",
       quantidade: 1,
       valor_unitario: 0,
@@ -106,6 +115,9 @@ export function CompraManualFormModal({
 
   const handleRemoveItem = (id: string) => {
     setItens(itens.filter((i) => i.id !== id));
+    if (selectedItemForHistory === id) {
+      setSelectedItemForHistory(null);
+    }
   };
 
   const handleItemChange = (
@@ -119,11 +131,15 @@ export function CompraManualFormModal({
 
         const updated = { ...item, [field]: value };
 
-        // Se mudou produto, atualizar descrição
+        // Se mudou produto, atualizar descrição e produto referência
         if (field === "produto_id" && value) {
           const produto = produtos.find((p) => p.id === value);
           if (produto) {
             updated.descricao_nf = produto.nome;
+            updated.produto = produto;
+            updated.valor_unitario = produto.custo_medio || 0;
+            updated.valor_total = updated.quantidade * updated.valor_unitario;
+            setSelectedItemForHistory(value as string);
           }
         }
 
@@ -194,7 +210,7 @@ export function CompraManualFormModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh]">
+      <DialogContent className="max-w-5xl max-h-[90vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShoppingCart className="h-5 w-5" />
@@ -242,7 +258,7 @@ export function CompraManualFormModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="fornecedorNome">Nome do Fornecedor *</Label>
                 <Input
@@ -272,6 +288,16 @@ export function CompraManualFormModal({
                   onChange={(e) => setDataPrevisao(e.target.value)}
                 />
               </div>
+
+              <div className="space-y-2">
+                <Label>Centro de Custo</Label>
+                <CentroCustoSelect
+                  value={centroCustoId || ""}
+                  onValueChange={(value) => setCentroCustoId(value || null)}
+                  placeholder="Selecione..."
+                  showOnlyActive
+                />
+              </div>
             </div>
 
             {/* Itens da Compra */}
@@ -289,97 +315,120 @@ export function CompraManualFormModal({
                   Clique em "Adicionar Item" para incluir produtos na compra.
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[200px]">Produto</TableHead>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead className="w-[100px] text-right">Qtd</TableHead>
-                      <TableHead className="w-[120px] text-right">Valor Unit.</TableHead>
-                      <TableHead className="w-[120px] text-right">Total</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {itens.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          <Select
-                            value={item.produto_id || ""}
-                            onValueChange={(v) =>
-                              handleItemChange(item.id, "produto_id", v || null)
-                            }
-                          >
-                            <SelectTrigger className="h-8">
-                              <SelectValue placeholder="Vincular..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {produtos.map((p) => (
-                                <SelectItem key={p.id} value={p.id}>
-                                  <span className="font-mono text-xs mr-1">
-                                    {p.sku}
-                                  </span>
-                                  {p.nome.substring(0, 20)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            className="h-8"
-                            value={item.descricao_nf}
-                            onChange={(e) =>
-                              handleItemChange(item.id, "descricao_nf", e.target.value)
-                            }
-                            placeholder="Descrição do item"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            className="h-8 text-right"
-                            type="number"
-                            min="1"
-                            value={item.quantidade}
-                            onChange={(e) =>
-                              handleItemChange(item.id, "quantidade", Number(e.target.value))
-                            }
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            className="h-8 text-right"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.valor_unitario}
-                            onChange={(e) =>
-                              handleItemChange(
-                                item.id,
-                                "valor_unitario",
-                                Number(e.target.value)
-                              )
-                            }
-                          />
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {formatCurrency(item.valor_total)}
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => handleRemoveItem(item.id)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <div className="space-y-3">
+                  {itens.map((item) => (
+                    <div key={item.id} className="border rounded-lg p-4 space-y-3">
+                      <div className="flex gap-4">
+                        {/* Imagem do Produto */}
+                        <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+                          {item.produto?.imagem_url ? (
+                            <img 
+                              src={item.produto.imagem_url} 
+                              alt={item.produto.nome} 
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <ImageOff className="h-6 w-6 text-muted-foreground" />
+                          )}
+                        </div>
+
+                        {/* Campos do Item */}
+                        <div className="flex-1 grid grid-cols-5 gap-3">
+                          <div className="col-span-2">
+                            <Label className="text-xs">Produto</Label>
+                            <Select
+                              value={item.produto_id || ""}
+                              onValueChange={(v) =>
+                                handleItemChange(item.id, "produto_id", v || null)
+                              }
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue placeholder="Vincular produto..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {produtos.map((p) => (
+                                  <SelectItem key={p.id} value={p.id}>
+                                    <span className="font-mono text-xs mr-1">
+                                      {p.sku}
+                                    </span>
+                                    {p.nome.substring(0, 30)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div>
+                            <Label className="text-xs">Quantidade</Label>
+                            <Input
+                              className="h-9"
+                              type="number"
+                              min="1"
+                              value={item.quantidade}
+                              onChange={(e) =>
+                                handleItemChange(item.id, "quantidade", Number(e.target.value))
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <Label className="text-xs">Valor Unit.</Label>
+                            <Input
+                              className="h-9"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.valor_unitario}
+                              onChange={(e) =>
+                                handleItemChange(
+                                  item.id,
+                                  "valor_unitario",
+                                  Number(e.target.value)
+                                )
+                              }
+                            />
+                          </div>
+
+                          <div className="flex items-end gap-2">
+                            <div className="flex-1">
+                              <Label className="text-xs">Total</Label>
+                              <div className="h-9 px-3 py-2 rounded-md border bg-muted flex items-center font-medium text-sm">
+                                {formatCurrency(item.valor_total)}
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-9 w-9"
+                              onClick={() => handleRemoveItem(item.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Descrição */}
+                      <div>
+                        <Label className="text-xs">Descrição</Label>
+                        <Input
+                          className="h-8"
+                          value={item.descricao_nf}
+                          onChange={(e) =>
+                            handleItemChange(item.id, "descricao_nf", e.target.value)
+                          }
+                          placeholder="Descrição do item"
+                        />
+                      </div>
+
+                      {/* Histórico de Compras */}
+                      {item.produto_id && (
+                        <HistoricoComprasProduto produtoId={item.produto_id} />
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 

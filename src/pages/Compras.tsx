@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, FileText, Package, BarChart3, CheckCircle2, Upload } from "lucide-react";
+import { Plus, Search, FileText, Package, BarChart3, CheckCircle2, Upload, ChevronRight, ShoppingCart, Truck, Clock, XCircle, LayoutList } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,21 +8,24 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { RegistrarRecebimentoModal } from "@/components/purchases/RegistrarRecebimentoModal";
 import { ImportarNFeXMLModal } from "@/components/purchases/ImportarNFeXMLModal";
 import { CompraManualFormModal } from "@/components/purchases/CompraManualFormModal";
+import { CompraItensGrid } from "@/components/purchases/CompraItensGrid";
 import { useToast } from "@/hooks/use-toast";
-import { useCompras, Compra } from "@/hooks/useCompras";
+import { useCompras, Compra, StatusCompra } from "@/hooks/useCompras";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
-const STATUS_COMPRA: Record<string, { label: string; color: string }> = {
-  rascunho: { label: "Rascunho", color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200" },
-  confirmada: { label: "Confirmada", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
-  em_transito: { label: "Em Trânsito", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
-  parcial: { label: "Parcial", color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" },
-  concluido: { label: "Concluído", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
-  cancelada: { label: "Cancelada", color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" },
+const STATUS_COMPRA: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  rascunho: { label: "Rascunho", color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200", icon: Clock },
+  confirmado: { label: "Confirmado", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", icon: CheckCircle2 },
+  em_transito: { label: "Em Trânsito", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200", icon: Truck },
+  parcial: { label: "Parcial", color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", icon: Package },
+  concluido: { label: "Concluído", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", icon: CheckCircle2 },
+  cancelado: { label: "Cancelado", color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200", icon: XCircle },
 };
 
 const formatCurrency = (value: number) => {
@@ -37,17 +40,28 @@ const formatDate = (date: string) => {
   }
 };
 
+const STATUS_TABS: { key: string; label: string; icon: React.ElementType }[] = [
+  { key: "todos", label: "Todas", icon: LayoutList },
+  { key: "rascunho", label: "Rascunho", icon: Clock },
+  { key: "confirmado", label: "Confirmado", icon: ShoppingCart },
+  { key: "em_transito", label: "Em Trânsito", icon: Truck },
+  { key: "parcial", label: "Parcial", icon: Package },
+  { key: "concluido", label: "Concluído", icon: CheckCircle2 },
+  { key: "cancelado", label: "Cancelado", icon: XCircle },
+];
+
 export default function Compras() {
   const { toast } = useToast();
   const { empresas = [] } = useEmpresas();
   const [empresaFilter, setEmpresaFilter] = useState<string>("todos");
+  const [statusFilter, setStatusFilter] = useState<string>("todos");
+  const [expandedCompra, setExpandedCompra] = useState<string | null>(null);
   
-  const { compras = [], isLoading, refetch, atualizarStatus } = useCompras({
+  const { compras = [], isLoading, refetch, atualizarStatus, resumo } = useCompras({
     empresaId: empresaFilter !== "todos" ? empresaFilter : undefined,
   });
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("todos");
 
   const [recebimentoModalOpen, setRecebimentoModalOpen] = useState(false);
   const [recebimentoPurchase, setRecebimentoPurchase] = useState<Compra | null>(null);
@@ -88,7 +102,7 @@ export default function Compras() {
 
   const handleStatusChange = async (compraId: string, novoStatus: string) => {
     try {
-      await atualizarStatus.mutateAsync({ id: compraId, status: novoStatus as any });
+      await atualizarStatus.mutateAsync({ id: compraId, status: novoStatus as StatusCompra });
       toast({ title: "Status atualizado", description: `Compra alterada para ${STATUS_COMPRA[novoStatus]?.label}` });
     } catch (err) {
       toast({ title: "Erro", description: "Não foi possível atualizar o status", variant: "destructive" });
@@ -98,6 +112,11 @@ export default function Compras() {
   const handleRecebimentoSuccess = () => {
     refetch();
     toast({ title: "Recebimento registrado", description: "Estoque atualizado com sucesso!" });
+  };
+
+  const getStatusCount = (status: string) => {
+    if (status === "todos") return compras.length;
+    return compras.filter(c => c.status === status).length;
   };
 
   return (
@@ -137,13 +156,13 @@ export default function Compras() {
             </Card>
             <Card>
               <CardContent className="pt-6">
-                <div className="text-2xl font-bold text-success">{summary.comprasConcluidas}</div>
+                <div className="text-2xl font-bold text-green-600">{summary.comprasConcluidas}</div>
                 <div className="text-sm text-muted-foreground">Concluídas</div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-6">
-                <div className="text-2xl font-bold text-warning">{summary.itensNaoMapeados}</div>
+                <div className="text-2xl font-bold text-orange-500">{summary.itensNaoMapeados}</div>
                 <div className="text-sm text-muted-foreground">Itens Não Mapeados</div>
               </CardContent>
             </Card>
@@ -156,132 +175,154 @@ export default function Compras() {
             </TabsList>
 
             <TabsContent value="compras" className="mt-4">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-4">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input 
-                        placeholder="Buscar por fornecedor ou NF..." 
-                        value={searchTerm} 
-                        onChange={(e) => setSearchTerm(e.target.value)} 
-                        className="pl-9" 
-                      />
+              <div className="flex gap-6">
+                {/* Sidebar de Status */}
+                <div className="w-56 shrink-0 space-y-1">
+                  {STATUS_TABS.map((tab) => {
+                    const IconComponent = tab.icon;
+                    const isActive = statusFilter === tab.key;
+                    const count = getStatusCount(tab.key);
+                    return (
+                      <button
+                        key={tab.key}
+                        onClick={() => setStatusFilter(tab.key)}
+                        className={cn(
+                          "w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors text-left",
+                          isActive 
+                            ? "bg-primary text-primary-foreground" 
+                            : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <IconComponent className="h-4 w-4" />
+                          <span className="text-sm font-medium">{tab.label}</span>
+                        </div>
+                        <Badge 
+                          variant={isActive ? "secondary" : "outline"} 
+                          className={cn("min-w-[28px] justify-center", isActive && "bg-primary-foreground/20 text-primary-foreground")}
+                        >
+                          {count}
+                        </Badge>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Conteúdo Principal */}
+                <Card className="flex-1">
+                  <CardHeader>
+                    <div className="flex items-center gap-4">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input 
+                          placeholder="Buscar por fornecedor ou NF..." 
+                          value={searchTerm} 
+                          onChange={(e) => setSearchTerm(e.target.value)} 
+                          className="pl-9" 
+                        />
+                      </div>
+                      <Select value={empresaFilter} onValueChange={setEmpresaFilter}>
+                        <SelectTrigger className="w-48">
+                          <SelectValue placeholder="Empresa" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Todas as empresas</SelectItem>
+                          {empresas.map((e) => (
+                            <SelectItem key={e.id} value={e.id}>
+                              {e.nome_fantasia || e.razao_social}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <Select value={empresaFilter} onValueChange={setEmpresaFilter}>
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="Empresa" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todos">Todas as empresas</SelectItem>
-                        {empresas.map((e) => (
-                          <SelectItem key={e.id} value={e.id}>
-                            {e.nome_fantasia || e.razao_social}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="w-40">
-                        <SelectValue placeholder="Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todos">Todos</SelectItem>
-                        <SelectItem value="rascunho">Rascunho</SelectItem>
-                        <SelectItem value="confirmada">Confirmada</SelectItem>
-                        <SelectItem value="em_transito">Em Trânsito</SelectItem>
-                        <SelectItem value="parcial">Parcial</SelectItem>
-                        <SelectItem value="concluido">Concluído</SelectItem>
-                        <SelectItem value="cancelada">Cancelada</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {isLoading ? (
-                    <div className="text-center py-8 text-muted-foreground">Carregando compras...</div>
-                  ) : filteredPurchases.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      Nenhuma compra encontrada. As compras serão criadas automaticamente ao importar NF-e.
-                    </div>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Data</TableHead>
-                          <TableHead>NF</TableHead>
-                          <TableHead>Fornecedor</TableHead>
-                          <TableHead className="text-center">Itens</TableHead>
-                          <TableHead className="text-right">Valor Total</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoading ? (
+                      <div className="text-center py-8 text-muted-foreground">Carregando compras...</div>
+                    ) : filteredPurchases.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        Nenhuma compra encontrada. As compras serão criadas automaticamente ao importar NF-e.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
                         {filteredPurchases.map((purchase) => {
                           const unmapped = purchase.itens?.filter((i) => !i.mapeado).length || 0;
                           const statusInfo = STATUS_COMPRA[purchase.status] || STATUS_COMPRA.rascunho;
                           const podeReceber = purchase.status !== 'concluido' && purchase.status !== 'cancelado';
+                          const isExpanded = expandedCompra === purchase.id;
                           
                           return (
-                            <TableRow key={purchase.id}>
-                              <TableCell>{formatDate(purchase.data_pedido)}</TableCell>
-                              <TableCell className="font-mono">{purchase.numero_nf || "-"}</TableCell>
-                              <TableCell className="max-w-48 truncate">{purchase.fornecedor_nome}</TableCell>
-                              <TableCell className="text-center">
-                                {purchase.itens?.length || 0}
-                                {unmapped > 0 && (
-                                  <Badge variant="outline" className="ml-2 bg-warning/10 text-warning">
-                                    {unmapped} s/ vínculo
-                                  </Badge>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-right font-medium">
-                                {formatCurrency(purchase.valor_total)}
-                              </TableCell>
-                              <TableCell>
-                                <Select 
-                                  value={purchase.status} 
-                                  onValueChange={(value) => handleStatusChange(purchase.id, value)}
-                                >
-                                  <SelectTrigger className="w-32 h-8">
-                                    <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="rascunho">Rascunho</SelectItem>
-                                    <SelectItem value="confirmada">Confirmada</SelectItem>
-                                    <SelectItem value="em_transito">Em Trânsito</SelectItem>
-                                    <SelectItem value="parcial">Parcial</SelectItem>
-                                    <SelectItem value="concluido">Concluído</SelectItem>
-                                    <SelectItem value="cancelada">Cancelada</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex justify-end gap-1">
-                                  {podeReceber && (
-                                    <Button 
-                                      variant="ghost" 
-                                      size="icon" 
-                                      onClick={() => handleOpenRecebimento(purchase)} 
-                                      title="Registrar recebimento"
-                                    >
-                                      <Package className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                  {purchase.status === 'concluido' && (
-                                    <CheckCircle2 className="h-4 w-4 text-success ml-2" />
-                                  )}
-                                </div>
-                              </TableCell>
-                            </TableRow>
+                            <Collapsible 
+                              key={purchase.id} 
+                              open={isExpanded}
+                              onOpenChange={(open) => setExpandedCompra(open ? purchase.id : null)}
+                            >
+                              <div className="border rounded-lg">
+                                <CollapsibleTrigger asChild>
+                                  <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                                    <div className="flex items-center gap-4">
+                                      <ChevronRight className={cn("h-4 w-4 transition-transform", isExpanded && "rotate-90")} />
+                                      <div>
+                                        <div className="font-medium">{purchase.fornecedor_nome}</div>
+                                        <div className="text-sm text-muted-foreground flex gap-3">
+                                          <span>{formatDate(purchase.data_pedido)}</span>
+                                          {purchase.numero_nf && <span className="font-mono">NF: {purchase.numero_nf}</span>}
+                                          <span>{purchase.itens?.length || 0} itens</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                      {unmapped > 0 && (
+                                        <Badge variant="outline" className="bg-warning/10 text-warning">
+                                          {unmapped} s/ vínculo
+                                        </Badge>
+                                      )}
+                                      <div className="text-right">
+                                        <div className="font-bold">{formatCurrency(purchase.valor_total)}</div>
+                                      </div>
+                                      <Select 
+                                        value={purchase.status} 
+                                        onValueChange={(value) => handleStatusChange(purchase.id, value)}
+                                      >
+                                        <SelectTrigger className="w-36 h-8" onClick={(e) => e.stopPropagation()}>
+                                          <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="rascunho">Rascunho</SelectItem>
+                                          <SelectItem value="confirmado">Confirmado</SelectItem>
+                                          <SelectItem value="em_transito">Em Trânsito</SelectItem>
+                                          <SelectItem value="parcial">Parcial</SelectItem>
+                                          <SelectItem value="concluido">Concluído</SelectItem>
+                                          <SelectItem value="cancelado">Cancelado</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      {podeReceber && (
+                                        <Button 
+                                          variant="outline" 
+                                          size="sm"
+                                          onClick={(e) => { e.stopPropagation(); handleOpenRecebimento(purchase); }} 
+                                        >
+                                          <Package className="h-4 w-4 mr-2" />
+                                          Receber
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent>
+                                  <div className="border-t p-4 bg-muted/30">
+                                    <CompraItensGrid itens={purchase.itens || []} />
+                                  </div>
+                                </CollapsibleContent>
+                              </div>
+                            </Collapsible>
                           );
                         })}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
             <TabsContent value="curva-abc" className="mt-4">

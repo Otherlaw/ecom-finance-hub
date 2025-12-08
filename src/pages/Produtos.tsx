@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Search, Eye, Edit, Package, Upload, Trash2, Layers, Box, ArrowRight } from "lucide-react";
+import { Plus, Search, Eye, Edit, Package, Upload, Trash2, Layers, Box, ArrowRight, ImageOff } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -257,6 +257,7 @@ export default function Produtos() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12">Img</TableHead>
                       <TableHead>SKU</TableHead>
                       <TableHead>Produto</TableHead>
                       <TableHead>Tipo</TableHead>
@@ -270,13 +271,22 @@ export default function Produtos() {
                   <TableBody>
                     {filteredProducts.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                           Nenhum produto encontrado
                         </TableCell>
                       </TableRow>
                     ) : (
                       filteredProducts.map((product) => (
                         <TableRow key={product.id}>
+                          <TableCell>
+                            <div className="w-10 h-10 rounded bg-muted flex items-center justify-center overflow-hidden">
+                              {product.imagem_url ? (
+                                <img src={product.imagem_url} alt={product.nome} className="w-full h-full object-cover" />
+                              ) : (
+                                <ImageOff className="h-4 w-4 text-muted-foreground" />
+                              )}
+                            </div>
+                          </TableCell>
                           <TableCell className="font-mono text-sm">{product.sku}</TableCell>
                           <TableCell>
                             <div className="font-medium max-w-64 truncate">{product.nome}</div>
