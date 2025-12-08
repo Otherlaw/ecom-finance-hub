@@ -29,7 +29,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Package, CheckCircle2 } from "lucide-react";
 import { Compra, CompraItem, useRecebimentos } from "@/hooks/useCompras";
-import { useArmazens } from "@/hooks/useArmazens";
+import { useCentrosCusto } from "@/hooks/useCentrosCusto";
+import { CentroCustoSelect } from "@/components/CentroCustoSelect";
 import { format } from "date-fns";
 
 interface RegistrarRecebimentoModalProps {
@@ -58,9 +59,9 @@ export function RegistrarRecebimentoModal({
   onSuccess,
 }: RegistrarRecebimentoModalProps) {
   const { registrarRecebimento } = useRecebimentos(compra?.id || null);
-  const { armazens } = useArmazens({ empresaId: compra?.empresa_id });
+  const { centrosFlat: centrosCusto } = useCentrosCusto();
   
-  const [armazemId, setArmazemId] = useState("");
+  const [centroCustoId, setCentroCustoId] = useState<string | null>(null);
   const [dataRecebimento, setDataRecebimento] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [observacao, setObservacao] = useState("");
   const [itens, setItens] = useState<ItemRecebimento[]>([]);
@@ -81,13 +82,13 @@ export function RegistrarRecebimentoModal({
       })));
     }
     
-    // Default armazém
+    // Default centro de custo
     if (compra?.armazem_destino_id) {
-      setArmazemId(compra.armazem_destino_id);
-    } else if (armazens.length > 0 && !armazemId) {
-      setArmazemId(armazens[0].id);
+      setCentroCustoId(compra.armazem_destino_id);
+    } else if (centrosCusto.length > 0 && !centroCustoId) {
+      setCentroCustoId(centrosCusto[0].id);
     }
-  }, [compra, armazens]);
+  }, [compra, centrosCusto]);
 
   const handleQuantidadeChange = (index: number, value: number) => {
     setItens(prev => prev.map((item, i) => {
@@ -109,14 +110,14 @@ export function RegistrarRecebimentoModal({
   const totalDevolvendo = itens.reduce((sum, i) => sum + i.quantidade_devolvida, 0);
 
   const handleSubmit = async () => {
-    if (!compra || totalRecebendo === 0 || !armazemId) return;
+    if (!compra || totalRecebendo === 0 || !centroCustoId) return;
 
     setIsSubmitting(true);
 
     try {
       await registrarRecebimento.mutateAsync({
         compra_id: compra.id,
-        armazem_id: armazemId,
+        armazem_id: centroCustoId,
         data_recebimento: dataRecebimento,
         observacoes: observacao || undefined,
         itens: itens
@@ -160,19 +161,12 @@ export function RegistrarRecebimentoModal({
               </p>
             </div>
             <div>
-              <Label>Armazém de Destino</Label>
-              <Select value={armazemId} onValueChange={setArmazemId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o armazém" />
-                </SelectTrigger>
-                <SelectContent>
-                  {armazens.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.nome} ({a.codigo})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Centro de Custo</Label>
+              <CentroCustoSelect
+                value={centroCustoId}
+                onValueChange={setCentroCustoId}
+                placeholder="Selecione o centro de custo"
+              />
             </div>
             <div>
               <Label>Data do Recebimento</Label>
@@ -283,7 +277,7 @@ export function RegistrarRecebimentoModal({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || totalRecebendo === 0 || !armazemId}>
+          <Button onClick={handleSubmit} disabled={isSubmitting || totalRecebendo === 0 || !centroCustoId}>
             {isSubmitting ? "Registrando..." : "Confirmar Recebimento"}
           </Button>
         </DialogFooter>

@@ -171,7 +171,7 @@ export function ImportarNFeXMLModal({
           numero_nf: nfe.numero,
           chave_acesso: nfe.chaveAcesso,
           valor_total: nfe.valorTotal,
-          status: 'confirmado',
+          status: 'pago',
           itens,
         });
       }
