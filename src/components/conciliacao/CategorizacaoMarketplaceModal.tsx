@@ -154,7 +154,7 @@ export function CategorizacaoMarketplaceModal({
     return num;
   };
 
-  const isLoading = atualizarTransacao.isPending || conciliarTransacao.isPending || ignorarTransacao.isPending || reabrirTransacao.isPending || adicionarItem.isPending || removerItem.isPending;
+  const isLoading = atualizarTransacao.isPending || conciliarTransacao.isPending || ignorarTransacao.isPending || reabrirTransacao.isPending;
 
   const getUpdatePayload = () => ({
     id: transaction.id,
