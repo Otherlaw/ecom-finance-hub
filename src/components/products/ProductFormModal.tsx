@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { X, Plus, Trash2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { X, Plus, Trash2, Check, ChevronsUpDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import {
   Product,
@@ -64,6 +70,22 @@ export function ProductFormModal({
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [newChannel, setNewChannel] = useState({ channel: "", sku: "", anuncioId: "" });
+  const [fornecedorOpen, setFornecedorOpen] = useState(false);
+  const [fornecedorSearch, setFornecedorSearch] = useState("");
+
+  const fornecedoresAtivos = useMemo(() => {
+    return mockFornecedores.filter(f => f.status === 'ativo');
+  }, []);
+
+  const fornecedoresFiltrados = useMemo(() => {
+    if (!fornecedorSearch.trim()) return fornecedoresAtivos;
+    const searchLower = fornecedorSearch.toLowerCase();
+    return fornecedoresAtivos.filter(f => 
+      f.razaoSocial.toLowerCase().includes(searchLower) ||
+      (f.nomeFantasia && f.nomeFantasia.toLowerCase().includes(searchLower)) ||
+      (f.cnpj && f.cnpj.includes(fornecedorSearch))
+    );
+  }, [fornecedoresAtivos, fornecedorSearch]);
 
   useEffect(() => {
     if (product) {
@@ -336,22 +358,81 @@ export function ProductFormModal({
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="fornecedor">Fornecedor Principal</Label>
-              <Select
-                value={formData.fornecedorPrincipalNome || ""}
-                onValueChange={(value) => handleChange("fornecedorPrincipalNome", value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione um fornecedor" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Nenhum</SelectItem>
-                  {mockFornecedores.filter(f => f.status === 'ativo').map((fornecedor) => (
-                    <SelectItem key={fornecedor.id} value={fornecedor.razaoSocial}>
-                      {fornecedor.nomeFantasia || fornecedor.razaoSocial}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={fornecedorOpen} onOpenChange={setFornecedorOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={fornecedorOpen}
+                    className="w-full justify-between font-normal"
+                  >
+                    {formData.fornecedorPrincipalNome || "Selecione um fornecedor"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-0" align="start">
+                  <div className="flex items-center border-b px-3">
+                    <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                    <Input
+                      placeholder="Buscar fornecedor..."
+                      value={fornecedorSearch}
+                      onChange={(e) => setFornecedorSearch(e.target.value)}
+                      className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                    />
+                  </div>
+                  <div className="max-h-[200px] overflow-y-auto p-1">
+                    <div
+                      className={cn(
+                        "flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent",
+                        !formData.fornecedorPrincipalNome && "bg-accent"
+                      )}
+                      onClick={() => {
+                        handleChange("fornecedorPrincipalNome", "");
+                        setFornecedorOpen(false);
+                        setFornecedorSearch("");
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          !formData.fornecedorPrincipalNome ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      Nenhum
+                    </div>
+                    {fornecedoresFiltrados.length === 0 ? (
+                      <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                        Nenhum fornecedor encontrado
+                      </div>
+                    ) : (
+                      fornecedoresFiltrados.map((fornecedor) => (
+                        <div
+                          key={fornecedor.id}
+                          className={cn(
+                            "flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent",
+                            formData.fornecedorPrincipalNome === fornecedor.razaoSocial && "bg-accent"
+                          )}
+                          onClick={() => {
+                            handleChange("fornecedorPrincipalNome", fornecedor.razaoSocial);
+                            setFornecedorOpen(false);
+                            setFornecedorSearch("");
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              formData.fornecedorPrincipalNome === fornecedor.razaoSocial ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          <span className="truncate">
+                            {fornecedor.nomeFantasia || fornecedor.razaoSocial}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
 
             <div className="space-y-2">
