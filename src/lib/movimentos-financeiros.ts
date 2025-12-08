@@ -51,32 +51,103 @@ export async function registrarMovimentoFinanceiro(dados: DadosMovimentoFinancei
     throw new Error("Campo empresaId é obrigatório");
   }
 
-  // Chama a função do banco (usa upsert)
-  const { data, error } = await supabase.rpc("registrar_movimento_financeiro", {
-    p_data: dados.data,
-    p_tipo: dados.tipo,
-    p_origem: dados.origem,
-    p_descricao: dados.descricao,
-    p_valor: dados.valor,
-    p_empresa_id: dados.empresaId,
-    p_referencia_id: dados.referenciaId || null,
-    p_categoria_id: dados.categoriaId || null,
-    p_categoria_nome: dados.categoriaNome || null,
-    p_centro_custo_id: dados.centroCustoId || null,
-    p_centro_custo_nome: dados.centroCustoNome || null,
-    p_responsavel_id: dados.responsavelId || null,
-    p_forma_pagamento: dados.formaPagamento || null,
-    p_cliente_nome: dados.clienteNome || null,
-    p_fornecedor_nome: dados.fornecedorNome || null,
-    p_observacoes: dados.observacoes || null,
-  });
+  // Tenta usar a função RPC primeiro, com fallback para inserção direta
+  try {
+    const { data, error } = await supabase.rpc("registrar_movimento_financeiro", {
+      p_data: dados.data,
+      p_tipo: dados.tipo,
+      p_origem: dados.origem,
+      p_descricao: dados.descricao,
+      p_valor: dados.valor,
+      p_empresa_id: dados.empresaId,
+      p_referencia_id: dados.referenciaId || null,
+      p_categoria_id: dados.categoriaId || null,
+      p_categoria_nome: dados.categoriaNome || null,
+      p_centro_custo_id: dados.centroCustoId || null,
+      p_centro_custo_nome: dados.centroCustoNome || null,
+      p_responsavel_id: dados.responsavelId || null,
+      p_forma_pagamento: dados.formaPagamento || null,
+      p_cliente_nome: dados.clienteNome || null,
+      p_fornecedor_nome: dados.fornecedorNome || null,
+      p_observacoes: dados.observacoes || null,
+    });
 
-  if (error) {
-    console.error("Erro ao registrar movimento financeiro:", error);
-    throw new Error(`Erro ao registrar movimento: ${error.message}`);
+    if (error) {
+      throw error;
+    }
+
+    return data as string;
+  } catch (rpcError: any) {
+    console.warn("RPC falhou, usando inserção direta:", rpcError.message);
+    
+    // Fallback: inserção direta com upsert
+    return await inserirMovimentoDireto(dados);
+  }
+}
+
+/**
+ * Insere/atualiza movimento diretamente na tabela (fallback quando RPC falha)
+ */
+async function inserirMovimentoDireto(dados: DadosMovimentoFinanceiro): Promise<string> {
+  const movimentoData = {
+    data: dados.data,
+    tipo: dados.tipo,
+    origem: dados.origem,
+    descricao: dados.descricao,
+    valor: dados.valor,
+    empresa_id: dados.empresaId,
+    referencia_id: dados.referenciaId || null,
+    categoria_id: dados.categoriaId || null,
+    categoria_nome: dados.categoriaNome || null,
+    centro_custo_id: dados.centroCustoId || null,
+    centro_custo_nome: dados.centroCustoNome || null,
+    responsavel_id: dados.responsavelId || null,
+    forma_pagamento: dados.formaPagamento || null,
+    cliente_nome: dados.clienteNome || null,
+    fornecedor_nome: dados.fornecedorNome || null,
+    observacoes: dados.observacoes || null,
+  };
+
+  // Se tem referencia_id, tenta upsert
+  if (dados.referenciaId) {
+    // Primeiro verifica se já existe
+    const { data: existente } = await supabase
+      .from("movimentos_financeiros")
+      .select("id")
+      .eq("referencia_id", dados.referenciaId)
+      .eq("origem", dados.origem)
+      .maybeSingle();
+
+    if (existente) {
+      // Atualiza
+      const { data, error } = await supabase
+        .from("movimentos_financeiros")
+        .update({ ...movimentoData, atualizado_em: new Date().toISOString() })
+        .eq("id", existente.id)
+        .select("id")
+        .single();
+
+      if (error) {
+        console.error("Erro ao atualizar movimento:", error);
+        throw new Error(`Erro ao atualizar movimento: ${error.message}`);
+      }
+      return data.id;
+    }
   }
 
-  return data as string;
+  // Insere novo
+  const { data, error } = await supabase
+    .from("movimentos_financeiros")
+    .insert(movimentoData)
+    .select("id")
+    .single();
+
+  if (error) {
+    console.error("Erro ao inserir movimento:", error);
+    throw new Error(`Erro ao inserir movimento: ${error.message}`);
+  }
+
+  return data.id;
 }
 
 /**
