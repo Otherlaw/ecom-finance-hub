@@ -21,7 +21,13 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Package, CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Package, CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import { Compra, useRecebimentos } from "@/hooks/useCompras";
 import { useArmazens } from "@/hooks/useArmazens";
 import { ArmazemSelect } from "@/components/ArmazemSelect";
@@ -44,6 +50,11 @@ interface ItemRecebimento {
   quantidade_receber: number;
   quantidade_devolvida: number;
   custo_unitario: number;
+  // Campos adicionais para custo efetivo
+  valor_ipi: number;
+  valor_icms: number;
+  aliquota_icms: number;
+  ncm: string | null;
 }
 
 export function RegistrarRecebimentoModal({
@@ -62,6 +73,19 @@ export function RegistrarRecebimentoModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [encerrarPedido, setEncerrarPedido] = useState(false);
 
+  // Cálculo de custo efetivo com rateio de frete
+  const calcularCustoEfetivo = (item: ItemRecebimento, valorFrete: number, valorProdutos: number) => {
+    if (item.quantidade_pedida <= 0 || valorProdutos <= 0) return item.custo_unitario;
+    
+    const valorItemTotal = item.custo_unitario * item.quantidade_pedida;
+    const proporcaoItem = valorItemTotal / valorProdutos;
+    const freteRateado = valorFrete * proporcaoItem;
+    const ipiItem = item.valor_ipi || 0;
+    
+    const custoTotalItem = valorItemTotal + freteRateado + ipiItem;
+    return custoTotalItem / item.quantidade_pedida;
+  };
+
   useEffect(() => {
     if (compra?.itens) {
       setItens(compra.itens.map(item => ({
@@ -74,6 +98,10 @@ export function RegistrarRecebimentoModal({
         quantidade_receber: Math.max(0, item.quantidade - item.quantidade_recebida),
         quantidade_devolvida: 0,
         custo_unitario: item.valor_unitario,
+        valor_ipi: item.valor_ipi || 0,
+        valor_icms: item.valor_icms || 0,
+        aliquota_icms: item.aliquota_icms || 0,
+        ncm: item.ncm,
       })));
     }
     
@@ -141,14 +169,21 @@ export function RegistrarRecebimentoModal({
         data_recebimento: dataRecebimento,
         observacoes: obsCompleta || undefined,
         forcar_conclusao: encerrarPedido,
+        valor_frete: compra.valor_frete,
+        valor_produtos: compra.valor_produtos,
         itens: itens
           .filter(item => item.quantidade_receber > 0 || item.quantidade_devolvida > 0)
           .map(item => ({
             compra_item_id: item.compra_item_id,
-            produto_id: item.produto_id || '',
+            produto_id: item.produto_id || null, // Corrigido: usar null ao invés de string vazia
             quantidade_recebida: item.quantidade_receber,
             quantidade_devolvida: item.quantidade_devolvida,
             custo_unitario: item.custo_unitario,
+            custo_efetivo: calcularCustoEfetivo(item, compra.valor_frete, compra.valor_produtos),
+            valor_ipi: item.valor_ipi,
+            valor_icms: item.valor_icms,
+            aliquota_icms: item.aliquota_icms,
+            ncm: item.ncm,
           })),
       });
 
@@ -163,9 +198,12 @@ export function RegistrarRecebimentoModal({
 
   if (!compra) return null;
 
+  const formatCurrency = (value: number) => 
+    value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" />
@@ -174,10 +212,10 @@ export function RegistrarRecebimentoModal({
         </DialogHeader>
 
         <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             <div>
               <Label>NF / Fornecedor</Label>
-              <p className="text-sm font-medium">
+              <p className="text-sm font-medium truncate" title={`${compra.numero_nf ? `NF ${compra.numero_nf} - ` : ''}${compra.fornecedor_nome}`}>
                 {compra.numero_nf ? `NF ${compra.numero_nf} - ` : ''}{compra.fornecedor_nome}
               </p>
             </div>
@@ -198,77 +236,139 @@ export function RegistrarRecebimentoModal({
                 onChange={(e) => setDataRecebimento(e.target.value)}
               />
             </div>
+            <div>
+              <Label>Frete a ratear</Label>
+              <p className="text-sm font-medium">{formatCurrency(compra.valor_frete)}</p>
+            </div>
           </div>
 
-          <div>
+          <div className="flex-1 overflow-hidden">
             <Label className="mb-2 block">Itens do Pedido</Label>
-            <ScrollArea className="border rounded-md h-[250px]">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Produto</TableHead>
-                    <TableHead className="text-center w-24">Pedido</TableHead>
-                    <TableHead className="text-center w-24">Recebido</TableHead>
-                    <TableHead className="text-center w-24">Restante</TableHead>
-                    <TableHead className="text-center w-28">Receber Agora</TableHead>
-                    <TableHead className="text-center w-24">Devolvido</TableHead>
-                    <TableHead className="text-right w-28">Custo Unit.</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {itens.map((item, index) => (
-                    <TableRow key={item.compra_item_id}>
-                      <TableCell>
-                        <div className="max-w-64 truncate" title={item.descricao}>
-                          {item.descricao}
-                        </div>
-                        {item.produto_id && (
-                          <Badge variant="outline" className="mt-1 text-xs">SKU vinculado</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center font-medium">
-                        {item.quantidade_pedida}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {item.quantidade_ja_recebida > 0 ? (
-                          <Badge variant="secondary">{item.quantidade_ja_recebida}</Badge>
-                        ) : '-'}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {item.quantidade_restante > 0 ? (
-                          <Badge variant="outline">{item.quantidade_restante}</Badge>
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4 text-success mx-auto" />
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={item.quantidade_restante}
-                          value={item.quantidade_receber}
-                          onChange={(e) => handleQuantidadeChange(index, Number(e.target.value))}
-                          className="w-20 text-center mx-auto"
-                          disabled={item.quantidade_restante === 0}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={item.quantidade_devolvida}
-                          onChange={(e) => handleDevolvidaChange(index, Number(e.target.value))}
-                          className="w-20 text-center mx-auto"
-                        />
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {item.custo_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      </TableCell>
+            <div className="border rounded-md overflow-auto h-[280px]">
+              <div className="min-w-[900px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="min-w-[200px]">Produto</TableHead>
+                      <TableHead className="text-center w-16">Pedido</TableHead>
+                      <TableHead className="text-center w-16">Receb.</TableHead>
+                      <TableHead className="text-center w-16">Rest.</TableHead>
+                      <TableHead className="text-center w-20">Receber</TableHead>
+                      <TableHead className="text-center w-20">Devol.</TableHead>
+                      <TableHead className="text-right w-24">Custo NF</TableHead>
+                      <TableHead className="text-right w-28">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger className="flex items-center gap-1 ml-auto">
+                              Custo Efetivo <Info className="h-3 w-3" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              <p>Custo unitário + frete rateado + IPI proporcional</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableHead>
+                      <TableHead className="text-right w-24">ICMS</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </ScrollArea>
+                  </TableHeader>
+                  <TableBody>
+                    {itens.map((item, index) => {
+                      const custoEfetivo = calcularCustoEfetivo(item, compra.valor_frete, compra.valor_produtos);
+                      return (
+                        <TableRow key={item.compra_item_id}>
+                          <TableCell>
+                            <div className="max-w-[200px] truncate" title={item.descricao}>
+                              {item.descricao}
+                            </div>
+                            <div className="flex gap-1 mt-1">
+                              {item.produto_id && (
+                                <Badge variant="outline" className="text-xs">SKU</Badge>
+                              )}
+                              {item.ncm && (
+                                <Badge variant="secondary" className="text-xs">NCM: {item.ncm}</Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            {item.quantidade_pedida}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {item.quantidade_ja_recebida > 0 ? (
+                              <Badge variant="secondary">{item.quantidade_ja_recebida}</Badge>
+                            ) : '-'}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {item.quantidade_restante > 0 ? (
+                              <Badge variant="outline">{item.quantidade_restante}</Badge>
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4 text-green-600 mx-auto" />
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={item.quantidade_restante}
+                              value={item.quantidade_receber}
+                              onChange={(e) => handleQuantidadeChange(index, Number(e.target.value))}
+                              className="w-16 text-center mx-auto"
+                              disabled={item.quantidade_restante === 0}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min={0}
+                              value={item.quantidade_devolvida}
+                              onChange={(e) => handleDevolvidaChange(index, Number(e.target.value))}
+                              className="w-16 text-center mx-auto"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-sm">
+                            {formatCurrency(item.custo_unitario)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-sm font-semibold text-primary">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  {formatCurrency(custoEfetivo)}
+                                </TooltipTrigger>
+                                <TooltipContent className="p-3">
+                                  <div className="space-y-1 text-xs">
+                                    <p><strong>Detalhes do cálculo:</strong></p>
+                                    <p>Custo NF: {formatCurrency(item.custo_unitario)}</p>
+                                    <p>Frete rateado: {formatCurrency((compra.valor_frete * (item.custo_unitario * item.quantidade_pedida / compra.valor_produtos)) / item.quantidade_pedida)}</p>
+                                    {item.valor_ipi > 0 && <p>IPI: {formatCurrency(item.valor_ipi / item.quantidade_pedida)}</p>}
+                                    <p className="pt-1 border-t"><strong>Total: {formatCurrency(custoEfetivo)}</strong></p>
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </TableCell>
+                          <TableCell className="text-right text-sm">
+                            {item.valor_icms > 0 ? (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger>
+                                    <Badge variant="outline" className="text-green-600">
+                                      {formatCurrency(item.valor_icms)}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Alíquota: {item.aliquota_icms}%</p>
+                                    <p>Crédito potencial</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            ) : '-'}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
           </div>
 
           {/* Opção de encerrar pedido - aparece quando há itens restantes */}
