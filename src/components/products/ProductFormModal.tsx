@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { X, Plus, Trash2, Check, ChevronsUpDown, Search } from "lucide-react";
+import { Plus, Trash2, Check, ChevronsUpDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,7 +32,7 @@ import {
   CANAIS_VENDA,
   validateProduct,
 } from "@/lib/products-data";
-import { mockFornecedores, Fornecedor } from "@/lib/fornecedores-data";
+import { useFornecedores } from "@/hooks/useFornecedores";
 
 interface ProductFormModalProps {
   open: boolean;
@@ -48,6 +48,7 @@ export function ProductFormModal({
   onSave,
 }: ProductFormModalProps) {
   const { toast } = useToast();
+  const { fornecedores, isLoading: isLoadingFornecedores } = useFornecedores();
   const isEditing = !!product;
 
   const [formData, setFormData] = useState<Partial<Product>>({
@@ -74,15 +75,15 @@ export function ProductFormModal({
   const [fornecedorSearch, setFornecedorSearch] = useState("");
 
   const fornecedoresAtivos = useMemo(() => {
-    return mockFornecedores.filter(f => f.status === 'ativo');
-  }, []);
+    return (fornecedores || []).filter(f => f.status === 'ativo');
+  }, [fornecedores]);
 
   const fornecedoresFiltrados = useMemo(() => {
     if (!fornecedorSearch.trim()) return fornecedoresAtivos;
     const searchLower = fornecedorSearch.toLowerCase();
     return fornecedoresAtivos.filter(f => 
-      f.razaoSocial.toLowerCase().includes(searchLower) ||
-      (f.nomeFantasia && f.nomeFantasia.toLowerCase().includes(searchLower)) ||
+      f.razao_social.toLowerCase().includes(searchLower) ||
+      (f.nome_fantasia && f.nome_fantasia.toLowerCase().includes(searchLower)) ||
       (f.cnpj && f.cnpj.includes(fornecedorSearch))
     );
   }, [fornecedoresAtivos, fornecedorSearch]);
@@ -410,10 +411,10 @@ export function ProductFormModal({
                           key={fornecedor.id}
                           className={cn(
                             "flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent",
-                            formData.fornecedorPrincipalNome === fornecedor.razaoSocial && "bg-accent"
+                            formData.fornecedorPrincipalNome === fornecedor.razao_social && "bg-accent"
                           )}
                           onClick={() => {
-                            handleChange("fornecedorPrincipalNome", fornecedor.razaoSocial);
+                            handleChange("fornecedorPrincipalNome", fornecedor.razao_social);
                             setFornecedorOpen(false);
                             setFornecedorSearch("");
                           }}
@@ -421,11 +422,11 @@ export function ProductFormModal({
                           <Check
                             className={cn(
                               "mr-2 h-4 w-4",
-                              formData.fornecedorPrincipalNome === fornecedor.razaoSocial ? "opacity-100" : "opacity-0"
+                              formData.fornecedorPrincipalNome === fornecedor.razao_social ? "opacity-100" : "opacity-0"
                             )}
                           />
                           <span className="truncate">
-                            {fornecedor.nomeFantasia || fornecedor.razaoSocial}
+                            {fornecedor.nome_fantasia || fornecedor.razao_social}
                           </span>
                         </div>
                       ))
