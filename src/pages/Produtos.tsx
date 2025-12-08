@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, Eye, Edit, Package, Upload, Download, Trash2 } from "lucide-react";
+import { Plus, Search, Eye, Edit, Package, Upload, Download, Trash2, Layers, Box } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,13 +20,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ProductFormModal } from "@/components/products/ProductFormModal";
+import { ProdutoFormModalV2 } from "@/components/products/ProdutoFormModalV2";
 import { ProductDetailModal } from "@/components/products/ProductDetailModal";
 import { ImportarProdutosModal } from "@/components/products/ImportarProdutosModal";
 import { ExportarProdutosModal } from "@/components/products/ExportarProdutosModal";
 import { ExcluirProdutoModal } from "@/components/products/ExcluirProdutoModal";
 import { ProdutoImportJobsPanel } from "@/components/products/ProdutoImportJobsPanel";
-import { useProdutos, Produto, ProdutoInsert, ProdutoUpdate } from "@/hooks/useProdutos";
+import { useProdutos, Produto, TipoProduto } from "@/hooks/useProdutos";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CATEGORIAS_PRODUTO, formatCurrency } from "@/lib/products-data";
@@ -61,48 +61,6 @@ export default function Produtos() {
     if (tipoFilter === "todos") return produtos;
     return produtos.filter((p) => p.tipo === tipoFilter);
   }, [produtos, tipoFilter]);
-
-  const handleSaveProduct = async (productData: any) => {
-    if (!empresaSelecionada) return;
-
-    if (editingProduct) {
-      const updateData: ProdutoUpdate = {
-        id: editingProduct.id,
-        sku: productData.codigoInterno,
-        nome: productData.nome,
-        descricao: productData.descricao,
-        categoria: productData.categoria,
-        subcategoria: productData.subcategoria,
-        unidade_medida: productData.unidadeMedida,
-        ncm: productData.ncm,
-        cfop_venda: productData.cfopVenda,
-        cfop_compra: productData.cfopCompra,
-        fornecedor_nome: productData.fornecedorPrincipalNome,
-        custo_medio: productData.custoMedio,
-        preco_venda: productData.precoVendaSugerido,
-        status: productData.status,
-      };
-      await atualizarProduto.mutateAsync(updateData);
-    } else {
-      const insertData: ProdutoInsert = {
-        empresa_id: empresaSelecionada,
-        sku: productData.codigoInterno,
-        nome: productData.nome,
-        descricao: productData.descricao,
-        categoria: productData.categoria,
-        subcategoria: productData.subcategoria,
-        unidade_medida: productData.unidadeMedida,
-        ncm: productData.ncm,
-        cfop_venda: productData.cfopVenda,
-        cfop_compra: productData.cfopCompra,
-        fornecedor_nome: productData.fornecedorPrincipalNome,
-        custo_medio: productData.custoMedio,
-        preco_venda: productData.precoVendaSugerido,
-        status: productData.status,
-      };
-      await criarProduto.mutateAsync(insertData);
-    }
-  };
 
   const handleEdit = (product: Produto) => {
     setEditingProduct(product);
@@ -366,11 +324,12 @@ export default function Produtos() {
         </div>
       </main>
 
-      <ProductFormModal 
+      <ProdutoFormModalV2 
         open={formModalOpen} 
-        onOpenChange={setFormModalOpen} 
-        product={convertToModalProduct(editingProduct)} 
-        onSave={handleSaveProduct} 
+        onOpenChange={(open) => { setFormModalOpen(open); if (!open) setEditingProduct(null); }}
+        empresaId={empresaSelecionada}
+        produto={editingProduct}
+        onSuccess={() => refetch()}
       />
       
       <ProductDetailModal 
