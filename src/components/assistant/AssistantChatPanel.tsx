@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Send, Trash2, Sparkles, MessageCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,20 +16,50 @@ interface AssistantChatPanelProps {
   initialMessage?: string;
 }
 
-const QUICK_SUGGESTIONS = [
+// Sugestões dinâmicas por rota
+const SUGGESTIONS_BY_ROUTE: Record<string, string[]> = {
+  '/': ["Como está meu mês?", "Quais alertas pendentes?", "Resumo financeiro"],
+  '/dashboard': ["Como está meu mês?", "Quais alertas pendentes?", "Resumo financeiro"],
+  '/dre': ["Explique a margem bruta", "Por que o lucro caiu?", "Compare com mês anterior"],
+  '/fluxo-caixa': ["Qual o saldo projetado?", "Quais maiores saídas?", "Resumo por origem"],
+  '/compras': ["Qual status dos pedidos?", "Há itens atrasados?", "Pedidos em trânsito?"],
+  '/icms': ["Tenho crédito suficiente?", "Preciso comprar notas?", "Qual ICMS devido?"],
+  '/produtos': ["Qual produto mais vendido?", "Estoque crítico?", "Margem média?"],
+  '/estoque-sku': ["Qual estoque atual?", "Produtos em falta?", "Custo médio dos itens?"],
+  '/conciliacao': ["Quantas transações pendentes?", "O que falta conciliar?", "Resumo por origem"],
+  '/contas-pagar': ["O que vence hoje?", "Total a pagar no mês?", "Maiores credores?"],
+  '/contas-receber': ["O que recebo esta semana?", "Títulos em atraso?", "Previsão de recebimentos?"],
+  '/checklist-fechamento': ["O que falta para fechar?", "Qual canal mais pendente?", "Progresso do fechamento"],
+  '/precificacao': ["Como calcular preço?", "Explique margem", "Taxas do marketplace"],
+  '/kpis': ["Qual tendência do mês?", "Comparar períodos", "Quais KPIs críticos?"],
+  '/projecoes': ["Qual cenário provável?", "Projeção de faturamento?", "Tendência de lucro?"],
+  '/balanco': ["Qual meu patrimônio?", "Ativo vs Passivo?", "Explicar balanço"],
+  '/fechamento': ["Mês pode ser fechado?", "Pendências do fechamento?", "Validar dados"],
+  '/cartao-credito': ["Gastos do mês?", "Faturas pendentes?", "Maior categoria?"],
+  '/fornecedores': ["Maiores fornecedores?", "Histórico de compras?", "Prazo médio?"],
+  '/centros-custo': ["Gastos por centro?", "Qual centro mais caro?", "Distribuição de custos"],
+  '/plano-contas': ["Estrutura de contas?", "Categorias disponíveis?", "Como categorizar?"],
+  '/cmv': ["Qual CMV do período?", "Margem por produto?", "Evolução do CMV?"],
+  '/assistant': ["O que você pode fazer?", "Alertas críticos?", "Ajuda com sistema"],
+};
+
+const DEFAULT_SUGGESTIONS = [
   "Por que isso aconteceu?",
   "O que você recomenda?",
   "Quais próximos passos?",
-  "Explique esse cálculo",
 ];
 
 export function AssistantChatPanel({ isOpen, onClose, initialContext, initialMessage }: AssistantChatPanelProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { messages, isLoading, error, sendMessage, clearMessages, setContext } = useAssistantChat();
   const [inputValue, setInputValue] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const hasInitialized = useRef(false);
+
+  // Obter sugestões baseadas na rota atual
+  const currentSuggestions = SUGGESTIONS_BY_ROUTE[location.pathname] || DEFAULT_SUGGESTIONS;
 
   // Set initial context when panel opens
   useEffect(() => {
@@ -101,8 +131,8 @@ export function AssistantChatPanel({ isOpen, onClose, initialContext, initialMes
             )}
           </div>
           <div>
-            <h3 className="font-semibold text-sm">Assis.Fin</h3>
-            <p className="text-xs text-muted-foreground">Copiloto Financeiro/Fiscal</p>
+            <h3 className="font-semibold text-sm">Fin</h3>
+            <p className="text-xs text-muted-foreground">Copiloto Financeiro</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -133,12 +163,12 @@ export function AssistantChatPanel({ isOpen, onClose, initialContext, initialMes
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
               <Sparkles className="w-8 h-8 text-primary" />
             </div>
-            <h4 className="font-medium mb-2">Olá! Sou o Assis.Fin</h4>
+            <h4 className="font-medium mb-2">Olá! Sou o Fin</h4>
             <p className="text-sm text-muted-foreground mb-4">
               Posso te ajudar com dúvidas sobre seus números, fechamentos, impostos, precificação e relatórios.
             </p>
             <div className="flex flex-wrap gap-2 justify-center">
-              {QUICK_SUGGESTIONS.slice(0, 2).map((suggestion) => (
+              {currentSuggestions.slice(0, 3).map((suggestion) => (
                 <Button
                   key={suggestion}
                   variant="outline"
@@ -187,7 +217,7 @@ export function AssistantChatPanel({ isOpen, onClose, initialContext, initialMes
       {/* Quick suggestions when there are messages */}
       {messages.length > 0 && !isLoading && (
         <div className="px-4 py-2 border-t flex gap-2 overflow-x-auto">
-          {QUICK_SUGGESTIONS.map((suggestion) => (
+          {currentSuggestions.map((suggestion) => (
             <Badge
               key={suggestion}
               variant="outline"

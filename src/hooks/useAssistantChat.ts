@@ -46,15 +46,25 @@ const ROUTE_NAMES: Record<string, string> = {
   '/precificacao': 'Precificação',
   '/checklist-fechamento': 'Checklist de Fechamento',
   '/contas-pagar': 'Contas a Pagar',
+  '/contas-receber': 'Contas a Receber',
   '/compras': 'Compras',
   '/fornecedores': 'Fornecedores',
   '/produtos': 'Produtos',
+  '/estoque-sku': 'Estoque por SKU',
   '/kpis': 'KPIs',
   '/projecoes': 'Projeções',
   '/empresas': 'Empresas',
   '/balanco': 'Balanço',
   '/fechamento': 'Fechamento',
   '/conciliacao': 'Conciliação',
+  '/cartao-credito': 'Cartão de Crédito',
+  '/centros-custo': 'Centros de Custo',
+  '/plano-contas': 'Plano de Contas',
+  '/cmv': 'Relatório CMV',
+  '/movimentos-manuais': 'Movimentos Manuais',
+  '/mapeamentos-marketplace': 'Mapeamentos de SKU',
+  '/regras-marketplace': 'Regras de Marketplace',
+  '/regras-categorizacao': 'Regras de Categorização',
   '/configuracoes': 'Configurações',
   '/usuarios': 'Usuários',
   '/assistant': 'Central de Alertas',
@@ -233,7 +243,7 @@ export function useAssistantChat(): UseAssistantChatReturn {
       if (err instanceof Error && err.name === 'AbortError') {
         return;
       }
-      const errorMessage = err instanceof Error ? err.message : 'Erro ao conectar com o Assis.Fin';
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao conectar com o Fin';
       setError(errorMessage);
       console.error('[useAssistantChat] Error:', err);
     } finally {
