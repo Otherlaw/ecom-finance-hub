@@ -29,7 +29,6 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useProdutos } from "@/hooks/useProdutos";
-import { importarMapeamentosEmLote } from "@/hooks/useProdutoSkuMap";
 import { 
   criarJobImportacaoProduto, 
   atualizarProgressoJobProduto, 
@@ -47,30 +46,6 @@ interface ImportarProdutosModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
-}
-
-// Detectar canal a partir do nome da loja
-function detectarCanal(nomeLoja: string | null | undefined): string {
-  if (!nomeLoja) return '';
-  const loja = nomeLoja.toLowerCase().trim();
-  
-  if (loja.startsWith('mercado') || loja.includes('meli') || loja.includes('mlb')) {
-    return 'mercado_livre';
-  }
-  if (loja.startsWith('shopee') || loja.includes('shopee')) {
-    return 'shopee';
-  }
-  if (loja.startsWith('shein') || loja.includes('shein')) {
-    return 'shein';
-  }
-  if (loja.startsWith('tiktok') || loja.includes('tiktok')) {
-    return 'tiktok';
-  }
-  if (loja.startsWith('amazon') || loja.includes('amazon')) {
-    return 'amazon';
-  }
-  
-  return '';
 }
 
 export function ImportarProdutosModal({
@@ -128,8 +103,9 @@ export function ImportarProdutosModal({
     try {
       const { headers, rows } = await processarArquivoProdutos(file);
       
+      // Usar sku em vez de codigo_interno
       const produtosExistentes = produtos.map(p => ({
-        codigo_interno: p.codigo_interno,
+        codigo_interno: p.sku,
         id: p.id,
       }));
 
@@ -151,13 +127,11 @@ export function ImportarProdutosModal({
     }
   };
 
-  // Importação em segundo plano
   const handleImportarBackground = async () => {
     if (!preview || !empresaId) return;
 
     const totalLinhas = preview.linhas.length;
     
-    // Criar job de importação
     let jobId: string;
     try {
       jobId = await criarJobImportacaoProduto({
@@ -170,11 +144,9 @@ export function ImportarProdutosModal({
       return;
     }
 
-    // Fechar modal imediatamente
     toast.success(`Importação de ${totalLinhas} produtos iniciada em segundo plano`);
     handleClose();
 
-    // Processar em segundo plano
     processarImportacaoBackground(jobId, preview, empresaId);
   };
 
@@ -186,22 +158,13 @@ export function ImportarProdutosModal({
     let criados = 0;
     let atualizados = 0;
     let erros = 0;
-    let mapeamentosCount = 0;
     let processados = 0;
 
-    const produtosMap = new Map(produtos.map(p => [p.codigo_interno.toLowerCase(), p]));
-    const mapeamentosParaImportar: Array<{
-      empresa_id: string;
-      sku_interno: string;
-      canal: string;
-      loja?: string;
-      anuncio_id?: string;
-      variante_id?: string;
-      variante_nome?: string;
-    }> = [];
+    // Usar sku em vez de codigo_interno
+    const produtosMap = new Map(produtos.map(p => [p.sku.toLowerCase(), p]));
 
     const BATCH_SIZE = 50;
-    const UPDATE_INTERVAL = 10; // Atualizar progresso a cada 10 itens
+    const UPDATE_INTERVAL = 10;
 
     try {
       for (let i = 0; i < previewData.linhas.length; i++) {
@@ -211,48 +174,34 @@ export function ImportarProdutosModal({
           const existente = produtosMap.get(linha.sku_interno.toLowerCase());
 
           if (existente) {
+            // Usar campos corretos do ProdutoUpdate
             await atualizarProduto.mutateAsync({
               id: existente.id,
               nome: linha.nome || linha.sku_interno,
               descricao: linha.descricao,
               categoria: linha.categoria,
-              custo_medio_atual: linha.preco_custo || 0,
-              preco_venda_sugerido: linha.preco_venda || 0,
+              custo_medio: linha.preco_custo || 0,
+              preco_venda: linha.preco_venda || 0,
               unidade_medida: linha.unidade || 'un',
               ncm: linha.ncm,
               status: linha.ativo !== false ? 'ativo' : 'inativo',
             });
             atualizados++;
           } else {
+            // Usar campos corretos do ProdutoInsert
             await criarProduto.mutateAsync({
               empresa_id: empresaIdParam,
-              codigo_interno: linha.sku_interno,
+              sku: linha.sku_interno,
               nome: linha.nome || linha.sku_interno,
               descricao: linha.descricao,
               categoria: linha.categoria,
-              custo_medio_atual: linha.preco_custo || 0,
-              preco_venda_sugerido: linha.preco_venda || 0,
+              custo_medio: linha.preco_custo || 0,
+              preco_venda: linha.preco_venda || 0,
               unidade_medida: linha.unidade || 'un',
               ncm: linha.ncm,
               status: linha.ativo !== false ? 'ativo' : 'inativo',
             });
             criados++;
-          }
-
-          // Coletar mapeamentos se tiver dados de marketplace
-          if (linha.anuncio_id || linha.nome_loja) {
-            const canal = detectarCanal(linha.nome_loja);
-            if (canal) {
-              mapeamentosParaImportar.push({
-                empresa_id: empresaIdParam,
-                sku_interno: linha.sku_interno,
-                canal,
-                loja: linha.nome_loja,
-                anuncio_id: linha.anuncio_id,
-                variante_id: linha.variante_id,
-                variante_nome: linha.variante,
-              });
-            }
           }
         } catch (err) {
           console.error("Erro ao importar produto:", linha.sku_interno, err);
@@ -261,7 +210,6 @@ export function ImportarProdutosModal({
 
         processados++;
 
-        // Atualizar progresso periodicamente
         if (processados % UPDATE_INTERVAL === 0 || processados === previewData.linhas.length) {
           await atualizarProgressoJobProduto(jobId, {
             linhas_processadas: processados,
@@ -271,32 +219,19 @@ export function ImportarProdutosModal({
           });
         }
 
-        // Pequena pausa a cada batch para não sobrecarregar
         if (processados % BATCH_SIZE === 0) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
 
-      // Importar mapeamentos em lote
-      if (mapeamentosParaImportar.length > 0) {
-        try {
-          await importarMapeamentosEmLote(mapeamentosParaImportar);
-          mapeamentosCount = mapeamentosParaImportar.length;
-        } catch (err) {
-          console.error("Erro ao importar mapeamentos:", err);
-        }
-      }
-
-      // Finalizar job com sucesso
       await finalizarJobProduto(jobId, {
         status: 'concluido',
         linhas_importadas: criados,
         linhas_atualizadas: atualizados,
         linhas_com_erro: erros,
-        mapeamentos_criados: mapeamentosCount,
+        mapeamentos_criados: 0,
       });
 
-      // Refetch produtos
       refetch();
 
       if (onSuccess) onSuccess();
@@ -310,7 +245,7 @@ export function ImportarProdutosModal({
         linhas_importadas: criados,
         linhas_atualizadas: atualizados,
         linhas_com_erro: erros,
-        mapeamentos_criados: mapeamentosCount,
+        mapeamentos_criados: 0,
         mensagem_erro: err.message || 'Erro desconhecido durante importação',
       });
 
@@ -318,7 +253,6 @@ export function ImportarProdutosModal({
     }
   };
 
-  // Contar quantos têm mapeamento
   const mapeamentosNoPreview = preview?.linhas.filter(l => l.anuncio_id || l.nome_loja).length || 0;
 
   return (

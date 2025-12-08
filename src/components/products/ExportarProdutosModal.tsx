@@ -20,7 +20,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useProdutos } from "@/hooks/useProdutos";
-import { useProdutoSkuMap } from "@/hooks/useProdutoSkuMap";
+import { useMarketplaceSkuMappings } from "@/hooks/useMarketplaceSkuMappings";
 import { toast } from "sonner";
 import { exportarProdutos, exportarMapeamentosUpseller } from "@/lib/produtos-import-export";
 
@@ -44,13 +44,12 @@ export function ExportarProdutosModal({
     empresaId: empresaId !== 'todas' ? empresaId : undefined,
   });
 
-  const { mapeamentos = [] } = useProdutoSkuMap({
+  const { mappings: mapeamentos = [] } = useMarketplaceSkuMappings({
     empresaId: empresaId !== 'todas' ? empresaId : undefined,
   });
 
   const handleExportar = () => {
     if (exportarApenasMapeamentos) {
-      // Exportar apenas mapeamentos no formato Upseller
       if (mapeamentos.length === 0) {
         toast.error("Nenhum mapeamento para exportar");
         return;
@@ -59,7 +58,17 @@ export function ExportarProdutosModal({
       setIsExporting(true);
 
       try {
-        const blob = exportarMapeamentosUpseller(mapeamentos, formato);
+        // Converter mapeamentos para formato esperado
+        const mapeamentosFormatados = mapeamentos.map(m => ({
+          sku_interno: m.produto?.sku || m.sku_marketplace,
+          canal: m.canal,
+          loja: m.nome_loja || null,
+          anuncio_id: m.anuncio_id || null,
+          variante_id: m.variante_id || null,
+          variante_nome: null,
+        }));
+
+        const blob = exportarMapeamentosUpseller(mapeamentosFormatados, formato);
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -79,7 +88,6 @@ export function ExportarProdutosModal({
         setIsExporting(false);
       }
     } else {
-      // Exportar produtos (com ou sem mapeamentos)
       if (produtos.length === 0) {
         toast.error("Nenhum produto para exportar");
         return;
@@ -88,10 +96,33 @@ export function ExportarProdutosModal({
       setIsExporting(true);
 
       try {
+        // Converter produtos para formato esperado pela função de exportação
+        const produtosFormatados = produtos.map(p => ({
+          codigo_interno: p.sku,
+          nome: p.nome,
+          descricao: p.descricao,
+          categoria: p.categoria,
+          custo_medio_atual: p.custo_medio,
+          preco_venda_sugerido: p.preco_venda,
+          unidade_medida: p.unidade_medida,
+          ncm: p.ncm,
+          status: p.status,
+        }));
+
+        // Converter mapeamentos para formato esperado
+        const mapeamentosFormatados = incluirMapeamentos ? mapeamentos.map(m => ({
+          sku_interno: m.produto?.sku || m.sku_marketplace,
+          canal: m.canal,
+          loja: m.nome_loja || null,
+          anuncio_id: m.anuncio_id || null,
+          variante_id: m.variante_id || null,
+          variante_nome: null,
+        })) : undefined;
+
         const blob = exportarProdutos(
-          produtos, 
+          produtosFormatados, 
           formato,
-          incluirMapeamentos ? mapeamentos : undefined
+          mapeamentosFormatados
         );
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
