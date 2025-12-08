@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, Eye, Edit, Package, Upload, Download, Trash2, Layers, Box } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Plus, Search, Eye, Edit, Package, Upload, Trash2, Layers, Box, ArrowRight } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,8 +23,6 @@ import {
 } from "@/components/ui/table";
 import { ProdutoFormModalV2 } from "@/components/products/ProdutoFormModalV2";
 import { ProductDetailModal } from "@/components/products/ProductDetailModal";
-import { ImportarProdutosModal } from "@/components/products/ImportarProdutosModal";
-import { ExportarProdutosModal } from "@/components/products/ExportarProdutosModal";
 import { ExcluirProdutoModal } from "@/components/products/ExcluirProdutoModal";
 import { ProdutoImportJobsPanel } from "@/components/products/ProdutoImportJobsPanel";
 import { useProdutos, Produto, TipoProduto } from "@/hooks/useProdutos";
@@ -32,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CATEGORIAS_PRODUTO, formatCurrency } from "@/lib/products-data";
 
 export default function Produtos() {
+  const navigate = useNavigate();
   const { empresas } = useEmpresas();
   const [empresaId, setEmpresaId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -50,8 +50,6 @@ export default function Produtos() {
 
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const [exportModalOpen, setExportModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Produto | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Produto | null>(null);
@@ -123,13 +121,10 @@ export default function Produtos() {
               <p className="text-muted-foreground">Gerencie o catálogo de produtos</p>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => setImportModalOpen(true)}>
+              <Button variant="outline" onClick={() => navigate('/produtos/import-export')}>
                 <Upload className="h-4 w-4 mr-2" />
-                Importar
-              </Button>
-              <Button variant="outline" onClick={() => setExportModalOpen(true)}>
-                <Download className="h-4 w-4 mr-2" />
-                Exportar
+                Importar/Exportar
+                <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
               <Button onClick={() => { setEditingProduct(null); setFormModalOpen(true); }}>
                 <Plus className="h-4 w-4 mr-2" />
@@ -340,16 +335,6 @@ export default function Produtos() {
         purchaseHistory={[]} 
       />
 
-      <ImportarProdutosModal
-        open={importModalOpen}
-        onOpenChange={setImportModalOpen}
-        onSuccess={() => refetch()}
-      />
-
-      <ExportarProdutosModal
-        open={exportModalOpen}
-        onOpenChange={setExportModalOpen}
-      />
 
       <ExcluirProdutoModal
         open={deleteModalOpen}
