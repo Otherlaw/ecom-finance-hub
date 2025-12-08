@@ -304,17 +304,22 @@ export type Database = {
         Row: {
           armazem_destino_id: string | null
           chave_acesso: string | null
+          condicao_pagamento: string | null
           created_at: string
           data_nf: string | null
           data_pedido: string
           data_previsao: string | null
+          data_vencimento: string | null
           empresa_id: string
+          forma_pagamento: string | null
           fornecedor_cnpj: string | null
           fornecedor_nome: string
+          gerar_conta_pagar: boolean | null
           id: string
           numero: string | null
           numero_nf: string | null
           observacoes: string | null
+          prazo_dias: number | null
           status: string
           updated_at: string
           valor_desconto: number
@@ -325,17 +330,22 @@ export type Database = {
         Insert: {
           armazem_destino_id?: string | null
           chave_acesso?: string | null
+          condicao_pagamento?: string | null
           created_at?: string
           data_nf?: string | null
           data_pedido?: string
           data_previsao?: string | null
+          data_vencimento?: string | null
           empresa_id: string
+          forma_pagamento?: string | null
           fornecedor_cnpj?: string | null
           fornecedor_nome: string
+          gerar_conta_pagar?: boolean | null
           id?: string
           numero?: string | null
           numero_nf?: string | null
           observacoes?: string | null
+          prazo_dias?: number | null
           status?: string
           updated_at?: string
           valor_desconto?: number
@@ -346,17 +356,22 @@ export type Database = {
         Update: {
           armazem_destino_id?: string | null
           chave_acesso?: string | null
+          condicao_pagamento?: string | null
           created_at?: string
           data_nf?: string | null
           data_pedido?: string
           data_previsao?: string | null
+          data_vencimento?: string | null
           empresa_id?: string
+          forma_pagamento?: string | null
           fornecedor_cnpj?: string | null
           fornecedor_nome?: string
+          gerar_conta_pagar?: boolean | null
           id?: string
           numero?: string | null
           numero_nf?: string | null
           observacoes?: string | null
+          prazo_dias?: number | null
           status?: string
           updated_at?: string
           valor_desconto?: number

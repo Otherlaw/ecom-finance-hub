@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, FileText, Package, BarChart3, CheckCircle2, Upload, ChevronRight, ShoppingCart, Truck, Clock, XCircle, LayoutList } from "lucide-react";
+import { Plus, Search, FileText, Package, BarChart3, CheckCircle2, Upload, ChevronRight, ShoppingCart, Truck, Clock, XCircle, LayoutList, AlertTriangle } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { RegistrarRecebimentoModal } from "@/components/purchases/RegistrarRecebimentoModal";
 import { ImportarNFeXMLModal } from "@/components/purchases/ImportarNFeXMLModal";
 import { CompraManualFormModal } from "@/components/purchases/CompraManualFormModal";
@@ -289,9 +290,20 @@ export default function Compras() {
                                     </div>
                                     <div className="flex items-center gap-4">
                                       {unmapped > 0 && (
-                                        <Badge variant="outline" className="bg-warning/10 text-warning">
-                                          {unmapped} s/ vínculo
-                                        </Badge>
+                                        <TooltipProvider>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Badge variant="outline" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 cursor-help">
+                                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                                {unmapped} pendente(s)
+                                              </Badge>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                              <p>Itens sem produto vinculado não dão entrada no estoque.</p>
+                                              <p className="text-xs text-muted-foreground">Clique para expandir e vincular produtos.</p>
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        </TooltipProvider>
                                       )}
                                       <div className="text-right">
                                         <div className="font-bold">{formatCurrency(purchase.valor_total)}</div>

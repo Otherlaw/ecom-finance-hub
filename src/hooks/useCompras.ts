@@ -82,6 +82,12 @@ export interface CompraInsert {
   status?: StatusCompra;
   armazem_destino_id?: string;
   observacoes?: string;
+  // Campos de pagamento
+  forma_pagamento?: string;
+  condicao_pagamento?: string;
+  prazo_dias?: number;
+  data_vencimento?: string;
+  gerar_conta_pagar?: boolean;
 }
 
 export interface UseComprasParams {
@@ -171,6 +177,14 @@ export function useCompras(params: UseComprasParams = {}) {
     mutationFn: async (input: CompraInsert & { itens?: Omit<CompraItem, 'id' | 'compra_id' | 'created_at' | 'updated_at'>[] }) => {
       const { itens, ...compraData } = input;
       
+      // Calcular data de vencimento se a prazo
+      let dataVencimento = compraData.data_vencimento;
+      if (compraData.condicao_pagamento === 'a_prazo' && compraData.prazo_dias && !dataVencimento) {
+        const dataBase = new Date(compraData.data_pedido);
+        dataBase.setDate(dataBase.getDate() + compraData.prazo_dias);
+        dataVencimento = dataBase.toISOString().split('T')[0];
+      }
+      
       const { data: compra, error: compraError } = await supabase
         .from("compras")
         .insert({
@@ -190,6 +204,11 @@ export function useCompras(params: UseComprasParams = {}) {
           status: compraData.status || 'rascunho',
           armazem_destino_id: compraData.armazem_destino_id || null,
           observacoes: compraData.observacoes || null,
+          forma_pagamento: compraData.forma_pagamento || null,
+          condicao_pagamento: compraData.condicao_pagamento || 'a_vista',
+          prazo_dias: compraData.prazo_dias || null,
+          data_vencimento: dataVencimento || null,
+          gerar_conta_pagar: compraData.gerar_conta_pagar || false,
         })
         .select()
         .single();
@@ -222,11 +241,36 @@ export function useCompras(params: UseComprasParams = {}) {
         if (itensError) throw itensError;
       }
 
+      // Gerar conta a pagar automaticamente se solicitado
+      if (compraData.gerar_conta_pagar && compra.valor_total > 0) {
+        const { error: contaError } = await supabase
+          .from("contas_a_pagar")
+          .insert({
+            empresa_id: compra.empresa_id,
+            fornecedor_nome: compra.fornecedor_nome,
+            descricao: `Compra ${compra.numero_nf ? `NF ${compra.numero_nf}` : compra.numero || compra.id.slice(0, 8)}`,
+            documento: compra.numero_nf || compra.numero,
+            valor_total: compra.valor_total,
+            valor_em_aberto: compra.valor_total,
+            data_emissao: compra.data_nf || compra.data_pedido,
+            data_vencimento: dataVencimento || compra.data_pedido,
+            forma_pagamento: compra.forma_pagamento,
+            status: 'em_aberto',
+            tipo_lancamento: 'compra_mercadoria',
+          });
+
+        if (contaError) {
+          console.error("Erro ao criar conta a pagar:", contaError);
+          // Não lança erro para não bloquear a compra
+        }
+      }
+
       return compra;
     },
     onSuccess: () => {
       toast.success("Compra criada com sucesso");
       queryClient.invalidateQueries({ queryKey: ["compras"] });
+      queryClient.invalidateQueries({ queryKey: ["contas-a-pagar"] });
     },
     onError: (error: Error) => {
       console.error("Erro ao criar compra:", error);
