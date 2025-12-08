@@ -54,6 +54,7 @@ export function AjusteEstoqueModal({
   const [produtoId, setProdutoId] = useState("");
   const [armazemId, setArmazemId] = useState<string | null>(null);
   const [novaQuantidade, setNovaQuantidade] = useState("");
+  const [custoUnitario, setCustoUnitario] = useState("");
   const [motivo, setMotivo] = useState("");
   const [observacoes, setObservacoes] = useState("");
 
@@ -65,6 +66,10 @@ export function AjusteEstoqueModal({
     (e) => e.produto_id === produtoId && e.armazem_id === armazemId
   );
   const quantidadeAtual = estoqueAtual?.quantidade || 0;
+  const custoMedioAtual = estoqueAtual?.custo_medio || 0;
+
+  // Buscar custo do produto selecionado
+  const produtoSelecionado = produtos.find(p => p.id === produtoId);
 
   // Reset form when modal opens
   useEffect(() => {
@@ -74,10 +79,19 @@ export function AjusteEstoqueModal({
       setProdutoId("");
       setArmazemId(null);
       setNovaQuantidade("");
+      setCustoUnitario("");
       setMotivo("");
       setObservacoes("");
     }
   }, [open, empresas]);
+
+  // Atualizar custo quando selecionar produto ou mudar estoque atual
+  useEffect(() => {
+    if (produtoId && armazemId) {
+      const custo = custoMedioAtual || produtoSelecionado?.custo_medio || 0;
+      setCustoUnitario(custo > 0 ? custo.toString() : "");
+    }
+  }, [produtoId, armazemId, custoMedioAtual, produtoSelecionado?.custo_medio]);
 
   // Quando muda a empresa, resetar armazém
   useEffect(() => {
@@ -101,6 +115,7 @@ export function AjusteEstoqueModal({
       produtoId,
       armazemId,
       novaQuantidade: Number(novaQuantidade),
+      custoUnitario: custoUnitario ? Number(custoUnitario) : undefined,
       motivo,
       observacoes: observacoes || undefined,
     });
@@ -195,6 +210,27 @@ export function AjusteEstoqueModal({
                 placeholder="0"
               />
             </div>
+          </div>
+
+          {/* Custo Unitário */}
+          <div className="space-y-2">
+            <Label htmlFor="custoUnitario">
+              Custo Unitário (R$) {Number(novaQuantidade) > quantidadeAtual && "*"}
+            </Label>
+            <Input
+              id="custoUnitario"
+              type="number"
+              min="0"
+              step="0.01"
+              value={custoUnitario}
+              onChange={(e) => setCustoUnitario(e.target.value)}
+              placeholder="0,00"
+            />
+            {custoMedioAtual > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Custo médio atual: {custoMedioAtual.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </p>
+            )}
           </div>
 
           {/* Diferença */}

@@ -371,6 +371,25 @@ export function useRecebimentos(compraId: string | null) {
           .insert(itensParaInserir);
 
         if (itensError) throw itensError;
+        
+        // Atualizar quantidade_recebida em cada item da compra
+        for (const item of input.itens) {
+          if (item.quantidade_recebida > 0) {
+            // Buscar quantidade já recebida do item
+            const { data: itemCompra } = await supabase
+              .from("compras_itens")
+              .select("quantidade_recebida")
+              .eq("id", item.compra_item_id)
+              .single();
+            
+            const qtdAtual = Number(itemCompra?.quantidade_recebida) || 0;
+            
+            await supabase
+              .from("compras_itens")
+              .update({ quantidade_recebida: qtdAtual + item.quantidade_recebida })
+              .eq("id", item.compra_item_id);
+          }
+        }
       }
 
       return recebimento;
@@ -378,7 +397,7 @@ export function useRecebimentos(compraId: string | null) {
     onSuccess: async (recebimento, variables) => {
       // Atualizar status da compra automaticamente baseado no recebimento
       try {
-        // Buscar compra atualizada
+        // Buscar compra atualizada (depois de atualizar os itens)
         const { data: compra } = await supabase
           .from("compras")
           .select(`*, itens:compras_itens(*)`)
@@ -388,6 +407,8 @@ export function useRecebimentos(compraId: string | null) {
         if (compra) {
           const totalPedido = compra.itens.reduce((sum: number, i: any) => sum + Number(i.quantidade), 0);
           const totalRecebido = compra.itens.reduce((sum: number, i: any) => sum + Number(i.quantidade_recebida), 0);
+          
+          console.log("Status check:", { totalPedido, totalRecebido, currentStatus: compra.status });
           
           // Determinar novo status
           let novoStatus: StatusCompra = compra.status as StatusCompra;

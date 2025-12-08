@@ -144,6 +144,7 @@ export function useEstoque(params: UseEstoqueParams = {}) {
       produtoId: string;
       armazemId: string;
       novaQuantidade: number;
+      custoUnitario?: number;
       motivo: string;
       observacoes?: string;
     }) => {
@@ -158,6 +159,25 @@ export function useEstoque(params: UseEstoqueParams = {}) {
       const quantidadeAnterior = Number(estoqueAtual?.quantidade) || 0;
       const custoMedioAnterior = Number(estoqueAtual?.custo_medio) || 0;
       const diferenca = input.novaQuantidade - quantidadeAnterior;
+      
+      // Calcular novo custo médio se for entrada com custo informado
+      let novoCustoMedio = custoMedioAnterior;
+      const custoInformado = input.custoUnitario || custoMedioAnterior;
+      
+      if (diferenca > 0 && custoInformado > 0) {
+        // Entrada: recalcular custo médio ponderado
+        const valorAnterior = quantidadeAnterior * custoMedioAnterior;
+        const valorEntrada = diferenca * custoInformado;
+        novoCustoMedio = input.novaQuantidade > 0 
+          ? (valorAnterior + valorEntrada) / input.novaQuantidade 
+          : custoInformado;
+      } else if (diferenca < 0) {
+        // Saída: manter custo médio
+        novoCustoMedio = custoMedioAnterior;
+      } else if (custoInformado > 0 && quantidadeAnterior === 0) {
+        // Primeira entrada
+        novoCustoMedio = custoInformado;
+      }
 
       // Upsert no estoque
       const { error: estoqueError } = await supabase
@@ -167,7 +187,7 @@ export function useEstoque(params: UseEstoqueParams = {}) {
           produto_id: input.produtoId,
           armazem_id: input.armazemId,
           quantidade: input.novaQuantidade,
-          custo_medio: custoMedioAnterior,
+          custo_medio: novoCustoMedio,
         }, {
           onConflict: "produto_id,armazem_id",
         });
@@ -185,12 +205,12 @@ export function useEstoque(params: UseEstoqueParams = {}) {
           motivo: input.motivo,
           origem: 'ajuste_manual',
           quantidade: Math.abs(diferenca),
-          custo_unitario: custoMedioAnterior,
-          custo_total: Math.abs(diferenca) * custoMedioAnterior,
+          custo_unitario: custoInformado,
+          custo_total: Math.abs(diferenca) * custoInformado,
           estoque_anterior: quantidadeAnterior,
           estoque_posterior: input.novaQuantidade,
           custo_medio_anterior: custoMedioAnterior,
-          custo_medio_posterior: custoMedioAnterior,
+          custo_medio_posterior: novoCustoMedio,
           observacoes: input.observacoes,
         });
 
