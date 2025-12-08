@@ -348,7 +348,6 @@ export function ICMSCalculatorModal({
                 </SelectTrigger>
                 <SelectContent>
                   {(Object.keys(ORIGEM_CREDITO_CONFIG) as OrigemCredito[])
-                    .filter(o => o !== 'nota_adquirida')
                     .map((origem) => (
                       <SelectItem key={origem} value={origem}>
                         {ORIGEM_CREDITO_CONFIG[origem].label}
