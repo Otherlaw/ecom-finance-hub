@@ -2,25 +2,55 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-export const useResponsaveis = () => {
+interface Responsavel {
+  id: string;
+  nome: string;
+  funcao?: string | null;
+  email?: string | null;
+  ativo: boolean;
+  empresa_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ResponsavelInsert {
+  nome: string;
+  funcao?: string | null;
+  email?: string | null;
+  ativo?: boolean;
+  empresa_id?: string | null;
+}
+
+interface ResponsavelUpdate extends Partial<ResponsavelInsert> {
+  id: string;
+}
+
+export const useResponsaveis = (empresaId?: string) => {
   const queryClient = useQueryClient();
 
   const { data: responsaveis, isLoading } = useQuery({
-    queryKey: ["responsaveis"],
+    queryKey: ["responsaveis", empresaId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("responsaveis")
         .select("*")
         .eq("ativo", true)
         .order("nome");
 
+      // Filter by empresa_id if provided
+      if (empresaId) {
+        query = query.or(`empresa_id.eq.${empresaId},empresa_id.is.null`);
+      }
+
+      const { data, error } = await query;
+
       if (error) throw error;
-      return data;
+      return data as Responsavel[];
     },
   });
 
   const createResponsavel = useMutation({
-    mutationFn: async (responsavel: any) => {
+    mutationFn: async (responsavel: ResponsavelInsert) => {
       const { data, error } = await supabase
         .from("responsaveis")
         .insert(responsavel)
@@ -28,19 +58,19 @@ export const useResponsaveis = () => {
         .single();
 
       if (error) throw error;
-      return data;
+      return data as Responsavel;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["responsaveis"] });
       toast.success("Responsável cadastrado com sucesso!");
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error("Erro ao cadastrar responsável: " + error.message);
     },
   });
 
   const updateResponsavel = useMutation({
-    mutationFn: async ({ id, ...responsavel }: any) => {
+    mutationFn: async ({ id, ...responsavel }: ResponsavelUpdate) => {
       const { data, error } = await supabase
         .from("responsaveis")
         .update(responsavel)
@@ -49,13 +79,13 @@ export const useResponsaveis = () => {
         .single();
 
       if (error) throw error;
-      return data;
+      return data as Responsavel;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["responsaveis"] });
       toast.success("Responsável atualizado com sucesso!");
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error("Erro ao atualizar responsável: " + error.message);
     },
   });

@@ -2367,6 +2367,7 @@ export type Database = {
           ativo: boolean
           created_at: string
           email: string | null
+          empresa_id: string | null
           funcao: string | null
           id: string
           nome: string
@@ -2376,6 +2377,7 @@ export type Database = {
           ativo?: boolean
           created_at?: string
           email?: string | null
+          empresa_id?: string | null
           funcao?: string | null
           id?: string
           nome: string
@@ -2385,12 +2387,21 @@ export type Database = {
           ativo?: boolean
           created_at?: string
           email?: string | null
+          empresa_id?: string | null
           funcao?: string | null
           id?: string
           nome?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "responsaveis_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_empresas: {
         Row: {

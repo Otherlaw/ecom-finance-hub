@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -184,6 +185,49 @@ serve(async (req) => {
   }
 
   try {
+    // Validate authentication - extract and verify JWT
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error("[assistant-chat] Missing or invalid Authorization header");
+      return new Response(JSON.stringify({ error: "Não autorizado. Faça login para usar o assistente." }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Create Supabase client to verify the user
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error("Supabase configuration missing");
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+      global: {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    });
+
+    // Verify the user is authenticated
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    
+    if (userError || !user) {
+      console.error("[assistant-chat] Invalid token or user not found:", userError?.message);
+      return new Response(JSON.stringify({ error: "Sessão expirada. Faça login novamente." }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("[assistant-chat] Authenticated user:", user.id);
+
     const { messages, context } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
@@ -222,7 +266,7 @@ serve(async (req) => {
 
     const systemMessageWithContext = SYSTEM_PROMPT + contextMessage;
 
-    console.log("[assistant-chat] Processing request with context:", context?.telaAtual);
+    console.log("[assistant-chat] Processing request for user:", user.id, "context:", context?.telaAtual);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
