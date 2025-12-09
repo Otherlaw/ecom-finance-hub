@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { LayoutDashboard, CalendarCheck, Wallet, CreditCard as CreditCardIcon, FileText, Scale, TrendingUp, LineChart, Receipt, RefreshCw, ClipboardCheck, Package, ShoppingCart, CreditCard, Truck, Calculator, Settings, ChevronLeft, ChevronRight, Building2, Users, LogOut, Bot, FolderTree, List, Sparkles, PenLine, BarChart3, Store, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -137,6 +138,24 @@ const settingsNavItems: NavItem[] = [{
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, profile, signOut, isAuthenticated } = useAuth();
+
+  const handleLogout = async () => {
+    await signOut();
+    navigate("/auth");
+  };
+
+  const handleProfileClick = () => {
+    navigate("/perfil");
+  };
+
+  const userInitials = profile?.nome 
+    ? profile.nome.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+    : user?.email?.[0]?.toUpperCase() || "U";
+
+  const userName = profile?.nome || "Usuário";
+  const userEmail = user?.email || "Não logado";
   return <aside className={cn("h-screen bg-sidebar flex flex-col border-r border-sidebar-border transition-all duration-300 ease-in-out", collapsed ? "w-[72px]" : "w-[260px]")}>
       {/* Logo */}
       <div className="flex items-center justify-between p-4 h-16">
@@ -188,17 +207,32 @@ export function AppSidebar() {
 
       {/* User Section */}
       <div className="p-3 border-t border-sidebar-border">
-        <div className={cn("flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent transition-colors cursor-pointer", collapsed && "justify-center")}>
-          <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-primary font-semibold text-sm">AD</span>
+        <div className={cn("flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent transition-colors", collapsed && "justify-center")}>
+          <div 
+            onClick={handleProfileClick}
+            className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 cursor-pointer hover:bg-primary/30 transition-colors"
+          >
+            <span className="text-primary font-semibold text-sm">{userInitials}</span>
           </div>
-          {!collapsed && <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-sidebar-accent-foreground truncate">Admin</p>
-              <p className="text-xs text-sidebar-foreground truncate">admin@ecomfinance.com</p>
-            </div>}
-          {!collapsed && <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground hover:text-destructive">
+          {!collapsed && (
+            <div 
+              onClick={handleProfileClick}
+              className="flex-1 min-w-0 cursor-pointer"
+            >
+              <p className="text-sm font-medium text-sidebar-accent-foreground truncate">{userName}</p>
+              <p className="text-xs text-sidebar-foreground truncate">{userEmail}</p>
+            </div>
+          )}
+          {!collapsed && (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleLogout}
+              className="h-8 w-8 text-sidebar-foreground hover:text-destructive"
+            >
               <LogOut className="h-4 w-4" />
-            </Button>}
+            </Button>
+          )}
         </div>
       </div>
     </aside>;
