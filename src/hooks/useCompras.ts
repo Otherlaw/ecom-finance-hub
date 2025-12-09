@@ -88,6 +88,10 @@ export interface CompraInsert {
   prazo_dias?: number;
   data_vencimento?: string;
   gerar_conta_pagar?: boolean;
+  // Campos para custo efetivo e ICMS
+  valor_icms_st?: number;
+  outras_despesas?: number;
+  uf_emitente?: string | null;
 }
 
 export interface UseComprasParams {
@@ -209,6 +213,10 @@ export function useCompras(params: UseComprasParams = {}) {
           prazo_dias: compraData.prazo_dias || null,
           data_vencimento: dataVencimento || null,
           gerar_conta_pagar: compraData.gerar_conta_pagar || false,
+          // Novos campos para custo efetivo e ICMS
+          valor_icms_st: compraData.valor_icms_st || 0,
+          outras_despesas: compraData.outras_despesas || 0,
+          uf_emitente: compraData.uf_emitente || null,
         })
         .select()
         .single();
@@ -231,6 +239,7 @@ export function useCompras(params: UseComprasParams = {}) {
           valor_icms: item.valor_icms || null,
           aliquota_ipi: item.aliquota_ipi || null,
           valor_ipi: item.valor_ipi || null,
+          valor_icms_st: (item as any).valor_icms_st || 0,
           mapeado: item.mapeado || false,
         }));
 
@@ -421,6 +430,10 @@ export function useRecebimentos(compraId: string | null) {
       forcar_conclusao?: boolean;
       valor_frete?: number;
       valor_produtos?: number;
+      valor_icms_st?: number;
+      outras_despesas?: number;
+      valor_desconto?: number;
+      uf_emitente?: string | null;
       itens: {
         compra_item_id: string;
         produto_id: string | null;
@@ -430,8 +443,10 @@ export function useRecebimentos(compraId: string | null) {
         custo_efetivo?: number;
         valor_ipi?: number;
         valor_icms?: number;
+        valor_icms_st?: number;
         aliquota_icms?: number;
         ncm?: string | null;
+        cfop?: string | null;
         lote?: string;
         validade?: string;
         localizacao?: string;
@@ -441,7 +456,7 @@ export function useRecebimentos(compraId: string | null) {
       // Buscar dados da compra para contexto
       const { data: compraData } = await supabase
         .from("compras")
-        .select("empresa_id, numero_nf, chave_acesso, data_nf, fornecedor_nome")
+        .select("empresa_id, numero_nf, chave_acesso, data_nf, fornecedor_nome, fornecedor_cnpj, uf_emitente")
         .eq("id", input.compra_id)
         .single();
 
@@ -568,6 +583,36 @@ export function useRecebimentos(compraId: string | null) {
                 .update({ custo_medio: novoCustoMedio })
                 .eq("id", item.produto_id);
             }
+
+            // 3. Registrar crédito de ICMS (se ICMS destacado > 0)
+            if (item.valor_icms && item.valor_icms > 0) {
+              const valorIcmsRecebido = (item.valor_icms / (item.quantidade_recebida + (item.quantidade_devolvida || 0))) * item.quantidade_recebida;
+              const competencia = input.data_recebimento.substring(0, 7); // YYYY-MM
+              
+              await supabase.from("creditos_icms").insert({
+                empresa_id: compraData.empresa_id,
+                tipo_credito: 'compensavel', // TODO: determinar baseado no regime da empresa
+                origem_credito: 'compra_mercadoria',
+                status_credito: 'ativo',
+                chave_acesso: compraData.chave_acesso || null,
+                numero_nf: compraData.numero_nf || null,
+                ncm: item.ncm || '00000000',
+                descricao: `Recebimento - Item ${item.compra_item_id.slice(0, 8)}`,
+                quantidade: item.quantidade_recebida,
+                valor_unitario: item.custo_unitario,
+                valor_total: item.quantidade_recebida * item.custo_unitario,
+                uf_origem: input.uf_emitente || (compraData as any).uf_emitente || null,
+                cfop: item.cfop || null,
+                aliquota_icms: item.aliquota_icms || 0,
+                valor_icms_destacado: valorIcmsRecebido,
+                percentual_aproveitamento: 100,
+                valor_credito_bruto: valorIcmsRecebido,
+                valor_credito: valorIcmsRecebido,
+                data_lancamento: input.data_recebimento,
+                data_competencia: competencia,
+                fornecedor_nome: compraData.fornecedor_nome,
+              });
+            }
           }
         }
       }
@@ -577,6 +622,7 @@ export function useRecebimentos(compraId: string | null) {
         forcar_conclusao: input.forcar_conclusao,
         compraData,
         itens: input.itens,
+        uf_emitente: input.uf_emitente,
       };
     },
     onSuccess: async (result, variables) => {

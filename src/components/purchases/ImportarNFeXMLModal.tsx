@@ -175,11 +175,15 @@ export function ImportarNFeXMLModal({
           valor_total: item.valorTotal,
           aliquota_icms: item.aliquotaIcms,
           valor_icms: item.valorIcms,
-          aliquota_ipi: 0,
-          valor_ipi: 0,
+          aliquota_ipi: item.aliquotaIPI || 0,
+          valor_ipi: item.valorIPI || 0,
+          valor_icms_st: item.icmsST || 0,
           mapeado: false,
         }));
 
+        // Calcular valor de produtos (soma dos itens)
+        const valorProdutos = nfe.itens.reduce((sum, item) => sum + item.valorTotal, 0);
+        
         await criarCompra.mutateAsync({
           empresa_id: empresaId,
           fornecedor_nome: nfe.emitente.razaoSocial,
@@ -189,6 +193,13 @@ export function ImportarNFeXMLModal({
           numero_nf: nfe.numero,
           chave_acesso: nfe.chaveAcesso,
           valor_total: nfe.valorTotal,
+          valor_produtos: valorProdutos,
+          valor_frete: nfe.freteTotal || 0,
+          valor_desconto: nfe.descontoTotal || 0,
+          // Novos campos
+          valor_icms_st: nfe.stTotal || 0,
+          outras_despesas: nfe.outrasDepesas || 0,
+          uf_emitente: nfe.emitente.uf || null,
           status: 'emitido',
           forma_pagamento: formaPagamento || undefined,
           condicao_pagamento: condicaoPagamento,

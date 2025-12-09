@@ -319,11 +319,14 @@ export type Database = {
           numero: string | null
           numero_nf: string | null
           observacoes: string | null
+          outras_despesas: number | null
           prazo_dias: number | null
           status: string
+          uf_emitente: string | null
           updated_at: string
           valor_desconto: number
           valor_frete: number
+          valor_icms_st: number | null
           valor_produtos: number
           valor_total: number
         }
@@ -345,11 +348,14 @@ export type Database = {
           numero?: string | null
           numero_nf?: string | null
           observacoes?: string | null
+          outras_despesas?: number | null
           prazo_dias?: number | null
           status?: string
+          uf_emitente?: string | null
           updated_at?: string
           valor_desconto?: number
           valor_frete?: number
+          valor_icms_st?: number | null
           valor_produtos?: number
           valor_total?: number
         }
@@ -371,11 +377,14 @@ export type Database = {
           numero?: string | null
           numero_nf?: string | null
           observacoes?: string | null
+          outras_despesas?: number | null
           prazo_dias?: number | null
           status?: string
+          uf_emitente?: string | null
           updated_at?: string
           valor_desconto?: number
           valor_frete?: number
+          valor_icms_st?: number | null
           valor_produtos?: number
           valor_total?: number
         }
@@ -413,6 +422,7 @@ export type Database = {
           quantidade_recebida: number
           updated_at: string
           valor_icms: number | null
+          valor_icms_st: number | null
           valor_ipi: number | null
           valor_total: number
           valor_unitario: number
@@ -433,6 +443,7 @@ export type Database = {
           quantidade_recebida?: number
           updated_at?: string
           valor_icms?: number | null
+          valor_icms_st?: number | null
           valor_ipi?: number | null
           valor_total?: number
           valor_unitario?: number
@@ -453,6 +464,7 @@ export type Database = {
           quantidade_recebida?: number
           updated_at?: string
           valor_icms?: number | null
+          valor_icms_st?: number | null
           valor_ipi?: number | null
           valor_total?: number
           valor_unitario?: number
