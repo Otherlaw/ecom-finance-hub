@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/MainLayout";
 import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
@@ -5,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Settings,
   Bell,
@@ -14,10 +17,20 @@ import {
   Shield,
   Palette,
   Save,
+  User,
+  ChevronRight,
+  LogIn,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Configuracoes() {
+  const navigate = useNavigate();
+  const { user, profile, isAuthenticated, loading } = useAuth();
+
+  const initials = profile?.nome
+    ? profile.nome.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+    : user?.email?.slice(0, 2).toUpperCase() || "U";
+
   return (
     <MainLayout
       title="Configurações"
@@ -30,6 +43,47 @@ export default function Configuracoes() {
       }
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Meu Perfil */}
+        <ModuleCard title="Meu Perfil" icon={User}>
+          {isAuthenticated ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <Avatar className="h-16 w-16">
+                  <AvatarImage src={profile?.avatar_url || ""} />
+                  <AvatarFallback className="text-lg bg-primary text-primary-foreground">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <p className="font-medium text-lg">{profile?.nome || "Usuário"}</p>
+                  <p className="text-sm text-muted-foreground">{user?.email}</p>
+                </div>
+              </div>
+              <Button 
+                variant="outline" 
+                className="w-full justify-between"
+                onClick={() => navigate("/perfil")}
+              >
+                Editar meu perfil
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-muted-foreground">
+                Faça login para acessar seu perfil e configurações personalizadas.
+              </p>
+              <Button 
+                className="w-full gap-2"
+                onClick={() => navigate("/auth")}
+              >
+                <LogIn className="h-4 w-4" />
+                Entrar ou Cadastrar
+              </Button>
+            </div>
+          )}
+        </ModuleCard>
+
         {/* Notificações */}
         <ModuleCard title="Notificações" icon={Bell}>
           <div className="space-y-6">
