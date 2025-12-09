@@ -38,6 +38,9 @@ import {
   Repeat,
   BarChart3,
   Loader2,
+  Link2,
+  CheckCircle2,
+  Package,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -199,6 +202,18 @@ export default function ContasPagar() {
     setPagamentoModalOpen(false);
   };
 
+  const handleConfirmarConta = async (conta: ContaPagar) => {
+    try {
+      await updateConta.mutateAsync({
+        id: conta.id,
+        status: 'em_aberto',
+      });
+      toast.success('Conta confirmada e movida para "Em Aberto".');
+    } catch (error) {
+      toast.error('Erro ao confirmar conta.');
+    }
+  };
+
 const handleImport = (data: any[]) => {
     // Process imported data
     const defaultEmpresa = empresas?.[0];
@@ -233,6 +248,9 @@ const handleImport = (data: any[]) => {
           observacoes: null,
           recorrente: false,
           conciliado: false,
+          compra_id: null,
+          numero_parcela: null,
+          total_parcelas: null,
         });
       } catch (err) {
         console.error('Erro ao importar:', err);
@@ -553,10 +571,21 @@ const handleImport = (data: any[]) => {
                                   <span className="font-medium">{conta.descricao}</span>
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                     {conta.documento && <span>{conta.documento}</span>}
+                                    {conta.numero_parcela && conta.total_parcelas && (
+                                      <Badge variant="outline" className="text-xs">
+                                        {conta.numero_parcela}/{conta.total_parcelas}
+                                      </Badge>
+                                    )}
                                     {conta.recorrente && (
                                       <Badge variant="outline" className="text-xs">
                                         <Repeat className="h-3 w-3 mr-1" />
                                         Recorrente
+                                      </Badge>
+                                    )}
+                                    {conta.compra_id && (
+                                      <Badge variant="outline" className="text-xs text-primary cursor-pointer hover:bg-primary/10" onClick={() => window.open(`/compras?id=${conta.compra_id}`, '_blank')}>
+                                        <Package className="h-3 w-3 mr-1" />
+                                        Ver Compra
                                       </Badge>
                                     )}
                                   </div>
@@ -608,6 +637,15 @@ const handleImport = (data: any[]) => {
                                       <Eye className="h-4 w-4 mr-2" />
                                       Ver Detalhes
                                     </DropdownMenuItem>
+                                    {conta.status === 'em_analise' && (
+                                      <>
+                                        <DropdownMenuItem onClick={() => handleConfirmarConta(conta)}>
+                                          <CheckCircle2 className="h-4 w-4 mr-2 text-success" />
+                                          Confirmar Lançamento
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                      </>
+                                    )}
                                     {isPayable && (
                                       <>
                                         <DropdownMenuItem onClick={() => handleEditConta(conta)}>
@@ -618,6 +656,15 @@ const handleImport = (data: any[]) => {
                                         <DropdownMenuItem onClick={() => handlePayConta(conta)}>
                                           <DollarSign className="h-4 w-4 mr-2" />
                                           Registrar Pagamento
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
+                                    {conta.compra_id && (
+                                      <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem onClick={() => window.open(`/compras?id=${conta.compra_id}`, '_blank')}>
+                                          <Link2 className="h-4 w-4 mr-2" />
+                                          Ver Compra Vinculada
                                         </DropdownMenuItem>
                                       </>
                                     )}
