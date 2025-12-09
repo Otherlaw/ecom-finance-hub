@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, BellOff, Settings, ChevronUp, ChevronDown, Volume2, VolumeX, MessageCircle, Minus } from 'lucide-react';
+import { Bell, BellOff, Settings, Volume2, VolumeX, Minus, Bot, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -10,7 +10,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { AssistantCharacter } from './AssistantCharacter';
 import { AlertPopup } from './AlertPopup';
 import { AlertDetailModal } from './AlertDetailModal';
 import { AssistantChatPanel } from './AssistantChatPanel';
@@ -41,7 +40,6 @@ export function AssistantWidget() {
   const [currentPopupAlert, setCurrentPopupAlert] = useState<AssistantAlert | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<AssistantAlert | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(() => {
     return localStorage.getItem('fin-minimized') === 'true';
   });
@@ -64,13 +62,6 @@ export function AssistantWidget() {
       setCurrentPopupAlert(sortedAlerts[0]);
     }
   }, [newAlerts, currentPopupAlert, isSilenced]);
-
-  // Fechar expanded quando chat abre
-  useEffect(() => {
-    if (isChatOpen) {
-      setIsExpanded(false);
-    }
-  }, [isChatOpen]);
 
   const handleDismissPopup = () => {
     if (currentPopupAlert) {
@@ -122,231 +113,105 @@ export function AssistantWidget() {
     .filter(a => a.status === 'novo' || a.status === 'em_analise')
     .slice(0, 5);
 
-  // Widget minimizado - apenas ícone pequeno
-  if (isMinimized && !isChatOpen) {
-    return (
-      <>
+  const toggleChat = () => {
+    if (isChatOpen) {
+      closeChat();
+    } else {
+      openChat();
+    }
+  };
+
+  return (
+    <>
+      {/* Botão flutuante 3D com glow */}
+      <div className="fixed bottom-6 right-6 z-50">
         <button
-          onClick={() => setIsMinimized(false)}
+          onClick={toggleChat}
           className={cn(
-            'fixed bottom-4 right-4 z-40',
-            'h-10 w-10 rounded-full shadow-lg transition-all hover:scale-110',
-            'bg-gradient-to-br from-primary to-primary/80',
-            'flex items-center justify-center'
+            'floating-ai-button relative w-16 h-16 rounded-full flex items-center justify-center transition-all duration-500 transform',
+            isChatOpen ? 'rotate-90' : 'rotate-0'
           )}
+          style={{
+            background: 'linear-gradient(135deg, rgba(99,102,241,0.8) 0%, rgba(168,85,247,0.8) 100%)',
+            boxShadow: '0 0 20px rgba(139, 92, 246, 0.7), 0 0 40px rgba(124, 58, 237, 0.5), 0 0 60px rgba(109, 40, 217, 0.3)',
+            border: '2px solid rgba(255, 255, 255, 0.2)',
+          }}
         >
-          <AssistantCharacter size="sm" mood="neutral" />
-          {unreadCount > 0 && !isSilenced && (
-            <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center">
+          {/* Efeito 3D */}
+          <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/20 to-transparent opacity-30" />
+
+          {/* Brilho interno */}
+          <div className="absolute inset-0 rounded-full border-2 border-white/10" />
+
+          {/* Ícone */}
+          <div className="relative z-10">
+            {isChatOpen ? (
+              <X className="w-8 h-8 text-white" />
+            ) : (
+              <Bot className="w-8 h-8 text-white" />
+            )}
+          </div>
+
+          {/* Animação ping */}
+          {!isChatOpen && (
+            <div className="absolute inset-0 rounded-full animate-ping opacity-20 bg-indigo-500" />
+          )}
+
+          {/* Badge de contagem */}
+          {unreadCount > 0 && !isSilenced && !isChatOpen && (
+            <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-destructive text-destructive-foreground text-xs font-bold flex items-center justify-center animate-bounce">
               {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
+
+          {/* Indicador de silenciado */}
+          {isSilenced && !isChatOpen && (
+            <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-zinc-700 text-zinc-400 flex items-center justify-center">
+              <BellOff className="w-3 h-3" />
             </span>
           )}
         </button>
 
-        {/* Popup de alerta mesmo minimizado */}
-        {currentPopupAlert && !isSilenced && (
-          <AlertPopup
-            alert={currentPopupAlert}
-            onDismiss={handleDismissPopup}
-            onViewDetails={() => {
-              setIsMinimized(false);
-              handleViewDetails(currentPopupAlert);
-            }}
-          />
-        )}
-      </>
-    );
-  }
-
-  return (
-    <>
-      {/* Widget principal - bottom-20 para não sobrepor paginação */}
-      <div className="fixed bottom-20 right-4 z-40 flex flex-col items-end gap-2">
-        {/* Mini lista de alertas recentes */}
-        {isExpanded && !isChatOpen && (
-          <div className="bg-card border rounded-xl shadow-xl w-80 max-h-96 overflow-hidden animate-in slide-in-from-bottom-2">
-            <div className="p-3 border-b bg-muted/50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <AssistantCharacter size="sm" mood={isAnalyzing ? 'thinking' : 'neutral'} />
-                <div>
-                  <h3 className="font-semibold text-sm">Fin</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {isAnalyzing ? 'Analisando...' : `${unreadCount} alertas pendentes`}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-6 w-6" 
-                  onClick={() => setIsMinimized(true)}
-                  title="Minimizar"
-                >
-                  <Minus className="w-3 h-3" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsExpanded(false)}>
-                  <ChevronDown className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-
-            {/* Botão de chat */}
-            <div className="p-2 border-b bg-primary/5">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full gap-2"
-                onClick={() => openChat()}
-              >
-                <MessageCircle className="w-4 h-4" />
-                Conversar com o Fin
-              </Button>
-            </div>
-
-            <div className="divide-y max-h-48 overflow-y-auto">
-              {recentAlerts.length === 0 ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">
-                  Nenhum alerta pendente no momento.
-                </div>
-              ) : (
-                recentAlerts.map(alert => {
-                  const severityConfig = SEVERITY_CONFIG[alert.severidade];
-                  return (
-                    <button
-                      key={alert.id}
-                      className="w-full p-3 text-left hover:bg-muted/50 transition-colors"
-                      onClick={() => handleViewDetails(alert)}
-                    >
-                      <div className="flex gap-2">
-                        <div className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0', severityConfig.bgColor.replace('bg-', 'bg-').replace('-100', '-500'))} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{alert.titulo}</p>
-                          <p className="text-xs text-muted-foreground truncate">{alert.descricao}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Badge variant="outline" className={cn('text-[10px] px-1 py-0', severityConfig.color)}>
-                              {severityConfig.label}
-                            </Badge>
-                            <span className="text-[10px] text-muted-foreground">
-                              {formatRelativeTime(alert.dataDeteccao)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="p-2 border-t bg-muted/30">
-              <Button variant="ghost" size="sm" className="w-full text-xs" onClick={handleGoToCenter}>
-                Ver todos os alertas
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Botões principais do widget */}
+        {/* Menu de configurações - aparece quando não está em chat */}
         {!isChatOpen && (
-          <div className="flex items-center gap-2">
-            {/* Botão de minimizar */}
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 rounded-full shadow-lg bg-card"
-              onClick={() => setIsMinimized(true)}
-              title="Minimizar Fin"
-            >
-              <Minus className="w-3 h-3" />
-            </Button>
-
-            {/* Botão de chat rápido */}
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-10 w-10 rounded-full shadow-lg bg-card"
-              onClick={() => openChat()}
-              title="Conversar com o Fin"
-            >
-              <MessageCircle className="w-4 h-4" />
-            </Button>
-
-            {/* Menu de configurações */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" className="h-10 w-10 rounded-full shadow-lg bg-card">
-                  <Settings className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={runAnalysis} disabled={isAnalyzing}>
-                  <Bell className="w-4 h-4 mr-2" />
-                  Executar análise
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="absolute -top-2 -left-2 w-8 h-8 rounded-full bg-zinc-800/90 border border-zinc-700/50 flex items-center justify-center transition-all hover:scale-110 hover:bg-zinc-700"
+              >
+                <Settings className="w-4 h-4 text-zinc-400" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48 bg-zinc-900 border-zinc-700">
+              <DropdownMenuItem onClick={runAnalysis} disabled={isAnalyzing} className="text-zinc-200 focus:bg-zinc-800">
+                <Bell className="w-4 h-4 mr-2" />
+                Executar análise
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-zinc-700" />
+              {isSilenced ? (
+                <DropdownMenuItem onClick={unsilence} className="text-zinc-200 focus:bg-zinc-800">
+                  <Volume2 className="w-4 h-4 mr-2" />
+                  Reativar alertas
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {isSilenced ? (
-                  <DropdownMenuItem onClick={unsilence}>
-                    <Volume2 className="w-4 h-4 mr-2" />
-                    Reativar alertas
+              ) : (
+                <>
+                  <DropdownMenuItem onClick={() => silenceFor(60)} className="text-zinc-200 focus:bg-zinc-800">
+                    <VolumeX className="w-4 h-4 mr-2" />
+                    Silenciar por 1 hora
                   </DropdownMenuItem>
-                ) : (
-                  <>
-                    <DropdownMenuItem onClick={() => silenceFor(60)}>
-                      <VolumeX className="w-4 h-4 mr-2" />
-                      Silenciar por 1 hora
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => silenceFor(240)}>
-                      <VolumeX className="w-4 h-4 mr-2" />
-                      Silenciar por 4 horas
-                    </DropdownMenuItem>
-                  </>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleGoToCenter}>
-                  <Bell className="w-4 h-4 mr-2" />
-                  Central de Alertas
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Botão do personagem */}
-            <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              className={cn(
-                'relative h-14 w-14 rounded-full shadow-xl transition-all hover:scale-105',
-                'bg-gradient-to-br from-primary to-primary/80',
-                'flex items-center justify-center',
-                isAnalyzing && 'animate-pulse'
+                  <DropdownMenuItem onClick={() => silenceFor(240)} className="text-zinc-200 focus:bg-zinc-800">
+                    <VolumeX className="w-4 h-4 mr-2" />
+                    Silenciar por 4 horas
+                  </DropdownMenuItem>
+                </>
               )}
-            >
-              <AssistantCharacter 
-                size="md" 
-                mood={isSilenced ? 'neutral' : isAnalyzing ? 'thinking' : unreadCount > 0 ? 'alto' : 'neutral'} 
-              />
-              
-              {/* Badge de contagem */}
-              {unreadCount > 0 && !isSilenced && (
-                <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-destructive text-destructive-foreground text-xs font-bold flex items-center justify-center animate-bounce">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-
-              {/* Indicador de silenciado */}
-              {isSilenced && (
-                <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-muted text-muted-foreground flex items-center justify-center">
-                  <BellOff className="w-3 h-3" />
-                </span>
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* Última análise */}
-        {lastAnalysis && !isChatOpen && (
-          <p className="text-[10px] text-muted-foreground">
-            Última análise: {formatRelativeTime(lastAnalysis)}
-          </p>
+              <DropdownMenuSeparator className="bg-zinc-700" />
+              <DropdownMenuItem onClick={handleGoToCenter} className="text-zinc-200 focus:bg-zinc-800">
+                <Bell className="w-4 h-4 mr-2" />
+                Central de Alertas
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
 
@@ -377,6 +242,14 @@ export function AssistantWidget() {
         onAnalyze={handleAnalyze}
         onAskAssistant={handleAskAboutAlert}
       />
+
+      {/* CSS para animações do botão */}
+      <style>{`
+        .floating-ai-button:hover {
+          transform: scale(1.1) rotate(5deg);
+          box-shadow: 0 0 30px rgba(139, 92, 246, 0.9), 0 0 50px rgba(124, 58, 237, 0.7), 0 0 70px rgba(109, 40, 217, 0.5) !important;
+        }
+      `}</style>
     </>
   );
 }
