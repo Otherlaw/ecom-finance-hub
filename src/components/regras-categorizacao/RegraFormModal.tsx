@@ -127,6 +127,8 @@ export function RegraFormModal({ open, onOpenChange, regra }: RegraFormModalProp
     },
   });
 
+  const DEFAULT_EMPRESA_ID = "d0b0c897-d560-4dc5-aa07-df99d3019bf5";
+
   const mutation = useMutation({
     mutationFn: async (data: FormData) => {
       const payload = {
@@ -135,6 +137,7 @@ export function RegraFormModal({ open, onOpenChange, regra }: RegraFormModalProp
         centro_custo_id: data.centro_custo_id || null,
         responsavel_id: data.responsavel_id || null,
         ativo: data.ativo,
+        empresa_id: DEFAULT_EMPRESA_ID,
       };
 
       if (regra) {

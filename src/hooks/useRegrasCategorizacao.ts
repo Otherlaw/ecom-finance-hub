@@ -131,7 +131,8 @@ export function useRegrasCategorizacao() {
 
         if (error) throw error;
       } else {
-        // Cria nova regra
+        // Cria nova regra - usa empresa_id padrão
+        const DEFAULT_EMPRESA_ID = "d0b0c897-d560-4dc5-aa07-df99d3019bf5";
         const { error } = await supabase
           .from("regras_categorizacao")
           .insert({
@@ -139,6 +140,7 @@ export function useRegrasCategorizacao() {
             categoria_id: data.categoria_id,
             centro_custo_id: data.centro_custo_id,
             responsavel_id: data.responsavel_id,
+            empresa_id: DEFAULT_EMPRESA_ID,
           });
 
         if (error) throw error;
