@@ -67,6 +67,12 @@ export interface DadosTributacao {
   ibsAliquota: number; // % IBS (IVA Estadual/Municipal) - previsão ~17.7%
 }
 
+// Configuração de nota baixa na venda (saída)
+export interface NotaBaixaVendaConfig {
+  ativa: boolean;
+  percentualNota: number; // % do valor real que será faturado (ex: 10 = 10% do valor real)
+}
+
 export interface NotaBaixaConfig {
   ativa: boolean;
   opcao: NotaBaixaOpcao;
@@ -154,6 +160,9 @@ export interface SimulacaoPrecificacao {
   // Margem e preço
   margemDesejada: number;
   precoVendaManual?: number; // OPCIONAL - para simulação
+  
+  // Nota baixa na venda (redução de nota na saída)
+  notaBaixaVenda: NotaBaixaVendaConfig;
 }
 
 export interface ResultadoPrecificacao {
@@ -478,7 +487,7 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   const { 
     custoBase, tributacao, comissao, tarifaFixa, taxasExtras, taxasExtrasAtivas,
     freteVenda, gastosExtras, margemDesejada, regimeTributario, precoVendaManual,
-    falsoDesconto, marketplace
+    falsoDesconto, marketplace, notaBaixaVenda
   } = simulacao;
   
   // Calcular percentuais de tributos (regime atual ou reforma tributária)
@@ -506,6 +515,15 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
     tributosPercent = tributosPercentRegimeAtual;
   }
   
+  // Nota baixa na venda: se ativa, tributos incidem apenas sobre % declarado
+  // Fator de redução = percentualNota / 100 (ex: 10% = 0.1)
+  const fatorNotaBaixaVenda = notaBaixaVenda?.ativa && notaBaixaVenda.percentualNota > 0 && notaBaixaVenda.percentualNota < 100
+    ? notaBaixaVenda.percentualNota / 100
+    : 1;
+  
+  // Tributos efetivos = tributos * fator (paga imposto só sobre nota reduzida)
+  const tributosPercentEfetivo = tributosPercent * fatorNotaBaixaVenda;
+  
   // Calcular gastos extras
   const gastosExtrasFixos = gastosExtras.filter(g => g.tipo === 'fixo').reduce((sum, g) => sum + g.valor, 0);
   const gastosExtrasPercent = gastosExtras.filter(g => g.tipo === 'percentual').reduce((sum, g) => sum + g.valor, 0);
@@ -520,21 +538,21 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   // DIFAL (valor fixo quando ativo)
   const difalTotal = tributacao.difalAtivo ? (tributacao.difalValor + tributacao.fundoFiscalDifal) : 0;
   
-  // Calcular preço sugerido COM DIFAL (preço base / preço final ao cliente)
+  // Calcular preço sugerido usando tributos EFETIVOS (com nota baixa se ativa)
   const precoSugerido = calcularPrecoSugerido(
     custoBase,
     margemDesejada,
     comissaoTotal,
     tarifaTotal,
-    tributosPercent,
+    tributosPercentEfetivo, // Usa tributos reduzidos pela nota baixa
     freteVenda,
     gastosExtrasFixos,
     gastosExtrasPercent,
     difalTotal
   );
   
-  // Calcular custos com base no preço sugerido (preço final ao cliente)
-  const tributosTotal = (precoSugerido * tributosPercent) / 100;
+  // Calcular custos com base no preço sugerido (tributos efetivos)
+  const tributosTotal = (precoSugerido * tributosPercentEfetivo) / 100;
   const comissaoValor = (precoSugerido * comissaoTotal) / 100;
   const gastosExtrasTotal = gastosExtrasFixos + (precoSugerido * gastosExtrasPercent) / 100;
   
@@ -554,7 +572,8 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   let margemManualSemDifalPercent: number | undefined;
   
   if (precoVendaManual && precoVendaManual > 0) {
-    const tributosManual = (precoVendaManual * tributosPercent) / 100;
+    // Usa tributos efetivos (com nota baixa na venda se ativa)
+    const tributosManual = (precoVendaManual * tributosPercentEfetivo) / 100;
     const comissaoManual = (precoVendaManual * comissaoTotal) / 100;
     const gastosExtrasManual = gastosExtrasFixos + (precoVendaManual * gastosExtrasPercent) / 100;
     
@@ -751,8 +770,8 @@ export const criarSimulacaoInicial = (
       icmsEstimado: 18,
       pisCofinsEstimado: 9.25,
       simularReformaTributaria: false,
-      cbsAliquota: 8.8, // Previsão CBS (IVA Federal)
-      ibsAliquota: 17.7, // Previsão IBS (IVA Estadual/Municipal)
+      cbsAliquota: 0.9, // CBS transição 2025 (0,9%)
+      ibsAliquota: 0.1, // IBS transição 2025 (0,1%)
     },
     comissao: config.comissaoPadrao,
     tarifaFixa: config.tarifaFixaPadrao,
@@ -768,6 +787,10 @@ export const criarSimulacaoInicial = (
     freteGratisML: false,
     gastosExtras: [],
     margemDesejada: 20,
+    notaBaixaVenda: {
+      ativa: false,
+      percentualNota: 100, // 100% = nota integral
+    },
   };
 };
 
