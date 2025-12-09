@@ -120,6 +120,22 @@ export function useAuth() {
     return data;
   };
 
+  // Recuperar senha
+  const resetPassword = async (email: string) => {
+    const redirectUrl = `${window.location.origin}/auth?reset=true`;
+    
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: redirectUrl,
+    });
+    
+    if (error) {
+      if (error.message.includes("User not found")) {
+        throw new Error("E-mail não encontrado");
+      }
+      throw error;
+    }
+  };
+
   // Logout
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
@@ -165,6 +181,7 @@ export function useAuth() {
     signIn,
     signUp,
     signOut,
+    resetPassword,
     updateProfile,
   };
 }
