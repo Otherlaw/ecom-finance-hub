@@ -67,15 +67,11 @@ export function CategorizacaoMarketplaceModal({
   transaction,
   onSuccess,
 }: CategorizacaoMarketplaceModalProps) {
+  // Todos os hooks ANTES de qualquer early return
   const { categorias } = useCategoriasFinanceiras();
   const { centrosCusto } = useCentrosCusto();
   const { atualizarTransacao, conciliarTransacao, ignorarTransacao, reabrirTransacao } = useMarketplaceTransactions();
   const { produtos } = useProdutos({ empresaId: transaction?.empresa_id || "" });
-
-  // Early return if no transaction (modal closed)
-  if (!transaction) {
-    return null;
-  }
 
   const [categoriaId, setCategoriaId] = useState<string>("");
   const [centroCustoId, setCentroCustoId] = useState<string>("");
@@ -117,6 +113,11 @@ export function CategorizacaoMarketplaceModal({
       (parseFloat(outrosDescontos) || 0)
     );
   }, [tarifas, taxas, outrosDescontos]);
+
+  // Early return DEPOIS de todos os hooks
+  if (!transaction) {
+    return null;
+  }
 
   const parseNumber = (value: string): number => {
     if (!value) return 0;
