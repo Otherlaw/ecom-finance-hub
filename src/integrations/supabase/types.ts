@@ -2310,6 +2310,7 @@ export type Database = {
           categoria_id: string | null
           centro_custo_id: string | null
           created_at: string
+          empresa_id: string
           estabelecimento_pattern: string
           id: string
           responsavel_id: string | null
@@ -2321,6 +2322,7 @@ export type Database = {
           categoria_id?: string | null
           centro_custo_id?: string | null
           created_at?: string
+          empresa_id: string
           estabelecimento_pattern: string
           id?: string
           responsavel_id?: string | null
@@ -2332,6 +2334,7 @@ export type Database = {
           categoria_id?: string | null
           centro_custo_id?: string | null
           created_at?: string
+          empresa_id?: string
           estabelecimento_pattern?: string
           id?: string
           responsavel_id?: string | null
@@ -2351,6 +2354,13 @@ export type Database = {
             columns: ["centro_custo_id"]
             isOneToOne: false
             referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "regras_categorizacao_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
             referencedColumns: ["id"]
           },
           {
