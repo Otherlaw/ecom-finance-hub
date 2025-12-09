@@ -12,34 +12,40 @@ import { toast } from "sonner";
 import { Loader2, Mail, Lock, Eye, EyeOff, ArrowLeft, Building2, FileText, Briefcase } from "lucide-react";
 import logoEcomFinance from "@/assets/logo-ecom-finance-new.png";
 import { formatCNPJ } from "@/lib/empresas-data";
-
 export default function Auth() {
   const navigate = useNavigate();
-  const { signIn, signUp, resetPassword, isAuthenticated, loading: authLoading } = useAuth();
-  const { createEmpresa } = useEmpresas();
-  
+  const {
+    signIn,
+    signUp,
+    resetPassword,
+    isAuthenticated,
+    loading: authLoading
+  } = useAuth();
+  const {
+    createEmpresa
+  } = useEmpresas();
   const [isLoading, setIsLoading] = useState(false);
   const [activeView, setActiveView] = useState<"login" | "signup" | "forgot">("login");
   const [rememberMe, setRememberMe] = useState(false);
-  
+
   // Password visibility toggles
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [showSignupConfirmPassword, setShowSignupConfirmPassword] = useState(false);
-  
+
   // Login form
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  
+
   // Forgot password form
   const [forgotEmail, setForgotEmail] = useState("");
-  
+
   // Signup form - Dados da Empresa
   const [signupRazaoSocial, setSignupRazaoSocial] = useState("");
   const [signupNomeFantasia, setSignupNomeFantasia] = useState("");
   const [signupCnpj, setSignupCnpj] = useState("");
   const [signupRegime, setSignupRegime] = useState<string>("");
-  
+
   // Signup form - Dados de Acesso
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
@@ -51,20 +57,16 @@ export default function Auth() {
       navigate("/");
     }
   }, [isAuthenticated, authLoading, navigate]);
-
   const handleCnpjChange = (value: string) => {
     const formatted = formatCNPJ(value);
     setSignupCnpj(formatted);
   };
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!loginEmail || !loginPassword) {
       toast.error("Preencha todos os campos");
       return;
     }
-    
     setIsLoading(true);
     try {
       await signIn(loginEmail, loginPassword);
@@ -76,15 +78,12 @@ export default function Auth() {
       setIsLoading(false);
     }
   };
-
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!forgotEmail) {
       toast.error("Informe seu e-mail");
       return;
     }
-    
     setIsLoading(true);
     try {
       await resetPassword(forgotEmail);
@@ -97,38 +96,36 @@ export default function Auth() {
       setIsLoading(false);
     }
   };
-
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Validações
     if (!signupRazaoSocial || !signupCnpj || !signupRegime || !signupEmail || !signupPassword) {
       toast.error("Preencha todos os campos obrigatórios");
       return;
     }
-    
+
     // Validar CNPJ (14 dígitos)
     const cnpjDigits = signupCnpj.replace(/\D/g, "");
     if (cnpjDigits.length !== 14) {
       toast.error("CNPJ inválido - deve conter 14 dígitos");
       return;
     }
-    
     if (signupPassword.length < 6) {
       toast.error("A senha deve ter pelo menos 6 caracteres");
       return;
     }
-    
     if (signupPassword !== signupConfirmPassword) {
       toast.error("As senhas não coincidem");
       return;
     }
-    
     setIsLoading(true);
     try {
       // 1. Criar conta do usuário
-      const { user } = await signUp(signupEmail, signupPassword, signupRazaoSocial);
-      
+      const {
+        user
+      } = await signUp(signupEmail, signupPassword, signupRazaoSocial);
+
       // 2. Criar a empresa
       if (user) {
         await createEmpresa.mutateAsync({
@@ -136,10 +133,9 @@ export default function Auth() {
           nome_fantasia: signupNomeFantasia || null,
           cnpj: signupCnpj,
           regime_tributario: signupRegime,
-          ativo: true,
+          ativo: true
         });
       }
-      
       toast.success("Conta e empresa criadas com sucesso! Você já pode fazer login.");
       setActiveView("login");
       setLoginEmail(signupEmail);
@@ -149,19 +145,15 @@ export default function Auth() {
       setIsLoading(false);
     }
   };
-
   if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+    return <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+      </div>;
   }
 
   // Tela de recuperação de senha
   if (activeView === "forgot") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-secondary/20 p-4">
+    return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-secondary/20 p-4">
         <Card className="w-full max-w-md rounded-2xl shadow-md border bg-background">
           <CardContent className="p-6 flex flex-col gap-6">
             {/* Logo */}
@@ -181,15 +173,7 @@ export default function Auth() {
                 <Label htmlFor="forgot-email">E-mail</Label>
                 <div className="flex items-center gap-2 border rounded-lg px-3 h-12 focus-within:ring-2 focus-within:ring-ring bg-background">
                   <Mail className="h-5 w-5 text-muted-foreground" />
-                  <Input
-                    id="forgot-email"
-                    type="email"
-                    placeholder="Digite seu e-mail"
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                    disabled={isLoading}
-                    className="border-0 shadow-none focus-visible:ring-0 h-full"
-                  />
+                  <Input id="forgot-email" type="email" placeholder="Digite seu e-mail" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} disabled={isLoading} className="border-0 shadow-none focus-visible:ring-0 h-full" />
                 </div>
               </div>
 
@@ -198,26 +182,19 @@ export default function Auth() {
                 Enviar link de recuperação
               </Button>
 
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full"
-                onClick={() => setActiveView("login")}
-              >
+              <Button type="button" variant="ghost" className="w-full" onClick={() => setActiveView("login")}>
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Voltar ao login
               </Button>
             </form>
           </CardContent>
         </Card>
-      </div>
-    );
+      </div>;
   }
 
   // Tela de cadastro
   if (activeView === "signup") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-secondary/20 p-4">
+    return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-secondary/20 p-4">
         <Card className="w-full max-w-md rounded-2xl shadow-md border bg-background">
           <CardContent className="p-6 flex flex-col gap-5">
             {/* Logo */}
@@ -243,15 +220,7 @@ export default function Auth() {
                 <Label htmlFor="signup-razao">Razão Social *</Label>
                 <div className="flex items-center gap-2 border rounded-lg px-3 h-12 focus-within:ring-2 focus-within:ring-ring bg-background">
                   <Building2 className="h-5 w-5 text-muted-foreground" />
-                  <Input
-                    id="signup-razao"
-                    type="text"
-                    placeholder="Nome da empresa"
-                    value={signupRazaoSocial}
-                    onChange={(e) => setSignupRazaoSocial(e.target.value)}
-                    disabled={isLoading}
-                    className="border-0 shadow-none focus-visible:ring-0 h-full"
-                  />
+                  <Input id="signup-razao" type="text" placeholder="Nome da empresa" value={signupRazaoSocial} onChange={e => setSignupRazaoSocial(e.target.value)} disabled={isLoading} className="border-0 shadow-none focus-visible:ring-0 h-full" />
                 </div>
               </div>
 
@@ -260,15 +229,7 @@ export default function Auth() {
                 <Label htmlFor="signup-fantasia">Nome Fantasia</Label>
                 <div className="flex items-center gap-2 border rounded-lg px-3 h-12 focus-within:ring-2 focus-within:ring-ring bg-background">
                   <Building2 className="h-5 w-5 text-muted-foreground" />
-                  <Input
-                    id="signup-fantasia"
-                    type="text"
-                    placeholder="Nome fantasia (opcional)"
-                    value={signupNomeFantasia}
-                    onChange={(e) => setSignupNomeFantasia(e.target.value)}
-                    disabled={isLoading}
-                    className="border-0 shadow-none focus-visible:ring-0 h-full"
-                  />
+                  <Input id="signup-fantasia" type="text" placeholder="Nome fantasia (opcional)" value={signupNomeFantasia} onChange={e => setSignupNomeFantasia(e.target.value)} disabled={isLoading} className="border-0 shadow-none focus-visible:ring-0 h-full" />
                 </div>
               </div>
 
@@ -277,16 +238,7 @@ export default function Auth() {
                 <Label htmlFor="signup-cnpj">CNPJ *</Label>
                 <div className="flex items-center gap-2 border rounded-lg px-3 h-12 focus-within:ring-2 focus-within:ring-ring bg-background">
                   <FileText className="h-5 w-5 text-muted-foreground" />
-                  <Input
-                    id="signup-cnpj"
-                    type="text"
-                    placeholder="00.000.000/0000-00"
-                    value={signupCnpj}
-                    onChange={(e) => handleCnpjChange(e.target.value)}
-                    disabled={isLoading}
-                    maxLength={18}
-                    className="border-0 shadow-none focus-visible:ring-0 h-full"
-                  />
+                  <Input id="signup-cnpj" type="text" placeholder="00.000.000/0000-00" value={signupCnpj} onChange={e => handleCnpjChange(e.target.value)} disabled={isLoading} maxLength={18} className="border-0 shadow-none focus-visible:ring-0 h-full" />
                 </div>
               </div>
 
@@ -319,15 +271,7 @@ export default function Auth() {
                 <Label htmlFor="signup-email">E-mail *</Label>
                 <div className="flex items-center gap-2 border rounded-lg px-3 h-12 focus-within:ring-2 focus-within:ring-ring bg-background">
                   <Mail className="h-5 w-5 text-muted-foreground" />
-                  <Input
-                    id="signup-email"
-                    type="email"
-                    placeholder="seu@email.com"
-                    value={signupEmail}
-                    onChange={(e) => setSignupEmail(e.target.value)}
-                    disabled={isLoading}
-                    className="border-0 shadow-none focus-visible:ring-0 h-full"
-                  />
+                  <Input id="signup-email" type="email" placeholder="seu@email.com" value={signupEmail} onChange={e => setSignupEmail(e.target.value)} disabled={isLoading} className="border-0 shadow-none focus-visible:ring-0 h-full" />
                 </div>
               </div>
 
@@ -336,20 +280,8 @@ export default function Auth() {
                 <Label htmlFor="signup-password">Senha *</Label>
                 <div className="flex items-center gap-2 border rounded-lg px-3 h-12 focus-within:ring-2 focus-within:ring-ring bg-background">
                   <Lock className="h-5 w-5 text-muted-foreground" />
-                  <Input
-                    id="signup-password"
-                    type={showSignupPassword ? "text" : "password"}
-                    placeholder="Mínimo 6 caracteres"
-                    value={signupPassword}
-                    onChange={(e) => setSignupPassword(e.target.value)}
-                    disabled={isLoading}
-                    className="border-0 shadow-none focus-visible:ring-0 h-full flex-1"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSignupPassword(!showSignupPassword)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                  >
+                  <Input id="signup-password" type={showSignupPassword ? "text" : "password"} placeholder="Mínimo 6 caracteres" value={signupPassword} onChange={e => setSignupPassword(e.target.value)} disabled={isLoading} className="border-0 shadow-none focus-visible:ring-0 h-full flex-1" />
+                  <button type="button" onClick={() => setShowSignupPassword(!showSignupPassword)} className="text-muted-foreground hover:text-foreground transition-colors">
                     {showSignupPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
@@ -360,20 +292,8 @@ export default function Auth() {
                 <Label htmlFor="signup-confirm">Confirmar senha *</Label>
                 <div className="flex items-center gap-2 border rounded-lg px-3 h-12 focus-within:ring-2 focus-within:ring-ring bg-background">
                   <Lock className="h-5 w-5 text-muted-foreground" />
-                  <Input
-                    id="signup-confirm"
-                    type={showSignupConfirmPassword ? "text" : "password"}
-                    placeholder="Repita a senha"
-                    value={signupConfirmPassword}
-                    onChange={(e) => setSignupConfirmPassword(e.target.value)}
-                    disabled={isLoading}
-                    className="border-0 shadow-none focus-visible:ring-0 h-full flex-1"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSignupConfirmPassword(!showSignupConfirmPassword)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                  >
+                  <Input id="signup-confirm" type={showSignupConfirmPassword ? "text" : "password"} placeholder="Repita a senha" value={signupConfirmPassword} onChange={e => setSignupConfirmPassword(e.target.value)} disabled={isLoading} className="border-0 shadow-none focus-visible:ring-0 h-full flex-1" />
+                  <button type="button" onClick={() => setShowSignupConfirmPassword(!showSignupConfirmPassword)} className="text-muted-foreground hover:text-foreground transition-colors">
                     {showSignupConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
@@ -386,28 +306,23 @@ export default function Auth() {
 
               <p className="text-center text-sm text-muted-foreground">
                 Já tem uma conta?{" "}
-                <span 
-                  className="text-primary cursor-pointer hover:underline font-medium"
-                  onClick={() => setActiveView("login")}
-                >
+                <span className="text-primary cursor-pointer hover:underline font-medium" onClick={() => setActiveView("login")}>
                   Entrar
                 </span>
               </p>
             </form>
           </CardContent>
         </Card>
-      </div>
-    );
+      </div>;
   }
 
   // Tela de login (default)
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-secondary/20 p-4">
+  return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-secondary/20 p-4">
       <Card className="w-full max-w-md rounded-2xl shadow-md border bg-background">
         <CardContent className="p-6 flex flex-col gap-6">
           {/* Logo */}
           <div className="flex flex-col items-center gap-4">
-            <img src={logoEcomFinance} alt="ECOM Finance" className="h-14" />
+            <img alt="ECOM Finance" className="h-14" src="/lovable-uploads/b97b3f53-dfa9-4650-9a4a-0c0332a0c01f.png" />
             <div className="text-center">
               <h1 className="text-xl font-semibold">Bem-vindo de volta</h1>
               <p className="text-sm text-muted-foreground mt-1">
@@ -422,15 +337,7 @@ export default function Auth() {
               <Label htmlFor="login-email">E-mail</Label>
               <div className="flex items-center gap-2 border rounded-lg px-3 h-12 focus-within:ring-2 focus-within:ring-ring bg-background">
                 <Mail className="h-5 w-5 text-muted-foreground" />
-                <Input
-                  id="login-email"
-                  type="email"
-                  placeholder="Digite seu e-mail"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  disabled={isLoading}
-                  className="border-0 shadow-none focus-visible:ring-0 h-full"
-                />
+                <Input id="login-email" type="email" placeholder="Digite seu e-mail" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} disabled={isLoading} className="border-0 shadow-none focus-visible:ring-0 h-full" />
               </div>
             </div>
 
@@ -439,20 +346,8 @@ export default function Auth() {
               <Label htmlFor="login-password">Senha</Label>
               <div className="flex items-center gap-2 border rounded-lg px-3 h-12 focus-within:ring-2 focus-within:ring-ring bg-background">
                 <Lock className="h-5 w-5 text-muted-foreground" />
-                <Input
-                  id="login-password"
-                  type={showLoginPassword ? "text" : "password"}
-                  placeholder="Digite sua senha"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  disabled={isLoading}
-                  className="border-0 shadow-none focus-visible:ring-0 h-full flex-1"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowLoginPassword(!showLoginPassword)}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                >
+                <Input id="login-password" type={showLoginPassword ? "text" : "password"} placeholder="Digite sua senha" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} disabled={isLoading} className="border-0 shadow-none focus-visible:ring-0 h-full flex-1" />
+                <button type="button" onClick={() => setShowLoginPassword(!showLoginPassword)} className="text-muted-foreground hover:text-foreground transition-colors">
                   {showLoginPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
@@ -461,20 +356,12 @@ export default function Auth() {
             {/* Remember me & Forgot */}
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <Checkbox 
-                  id="remember" 
-                  checked={rememberMe}
-                  onCheckedChange={(checked) => setRememberMe(checked as boolean)}
-                />
+                <Checkbox id="remember" checked={rememberMe} onCheckedChange={checked => setRememberMe(checked as boolean)} />
                 <Label htmlFor="remember" className="text-sm font-normal cursor-pointer">
                   Lembrar de mim
                 </Label>
               </div>
-              <button 
-                type="button"
-                className="text-sm text-primary hover:underline"
-                onClick={() => setActiveView("forgot")}
-              >
+              <button type="button" className="text-sm text-primary hover:underline" onClick={() => setActiveView("forgot")}>
                 Esqueceu a senha?
               </button>
             </div>
@@ -488,16 +375,12 @@ export default function Auth() {
             {/* Signup */}
             <p className="text-center text-sm text-muted-foreground mt-2">
               Não tem uma conta?{" "}
-              <span 
-                className="text-primary cursor-pointer hover:underline font-medium"
-                onClick={() => setActiveView("signup")}
-              >
+              <span className="text-primary cursor-pointer hover:underline font-medium" onClick={() => setActiveView("signup")}>
                 Cadastre-se
               </span>
             </p>
           </form>
         </CardContent>
       </Card>
-    </div>
-  );
+    </div>;
 }
