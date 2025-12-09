@@ -1,10 +1,26 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+// Allowed origins for CORS - restrict to known domains
+const ALLOWED_ORIGINS = [
+  'https://bwfbozwyqujlykgaueez.lovable.app',
+  'https://id-preview--bwfbozwyqujlykgaueez.lovable.app',
+  'http://localhost:5173',
+  'http://localhost:8080',
+];
+
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get('Origin') || '';
+  // Check if origin matches allowed list or is a Lovable preview domain
+  const isAllowed = ALLOWED_ORIGINS.includes(origin) || 
+    origin.endsWith('.lovable.app') || 
+    origin.endsWith('.lovable.dev');
+  
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+}
 
 const SYSTEM_PROMPT = `Você é o **Fin**, o copiloto financeiro e fiscal inteligente do sistema ECOM FINANCE. Sua função é ajudar os usuários a entender e gerenciar suas finanças, tributos, operações e rotinas dentro do sistema.
 
@@ -179,6 +195,8 @@ const SYSTEM_PROMPT = `Você é o **Fin**, o copiloto financeiro e fiscal inteli
 Responda educadamente: "Sou o Fin, seu copiloto financeiro do ECOM FINANCE. Posso te ajudar com dúvidas sobre fechamento mensal, precificação, impostos, fluxo de caixa, DRE, créditos de ICMS, estoque e gestão de e-commerce. Como posso ajudar com suas finanças hoje?"`;
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+  
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
