@@ -35,6 +35,7 @@ import MovimentosManuais from "./pages/MovimentosManuais";
 import CMVRelatorio from "./pages/CMVRelatorio";
 import Auth from "./pages/Auth";
 import Perfil from "./pages/Perfil";
+import Planos from "./pages/Planos";
 import NotFound from "./pages/NotFound";
 import { AssistantWidget } from "./components/assistant/AssistantWidget";
 import { AssistantChatProvider } from "./contexts/AssistantChatContext";
@@ -52,6 +53,7 @@ const App = () => (
             <Route path="/" element={<Dashboard />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/perfil" element={<Perfil />} />
+            <Route path="/planos" element={<Planos />} />
             <Route path="/fechamento" element={<Fechamento />} />
             <Route path="/fluxo-caixa" element={<FluxoCaixa />} />
             <Route path="/dre" element={<DRE />} />
