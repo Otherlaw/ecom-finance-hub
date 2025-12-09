@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
 import { 
   Link2, 
   Unlink, 
@@ -26,10 +28,12 @@ import {
   Building2,
   Loader2,
   ExternalLink,
-  History
+  History,
+  Filter
 } from "lucide-react";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useIntegracoes, Provider, IntegracaoStatus } from "@/hooks/useIntegracoes";
+import { useIntegracaoLogs, IntegracaoLogsFilters } from "@/hooks/useIntegracaoLogs";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -76,6 +80,12 @@ export default function Integracoes() {
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
 
+  // Filtros para a aba Histórico
+  const [historicoFilters, setHistoricoFilters] = useState<IntegracaoLogsFilters>({
+    provider: "todos",
+    periodo: "30d",
+  });
+
   const { empresas, isLoading: loadingEmpresas } = useEmpresas();
   const { 
     logs, 
@@ -86,6 +96,14 @@ export default function Integracoes() {
     startMercadoLivreOAuth,
     syncManually 
   } = useIntegracoes({ empresaId });
+
+  // Hook para logs filtrados na aba Histórico
+  const { 
+    logs: historicoLogs, 
+    isLoading: loadingHistorico, 
+    error: historicoError,
+    refetch: refetchHistorico 
+  } = useIntegracaoLogs(empresaId, historicoFilters);
 
   // Auto-selecionar primeira empresa
   useEffect(() => {
@@ -333,75 +351,195 @@ export default function Integracoes() {
               </TabsContent>
 
               {/* Tab Histórico */}
-              <TabsContent value="historico">
+              <TabsContent value="historico" className="space-y-4">
+                {/* Filtros */}
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Histórico de Sincronizações</CardTitle>
-                    <CardDescription>
-                      Logs das últimas 100 operações de sincronização
-                    </CardDescription>
+                  <CardHeader className="pb-3">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Filter className="h-5 w-5" />
+                          Histórico de Sincronizações
+                        </CardTitle>
+                        <CardDescription>
+                          Visualize as sincronizações realizadas por canal e período
+                        </CardDescription>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={refetchHistorico}
+                        disabled={loadingHistorico}
+                      >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${loadingHistorico ? 'animate-spin' : ''}`} />
+                        Atualizar
+                      </Button>
+                    </div>
                   </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="h-[500px]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Data/Hora</TableHead>
-                            <TableHead>Provider</TableHead>
-                            <TableHead>Tipo</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Registros</TableHead>
-                            <TableHead>Duração</TableHead>
-                            <TableHead>Mensagem</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {providerLogs.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                                Nenhum log encontrado
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            providerLogs.map((log) => (
-                              <TableRow key={log.id}>
-                                <TableCell className="whitespace-nowrap">
-                                  {format(new Date(log.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
-                                </TableCell>
-                                <TableCell className="capitalize">
-                                  {log.provider.replace("_", " ")}
-                                </TableCell>
-                                <TableCell className="capitalize">{log.tipo}</TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-2">
-                                    {getLogStatusIcon(log.status)}
-                                    <span className="capitalize">{log.status}</span>
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  {log.registros_criados > 0 && (
-                                    <span className="text-green-600">+{log.registros_criados}</span>
-                                  )}
-                                  {log.registros_atualizados > 0 && (
-                                    <span className="text-blue-600 ml-1">~{log.registros_atualizados}</span>
-                                  )}
-                                  {log.registros_erro > 0 && (
-                                    <span className="text-destructive ml-1">!{log.registros_erro}</span>
-                                  )}
-                                  {log.registros_processados === 0 && "-"}
-                                </TableCell>
-                                <TableCell>
-                                  {log.duracao_ms ? `${log.duracao_ms}ms` : "-"}
-                                </TableCell>
-                                <TableCell className="max-w-[200px] truncate">
-                                  {log.mensagem || "-"}
-                                </TableCell>
+                  <CardContent className="pt-0">
+                    <div className="flex flex-wrap gap-4">
+                      {/* Filtro de Canal */}
+                      <div className="flex flex-col gap-1.5">
+                        <Label className="text-sm text-muted-foreground">Canal</Label>
+                        <Select 
+                          value={historicoFilters.provider || "todos"} 
+                          onValueChange={(value) => setHistoricoFilters(prev => ({ ...prev, provider: value }))}
+                        >
+                          <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Selecione o canal" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="todos">Todos</SelectItem>
+                            <SelectItem value="mercado_livre">Mercado Livre</SelectItem>
+                            <SelectItem value="shopee">Shopee</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Filtro de Período */}
+                      <div className="flex flex-col gap-1.5">
+                        <Label className="text-sm text-muted-foreground">Período</Label>
+                        <Select 
+                          value={historicoFilters.periodo || "30d"} 
+                          onValueChange={(value) => setHistoricoFilters(prev => ({ 
+                            ...prev, 
+                            periodo: value as "7d" | "30d" | "90d" 
+                          }))}
+                        >
+                          <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Selecione o período" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="7d">Últimos 7 dias</SelectItem>
+                            <SelectItem value="30d">Últimos 30 dias</SelectItem>
+                            <SelectItem value="90d">Últimos 90 dias</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Tabela de Logs */}
+                <Card>
+                  <CardContent className="pt-6">
+                    {!empresaId ? (
+                      <div className="py-12 text-center text-muted-foreground">
+                        Selecione uma empresa para visualizar o histórico de sincronizações
+                      </div>
+                    ) : historicoError ? (
+                      <div className="py-12 text-center">
+                        <XCircle className="h-8 w-8 text-destructive mx-auto mb-2" />
+                        <p className="text-destructive">{historicoError}</p>
+                        <Button variant="outline" className="mt-4" onClick={refetchHistorico}>
+                          Tentar novamente
+                        </Button>
+                      </div>
+                    ) : loadingHistorico ? (
+                      <div className="space-y-3">
+                        {[...Array(5)].map((_, i) => (
+                          <Skeleton key={i} className="h-12 w-full" />
+                        ))}
+                      </div>
+                    ) : historicoLogs.length === 0 ? (
+                      <div className="py-12 text-center text-muted-foreground">
+                        <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>Nenhuma sincronização encontrada para os filtros selecionados.</p>
+                      </div>
+                    ) : (
+                      <ScrollArea className="h-[500px]">
+                        <TooltipProvider>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Data/Hora</TableHead>
+                                <TableHead>Canal</TableHead>
+                                <TableHead>Tipo</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead className="text-center">Processados</TableHead>
+                                <TableHead className="text-center">Criados</TableHead>
+                                <TableHead className="text-center">Atualizados</TableHead>
+                                <TableHead className="text-center">Erros</TableHead>
+                                <TableHead>Mensagem</TableHead>
                               </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                    </ScrollArea>
+                            </TableHeader>
+                            <TableBody>
+                              {historicoLogs.map((log) => (
+                                <TableRow key={log.id}>
+                                  <TableCell className="whitespace-nowrap">
+                                    {format(new Date(log.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                                  </TableCell>
+                                  <TableCell>
+                                    {/* Mapeamento de provider para nome legível */}
+                                    {log.provider === "mercado_livre" ? "Mercado Livre" : 
+                                     log.provider === "shopee" ? "Shopee" : 
+                                     log.provider.replace("_", " ")}
+                                  </TableCell>
+                                  <TableCell>
+                                    {/* Mapeamento de tipo para texto legível */}
+                                    {log.tipo === "sync" ? "Sincronização Manual" :
+                                     log.tipo === "webhook" ? "Webhook" :
+                                     log.tipo === "oauth" ? "Autenticação" :
+                                     log.tipo}
+                                  </TableCell>
+                                  <TableCell>
+                                    {/* Badge de status com cores */}
+                                    {log.status === "success" ? (
+                                      <Badge className="bg-green-500/10 text-green-600 hover:bg-green-500/20">
+                                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                                        Sucesso
+                                      </Badge>
+                                    ) : log.status === "error" ? (
+                                      <Badge variant="destructive" className="bg-destructive/10 text-destructive hover:bg-destructive/20">
+                                        <XCircle className="h-3 w-3 mr-1" />
+                                        Erro
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="secondary">
+                                        <Clock className="h-3 w-3 mr-1" />
+                                        Pendente
+                                      </Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-center">
+                                    {log.registros_processados ?? "-"}
+                                  </TableCell>
+                                  <TableCell className="text-center">
+                                    {log.registros_criados != null && log.registros_criados > 0 ? (
+                                      <span className="text-green-600 font-medium">+{log.registros_criados}</span>
+                                    ) : "-"}
+                                  </TableCell>
+                                  <TableCell className="text-center">
+                                    {log.registros_atualizados != null && log.registros_atualizados > 0 ? (
+                                      <span className="text-blue-600 font-medium">~{log.registros_atualizados}</span>
+                                    ) : "-"}
+                                  </TableCell>
+                                  <TableCell className="text-center">
+                                    {log.registros_erro != null && log.registros_erro > 0 ? (
+                                      <span className="text-destructive font-medium">{log.registros_erro}</span>
+                                    ) : "-"}
+                                  </TableCell>
+                                  <TableCell className="max-w-[200px]">
+                                    {log.mensagem ? (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="truncate block cursor-help">
+                                            {log.mensagem}
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="left" className="max-w-[300px]">
+                                          <p className="text-sm">{log.mensagem}</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    ) : "-"}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TooltipProvider>
+                      </ScrollArea>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
