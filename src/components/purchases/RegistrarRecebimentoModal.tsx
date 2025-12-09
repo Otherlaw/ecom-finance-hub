@@ -53,8 +53,10 @@ interface ItemRecebimento {
   // Campos adicionais para custo efetivo
   valor_ipi: number;
   valor_icms: number;
+  valor_icms_st: number;
   aliquota_icms: number;
   ncm: string | null;
+  cfop: string | null;
 }
 
 export function RegistrarRecebimentoModal({
@@ -73,17 +75,67 @@ export function RegistrarRecebimentoModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [encerrarPedido, setEncerrarPedido] = useState(false);
 
-  // Cálculo de custo efetivo com rateio de frete
-  const calcularCustoEfetivo = (item: ItemRecebimento, valorFrete: number, valorProdutos: number) => {
+  // Cálculo de custo efetivo COMPLETO com rateio de frete, ST, despesas e descontos
+  const calcularCustoEfetivo = (
+    item: ItemRecebimento, 
+    valorFrete: number, 
+    valorProdutos: number,
+    valorIcmsSt?: number,
+    outrasDespesas?: number,
+    valorDesconto?: number
+  ) => {
     if (item.quantidade_pedida <= 0 || valorProdutos <= 0) return item.custo_unitario;
+    
+    // Base do item
+    const valorItemTotal = item.custo_unitario * item.quantidade_pedida;
+    const proporcaoItem = valorItemTotal / valorProdutos;
+    
+    // Ratear componentes da NF proporcionalmente ao valor do item
+    const freteRateado = valorFrete * proporcaoItem;
+    const ipiItem = item.valor_ipi || 0;
+    const stItemDireto = item.valor_icms_st || 0; // ST do próprio item (se tiver)
+    const stRateado = ((valorIcmsSt || 0) - stItemDireto) * proporcaoItem; // ST restante rateada
+    const despesasRateadas = (outrasDespesas || 0) * proporcaoItem;
+    const descontoRateado = (valorDesconto || 0) * proporcaoItem;
+    
+    // Custo efetivo = (base + frete + IPI + ST + despesas - descontos) ÷ quantidade
+    const custoTotalItem = valorItemTotal + freteRateado + ipiItem + stItemDireto + stRateado + despesasRateadas - descontoRateado;
+    return custoTotalItem / item.quantidade_pedida;
+  };
+
+  // Função para detalhar componentes do custo
+  const detalharCustoEfetivo = (
+    item: ItemRecebimento, 
+    valorFrete: number, 
+    valorProdutos: number,
+    valorIcmsSt?: number,
+    outrasDespesas?: number,
+    valorDesconto?: number
+  ) => {
+    if (item.quantidade_pedida <= 0 || valorProdutos <= 0) {
+      return { custoNF: item.custo_unitario, frete: 0, ipi: 0, st: 0, despesas: 0, desconto: 0, total: item.custo_unitario };
+    }
     
     const valorItemTotal = item.custo_unitario * item.quantidade_pedida;
     const proporcaoItem = valorItemTotal / valorProdutos;
-    const freteRateado = valorFrete * proporcaoItem;
-    const ipiItem = item.valor_ipi || 0;
     
-    const custoTotalItem = valorItemTotal + freteRateado + ipiItem;
-    return custoTotalItem / item.quantidade_pedida;
+    const frete = (valorFrete * proporcaoItem) / item.quantidade_pedida;
+    const ipi = (item.valor_ipi || 0) / item.quantidade_pedida;
+    const stDireto = (item.valor_icms_st || 0) / item.quantidade_pedida;
+    const stRateado = (((valorIcmsSt || 0) - (item.valor_icms_st || 0)) * proporcaoItem) / item.quantidade_pedida;
+    const st = stDireto + stRateado;
+    const despesas = ((outrasDespesas || 0) * proporcaoItem) / item.quantidade_pedida;
+    const desconto = ((valorDesconto || 0) * proporcaoItem) / item.quantidade_pedida;
+    
+    return {
+      custoNF: item.custo_unitario,
+      frete,
+      ipi,
+      st,
+      despesas,
+      desconto,
+      total: item.custo_unitario + frete + ipi + st + despesas - desconto
+    };
   };
 
   useEffect(() => {
@@ -100,8 +152,10 @@ export function RegistrarRecebimentoModal({
         custo_unitario: item.valor_unitario,
         valor_ipi: item.valor_ipi || 0,
         valor_icms: item.valor_icms || 0,
+        valor_icms_st: (item as any).valor_icms_st || 0,
         aliquota_icms: item.aliquota_icms || 0,
         ncm: item.ncm,
+        cfop: item.cfop,
       })));
     }
     
@@ -163,6 +217,11 @@ export function RegistrarRecebimentoModal({
         }
       }
 
+      // Obter valores adicionais da compra (se existirem)
+      const valorIcmsSt = (compra as any).valor_icms_st || 0;
+      const outrasDespesas = (compra as any).outras_despesas || 0;
+      const valorDesconto = compra.valor_desconto || 0;
+
       await registrarRecebimento.mutateAsync({
         compra_id: compra.id,
         armazem_id: armazemId,
@@ -171,19 +230,25 @@ export function RegistrarRecebimentoModal({
         forcar_conclusao: encerrarPedido,
         valor_frete: compra.valor_frete,
         valor_produtos: compra.valor_produtos,
+        valor_icms_st: valorIcmsSt,
+        outras_despesas: outrasDespesas,
+        valor_desconto: valorDesconto,
+        uf_emitente: (compra as any).uf_emitente || null,
         itens: itens
           .filter(item => item.quantidade_receber > 0 || item.quantidade_devolvida > 0)
           .map(item => ({
             compra_item_id: item.compra_item_id,
-            produto_id: item.produto_id || null, // Corrigido: usar null ao invés de string vazia
+            produto_id: item.produto_id || null,
             quantidade_recebida: item.quantidade_receber,
             quantidade_devolvida: item.quantidade_devolvida,
             custo_unitario: item.custo_unitario,
-            custo_efetivo: calcularCustoEfetivo(item, compra.valor_frete, compra.valor_produtos),
+            custo_efetivo: calcularCustoEfetivo(item, compra.valor_frete, compra.valor_produtos, valorIcmsSt, outrasDespesas, valorDesconto),
             valor_ipi: item.valor_ipi,
             valor_icms: item.valor_icms,
+            valor_icms_st: item.valor_icms_st,
             aliquota_icms: item.aliquota_icms,
             ncm: item.ncm,
+            cfop: item.cfop,
           })),
       });
 
@@ -287,7 +352,11 @@ export function RegistrarRecebimentoModal({
                   </TableHeader>
                   <TableBody>
                     {itens.map((item, index) => {
-                      const custoEfetivo = calcularCustoEfetivo(item, compra.valor_frete, compra.valor_produtos);
+                      const valorIcmsSt = (compra as any).valor_icms_st || 0;
+                      const outrasDespesas = (compra as any).outras_despesas || 0;
+                      const valorDesconto = compra.valor_desconto || 0;
+                      const custoEfetivo = calcularCustoEfetivo(item, compra.valor_frete, compra.valor_produtos, valorIcmsSt, outrasDespesas, valorDesconto);
+                      const detalhes = detalharCustoEfetivo(item, compra.valor_frete, compra.valor_produtos, valorIcmsSt, outrasDespesas, valorDesconto);
                       return (
                         <TableRow key={item.compra_item_id}>
                           <TableCell>
@@ -347,13 +416,47 @@ export function RegistrarRecebimentoModal({
                                 <TooltipTrigger>
                                   {formatCurrency(custoEfetivo)}
                                 </TooltipTrigger>
-                                <TooltipContent className="p-3">
+                                <TooltipContent className="p-3 min-w-[200px]">
                                   <div className="space-y-1 text-xs">
-                                    <p><strong>Detalhes do cálculo:</strong></p>
-                                    <p>Custo NF: {formatCurrency(item.custo_unitario)}</p>
-                                    <p>Frete rateado: {formatCurrency((compra.valor_frete * (item.custo_unitario * item.quantidade_pedida / compra.valor_produtos)) / item.quantidade_pedida)}</p>
-                                    {item.valor_ipi > 0 && <p>IPI: {formatCurrency(item.valor_ipi / item.quantidade_pedida)}</p>}
-                                    <p className="pt-1 border-t"><strong>Total: {formatCurrency(custoEfetivo)}</strong></p>
+                                    <p className="font-semibold border-b pb-1 mb-1">Detalhes do Custo Efetivo</p>
+                                    <div className="flex justify-between">
+                                      <span>Custo NF:</span>
+                                      <span className="font-mono">{formatCurrency(detalhes.custoNF)}</span>
+                                    </div>
+                                    {detalhes.frete > 0 && (
+                                      <div className="flex justify-between text-blue-600">
+                                        <span>+ Frete rateado:</span>
+                                        <span className="font-mono">{formatCurrency(detalhes.frete)}</span>
+                                      </div>
+                                    )}
+                                    {detalhes.ipi > 0 && (
+                                      <div className="flex justify-between text-orange-600">
+                                        <span>+ IPI:</span>
+                                        <span className="font-mono">{formatCurrency(detalhes.ipi)}</span>
+                                      </div>
+                                    )}
+                                    {detalhes.st > 0 && (
+                                      <div className="flex justify-between text-purple-600">
+                                        <span>+ ICMS ST:</span>
+                                        <span className="font-mono">{formatCurrency(detalhes.st)}</span>
+                                      </div>
+                                    )}
+                                    {detalhes.despesas > 0 && (
+                                      <div className="flex justify-between text-amber-600">
+                                        <span>+ Outras despesas:</span>
+                                        <span className="font-mono">{formatCurrency(detalhes.despesas)}</span>
+                                      </div>
+                                    )}
+                                    {detalhes.desconto > 0 && (
+                                      <div className="flex justify-between text-green-600">
+                                        <span>- Desconto:</span>
+                                        <span className="font-mono">-{formatCurrency(detalhes.desconto)}</span>
+                                      </div>
+                                    )}
+                                    <div className="flex justify-between font-bold pt-1 border-t mt-1">
+                                      <span>= Total:</span>
+                                      <span className="font-mono">{formatCurrency(detalhes.total)}</span>
+                                    </div>
                                   </div>
                                 </TooltipContent>
                               </Tooltip>
