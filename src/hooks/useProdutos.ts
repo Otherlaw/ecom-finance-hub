@@ -226,6 +226,13 @@ export function useProdutos(params: UseProdutosParams = {}) {
     mutationFn: async (input: ProdutoUpdate) => {
       const { id, ...restData } = input;
 
+      // Verificar se está ativando um produto rascunho
+      const { data: produtoAtual } = await supabase
+        .from("produtos")
+        .select("status, empresa_id")
+        .eq("id", id)
+        .single();
+
       const { data, error } = await supabase
         .from("produtos")
         .update(restData)
@@ -234,11 +241,101 @@ export function useProdutos(params: UseProdutosParams = {}) {
         .single();
 
       if (error) throw error;
+
+      // Se o produto estava como rascunho e foi ativado, vincular aos itens de compras pendentes
+      if (produtoAtual?.status === "rascunho" && restData.status === "ativo") {
+        // Buscar itens de compra que foram criados com esse produto (já vinculados)
+        const { data: itensVinculados } = await supabase
+          .from("compras_itens")
+          .select("id, compra_id, quantidade, quantidade_recebida, valor_unitario")
+          .eq("produto_id", id);
+
+        // Para cada item que já foi recebido mas não deu entrada no estoque
+        if (itensVinculados && itensVinculados.length > 0) {
+          for (const item of itensVinculados) {
+            if (item.quantidade_recebida > 0) {
+              // Buscar dados do recebimento
+              const { data: recebimentoItem } = await supabase
+                .from("recebimentos_itens")
+                .select("recebimento_id, custo_unitario, recebimentos!inner(armazem_id)")
+                .eq("compra_item_id", item.id)
+                .maybeSingle();
+
+              if (recebimentoItem) {
+                const armazemId = (recebimentoItem.recebimentos as any)?.armazem_id;
+                const custoUnitario = recebimentoItem.custo_unitario || item.valor_unitario;
+
+                if (armazemId) {
+                  // Buscar estoque atual
+                  const { data: estoqueAtual } = await supabase
+                    .from("estoque")
+                    .select("*")
+                    .eq("produto_id", id)
+                    .eq("armazem_id", armazemId)
+                    .maybeSingle();
+
+                  const qtdAnterior = Number(estoqueAtual?.quantidade) || 0;
+                  const custoMedioAnterior = Number(estoqueAtual?.custo_medio) || 0;
+                  const qtdNova = qtdAnterior + item.quantidade_recebida;
+
+                  // Custo médio ponderado
+                  const valorAnterior = qtdAnterior * custoMedioAnterior;
+                  const valorEntrada = item.quantidade_recebida * custoUnitario;
+                  const novoCustoMedio = qtdNova > 0 ? (valorAnterior + valorEntrada) / qtdNova : custoUnitario;
+
+                  // Upsert estoque
+                  if (estoqueAtual) {
+                    await supabase
+                      .from("estoque")
+                      .update({ quantidade: qtdNova, custo_medio: novoCustoMedio })
+                      .eq("id", estoqueAtual.id);
+                  } else {
+                    await supabase.from("estoque").insert({
+                      empresa_id: produtoAtual.empresa_id,
+                      produto_id: id,
+                      armazem_id: armazemId,
+                      quantidade: qtdNova,
+                      custo_medio: novoCustoMedio,
+                    });
+                  }
+
+                  // Registrar movimentação
+                  await supabase.from("movimentacoes_estoque").insert({
+                    empresa_id: produtoAtual.empresa_id,
+                    produto_id: id,
+                    armazem_id: armazemId,
+                    tipo: "entrada",
+                    origem: "compra",
+                    motivo: "Entrada automática após conclusão de cadastro",
+                    quantidade: item.quantidade_recebida,
+                    custo_unitario: custoUnitario,
+                    custo_total: item.quantidade_recebida * custoUnitario,
+                    estoque_anterior: qtdAnterior,
+                    estoque_posterior: qtdNova,
+                    custo_medio_anterior: custoMedioAnterior,
+                    custo_medio_posterior: novoCustoMedio,
+                    referencia_id: item.compra_id,
+                  });
+                }
+              }
+            }
+          }
+          
+          // Marcar itens como mapeados
+          await supabase
+            .from("compras_itens")
+            .update({ mapeado: true })
+            .eq("produto_id", id);
+        }
+      }
+
       return data;
     },
     onSuccess: () => {
       toast.success("Produto atualizado com sucesso");
       queryClient.invalidateQueries({ queryKey: ["produtos"] });
+      queryClient.invalidateQueries({ queryKey: ["estoque"] });
+      queryClient.invalidateQueries({ queryKey: ["compras"] });
     },
     onError: (error: Error) => {
       console.error("Erro ao atualizar produto:", error);
@@ -286,6 +383,7 @@ export function useProdutos(params: UseProdutosParams = {}) {
     total: produtos.length,
     ativos: produtos.filter((p) => p.status === "ativo").length,
     inativos: produtos.filter((p) => p.status === "inativo").length,
+    rascunhos: produtos.filter((p) => p.status === "rascunho").length,
     unicos: produtos.filter((p) => p.tipo === "unico").length,
     pais: produtos.filter((p) => p.tipo === "variation_parent").length,
     kits: produtos.filter((p) => p.tipo === "kit").length,
