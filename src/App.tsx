@@ -88,6 +88,7 @@ const App = () => (
             <Route path="/configuracoes" element={<Configuracoes />} />
             <Route path="/integracoes" element={<Integracoes />} />
             <Route path="/oauth/callback" element={<OAuthCallback />} />
+            <Route path="/code.html" element={<OAuthCallback />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           <AssistantWidget />
