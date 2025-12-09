@@ -33,3 +33,18 @@ enable_confirmations = false
 
 [functions.assistant-chat]
 verify_jwt = true
+
+[functions.ml-oauth-start]
+verify_jwt = false
+
+[functions.ml-oauth-callback]
+verify_jwt = false
+
+[functions.ml-sync-orders]
+verify_jwt = false
+
+[functions.ml-webhook]
+verify_jwt = false
+
+[functions.ml-refresh-token]
+verify_jwt = false

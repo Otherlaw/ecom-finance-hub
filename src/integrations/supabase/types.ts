@@ -1358,6 +1358,174 @@ export type Database = {
           },
         ]
       }
+      integracao_config: {
+        Row: {
+          ativo: boolean
+          auto_categorize: boolean | null
+          auto_reconcile: boolean | null
+          created_at: string
+          empresa_id: string
+          id: string
+          last_sync_at: string | null
+          next_sync_at: string | null
+          provider: string
+          settings: Json | null
+          sync_frequency_minutes: number | null
+          updated_at: string
+          webhook_enabled: boolean | null
+          webhook_secret: string | null
+        }
+        Insert: {
+          ativo?: boolean
+          auto_categorize?: boolean | null
+          auto_reconcile?: boolean | null
+          created_at?: string
+          empresa_id: string
+          id?: string
+          last_sync_at?: string | null
+          next_sync_at?: string | null
+          provider: string
+          settings?: Json | null
+          sync_frequency_minutes?: number | null
+          updated_at?: string
+          webhook_enabled?: boolean | null
+          webhook_secret?: string | null
+        }
+        Update: {
+          ativo?: boolean
+          auto_categorize?: boolean | null
+          auto_reconcile?: boolean | null
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          last_sync_at?: string | null
+          next_sync_at?: string | null
+          provider?: string
+          settings?: Json | null
+          sync_frequency_minutes?: number | null
+          updated_at?: string
+          webhook_enabled?: boolean | null
+          webhook_secret?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integracao_config_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integracao_logs: {
+        Row: {
+          created_at: string
+          detalhes: Json | null
+          duracao_ms: number | null
+          empresa_id: string
+          id: string
+          mensagem: string | null
+          provider: string
+          registros_atualizados: number | null
+          registros_criados: number | null
+          registros_erro: number | null
+          registros_processados: number | null
+          status: string
+          tipo: string
+        }
+        Insert: {
+          created_at?: string
+          detalhes?: Json | null
+          duracao_ms?: number | null
+          empresa_id: string
+          id?: string
+          mensagem?: string | null
+          provider: string
+          registros_atualizados?: number | null
+          registros_criados?: number | null
+          registros_erro?: number | null
+          registros_processados?: number | null
+          status: string
+          tipo: string
+        }
+        Update: {
+          created_at?: string
+          detalhes?: Json | null
+          duracao_ms?: number | null
+          empresa_id?: string
+          id?: string
+          mensagem?: string | null
+          provider?: string
+          registros_atualizados?: number | null
+          registros_criados?: number | null
+          registros_erro?: number | null
+          registros_processados?: number | null
+          status?: string
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integracao_logs_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integracao_tokens: {
+        Row: {
+          access_token: string
+          created_at: string
+          empresa_id: string
+          expires_at: string | null
+          id: string
+          metadata: Json | null
+          provider: string
+          refresh_token: string | null
+          scope: string | null
+          token_type: string | null
+          updated_at: string
+          user_id_provider: string | null
+        }
+        Insert: {
+          access_token: string
+          created_at?: string
+          empresa_id: string
+          expires_at?: string | null
+          id?: string
+          metadata?: Json | null
+          provider: string
+          refresh_token?: string | null
+          scope?: string | null
+          token_type?: string | null
+          updated_at?: string
+          user_id_provider?: string | null
+        }
+        Update: {
+          access_token?: string
+          created_at?: string
+          empresa_id?: string
+          expires_at?: string | null
+          id?: string
+          metadata?: Json | null
+          provider?: string
+          refresh_token?: string | null
+          scope?: string | null
+          token_type?: string | null
+          updated_at?: string
+          user_id_provider?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integracao_tokens_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       manual_transactions: {
         Row: {
           categoria_id: string | null
