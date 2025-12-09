@@ -27,16 +27,36 @@ export interface DadosBalanco {
     };
   };
   patrimonioLiquido: {
+    // K Inicial (Capital Inicial) - valor configurado na empresa
+    capitalInicial: number;
     capitalSocial: number;
     reservas: number;
     lucrosAcumulados: number;
   };
 }
 
-export function useBalancoPatrimonial(dataReferencia?: string) {
+export function useBalancoPatrimonial(empresaId?: string) {
   return useQuery({
-    queryKey: ["balanco-patrimonial", dataReferencia],
+    queryKey: ["balanco-patrimonial", empresaId],
     queryFn: async (): Promise<DadosBalanco> => {
+      // Buscar capital_inicial da empresa (K Inicial)
+      let capitalInicial = 0;
+      if (empresaId) {
+        const { data: empresaData } = await supabase
+          .from("empresas")
+          .select("capital_inicial")
+          .eq("id", empresaId)
+          .maybeSingle();
+        capitalInicial = empresaData?.capital_inicial || 0;
+      } else {
+        // Se não tiver empresaId, buscar a primeira empresa do usuário
+        const { data: empresas } = await supabase
+          .from("empresas")
+          .select("capital_inicial")
+          .limit(1);
+        capitalInicial = empresas?.[0]?.capital_inicial || 0;
+      }
+
       // Buscar dados de estoque (quantidade * custo_medio)
       const { data: estoqueData } = await supabase
         .from("estoque")
@@ -89,19 +109,18 @@ export function useBalancoPatrimonial(dataReferencia?: string) {
         }
       }, 0);
 
-      // Valores que precisam ser configurados manualmente (por enquanto zerados ou valores padrão)
-      // Esses campos podem ser adicionados no cadastro de empresas futuramente
-      const capitalSocial = 50000; // Valor padrão - pode ser configurado
+      // Valores configuráveis (futuramente podem vir da empresa também)
       const reservas = 0;
       const investimentos = 0;
       const imobilizado = 0;
       const obrigacoesFiscais = 0;
       const obrigacoesTrabalhistas = 0;
 
-      // Calcular lucros acumulados (simplificado: ativos - passivos - capital)
+      // Calcular lucros acumulados
+      // PL = K Inicial + Lucros Acumulados (simplificado)
       const totalAtivos = Math.max(0, saldoCaixa) + valorEstoque + valorContasReceber + valorCreditoIcms + investimentos + imobilizado;
       const totalPassivos = valorContasPagar + obrigacoesFiscais + obrigacoesTrabalhistas;
-      const lucrosAcumulados = totalAtivos - totalPassivos - capitalSocial - reservas;
+      const lucrosAcumulados = totalAtivos - totalPassivos - capitalInicial - reservas;
 
       return {
         ativo: {
@@ -122,16 +141,17 @@ export function useBalancoPatrimonial(dataReferencia?: string) {
             fornecedores: valorContasPagar,
             obrigacoesFiscais,
             obrigacoesTrabalhistas,
-            contasPagar: 0, // Já incluso em fornecedores
+            contasPagar: 0,
           },
           naoCirculante: {
             emprestimosLP: 0,
           },
         },
         patrimonioLiquido: {
-          capitalSocial,
+          capitalInicial, // K Inicial vindo da configuração da empresa
+          capitalSocial: 0, // Mantido para compatibilidade (agora usamos capitalInicial)
           reservas,
-          lucrosAcumulados: Math.max(0, lucrosAcumulados),
+          lucrosAcumulados,
         },
       };
     },

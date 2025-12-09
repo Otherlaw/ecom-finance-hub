@@ -42,7 +42,23 @@ interface FormData {
   email: string;
   endereco: string;
   ativo: boolean;
+  // K Inicial (Capital Inicial) - capital social inicial investido pelos sócios
+  capital_inicial: number;
 }
+
+// Formatar valor monetário para exibição no input
+const formatCurrencyInput = (value: number): string => {
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
+// Parsear string monetária para número
+const parseCurrencyInput = (value: string): number => {
+  const cleaned = value.replace(/[^\d,]/g, '').replace(',', '.');
+  return parseFloat(cleaned) || 0;
+};
 
 export function EmpresaFormModal({
   open,
@@ -63,6 +79,7 @@ export function EmpresaFormModal({
     email: "",
     endereco: "",
     ativo: true,
+    capital_inicial: 0,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -79,6 +96,7 @@ export function EmpresaFormModal({
         email: empresa.email || "",
         endereco: empresa.endereco || "",
         ativo: empresa.ativo ?? true,
+        capital_inicial: empresa.capital_inicial || 0,
       });
     } else {
       setFormData({
@@ -91,16 +109,18 @@ export function EmpresaFormModal({
         email: "",
         endereco: "",
         ativo: true,
+        capital_inicial: 0,
       });
     }
     setErrors({});
   }, [empresa, open]);
 
-  const handleChange = (field: keyof FormData, value: string | boolean) => {
+  const handleChange = (field: keyof FormData, value: string | boolean | number) => {
+    let processedValue = value;
     if (field === 'cnpj' && typeof value === 'string') {
-      value = formatCNPJ(value);
+      processedValue = formatCNPJ(value);
     }
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    setFormData((prev) => ({ ...prev, [field]: processedValue }));
     if (errors[field]) {
       setErrors((prev) => {
         const newErrors = { ...prev };
@@ -296,6 +316,32 @@ export function EmpresaFormModal({
                 <SelectItem value="inativo">Inativo</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Bloco de Patrimônio / Capital */}
+          <div className="pt-4 border-t">
+            <h4 className="font-medium text-sm text-muted-foreground mb-3">Patrimônio / Capital</h4>
+            <div className="space-y-2">
+              <Label htmlFor="capital_inicial">K Inicial (Capital Inicial)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">R$</span>
+                <Input
+                  id="capital_inicial"
+                  value={formatCurrencyInput(formData.capital_inicial)}
+                  onChange={(e) => {
+                    const value = parseCurrencyInput(e.target.value);
+                    if (value >= 0) {
+                      handleChange("capital_inicial", value);
+                    }
+                  }}
+                  placeholder="0,00"
+                  className="pl-10"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Valor total investido pelos sócios na abertura da empresa (capital inicial).
+              </p>
+            </div>
           </div>
         </div>
 
