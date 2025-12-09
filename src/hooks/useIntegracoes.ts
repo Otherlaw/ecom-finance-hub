@@ -216,7 +216,31 @@ export const useIntegracoes = ({ empresaId }: UseIntegracoesParams = {}) => {
       
       if (data?.auth_url) {
         // Abrir popup de autorização
-        window.open(data.auth_url, "ml-oauth", "width=600,height=700");
+        const popup = window.open(data.auth_url, "ml-oauth", "width=600,height=700");
+        
+        // Listener para mensagem do popup quando OAuth completar
+        const handleMessage = (event: MessageEvent) => {
+          if (event.data?.type === "ML_OAUTH_SUCCESS") {
+            // Refetch dados para atualizar UI
+            queryClient.invalidateQueries({ queryKey: ["integracao_tokens"] });
+            queryClient.invalidateQueries({ queryKey: ["integracao_config"] });
+            toast.success("Mercado Livre conectado com sucesso!");
+            window.removeEventListener("message", handleMessage);
+          }
+        };
+        
+        window.addEventListener("message", handleMessage);
+        
+        // Fallback: monitorar fechamento do popup
+        const checkClosed = setInterval(() => {
+          if (popup?.closed) {
+            clearInterval(checkClosed);
+            window.removeEventListener("message", handleMessage);
+            // Refetch de qualquer forma quando popup fechar
+            queryClient.invalidateQueries({ queryKey: ["integracao_tokens"] });
+            queryClient.invalidateQueries({ queryKey: ["integracao_config"] });
+          }
+        }, 500);
       }
       
       return data;
