@@ -2,6 +2,234 @@
 
 export type ChecklistStatus = 'pendente' | 'em_andamento' | 'concluido' | 'nao_aplicavel';
 
+// ========================================
+// CHECKLIST FINANCEIRO - Tipos e Configurações
+// ========================================
+
+export type SecaoId = 
+  | 'importacoes' 
+  | 'conciliacoes' 
+  | 'contas' 
+  | 'estoque_cmv' 
+  | 'canais' 
+  | 'finalizacao';
+
+export interface ChecklistEtapaConfig {
+  codigo: string;
+  nome: string;
+  descricao: string;
+  importancia: string;
+  linkAcao: string;
+  secao: SecaoId;
+}
+
+export const SECOES_CHECKLIST: Record<SecaoId, { nome: string; icone: string; ordem: number }> = {
+  importacoes: { nome: 'Importações Necessárias', icone: 'Upload', ordem: 1 },
+  conciliacoes: { nome: 'Conciliações', icone: 'GitCompare', ordem: 2 },
+  contas: { nome: 'Contas do Período', icone: 'Receipt', ordem: 3 },
+  estoque_cmv: { nome: 'Estoque e CMV', icone: 'Package', ordem: 4 },
+  canais: { nome: 'Checklist por Canal', icone: 'Store', ordem: 5 },
+  finalizacao: { nome: 'Finalização', icone: 'CheckCircle', ordem: 6 },
+};
+
+export const ETAPAS_PADRAO: ChecklistEtapaConfig[] = [
+  // SEÇÃO 1 - IMPORTAÇÕES NECESSÁRIAS
+  {
+    codigo: 'importar_extrato_bancario',
+    nome: 'Importar extrato bancário (OFX/CSV)',
+    descricao: 'Importe todos os extratos das contas bancárias da empresa',
+    importancia: 'Essencial para conciliação bancária e fluxo de caixa real',
+    linkAcao: '/conciliacao?tab=bancaria',
+    secao: 'importacoes',
+  },
+  {
+    codigo: 'importar_extrato_cartoes',
+    nome: 'Importar extrato de cartões',
+    descricao: 'Importe as faturas dos cartões de crédito corporativos',
+    importancia: 'Necessário para controle de despesas e conciliação de cartões',
+    linkAcao: '/conciliacao?tab=cartoes',
+    secao: 'importacoes',
+  },
+  {
+    codigo: 'importar_marketplace_ml',
+    nome: 'Importar relatórios Mercado Livre',
+    descricao: 'Importe os relatórios de vendas e tarifas do Mercado Livre',
+    importancia: 'Base para cálculo de receita líquida e CMV do canal',
+    linkAcao: '/conciliacao?tab=marketplace',
+    secao: 'importacoes',
+  },
+  {
+    codigo: 'importar_marketplace_shopee',
+    nome: 'Importar relatórios Shopee',
+    descricao: 'Importe os relatórios de vendas e tarifas da Shopee',
+    importancia: 'Base para cálculo de receita líquida e CMV do canal',
+    linkAcao: '/conciliacao?tab=marketplace',
+    secao: 'importacoes',
+  },
+  {
+    codigo: 'importar_marketplace_shein',
+    nome: 'Importar relatórios Shein',
+    descricao: 'Importe os relatórios de vendas e tarifas da Shein',
+    importancia: 'Base para cálculo de receita líquida e CMV do canal',
+    linkAcao: '/conciliacao?tab=marketplace',
+    secao: 'importacoes',
+  },
+  {
+    codigo: 'importar_marketplace_tiktok',
+    nome: 'Importar relatórios TikTok Shop',
+    descricao: 'Importe os relatórios de vendas e tarifas do TikTok Shop',
+    importancia: 'Base para cálculo de receita líquida e CMV do canal',
+    linkAcao: '/conciliacao?tab=marketplace',
+    secao: 'importacoes',
+  },
+
+  // SEÇÃO 2 - CONCILIAÇÕES
+  {
+    codigo: 'conciliacao_bancaria',
+    nome: 'Conciliação Bancária',
+    descricao: 'Categorize e concilie todas as transações bancárias do período',
+    importancia: 'Garante que todas as movimentações estejam corretamente classificadas no DRE',
+    linkAcao: '/conciliacao?tab=bancaria',
+    secao: 'conciliacoes',
+  },
+  {
+    codigo: 'conciliacao_cartoes',
+    nome: 'Conciliação de Cartões',
+    descricao: 'Categorize e concilie todas as transações de cartão de crédito',
+    importancia: 'Garante controle de despesas e correta alocação por categoria',
+    linkAcao: '/conciliacao?tab=cartoes',
+    secao: 'conciliacoes',
+  },
+  {
+    codigo: 'conciliacao_marketplace',
+    nome: 'Conciliação Marketplace',
+    descricao: 'Categorize e concilie todas as transações de marketplaces',
+    importancia: 'Garante que receitas e taxas estejam corretamente classificadas',
+    linkAcao: '/conciliacao?tab=marketplace',
+    secao: 'conciliacoes',
+  },
+
+  // SEÇÃO 3 - CONTAS DO PERÍODO
+  {
+    codigo: 'contas_pagar_revisadas',
+    nome: 'Contas a pagar revisadas',
+    descricao: 'Revise todas as contas a pagar do período, garantindo categorização',
+    importancia: 'Evita duplicidades e garante projeção correta de fluxo de caixa',
+    linkAcao: '/contas-pagar',
+    secao: 'contas',
+  },
+  {
+    codigo: 'contas_receber_revisadas',
+    nome: 'Contas a receber revisadas',
+    descricao: 'Revise todas as contas a receber, incluindo recebimentos pendentes',
+    importancia: 'Garante visibilidade de entradas futuras e inadimplência',
+    linkAcao: '/contas-receber',
+    secao: 'contas',
+  },
+  {
+    codigo: 'categorias_preenchidas',
+    nome: 'Categorias e centros de custo preenchidos',
+    descricao: 'Verifique se todas as contas possuem categoria e centro de custo',
+    importancia: 'Essencial para relatórios gerenciais e DRE correto',
+    linkAcao: '/plano-contas',
+    secao: 'contas',
+  },
+
+  // SEÇÃO 4 - ESTOQUE E CMV
+  {
+    codigo: 'nfes_importadas',
+    nome: 'NF-es de compra importadas',
+    descricao: 'Importe todas as notas fiscais de compra do período',
+    importancia: 'Base para cálculo do custo de aquisição e crédito de ICMS',
+    linkAcao: '/compras',
+    secao: 'estoque_cmv',
+  },
+  {
+    codigo: 'estoque_confirmado',
+    nome: 'Entradas de estoque confirmadas',
+    descricao: 'Confirme os recebimentos e entradas de estoque das compras',
+    importancia: 'Garante custo médio correto e posição de estoque atualizada',
+    linkAcao: '/estoque-sku',
+    secao: 'estoque_cmv',
+  },
+  {
+    codigo: 'cmv_calculado',
+    nome: 'CMV calculado',
+    descricao: 'Verifique se o CMV foi calculado para todas as vendas do período',
+    importancia: 'Essencial para margem bruta e lucro líquido corretos',
+    linkAcao: '/cmv-relatorio',
+    secao: 'estoque_cmv',
+  },
+
+  // SEÇÃO 5 - CHECKLIST POR CANAL (agrupado)
+  {
+    codigo: 'canal_ml_completo',
+    nome: 'Mercado Livre - Fechamento completo',
+    descricao: 'Vendas, tarifas, devoluções, estornos e receita líquida validados',
+    importancia: 'Garante integridade dos dados do maior marketplace',
+    linkAcao: '/conciliacao?tab=marketplace',
+    secao: 'canais',
+  },
+  {
+    codigo: 'canal_shopee_completo',
+    nome: 'Shopee - Fechamento completo',
+    descricao: 'Vendas, taxas, devoluções e pendências zeradas',
+    importancia: 'Garante integridade dos dados da Shopee',
+    linkAcao: '/conciliacao?tab=marketplace',
+    secao: 'canais',
+  },
+  {
+    codigo: 'canal_shein_completo',
+    nome: 'Shein - Fechamento completo',
+    descricao: 'Vendas, taxas, devoluções e pendências zeradas',
+    importancia: 'Garante integridade dos dados da Shein',
+    linkAcao: '/conciliacao?tab=marketplace',
+    secao: 'canais',
+  },
+  {
+    codigo: 'canal_tiktok_completo',
+    nome: 'TikTok Shop - Fechamento completo',
+    descricao: 'Vendas, taxas, devoluções e pendências zeradas',
+    importancia: 'Garante integridade dos dados do TikTok Shop',
+    linkAcao: '/conciliacao?tab=marketplace',
+    secao: 'canais',
+  },
+
+  // SEÇÃO 6 - FINALIZAÇÃO
+  {
+    codigo: 'revisar_dre',
+    nome: 'Revisar DRE do mês',
+    descricao: 'Analise o DRE consolidado e verifique se os números fazem sentido',
+    importancia: 'Última validação antes de considerar o período fechado',
+    linkAcao: '/dre',
+    secao: 'finalizacao',
+  },
+  {
+    codigo: 'validar_margem_bruta',
+    nome: 'Validar margem bruta',
+    descricao: 'Confira se a margem bruta está dentro do esperado',
+    importancia: 'Indica eficiência operacional e precificação adequada',
+    linkAcao: '/dre',
+    secao: 'finalizacao',
+  },
+  {
+    codigo: 'validar_lucro_liquido',
+    nome: 'Validar lucro líquido',
+    descricao: 'Confira o resultado final do período',
+    importancia: 'Indica saúde financeira geral da operação',
+    linkAcao: '/dre',
+    secao: 'finalizacao',
+  },
+  {
+    codigo: 'confirmar_revisao',
+    nome: 'Confirmar revisão geral do período',
+    descricao: 'Marque como concluído após revisar todos os itens acima',
+    importancia: 'Sinaliza que o checklist operacional foi completado',
+    linkAcao: '/fechamento',
+    secao: 'finalizacao',
+  },
+];
+
 export interface ChecklistItemArquivo {
   id: string;
   checklistItemId: string;
