@@ -2392,6 +2392,35 @@ export type Database = {
         }
         Relationships: []
       }
+      user_empresas: {
+        Row: {
+          created_at: string | null
+          empresa_id: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          empresa_id: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          empresa_id?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_empresas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string | null
@@ -2445,6 +2474,10 @@ export type Database = {
           p_valor: number
         }
         Returns: string
+      }
+      user_has_empresa_access: {
+        Args: { p_empresa_id: string }
+        Returns: boolean
       }
     }
     Enums: {
