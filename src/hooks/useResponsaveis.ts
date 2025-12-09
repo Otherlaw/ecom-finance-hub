@@ -8,7 +8,7 @@ interface Responsavel {
   funcao?: string | null;
   email?: string | null;
   ativo: boolean;
-  empresa_id?: string | null;
+  empresa_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -18,7 +18,7 @@ interface ResponsavelInsert {
   funcao?: string | null;
   email?: string | null;
   ativo?: boolean;
-  empresa_id?: string | null;
+  empresa_id: string;
 }
 
 interface ResponsavelUpdate extends Partial<ResponsavelInsert> {
@@ -39,7 +39,7 @@ export const useResponsaveis = (empresaId?: string) => {
 
       // Filter by empresa_id if provided
       if (empresaId) {
-        query = query.or(`empresa_id.eq.${empresaId},empresa_id.is.null`);
+        query = query.eq("empresa_id", empresaId);
       }
 
       const { data, error } = await query;

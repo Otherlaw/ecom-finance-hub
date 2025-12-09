@@ -72,7 +72,7 @@ export async function ensureDefaultEmpresa() {
 /**
  * Garante que existe pelo menos um responsável padrão cadastrado
  */
-export async function ensureDefaultResponsavel() {
+export async function ensureDefaultResponsavel(empresaId?: string) {
   try {
     // Verificar se existe algum responsável ativo
     const { data: existingResponsaveis, error: fetchError } = await supabase
@@ -91,10 +91,24 @@ export async function ensureDefaultResponsavel() {
       return existingResponsaveis[0];
     }
 
-    // Criar responsável mock
+    // Precisamos de uma empresa para criar o responsável
+    let targetEmpresaId = empresaId;
+    if (!targetEmpresaId) {
+      const empresa = await ensureDefaultEmpresa();
+      if (!empresa) {
+        console.error("Não foi possível obter empresa para criar responsável");
+        return null;
+      }
+      targetEmpresaId = empresa.id;
+    }
+
+    // Criar responsável mock com empresa_id obrigatório
     const { data: mockResponsavel, error: insertError } = await supabase
       .from("responsaveis")
-      .insert(MOCK_RESPONSAVEL_DATA)
+      .insert({
+        ...MOCK_RESPONSAVEL_DATA,
+        empresa_id: targetEmpresaId,
+      })
       .select()
       .single();
 
