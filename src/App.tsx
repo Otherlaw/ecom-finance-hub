@@ -37,6 +37,7 @@ import Auth from "./pages/Auth";
 import Perfil from "./pages/Perfil";
 import Planos from "./pages/Planos";
 import Integracoes from "./pages/Integracoes";
+import OAuthCallback from "./pages/OAuthCallback";
 import NotFound from "./pages/NotFound";
 import { AssistantWidget } from "./components/assistant/AssistantWidget";
 import { AssistantChatProvider } from "./contexts/AssistantChatContext";
@@ -86,6 +87,7 @@ const App = () => (
             <Route path="/usuarios" element={<Usuarios />} />
             <Route path="/configuracoes" element={<Configuracoes />} />
             <Route path="/integracoes" element={<Integracoes />} />
+            <Route path="/oauth/callback" element={<OAuthCallback />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           <AssistantWidget />
