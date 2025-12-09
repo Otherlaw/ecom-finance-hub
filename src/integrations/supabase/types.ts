@@ -2092,6 +2092,56 @@ export type Database = {
           },
         ]
       }
+      onboarding_status: {
+        Row: {
+          centros_custo_revisados: boolean
+          created_at: string
+          dados_empresa_completos: boolean
+          empresa_criada: boolean
+          empresa_id: string | null
+          id: string
+          onboarding_completo: boolean
+          plano_contas_revisado: boolean
+          primeira_importacao: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          centros_custo_revisados?: boolean
+          created_at?: string
+          dados_empresa_completos?: boolean
+          empresa_criada?: boolean
+          empresa_id?: string | null
+          id?: string
+          onboarding_completo?: boolean
+          plano_contas_revisado?: boolean
+          primeira_importacao?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          centros_custo_revisados?: boolean
+          created_at?: string
+          dados_empresa_completos?: boolean
+          empresa_criada?: boolean
+          empresa_id?: string | null
+          id?: string
+          onboarding_completo?: boolean
+          plano_contas_revisado?: boolean
+          primeira_importacao?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "onboarding_status_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       produto_import_jobs: {
         Row: {
           arquivo_nome: string

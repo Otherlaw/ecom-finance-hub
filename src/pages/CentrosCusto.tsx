@@ -45,8 +45,10 @@ import {
   ShoppingCart,
   Truck,
   Search,
+  CheckCircle2,
 } from "lucide-react";
 import { useCentrosCusto, CentroCustoHierarquico } from "@/hooks/useCentrosCusto";
+import { useOnboarding } from "@/hooks/useOnboarding";
 import { cn } from "@/lib/utils";
 
 export default function CentrosCusto() {
@@ -58,6 +60,7 @@ export default function CentrosCusto() {
     updateCentroCusto,
     toggleAtivo,
   } = useCentrosCusto();
+  const { status, marcarPassoCompleto, deveExibirOnboarding } = useOnboarding();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [showInactive, setShowInactive] = useState(false);
@@ -240,15 +243,27 @@ export default function CentrosCusto() {
     );
   };
 
+  const handleMarkAsReviewed = async () => {
+    await marcarPassoCompleto("centros_custo_revisados");
+  };
+
   return (
     <MainLayout
       title="Centros de Custo"
       subtitle="Estrutura hierárquica de centros de custo"
       actions={
-        <Button onClick={() => openCreateModal()} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Novo Centro
-        </Button>
+        <div className="flex items-center gap-2">
+          {deveExibirOnboarding && !status?.centros_custo_revisados && (
+            <Button variant="outline" onClick={handleMarkAsReviewed} className="gap-2">
+              <CheckCircle2 className="h-4 w-4" />
+              Marcar como Revisado
+            </Button>
+          )}
+          <Button onClick={() => openCreateModal()} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Novo Centro
+          </Button>
+        </div>
       }
     >
       {/* Summary Cards */}
