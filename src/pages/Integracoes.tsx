@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,6 +72,7 @@ const PROVIDERS = [
 export default function Integracoes() {
   const [empresaId, setEmpresaId] = useState<string>("");
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
 
@@ -86,21 +88,30 @@ export default function Integracoes() {
   } = useIntegracoes({ empresaId });
 
   // Auto-selecionar primeira empresa
-  useState(() => {
+  useEffect(() => {
     if (empresas?.length && !empresaId) {
       setEmpresaId(empresas[0].id);
     }
-  });
+  }, [empresas, empresaId]);
 
   const handleConnect = async (provider: Provider) => {
     if (!empresaId) {
+      toast.error("Selecione uma empresa primeiro");
       return;
     }
 
-    if (provider === "mercado_livre") {
-      await startMercadoLivreOAuth(empresaId);
+    setIsConnecting(true);
+    try {
+      if (provider === "mercado_livre") {
+        await startMercadoLivreOAuth(empresaId);
+      }
+      // Outros providers serão implementados depois
+    } catch (error) {
+      console.error("Erro ao conectar:", error);
+      toast.error("Erro ao iniciar conexão");
+    } finally {
+      setIsConnecting(false);
     }
-    // Outros providers serão implementados depois
   };
 
   const handleDisconnect = () => {
@@ -249,10 +260,14 @@ export default function Integracoes() {
                                 <Button 
                                   className="flex-1" 
                                   onClick={() => handleConnect(provider.id)}
-                                  disabled={!provider.available || isLoading}
+                                  disabled={!provider.available || isLoading || isConnecting}
                                 >
-                                  <Link2 className="h-4 w-4 mr-2" />
-                                  Conectar
+                                  {isConnecting ? (
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  ) : (
+                                    <Link2 className="h-4 w-4 mr-2" />
+                                  )}
+                                  {isConnecting ? "Conectando..." : "Conectar"}
                                 </Button>
                               ) : (
                                 <>
