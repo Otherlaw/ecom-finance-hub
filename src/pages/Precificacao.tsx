@@ -17,7 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { AskAssistantButton } from '@/components/assistant/AskAssistantButton';
 import { useAssistantChatContext } from '@/contexts/AssistantChatContext';
 import { Calculator, FileText, Upload, Building2, Package, Store, Truck, Receipt, PlusCircle, Trash2, Info, TrendingUp, AlertTriangle, CheckCircle, DollarSign, Percent, Target, Lightbulb, ChevronRight, Search, ChevronDown, Eye, FileCode, AlertCircle } from 'lucide-react';
-import { SimulacaoPrecificacao, ResultadoPrecificacao, GastoExtra, DadosCustoNF, NotaBaixaConfig, MARKETPLACE_CONFIG, MARKETPLACES_LIST, GASTOS_EXTRAS_SUGESTOES, NOTA_BAIXA_OPCOES, formatCurrency, formatPercent, calcularResultadoPrecificacao, criarSimulacaoInicial, isFreteGratisML, deveHabilitarFreteML, MarketplaceId, TipoGastoExtra, BaseCalculo, calcularCustoEfetivoNF, NotaBaixaOpcao, getFatorNotaBaixa, FalsoDescontoConfig, calcularTaxaFixaML, getDescricaoTaxaFixaML, FAIXAS_TAXA_FIXA_ML } from '@/lib/precificacao-data';
+import { SimulacaoPrecificacao, ResultadoPrecificacao, GastoExtra, DadosCustoNF, NotaBaixaConfig, NotaBaixaVendaConfig, MARKETPLACE_CONFIG, MARKETPLACES_LIST, GASTOS_EXTRAS_SUGESTOES, NOTA_BAIXA_OPCOES, formatCurrency, formatPercent, calcularResultadoPrecificacao, criarSimulacaoInicial, isFreteGratisML, deveHabilitarFreteML, MarketplaceId, TipoGastoExtra, BaseCalculo, calcularCustoEfetivoNF, NotaBaixaOpcao, getFatorNotaBaixa, FalsoDescontoConfig, calcularTaxaFixaML, getDescricaoTaxaFixaML, FAIXAS_TAXA_FIXA_ML } from '@/lib/precificacao-data';
 import { REGIME_TRIBUTARIO_CONFIG } from '@/lib/empresas-data';
 import { useEmpresas } from '@/hooks/useEmpresas';
 import { useProdutos, Produto } from '@/hooks/useProdutos';
@@ -268,6 +268,15 @@ export default function Precificacao() {
       ...prev,
       falsoDesconto: {
         ...prev.falsoDesconto,
+        [field]: value
+      }
+    } : null);
+  };
+  const handleNotaBaixaVendaChange = (field: keyof NotaBaixaVendaConfig, value: any) => {
+    setSimulacao(prev => prev ? {
+      ...prev,
+      notaBaixaVenda: {
+        ...prev.notaBaixaVenda,
         [field]: value
       }
     } : null);
@@ -595,8 +604,8 @@ export default function Precificacao() {
                       <SelectItem value="none">Nenhum produto</SelectItem>
                       {(produtos || []).map(prod => <SelectItem key={prod.id} value={prod.id}>
                           <div className="flex items-center gap-2">
-                            <span>{prod.nome}</span>
-                            {prod.custo_medio > 0 && <Badge variant="secondary" className="text-xs">
+                            <span className="truncate max-w-[180px]" title={prod.nome}>{prod.nome}</span>
+                            {prod.custo_medio > 0 && <Badge variant="secondary" className="text-xs shrink-0">
                                 {formatCurrency(prod.custo_medio)}
                               </Badge>}
                           </div>
@@ -1060,42 +1069,91 @@ export default function Precificacao() {
                         </div>
                       </div>}
                     
-                    {/* Bloco Reforma Tributária - SEMPRE visível */}
+                    {/* Bloco CBS/IBS - Vigente desde 2025 (fase de transição) */}
                     <div className="p-3 rounded-lg border border-blue-200 bg-blue-50/50 space-y-3 mt-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <TrendingUp className="h-4 w-4 text-blue-600" />
                           <Label className="font-semibold text-blue-800">
-                            Reforma Tributária 2026+ (CBS + IBS)
+                            CBS + IBS (Reforma Tributária - Fase Transição 2025)
                           </Label>
                         </div>
                         <Switch checked={simulacao?.tributacao.simularReformaTributaria || false} onCheckedChange={checked => handleTributacaoChange('simularReformaTributaria', checked)} />
                       </div>
                       
                       <p className="text-xs text-muted-foreground">
-                        {simulacao?.tributacao.simularReformaTributaria ? 'CBS + IBS será usado no cálculo do preço sugerido' : 'Ative para usar o IVA Dual no cálculo do preço'}
+                        {simulacao?.tributacao.simularReformaTributaria ? 'CBS + IBS será usado no cálculo do preço sugerido' : 'Ative para usar CBS + IBS no cálculo (fase de transição)'}
                       </p>
                       
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className={`grid grid-cols-2 gap-4 ${!simulacao?.tributacao.simularReformaTributaria ? 'opacity-50' : ''}`}>
                         <div>
                           <Label className="text-sm">CBS - IVA Federal (%)</Label>
-                          <Input type="number" step="0.1" placeholder="8.8" value={simulacao?.tributacao.cbsAliquota || ''} onChange={e => handleTributacaoChange('cbsAliquota', parseFloat(e.target.value) || 0)} className="bg-background" />
-                          <p className="text-xs text-muted-foreground mt-1">Previsão: ~8.8%</p>
+                          <Input type="number" step="0.1" placeholder="0.9" value={simulacao?.tributacao.cbsAliquota || ''} onChange={e => handleTributacaoChange('cbsAliquota', parseFloat(e.target.value) || 0)} className="bg-background" disabled={!simulacao?.tributacao.simularReformaTributaria} />
+                          <p className="text-xs text-muted-foreground mt-1">Transição 2025: 0,9%</p>
                         </div>
                         <div>
                           <Label className="text-sm">IBS - IVA Estadual/Municipal (%)</Label>
-                          <Input type="number" step="0.1" placeholder="17.7" value={simulacao?.tributacao.ibsAliquota || ''} onChange={e => handleTributacaoChange('ibsAliquota', parseFloat(e.target.value) || 0)} className="bg-background" />
-                          <p className="text-xs text-muted-foreground mt-1">Previsão: ~17.7%</p>
+                          <Input type="number" step="0.1" placeholder="0.1" value={simulacao?.tributacao.ibsAliquota || ''} onChange={e => handleTributacaoChange('ibsAliquota', parseFloat(e.target.value) || 0)} className="bg-background" disabled={!simulacao?.tributacao.simularReformaTributaria} />
+                          <p className="text-xs text-muted-foreground mt-1">Transição 2025: 0,1%</p>
                         </div>
                       </div>
                       
                       {simulacao?.tributacao.simularReformaTributaria && <Alert className="bg-blue-100 border-blue-300">
                           <Info className="h-4 w-4 text-blue-600" />
                           <AlertDescription className="text-blue-700 text-sm">
-                            Total IVA Dual: <strong>{formatPercent((simulacao?.tributacao.cbsAliquota || 0) + (simulacao?.tributacao.ibsAliquota || 0))}</strong>
+                            Total CBS + IBS: <strong>{formatPercent((simulacao?.tributacao.cbsAliquota || 0) + (simulacao?.tributacao.ibsAliquota || 0))}</strong>
                             {' '}— Este valor será usado no cálculo do preço sugerido
                           </AlertDescription>
                         </Alert>}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Bloco 3.5 - Nota Baixa na Venda */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <AlertCircle className="h-5 w-5 text-amber-600" />
+                      Nota Baixa na Venda
+                    </CardTitle>
+                    <CardDescription>
+                      Simule cenário onde a NF de venda é emitida com valor reduzido
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Percent className="h-4 w-4 text-amber-600" />
+                          <Label className="font-semibold text-amber-800">Emitir NF com valor reduzido</Label>
+                        </div>
+                        <Switch checked={simulacao?.notaBaixaVenda?.ativa || false} onCheckedChange={checked => handleNotaBaixaVendaChange('ativa', checked)} />
+                      </div>
+                      
+                      {simulacao?.notaBaixaVenda?.ativa && <div className="space-y-3">
+                          <p className="text-xs text-amber-700">
+                            Informe o % do valor real que será faturado na nota de venda. 
+                            <strong> Os impostos incidirão apenas sobre este percentual.</strong>
+                          </p>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <Label className="text-sm">% do valor que será faturado:</Label>
+                              <Input type="number" step="1" min="1" max="100" value={simulacao.notaBaixaVenda.percentualNota || ''} onChange={e => handleNotaBaixaVendaChange('percentualNota', parseFloat(e.target.value) || 100)} placeholder="Ex: 10" className="bg-background" />
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {simulacao.notaBaixaVenda.percentualNota < 100 
+                                  ? `Impostos reduzidos em ${(100 - simulacao.notaBaixaVenda.percentualNota).toFixed(0)}%`
+                                  : 'Nota integral - sem redução'}
+                              </p>
+                            </div>
+                          </div>
+                          <Alert className="bg-amber-100 border-amber-300">
+                            <AlertTriangle className="h-4 w-4 text-amber-700" />
+                            <AlertDescription className="text-amber-800 text-xs">
+                              <strong>Atenção:</strong> Esta funcionalidade é apenas para simulação de cenários. 
+                              A emissão de notas com valor inferior ao real pode configurar sonegação fiscal.
+                            </AlertDescription>
+                          </Alert>
+                        </div>}
                     </div>
                   </CardContent>
                 </Card>
@@ -1372,87 +1430,7 @@ export default function Precificacao() {
                             </div>
                           </div>}
                         
-                        {/* Comparação Reforma Tributária 2026+ */}
-                        {resultado.comparacaoReforma && <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 space-y-3">
-                            <div className="flex items-center gap-2">
-                              <TrendingUp className="h-5 w-5 text-indigo-600" />
-                              <span className="font-semibold text-indigo-800">
-                                {resultado.comparacaoReforma.usandoReforma ? 'Comparativo: Reforma Tributária (Ativo) vs Regime Atual' : 'Impacto da Reforma Tributária (2026+)'}
-                              </span>
-                            </div>
-                            
-                            {resultado.comparacaoReforma.usandoReforma && <Alert className="bg-indigo-100 border-indigo-300">
-                                <AlertCircle className="h-4 w-4 text-indigo-700" />
-                                <AlertDescription className="text-indigo-700 text-sm">
-                                  <strong>CBS/IBS estão ativos como imposto principal.</strong> Os valores abaixo já consideram a Reforma Tributária no cálculo de preço e margem.
-                                </AlertDescription>
-                              </Alert>}
-                            
-                            <div className="grid grid-cols-2 gap-3 text-sm">
-                              <div className={`p-2 rounded border ${!resultado.comparacaoReforma.usandoReforma ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-400' : 'bg-white'}`}>
-                                <p className="text-muted-foreground text-xs">
-                                  {!resultado.comparacaoReforma.usandoReforma && '✓ '} Regime Atual (ICMS + PIS/COFINS)
-                                </p>
-                                <p className="font-semibold">{formatPercent(resultado.comparacaoReforma.tributosAtualPercent)}</p>
-                              </div>
-                              <div className={`p-2 rounded border ${resultado.comparacaoReforma.usandoReforma ? 'bg-indigo-100 border-indigo-300 ring-2 ring-indigo-400' : 'bg-white'}`}>
-                                <p className="text-muted-foreground text-xs">
-                                  {resultado.comparacaoReforma.usandoReforma && '✓ '} IVA Dual (CBS + IBS)
-                                </p>
-                                <p className="font-semibold text-indigo-700">{formatPercent(resultado.comparacaoReforma.tributosReformaPercent)}</p>
-                              </div>
-                            </div>
-                            
-                            <Separator />
-                            
-                            <div className="grid grid-cols-2 gap-3 text-sm">
-                              <div className={`p-2 rounded border ${!resultado.comparacaoReforma.usandoReforma ? 'bg-blue-100 border-blue-300' : 'bg-blue-50 border-blue-200'}`}>
-                                <p className="text-blue-700 text-xs">💠 Margem com ICMS + PIS/COFINS</p>
-                                <p className="font-bold text-blue-800">
-                                  {formatCurrency(resultado.comparacaoReforma.margemRegimeAtual || resultado.margemComDifal)} ({formatPercent(resultado.comparacaoReforma.margemRegimeAtualPercent || resultado.margemComDifalPercent)})
-                                </p>
-                                {!resultado.comparacaoReforma.usandoReforma && <p className="text-xs text-blue-600 mt-1">Preço: {formatCurrency(resultado.comparacaoReforma.precoSugeridoRegimeAtual || resultado.precoSugerido)}</p>}
-                              </div>
-                              <div className={`p-2 rounded border ${resultado.comparacaoReforma.usandoReforma ? 'bg-indigo-100 border-indigo-300' : 'bg-indigo-50 border-indigo-200'}`}>
-                                <p className="text-indigo-700 text-xs">💠 Margem com CBS + IBS</p>
-                                <p className="font-bold text-indigo-800">
-                                  {formatCurrency(resultado.comparacaoReforma.margemReforma)} ({formatPercent(resultado.comparacaoReforma.margemReformaPercent)})
-                                </p>
-                                {resultado.comparacaoReforma.usandoReforma && <p className="text-xs text-indigo-600 mt-1">Preço: {formatCurrency(resultado.comparacaoReforma.precoSugeridoReforma)}</p>}
-                              </div>
-                            </div>
-                            
-                            <div className={`p-2 rounded text-center ${resultado.comparacaoReforma.diferencaMargemReais >= 0 ? 'bg-emerald-100 border border-emerald-300' : 'bg-red-100 border border-red-300'}`}>
-                              <p className={`text-xs ${resultado.comparacaoReforma.diferencaMargemReais >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                                {resultado.comparacaoReforma.usandoReforma ? 'Diferença vs Regime Atual' : 'Diferença com Reforma'}
-                              </p>
-                              <p className={`font-bold ${resultado.comparacaoReforma.diferencaMargemReais >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
-                                {resultado.comparacaoReforma.diferencaMargemReais >= 0 ? '+' : ''}{formatCurrency(resultado.comparacaoReforma.diferencaMargemReais)}
-                                {' '}({resultado.comparacaoReforma.diferencaMargemPercent >= 0 ? '+' : ''}{resultado.comparacaoReforma.diferencaMargemPercent.toFixed(1)}%)
-                              </p>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-3">
-                              {!resultado.comparacaoReforma.usandoReforma && <div className="p-2 rounded bg-white border">
-                                  <p className="text-muted-foreground text-xs">Preço com Regime Atual</p>
-                                  <p className="font-semibold">{formatCurrency(resultado.precoSugerido)}</p>
-                                </div>}
-                              <div className={`p-2 rounded border ${resultado.comparacaoReforma.usandoReforma ? 'bg-indigo-50' : 'bg-white'}`}>
-                                <p className="text-muted-foreground text-xs">
-                                  {resultado.comparacaoReforma.usandoReforma ? 'Preço com IVA Dual (Ativo)' : 'Preço com IVA Dual'}
-                                </p>
-                                <p className="font-semibold text-indigo-700">{formatCurrency(resultado.comparacaoReforma.precoSugeridoReforma)}</p>
-                              </div>
-                              {resultado.comparacaoReforma.usandoReforma && <div className="p-2 rounded bg-white border">
-                                  <p className="text-muted-foreground text-xs">Preço com Regime Atual</p>
-                                  <p className="font-semibold">{formatCurrency(resultado.comparacaoReforma.precoSugeridoRegimeAtual || 0)}</p>
-                                </div>}
-                            </div>
-                            
-                            <p className="text-xs text-indigo-600">
-                              {resultado.comparacaoReforma.usandoReforma ? 'A precificação atual usa CBS/IBS como tributos reais. Compare com o regime atual para ver o impacto.' : 'Projeção baseada nas alíquotas estimadas da Reforma Tributária. Use para planejamento estratégico de longo prazo.'}
-                            </p>
-                          </div>}
+                        {/* Comparação removida - CBS/IBS é obrigatório desde 2025 */}
                         
                         {/* Detalhamento de custos */}
                         <div className="space-y-2 text-sm">
@@ -1501,7 +1479,7 @@ export default function Precificacao() {
                           <Input type="number" step="0.01" value={simulacao?.precoVendaManual || ''} onChange={e => handleSimulacaoChange('precoVendaManual', parseFloat(e.target.value) || undefined)} placeholder="Digite um preço para ver a margem" className="text-center" />
                           {resultado.margemManualComDifal !== undefined && <div className="p-2 rounded bg-background border space-y-1">
                               <div className="flex justify-between text-sm">
-                                <span>Margem com DIFAL:</span>
+                                <span>{simulacao?.tributacao.difalAtivo ? 'Margem com DIFAL:' : 'Margem Líquida:'}</span>
                                 <span className={(resultado.margemManualComDifalPercent || 0) >= 0 ? 'text-emerald-600 font-semibold' : 'text-destructive font-semibold'}>
                                   {formatCurrency(resultado.margemManualComDifal)} ({(resultado.margemManualComDifalPercent || 0).toFixed(1)}%)
                                 </span>
