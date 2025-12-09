@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { empresa_id } = await req.json();
+    const { empresa_id, frontend_url } = await req.json();
 
     if (!empresa_id) {
       return new Response(
@@ -65,10 +65,11 @@ Deno.serve(async (req) => {
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = await generateCodeChallenge(codeVerifier);
 
-    // Gerar state para segurança (contém empresa_id e code_verifier para callback)
+    // Gerar state para segurança (contém empresa_id, code_verifier e frontend_url para callback)
     const state = btoa(JSON.stringify({ 
       empresa_id, 
       code_verifier: codeVerifier,
+      frontend_url: frontend_url || "https://ecom-finance.lovable.app",
       timestamp: Date.now() 
     }));
 

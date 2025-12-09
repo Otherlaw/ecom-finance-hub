@@ -37,13 +37,15 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Decodificar state para obter empresa_id e code_verifier (PKCE)
+    // Decodificar state para obter empresa_id, code_verifier (PKCE) e frontend_url
     let empresa_id: string;
     let code_verifier: string;
+    let frontend_url: string;
     try {
       const stateData = JSON.parse(atob(state));
       empresa_id = stateData.empresa_id;
       code_verifier = stateData.code_verifier;
+      frontend_url = stateData.frontend_url || "https://ecom-finance.lovable.app";
       
       if (!empresa_id || !code_verifier) {
         throw new Error("empresa_id ou code_verifier ausente no state");
@@ -176,9 +178,8 @@ Deno.serve(async (req) => {
 
     // Para GET (redirect do ML), fazer redirect 302 para o frontend
     if (req.method === "GET") {
-      // Detectar URL do frontend baseado no ambiente
-      const frontendUrl = Deno.env.get("FRONTEND_URL") || "https://ecom-finance.lovable.app";
-      const redirectUrl = `${frontendUrl}/integracoes?ml_status=success&provider=mercado_livre`;
+      // Usar a URL do frontend que veio no state (dinâmica)
+      const redirectUrl = `${frontend_url}/integracoes?ml_status=success&provider=mercado_livre`;
       
       console.log(`[ML OAuth Callback] Redirecionando para: ${redirectUrl}`);
       
@@ -198,9 +199,17 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error("[ML OAuth Callback] Erro:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Erro desconhecido" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    
+    // Tentar redirecionar com erro se for GET
+    const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+    const fallbackUrl = "https://ecom-finance.lovable.app";
+    
+    return new Response(null, {
+      status: 302,
+      headers: { 
+        "Location": `${fallbackUrl}/integracoes?ml_status=error&error=${encodeURIComponent(errorMessage)}`,
+        ...corsHeaders
+      },
+    });
   }
 });
