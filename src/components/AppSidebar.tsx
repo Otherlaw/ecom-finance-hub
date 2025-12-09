@@ -103,6 +103,10 @@ const mainNavItems: NavItem[] = [{
   badge: "IA"
 }];
 const settingsNavItems: NavItem[] = [{
+  title: "Integrações",
+  href: "/integracoes",
+  icon: Link2
+}, {
   title: "Empresas",
   href: "/empresas",
   icon: Building2

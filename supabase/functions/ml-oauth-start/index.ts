@@ -8,6 +8,31 @@ const corsHeaders = {
 // Mercado Livre OAuth URLs
 const ML_AUTH_URL = "https://auth.mercadolivre.com.br/authorization";
 
+// PKCE helpers
+function generateCodeVerifier(): string {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return base64UrlEncode(array);
+}
+
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
+function base64UrlEncode(buffer: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < buffer.length; i++) {
+    binary += String.fromCharCode(buffer[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -36,23 +61,30 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Gerar state para segurança (contém empresa_id para callback)
+    // Gerar PKCE code_verifier e code_challenge
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+    // Gerar state para segurança (contém empresa_id e code_verifier para callback)
     const state = btoa(JSON.stringify({ 
       empresa_id, 
+      code_verifier: codeVerifier,
       timestamp: Date.now() 
     }));
 
-    // Montar URL de autorização
+    // Montar URL de autorização com PKCE
     const authParams = new URLSearchParams({
       response_type: "code",
       client_id: ML_APP_ID,
       redirect_uri: ML_REDIRECT_URI,
       state: state,
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
     });
 
     const authUrl = `${ML_AUTH_URL}?${authParams.toString()}`;
 
-    console.log(`[ML OAuth Start] Gerando URL para empresa ${empresa_id}`);
+    console.log(`[ML OAuth Start] Gerando URL PKCE para empresa ${empresa_id}`);
 
     return new Response(
       JSON.stringify({ 
