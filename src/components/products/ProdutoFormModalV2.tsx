@@ -147,7 +147,7 @@ export function ProdutoFormModalV2({
         setCfopVenda(produto.cfop_venda || "");
         setCfopCompra(produto.cfop_compra || "");
         setFornecedorNome(produto.fornecedor_nome || "");
-        setCustoMedio(produto.custo_medio);
+        setCustoMedio(Math.round((produto.custo_medio || 0) * 100) / 100);
         setPrecoVenda(produto.preco_venda);
         setPesoKg(produto.peso_kg || 0);
         setAlturaCm(produto.altura_cm || 0);
@@ -428,7 +428,7 @@ export function ProdutoFormModalV2({
                   value={sku}
                   onChange={(e) => setSku(e.target.value.toUpperCase())}
                   placeholder="Ex: PROD-001"
-                  disabled={isEditing}
+                  disabled={isEditing && produto?.status !== 'rascunho'}
                 />
               </div>
               <div className="space-y-2">
@@ -573,13 +573,13 @@ export function ProdutoFormModalV2({
             </div>
 
             {/* Fornecedor e Preços */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
+            <div className="grid grid-cols-[1fr_120px_120px] gap-4">
+              <div className="space-y-2 min-w-0">
                 <Label>Fornecedor Principal</Label>
                 <Popover open={fornecedorOpen} onOpenChange={setFornecedorOpen}>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                      {fornecedorNome || "Selecionar..."}
+                    <Button variant="outline" role="combobox" className="w-full justify-between font-normal overflow-hidden">
+                      <span className="truncate">{fornecedorNome || "Selecionar..."}</span>
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
