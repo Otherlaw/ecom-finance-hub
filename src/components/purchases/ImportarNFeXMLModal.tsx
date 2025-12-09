@@ -42,6 +42,17 @@ interface ImportarNFeXMLModalProps {
   existingKeys?: string[];
 }
 
+const OPCOES_PARCELAS = [
+  { value: 1, label: "À vista (1x)" },
+  { value: 2, label: "2x" },
+  { value: 3, label: "3x" },
+  { value: 4, label: "4x" },
+  { value: 5, label: "5x" },
+  { value: 6, label: "6x" },
+  { value: 10, label: "10x" },
+  { value: 12, label: "12x" },
+];
+
 interface ParsedFile {
   fileName: string;
   nfe: NotaFiscalXML | null;
@@ -75,22 +86,36 @@ export function ImportarNFeXMLModal({
   const [condicaoPagamento, setCondicaoPagamento] = useState<string>("a_vista");
   const [prazoDias, setPrazoDias] = useState<number>(30);
   const [gerarContaPagar, setGerarContaPagar] = useState<boolean>(true);
+  const [numeroParcelas, setNumeroParcelas] = useState<number>(1);
+  const [empresaAutoDetectada, setEmpresaAutoDetectada] = useState<boolean>(false);
 
   const { empresas = [] } = useEmpresas();
   const { criarCompra } = useCompras();
+
+  // Auto-detectar empresa pelo CNPJ do destinatário
+  const autoDetectEmpresa = useCallback((cnpjDestinatario: string | undefined) => {
+    if (!cnpjDestinatario || empresaId) return;
+    
+    const cnpjLimpo = cnpjDestinatario.replace(/\D/g, '');
+    const empresaEncontrada = empresas.find(emp => 
+      emp.cnpj?.replace(/\D/g, '') === cnpjLimpo
+    );
+    
+    if (empresaEncontrada) {
+      setEmpresaId(empresaEncontrada.id);
+      setEmpresaAutoDetectada(true);
+      toast.success(`Empresa "${empresaEncontrada.nome_fantasia || empresaEncontrada.razao_social}" detectada automaticamente pelo CNPJ do destinatário.`);
+    }
+  }, [empresas, empresaId]);
 
   const handleFileSelect = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = event.target.files;
       if (!files || files.length === 0) return;
 
-      if (!empresaId) {
-        toast.error("Selecione uma empresa antes de importar os arquivos XML.");
-        return;
-      }
-
       setIsProcessing(true);
       const results: ParsedFile[] = [];
+      let primeiroDestinatarioCnpj: string | undefined;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -119,6 +144,11 @@ export function ImportarNFeXMLModal({
 
           const isDuplicate = existingKeys.includes(nfe.chaveAcesso);
 
+          // Guardar primeiro CNPJ do destinatário para auto-detecção
+          if (!primeiroDestinatarioCnpj && nfe.destinatario?.cnpj) {
+            primeiroDestinatarioCnpj = nfe.destinatario.cnpj;
+          }
+
           results.push({
             fileName: file.name,
             nfe,
@@ -138,15 +168,22 @@ export function ImportarNFeXMLModal({
 
       setParsedFiles(results);
 
+      // Auto-detectar empresa se não selecionada
+      if (!empresaId && primeiroDestinatarioCnpj) {
+        autoDetectEmpresa(primeiroDestinatarioCnpj);
+      }
+
       const validFiles = results.filter((r) => r.nfe && !r.isDuplicate);
-      if (validFiles.length > 0) {
+      if (validFiles.length > 0 && (empresaId || primeiroDestinatarioCnpj)) {
         setStep("preview");
+      } else if (validFiles.length > 0 && !empresaId) {
+        toast.error("Selecione uma empresa para continuar. Não foi possível detectar automaticamente pelo CNPJ do destinatário.");
       }
 
       setIsProcessing(false);
       event.target.value = "";
     },
-    [empresaId, existingKeys]
+    [empresaId, existingKeys, autoDetectEmpresa]
   );
 
   const handleConfirmImport = async () => {
@@ -202,9 +239,10 @@ export function ImportarNFeXMLModal({
           uf_emitente: nfe.emitente.uf || null,
           status: 'emitido',
           forma_pagamento: formaPagamento || undefined,
-          condicao_pagamento: condicaoPagamento,
+          condicao_pagamento: condicaoPagamento === 'a_prazo' ? 'a_prazo' : 'a_vista',
           prazo_dias: condicaoPagamento === 'a_prazo' ? prazoDias : undefined,
           gerar_conta_pagar: gerarContaPagar,
+          numero_parcelas: numeroParcelas,
           itens,
         });
       }
@@ -230,6 +268,8 @@ export function ImportarNFeXMLModal({
     setCondicaoPagamento("a_vista");
     setPrazoDias(30);
     setGerarContaPagar(true);
+    setNumeroParcelas(1);
+    setEmpresaAutoDetectada(false);
     onOpenChange(false);
   };
 
@@ -257,20 +297,23 @@ export function ImportarNFeXMLModal({
 
         {step === "upload" && (
           <div className="space-y-6 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="empresa">Empresa *</Label>
-              <Select value={empresaId} onValueChange={setEmpresaId}>
+          <div className="space-y-2">
+              <Label htmlFor="empresa">Empresa * {empresaAutoDetectada && <span className="text-xs text-success">(detectada automaticamente)</span>}</Label>
+              <Select value={empresaId} onValueChange={(val) => { setEmpresaId(val); setEmpresaAutoDetectada(false); }}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione a empresa" />
+                  <SelectValue placeholder="Selecione a empresa (ou importe XML para auto-detectar)" />
                 </SelectTrigger>
                 <SelectContent>
                   {empresas.map((emp) => (
                     <SelectItem key={emp.id} value={emp.id}>
-                      {emp.nome_fantasia || emp.razao_social}
+                      {emp.nome_fantasia || emp.razao_social} ({emp.cnpj})
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                A empresa pode ser detectada automaticamente pelo CNPJ do destinatário no XML.
+              </p>
             </div>
 
             <div
@@ -479,17 +522,52 @@ export function ImportarNFeXMLModal({
                 </div>
 
                 {condicaoPagamento === "a_prazo" && (
-                  <div className="space-y-2">
-                    <Label className="text-sm">Prazo (dias)</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={prazoDias}
-                      onChange={(e) => setPrazoDias(Number(e.target.value))}
-                    />
-                  </div>
+                  <>
+                    <div className="space-y-2">
+                      <Label className="text-sm">Prazo entre parcelas (dias)</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={prazoDias}
+                        onChange={(e) => setPrazoDias(Number(e.target.value))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm">Número de Parcelas</Label>
+                      <Select value={String(numeroParcelas)} onValueChange={(val) => setNumeroParcelas(Number(val))}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {OPCOES_PARCELAS.map((op) => (
+                            <SelectItem key={op.value} value={String(op.value)}>
+                              {op.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
                 )}
               </div>
+
+              {/* Preview de vencimentos */}
+              {condicaoPagamento === "a_prazo" && numeroParcelas > 1 && gerarContaPagar && (
+                <div className="p-3 rounded-lg bg-muted/50 space-y-1">
+                  <Label className="text-xs font-medium">Previsão de vencimentos:</Label>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    {Array.from({ length: numeroParcelas }, (_, i) => {
+                      const baseDate = new Date();
+                      baseDate.setDate(baseDate.getDate() + prazoDias * (i + 1));
+                      return (
+                        <span key={i} className="text-muted-foreground">
+                          {i + 1}ª: {baseDate.toLocaleDateString('pt-BR')}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center gap-3 pt-2">
                 <Switch

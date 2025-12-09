@@ -490,6 +490,7 @@ export type Database = {
         Row: {
           categoria_id: string | null
           centro_custo_id: string | null
+          compra_id: string | null
           conciliado: boolean
           created_at: string
           data_emissao: string
@@ -501,10 +502,12 @@ export type Database = {
           forma_pagamento: string | null
           fornecedor_nome: string
           id: string
+          numero_parcela: number | null
           observacoes: string | null
           recorrente: boolean
           status: string
           tipo_lancamento: string
+          total_parcelas: number | null
           updated_at: string
           valor_em_aberto: number
           valor_pago: number
@@ -513,6 +516,7 @@ export type Database = {
         Insert: {
           categoria_id?: string | null
           centro_custo_id?: string | null
+          compra_id?: string | null
           conciliado?: boolean
           created_at?: string
           data_emissao: string
@@ -524,10 +528,12 @@ export type Database = {
           forma_pagamento?: string | null
           fornecedor_nome: string
           id?: string
+          numero_parcela?: number | null
           observacoes?: string | null
           recorrente?: boolean
           status?: string
           tipo_lancamento?: string
+          total_parcelas?: number | null
           updated_at?: string
           valor_em_aberto: number
           valor_pago?: number
@@ -536,6 +542,7 @@ export type Database = {
         Update: {
           categoria_id?: string | null
           centro_custo_id?: string | null
+          compra_id?: string | null
           conciliado?: boolean
           created_at?: string
           data_emissao?: string
@@ -547,10 +554,12 @@ export type Database = {
           forma_pagamento?: string | null
           fornecedor_nome?: string
           id?: string
+          numero_parcela?: number | null
           observacoes?: string | null
           recorrente?: boolean
           status?: string
           tipo_lancamento?: string
+          total_parcelas?: number | null
           updated_at?: string
           valor_em_aberto?: number
           valor_pago?: number
@@ -569,6 +578,13 @@ export type Database = {
             columns: ["centro_custo_id"]
             isOneToOne: false
             referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contas_a_pagar_compra_id_fkey"
+            columns: ["compra_id"]
+            isOneToOne: false
+            referencedRelation: "compras"
             referencedColumns: ["id"]
           },
           {

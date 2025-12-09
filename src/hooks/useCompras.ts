@@ -88,6 +88,7 @@ export interface CompraInsert {
   prazo_dias?: number;
   data_vencimento?: string;
   gerar_conta_pagar?: boolean;
+  numero_parcelas?: number;
   // Campos para custo efetivo e ICMS
   valor_icms_st?: number;
   outras_despesas?: number;
@@ -301,27 +302,44 @@ export function useCompras(params: UseComprasParams = {}) {
         }
       }
 
-      // Gerar conta a pagar automaticamente se solicitado
+      // Gerar conta a pagar automaticamente se solicitado (com suporte a parcelas)
       if (compraData.gerar_conta_pagar && compra.valor_total > 0) {
-        const { error: contaError } = await supabase
-          .from("contas_a_pagar")
-          .insert({
-            empresa_id: compra.empresa_id,
-            fornecedor_nome: compra.fornecedor_nome,
-            descricao: `Compra ${compra.numero_nf ? `NF ${compra.numero_nf}` : compra.numero || compra.id.slice(0, 8)}`,
-            documento: compra.numero_nf || compra.numero,
-            valor_total: compra.valor_total,
-            valor_em_aberto: compra.valor_total,
-            data_emissao: compra.data_nf || compra.data_pedido,
-            data_vencimento: dataVencimento || compra.data_pedido,
-            forma_pagamento: compra.forma_pagamento,
-            status: 'em_aberto',
-            tipo_lancamento: 'compra_mercadoria',
-          });
+        const numParcelas = compraData.numero_parcelas || 1;
+        const valorParcela = compra.valor_total / numParcelas;
+        const dataBase = new Date(compraData.data_nf || compraData.data_pedido);
+        const prazo = compraData.prazo_dias || 30;
 
-        if (contaError) {
-          console.error("Erro ao criar conta a pagar:", contaError);
-          // Não lança erro para não bloquear a compra
+        for (let i = 0; i < numParcelas; i++) {
+          const dataVencimentoParcela = new Date(dataBase);
+          dataVencimentoParcela.setDate(dataVencimentoParcela.getDate() + prazo * (i + 1));
+
+          const descricaoParcela = numParcelas > 1 
+            ? `Compra ${compra.numero_nf ? `NF ${compra.numero_nf}` : compra.numero || compra.id.slice(0, 8)} - Parcela ${i + 1}/${numParcelas}`
+            : `Compra ${compra.numero_nf ? `NF ${compra.numero_nf}` : compra.numero || compra.id.slice(0, 8)}`;
+
+          const { error: contaError } = await supabase
+            .from("contas_a_pagar")
+            .insert({
+              empresa_id: compra.empresa_id,
+              fornecedor_nome: compra.fornecedor_nome,
+              descricao: descricaoParcela,
+              documento: compra.numero_nf || compra.numero,
+              valor_total: valorParcela,
+              valor_em_aberto: valorParcela,
+              data_emissao: compra.data_nf || compra.data_pedido,
+              data_vencimento: dataVencimentoParcela.toISOString().split('T')[0],
+              forma_pagamento: compra.forma_pagamento,
+              status: 'em_analise',
+              tipo_lancamento: 'compra_mercadoria',
+              compra_id: compra.id,
+              numero_parcela: numParcelas > 1 ? i + 1 : null,
+              total_parcelas: numParcelas > 1 ? numParcelas : null,
+            });
+
+          if (contaError) {
+            console.error("Erro ao criar conta a pagar (parcela):", contaError);
+            // Não lança erro para não bloquear a compra
+          }
         }
       }
 
@@ -516,8 +534,21 @@ export function useRecebimentos(compraId: string | null) {
               .update({ quantidade_recebida: qtdAtual + item.quantidade_recebida })
               .eq("id", item.compra_item_id);
 
-            // 2. Dar entrada no estoque (se produto vinculado)
+            // 2. Dar entrada no estoque (se produto vinculado E status NÃO é rascunho)
             if (item.produto_id) {
+              // Verificar se produto está com status 'rascunho' (pendente de cadastro)
+              const { data: produtoData } = await supabase
+                .from("produtos")
+                .select("status")
+                .eq("id", item.produto_id)
+                .single();
+              
+              // Se produto está em rascunho, NÃO dar entrada no estoque
+              if (produtoData?.status === 'rascunho') {
+                console.log(`Produto ${item.produto_id} está como rascunho. Entrada no estoque bloqueada até ativação.`);
+                continue; // Pula para próximo item sem dar entrada no estoque
+              }
+
               const custoUnitario = item.custo_efetivo || item.custo_unitario;
               
               // Buscar estoque atual

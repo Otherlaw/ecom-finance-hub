@@ -23,17 +23,22 @@ export interface ContaPagar {
   observacoes: string | null;
   recorrente: boolean;
   conciliado: boolean;
+  compra_id: string | null;
+  numero_parcela: number | null;
+  total_parcelas: number | null;
   created_at: string;
   updated_at: string;
   // Joins
   empresa?: { id: string; razao_social: string; nome_fantasia: string | null };
   categoria?: { id: string; nome: string; tipo: string };
   centro_custo?: { id: string; nome: string };
+  compra?: { id: string; numero_nf: string | null; fornecedor_nome: string };
 }
 
-export type StatusContaPagar = "em_aberto" | "parcialmente_pago" | "pago" | "vencido" | "cancelado";
+export type StatusContaPagar = "em_analise" | "em_aberto" | "parcialmente_pago" | "pago" | "vencido" | "cancelado";
 
 export const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  em_analise: { label: "Em Análise", color: "bg-yellow-100 text-yellow-800" },
   em_aberto: { label: "Em Aberto", color: "bg-blue-100 text-blue-800" },
   parcialmente_pago: { label: "Parcial", color: "bg-amber-100 text-amber-800" },
   pago: { label: "Pago", color: "bg-green-100 text-green-800" },
@@ -61,7 +66,8 @@ export const useContasPagar = (params: UseContasPagarParams = {}) => {
           *,
           empresa:empresas(id, razao_social, nome_fantasia),
           categoria:categorias_financeiras(id, nome, tipo),
-          centro_custo:centros_de_custo(id, nome)
+          centro_custo:centros_de_custo(id, nome),
+          compra:compras(id, numero_nf, fornecedor_nome)
         `)
         .order("data_vencimento", { ascending: true });
 
