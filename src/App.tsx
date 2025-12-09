@@ -36,6 +36,7 @@ import CMVRelatorio from "./pages/CMVRelatorio";
 import Auth from "./pages/Auth";
 import Perfil from "./pages/Perfil";
 import Planos from "./pages/Planos";
+import Integracoes from "./pages/Integracoes";
 import NotFound from "./pages/NotFound";
 import { AssistantWidget } from "./components/assistant/AssistantWidget";
 import { AssistantChatProvider } from "./contexts/AssistantChatContext";
@@ -84,6 +85,7 @@ const App = () => (
             <Route path="/empresas" element={<Empresas />} />
             <Route path="/usuarios" element={<Usuarios />} />
             <Route path="/configuracoes" element={<Configuracoes />} />
+            <Route path="/integracoes" element={<Integracoes />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           <AssistantWidget />
