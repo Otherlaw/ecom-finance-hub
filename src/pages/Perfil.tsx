@@ -165,12 +165,12 @@ export default function Perfil() {
             <p className="text-sm text-muted-foreground">
               Selecione a empresa que será carregada automaticamente ao acessar o sistema.
             </p>
-            <Select value={empresaPadraoId} onValueChange={setEmpresaPadraoId}>
+            <Select value={empresaPadraoId || "none"} onValueChange={(val) => setEmpresaPadraoId(val === "none" ? "" : val)}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecionar empresa..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Nenhuma (selecionar manualmente)</SelectItem>
+                <SelectItem value="none">Nenhuma (selecionar manualmente)</SelectItem>
                 {empresas?.map((empresa) => (
                   <SelectItem key={empresa.id} value={empresa.id}>
                     {empresa.nome_fantasia || empresa.razao_social}
