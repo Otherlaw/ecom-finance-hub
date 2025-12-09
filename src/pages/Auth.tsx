@@ -337,7 +337,7 @@ export default function Auth() {
               <Label htmlFor="login-email">E-mail</Label>
               <div className="flex items-center gap-2 border rounded-lg px-3 h-12 focus-within:ring-2 focus-within:ring-ring bg-background">
                 <Mail className="h-5 w-5 text-muted-foreground" />
-                <Input id="login-email" type="email" placeholder="Digite seu e-mail" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} disabled={isLoading} className="border-0 shadow-none focus-visible:ring-0 h-full" />
+                <Input id="login-email" type="email" placeholder="Digite seu e-mail" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} disabled={isLoading} className="border-0 shadow-none focus-visible:ring-0 h-full flex-1" />
               </div>
             </div>
 
