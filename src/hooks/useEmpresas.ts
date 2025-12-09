@@ -20,6 +20,11 @@ export const useEmpresas = () => {
 
   const createEmpresa = useMutation({
     mutationFn: async (empresa: any) => {
+      // 1. Obter usuário autenticado
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
+
+      // 2. Criar a empresa
       const { data, error } = await supabase
         .from("empresas")
         .insert(empresa)
@@ -27,10 +32,27 @@ export const useEmpresas = () => {
         .single();
 
       if (error) throw error;
+
+      // 3. Vincular usuário à empresa como "dono"
+      const { error: vinculoError } = await supabase
+        .from("user_empresas")
+        .insert({
+          user_id: user.id,
+          empresa_id: data.id,
+          role_na_empresa: "dono",
+        });
+
+      if (vinculoError) {
+        // Rollback: excluir empresa se vínculo falhar
+        await supabase.from("empresas").delete().eq("id", data.id);
+        throw vinculoError;
+      }
+
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["empresas"] });
+      queryClient.invalidateQueries({ queryKey: ["user-empresas"] });
       toast.success("Empresa cadastrada com sucesso!");
     },
     onError: (error: any) => {
