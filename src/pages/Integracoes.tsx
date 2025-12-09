@@ -94,6 +94,24 @@ export default function Integracoes() {
     }
   }, [empresas, empresaId]);
 
+  // Detectar parâmetro ml_status na URL (callback do OAuth)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mlStatus = params.get('ml_status');
+    const provider = params.get('provider');
+    
+    if (mlStatus) {
+      if (mlStatus === 'success') {
+        toast.success(`${provider === 'mercado_livre' ? 'Mercado Livre' : provider} conectado com sucesso!`);
+      } else if (mlStatus === 'error') {
+        toast.error(`Erro ao conectar ${provider === 'mercado_livre' ? 'Mercado Livre' : provider}. Tente novamente.`);
+      }
+      
+      // Limpar parâmetros da URL sem recarregar página
+      window.history.replaceState({}, '', '/integracoes');
+    }
+  }, []);
+
   const handleConnect = async (provider: Provider) => {
     if (!empresaId) {
       toast.error("Selecione uma empresa primeiro");
