@@ -27,7 +27,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Upload, FileX, FileCheck, AlertTriangle, CheckCircle2, Package } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Upload, FileX, FileCheck, AlertTriangle, CheckCircle2, Package, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { parseNFeXML, NotaFiscalXML, formatCurrency } from "@/lib/icms-data";
 import { useEmpresas } from "@/hooks/useEmpresas";
@@ -47,6 +49,15 @@ interface ParsedFile {
   isDuplicate?: boolean;
 }
 
+const FORMAS_PAGAMENTO = [
+  { value: "boleto", label: "Boleto" },
+  { value: "pix", label: "PIX" },
+  { value: "transferencia", label: "Transferência" },
+  { value: "cartao", label: "Cartão" },
+  { value: "dinheiro", label: "Dinheiro" },
+  { value: "cheque", label: "Cheque" },
+];
+
 export function ImportarNFeXMLModal({
   open,
   onOpenChange,
@@ -58,6 +69,12 @@ export function ImportarNFeXMLModal({
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+
+  // Campos de pagamento
+  const [formaPagamento, setFormaPagamento] = useState<string>("");
+  const [condicaoPagamento, setCondicaoPagamento] = useState<string>("a_vista");
+  const [prazoDias, setPrazoDias] = useState<number>(30);
+  const [gerarContaPagar, setGerarContaPagar] = useState<boolean>(true);
 
   const { empresas = [] } = useEmpresas();
   const { criarCompra } = useCompras();
@@ -168,10 +185,15 @@ export function ImportarNFeXMLModal({
           fornecedor_nome: nfe.emitente.razaoSocial,
           fornecedor_cnpj: nfe.emitente.cnpj,
           data_pedido: nfe.dataEmissao,
+          data_nf: nfe.dataEmissao,
           numero_nf: nfe.numero,
           chave_acesso: nfe.chaveAcesso,
           valor_total: nfe.valorTotal,
-          status: 'pago',
+          status: 'emitido',
+          forma_pagamento: formaPagamento || undefined,
+          condicao_pagamento: condicaoPagamento,
+          prazo_dias: condicaoPagamento === 'a_prazo' ? prazoDias : undefined,
+          gerar_conta_pagar: gerarContaPagar,
           itens,
         });
       }
@@ -193,6 +215,10 @@ export function ImportarNFeXMLModal({
     setParsedFiles([]);
     setStep("upload");
     setEmpresaId("");
+    setFormaPagamento("");
+    setCondicaoPagamento("a_vista");
+    setPrazoDias(30);
+    setGerarContaPagar(true);
     onOpenChange(false);
   };
 
@@ -365,7 +391,7 @@ export function ImportarNFeXMLModal({
               </div>
             </div>
 
-            <ScrollArea className="h-[400px] rounded-lg border">
+            <ScrollArea className="h-[250px] rounded-lg border">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-secondary/30">
@@ -403,6 +429,68 @@ export function ImportarNFeXMLModal({
                 </TableBody>
               </Table>
             </ScrollArea>
+
+            {/* Condições de Pagamento */}
+            <div className="p-4 rounded-lg border bg-muted/30 space-y-4">
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-muted-foreground" />
+                <Label className="font-semibold">Condições de Pagamento</Label>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm">Forma de Pagamento</Label>
+                  <Select value={formaPagamento} onValueChange={setFormaPagamento}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FORMAS_PAGAMENTO.map((f) => (
+                        <SelectItem key={f.value} value={f.value}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm">Condição</Label>
+                  <Select value={condicaoPagamento} onValueChange={setCondicaoPagamento}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="a_vista">À Vista</SelectItem>
+                      <SelectItem value="a_prazo">A Prazo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {condicaoPagamento === "a_prazo" && (
+                  <div className="space-y-2">
+                    <Label className="text-sm">Prazo (dias)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={prazoDias}
+                      onChange={(e) => setPrazoDias(Number(e.target.value))}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <Switch
+                  id="gerar-conta-pagar"
+                  checked={gerarContaPagar}
+                  onCheckedChange={setGerarContaPagar}
+                />
+                <Label htmlFor="gerar-conta-pagar" className="text-sm cursor-pointer">
+                  Gerar Conta a Pagar automaticamente
+                </Label>
+              </div>
+            </div>
 
             <div className="flex items-center gap-2 p-3 rounded-lg bg-secondary/50">
               <CheckCircle2 className="h-5 w-5 text-success" />

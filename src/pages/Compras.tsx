@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 
 const STATUS_COMPRA: Record<string, { label: string; color: string; icon: React.ElementType }> = {
   rascunho: { label: "Rascunho", color: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200", icon: Clock },
-  pago: { label: "Pago", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", icon: CheckCircle2 },
+  emitido: { label: "Emitido", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", icon: CheckCircle2 },
   em_transito: { label: "Em Trânsito", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200", icon: Truck },
   parcial: { label: "Parcial", color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", icon: Package },
   concluido: { label: "Concluído", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", icon: CheckCircle2 },
@@ -44,7 +44,7 @@ const formatDate = (date: string) => {
 const STATUS_TABS: { key: string; label: string; icon: React.ElementType }[] = [
   { key: "todos", label: "Todas", icon: LayoutList },
   { key: "rascunho", label: "Rascunho", icon: Clock },
-  { key: "pago", label: "Pago", icon: ShoppingCart },
+  { key: "emitido", label: "Emitido", icon: ShoppingCart },
   { key: "em_transito", label: "Em Trânsito", icon: Truck },
   { key: "parcial", label: "Parcial", icon: Package },
   { key: "concluido", label: "Concluído", icon: CheckCircle2 },
@@ -54,7 +54,7 @@ const STATUS_TABS: { key: string; label: string; icon: React.ElementType }[] = [
 // Hierarquia de status para impedir retrocesso
 const STATUS_ORDEM: Record<string, number> = {
   rascunho: 1,
-  pago: 2,
+  emitido: 2,
   em_transito: 3,
   parcial: 4,
   concluido: 5,
@@ -317,7 +317,7 @@ export default function Compras() {
                                         </SelectTrigger>
                                         <SelectContent>
                                           <SelectItem value="rascunho">Rascunho</SelectItem>
-                                          <SelectItem value="pago">Pago</SelectItem>
+                                          <SelectItem value="emitido">Emitido</SelectItem>
                                           <SelectItem value="em_transito">Em Trânsito</SelectItem>
                                           <SelectItem value="cancelado">Cancelado</SelectItem>
                                         </SelectContent>

@@ -176,9 +176,11 @@ export default function Produtos() {
                 {isLoading ? (
                   <Skeleton className="h-8 w-24" />
                 ) : (
-                  <div className="text-2xl font-bold">{resumo.kits}</div>
+                  <div className={`text-2xl font-bold ${resumo.rascunhos > 0 ? 'text-amber-500' : ''}`}>
+                    {resumo.rascunhos}
+                  </div>
                 )}
-                <div className="text-sm text-muted-foreground">Kits</div>
+                <div className="text-sm text-muted-foreground">Pendentes de Cadastro</div>
               </CardContent>
             </Card>
           </div>
@@ -229,6 +231,7 @@ export default function Produtos() {
                     <SelectItem value="todos">Todos</SelectItem>
                     <SelectItem value="ativo">Ativo</SelectItem>
                     <SelectItem value="inativo">Inativo</SelectItem>
+                    <SelectItem value="rascunho">Rascunho</SelectItem>
                   </SelectContent>
                 </Select>
 
@@ -296,8 +299,11 @@ export default function Produtos() {
                           <TableCell className="font-mono">{product.ncm || "-"}</TableCell>
                           <TableCell className="text-right">{formatCurrency(product.custo_medio)}</TableCell>
                           <TableCell>
-                            <Badge variant={product.status === "ativo" ? "default" : "secondary"}>
-                              {product.status === "ativo" ? "Ativo" : "Inativo"}
+                            <Badge 
+                              variant={product.status === "ativo" ? "default" : product.status === "rascunho" ? "outline" : "secondary"}
+                              className={product.status === "rascunho" ? "border-amber-500 text-amber-600" : ""}
+                            >
+                              {product.status === "ativo" ? "Ativo" : product.status === "rascunho" ? "Rascunho" : "Inativo"}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">

@@ -8,13 +8,13 @@ import { toast } from "sonner";
 
 // ============= TIPOS =============
 
-export type StatusCompra = 'rascunho' | 'pago' | 'em_transito' | 'parcial' | 'concluido' | 'cancelado';
+export type StatusCompra = 'rascunho' | 'emitido' | 'em_transito' | 'parcial' | 'concluido' | 'cancelado';
 
-export const STATUS_LIST: StatusCompra[] = ['rascunho', 'pago', 'em_transito', 'parcial', 'concluido', 'cancelado'];
+export const STATUS_LIST: StatusCompra[] = ['rascunho', 'emitido', 'em_transito', 'parcial', 'concluido', 'cancelado'];
 
 export const STATUS_COMPRA_LABELS: Record<StatusCompra, { label: string; color: string }> = {
   rascunho: { label: "Rascunho", color: "bg-gray-100 text-gray-800" },
-  pago: { label: "Pago", color: "bg-blue-100 text-blue-800" },
+  emitido: { label: "Emitido", color: "bg-blue-100 text-blue-800" },
   em_transito: { label: "Em Trânsito", color: "bg-yellow-100 text-yellow-800" },
   parcial: { label: "Parcial", color: "bg-orange-100 text-orange-800" },
   concluido: { label: "Concluído", color: "bg-green-100 text-green-800" },
@@ -239,6 +239,57 @@ export function useCompras(params: UseComprasParams = {}) {
           .insert(itensParaInserir);
 
         if (itensError) throw itensError;
+
+        // Criar produtos rascunho para itens sem produto vinculado
+        for (const item of itens) {
+          if (!item.produto_id && item.descricao_nf) {
+            // Verificar se já existe produto com mesmo SKU/código
+            const skuRascunho = item.codigo_nf || `NF-${compra.numero_nf || compra.id.slice(0, 6)}-${Date.now().toString(36)}`;
+            
+            const { data: existente } = await supabase
+              .from("produtos")
+              .select("id")
+              .eq("empresa_id", compra.empresa_id)
+              .eq("sku", skuRascunho)
+              .maybeSingle();
+
+            if (!existente) {
+              const { data: novoProduto, error: produtoError } = await supabase
+                .from("produtos")
+                .insert({
+                  empresa_id: compra.empresa_id,
+                  sku: skuRascunho,
+                  nome: item.descricao_nf,
+                  ncm: item.ncm || null,
+                  cfop_compra: item.cfop || null,
+                  custo_medio: item.valor_unitario,
+                  fornecedor_nome: compraData.fornecedor_nome,
+                  status: 'rascunho',
+                  tipo: 'unico',
+                  unidade_medida: 'un',
+                })
+                .select()
+                .single();
+
+              // Se criou o produto, vincular ao item da compra
+              if (!produtoError && novoProduto) {
+                const { data: itemInserido } = await supabase
+                  .from("compras_itens")
+                  .select("id")
+                  .eq("compra_id", compra.id)
+                  .eq("descricao_nf", item.descricao_nf)
+                  .maybeSingle();
+
+                if (itemInserido) {
+                  await supabase
+                    .from("compras_itens")
+                    .update({ produto_id: novoProduto.id })
+                    .eq("id", itemInserido.id);
+                }
+              }
+            }
+          }
+        }
       }
 
       // Gerar conta a pagar automaticamente se solicitado
@@ -316,7 +367,7 @@ export function useCompras(params: UseComprasParams = {}) {
   const resumo = {
     total: compras.length,
     rascunho: compras.filter(c => c.status === 'rascunho').length,
-    pago: compras.filter(c => c.status === 'pago').length,
+    emitido: compras.filter(c => c.status === 'emitido').length,
     em_transito: compras.filter(c => c.status === 'em_transito').length,
     parcial: compras.filter(c => c.status === 'parcial').length,
     concluido: compras.filter(c => c.status === 'concluido').length,
