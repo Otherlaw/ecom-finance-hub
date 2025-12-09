@@ -170,6 +170,8 @@ export function ImportRegrasCSVModal({ open, onOpenChange }: ImportRegrasCSVModa
       let sucesso = 0;
       let erros = 0;
 
+      const DEFAULT_EMPRESA_ID = "d0b0c897-d560-4dc5-aa07-df99d3019bf5";
+
       for (const row of validas) {
         try {
           const { error } = await supabase.from("regras_categorizacao").insert({
@@ -177,6 +179,7 @@ export function ImportRegrasCSVModal({ open, onOpenChange }: ImportRegrasCSVModa
             categoria_id: row.categoria_id,
             centro_custo_id: row.centro_custo_id,
             responsavel_id: row.responsavel_id,
+            empresa_id: DEFAULT_EMPRESA_ID,
           });
 
           if (error) {
