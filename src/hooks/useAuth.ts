@@ -138,8 +138,15 @@ export function useAuth() {
 
   // Logout
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      // Ignora erro de sessão não encontrada - significa que já está deslogado
+      console.log("Logout concluído");
+    }
+    // Limpa o estado local independente do resultado
+    setUser(null);
+    setSession(null);
     queryClient.clear();
   };
 
