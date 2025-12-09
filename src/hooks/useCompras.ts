@@ -65,6 +65,12 @@ export interface Compra {
   itens?: CompraItem[];
 }
 
+export interface ParcelaConfig {
+  numero: number;
+  valor: number;
+  dataVencimento: string;
+}
+
 export interface CompraInsert {
   empresa_id: string;
   numero?: string;
@@ -89,6 +95,7 @@ export interface CompraInsert {
   data_vencimento?: string;
   gerar_conta_pagar?: boolean;
   numero_parcelas?: number;
+  parcelas_config?: ParcelaConfig[];
   // Campos para custo efetivo e ICMS
   valor_icms_st?: number;
   outras_despesas?: number;
@@ -302,16 +309,23 @@ export function useCompras(params: UseComprasParams = {}) {
         }
       }
 
-      // Gerar conta a pagar automaticamente se solicitado (com suporte a parcelas)
+      // Gerar conta a pagar automaticamente se solicitado (com suporte a parcelas individuais)
       if (compraData.gerar_conta_pagar && compra.valor_total > 0) {
         const numParcelas = compraData.numero_parcelas || 1;
-        const valorParcela = compra.valor_total / numParcelas;
+        const parcelasConfig = compraData.parcelas_config;
         const dataBase = new Date(compraData.data_nf || compraData.data_pedido);
         const prazo = compraData.prazo_dias || 30;
 
         for (let i = 0; i < numParcelas; i++) {
-          const dataVencimentoParcela = new Date(dataBase);
-          dataVencimentoParcela.setDate(dataVencimentoParcela.getDate() + prazo * (i + 1));
+          // Usar configuração individual se disponível
+          const valorParcela = parcelasConfig?.[i]?.valor ?? (compra.valor_total / numParcelas);
+          const dataVencimentoParcela = parcelasConfig?.[i]?.dataVencimento 
+            ? parcelasConfig[i].dataVencimento
+            : (() => {
+                const d = new Date(dataBase);
+                d.setDate(d.getDate() + prazo * (i + 1));
+                return d.toISOString().split('T')[0];
+              })();
 
           const descricaoParcela = numParcelas > 1 
             ? `Compra ${compra.numero_nf ? `NF ${compra.numero_nf}` : compra.numero || compra.id.slice(0, 8)} - Parcela ${i + 1}/${numParcelas}`
@@ -327,7 +341,7 @@ export function useCompras(params: UseComprasParams = {}) {
               valor_total: valorParcela,
               valor_em_aberto: valorParcela,
               data_emissao: compra.data_nf || compra.data_pedido,
-              data_vencimento: dataVencimentoParcela.toISOString().split('T')[0],
+              data_vencimento: dataVencimentoParcela,
               forma_pagamento: compra.forma_pagamento,
               status: 'em_analise',
               tipo_lancamento: 'compra_mercadoria',
@@ -338,7 +352,6 @@ export function useCompras(params: UseComprasParams = {}) {
 
           if (contaError) {
             console.error("Erro ao criar conta a pagar (parcela):", contaError);
-            // Não lança erro para não bloquear a compra
           }
         }
       }
@@ -617,18 +630,25 @@ export function useRecebimentos(compraId: string | null) {
 
             // 3. Registrar crédito de ICMS (se ICMS destacado > 0)
             if (item.valor_icms && item.valor_icms > 0) {
+              // Buscar descrição real do item da compra
+              const { data: itemCompraData } = await supabase
+                .from("compras_itens")
+                .select("descricao_nf")
+                .eq("id", item.compra_item_id)
+                .single();
+
               const valorIcmsRecebido = (item.valor_icms / (item.quantidade_recebida + (item.quantidade_devolvida || 0))) * item.quantidade_recebida;
               const competencia = input.data_recebimento.substring(0, 7); // YYYY-MM
               
               await supabase.from("creditos_icms").insert({
                 empresa_id: compraData.empresa_id,
-                tipo_credito: 'compensavel', // TODO: determinar baseado no regime da empresa
+                tipo_credito: 'compensavel',
                 origem_credito: 'compra_mercadoria',
                 status_credito: 'ativo',
                 chave_acesso: compraData.chave_acesso || null,
                 numero_nf: compraData.numero_nf || null,
                 ncm: item.ncm || '00000000',
-                descricao: `Recebimento - Item ${item.compra_item_id.slice(0, 8)}`,
+                descricao: itemCompraData?.descricao_nf || `Item NF ${compraData.numero_nf || 'S/N'}`,
                 quantidade: item.quantidade_recebida,
                 valor_unitario: item.custo_unitario,
                 valor_total: item.quantidade_recebida * item.custo_unitario,
