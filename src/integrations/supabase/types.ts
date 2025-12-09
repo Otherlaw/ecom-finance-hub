@@ -218,6 +218,103 @@ export type Database = {
           },
         ]
       }
+      checklist_etapas: {
+        Row: {
+          ano: number
+          codigo_etapa: string
+          concluidas: number | null
+          created_at: string | null
+          descricao: string | null
+          empresa_id: string
+          id: string
+          importancia: string | null
+          link_acao: string | null
+          mes: number
+          nome_etapa: string
+          pendencias: number | null
+          secao: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          ano: number
+          codigo_etapa: string
+          concluidas?: number | null
+          created_at?: string | null
+          descricao?: string | null
+          empresa_id: string
+          id?: string
+          importancia?: string | null
+          link_acao?: string | null
+          mes: number
+          nome_etapa: string
+          pendencias?: number | null
+          secao: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          ano?: number
+          codigo_etapa?: string
+          concluidas?: number | null
+          created_at?: string | null
+          descricao?: string | null
+          empresa_id?: string
+          id?: string
+          importancia?: string | null
+          link_acao?: string | null
+          mes?: number
+          nome_etapa?: string
+          pendencias?: number | null
+          secao?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_etapas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      checklist_logs: {
+        Row: {
+          acao: string
+          created_at: string | null
+          detalhes: Json | null
+          etapa_id: string | null
+          id: string
+          usuario_id: string | null
+        }
+        Insert: {
+          acao: string
+          created_at?: string | null
+          detalhes?: Json | null
+          etapa_id?: string | null
+          id?: string
+          usuario_id?: string | null
+        }
+        Update: {
+          acao?: string
+          created_at?: string | null
+          detalhes?: Json | null
+          etapa_id?: string | null
+          id?: string
+          usuario_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_logs_etapa_id_fkey"
+            columns: ["etapa_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_etapas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cmv_registros: {
         Row: {
           armazem_id: string | null
