@@ -209,7 +209,10 @@ export const useIntegracoes = ({ empresaId }: UseIntegracoesParams = {}) => {
   const startMercadoLivreOAuth = async (empresaId: string) => {
     try {
       const { data, error } = await supabase.functions.invoke("ml-oauth-start", {
-        body: { empresa_id: empresaId },
+        body: { 
+          empresa_id: empresaId,
+          frontend_url: window.location.origin 
+        },
       });
 
       if (error) throw error;
