@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,9 +27,11 @@ import {
   ToggleRight,
   FolderTree,
   Tag,
+  CheckCircle2,
 } from "lucide-react";
 import { useCategoriasFinanceiras, type CategoriaFinanceira } from "@/hooks/useCategoriasFinanceiras";
 import { CategoriaFormModal } from "@/components/plano-contas/CategoriaFormModal";
+import { useOnboarding } from "@/hooks/useOnboarding";
 import { cn } from "@/lib/utils";
 
 const TIPO_COLORS: Record<string, string> = {
@@ -53,6 +55,7 @@ export default function PlanoContas() {
     updateCategoria,
     toggleAtivo,
   } = useCategoriasFinanceiras();
+  const { status, marcarPassoCompleto, deveExibirOnboarding } = useOnboarding();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [showInactive, setShowInactive] = useState(false);
@@ -116,15 +119,27 @@ export default function PlanoContas() {
     0
   );
 
+  const handleMarkAsReviewed = async () => {
+    await marcarPassoCompleto("plano_contas_revisado");
+  };
+
   return (
     <MainLayout
       title="Plano de Contas"
       subtitle="Gerencie as categorias financeiras do sistema"
       actions={
-        <Button onClick={handleCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nova Categoria
-        </Button>
+        <div className="flex items-center gap-2">
+          {deveExibirOnboarding && !status?.plano_contas_revisado && (
+            <Button variant="outline" onClick={handleMarkAsReviewed} className="gap-2">
+              <CheckCircle2 className="h-4 w-4" />
+              Marcar como Revisado
+            </Button>
+          )}
+          <Button onClick={handleCreate}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nova Categoria
+          </Button>
+        </div>
       }
     >
       <div className="space-y-6">

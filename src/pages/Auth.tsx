@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useEmpresas } from "@/hooks/useEmpresas";
+import { useUserEmpresas } from "@/hooks/useUserEmpresas";
+import { useOnboarding } from "@/hooks/useOnboarding";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +14,8 @@ import { toast } from "sonner";
 import { Loader2, Mail, Lock, Eye, EyeOff, ArrowLeft, Building2, FileText, Briefcase } from "lucide-react";
 import logoEcomFinance from "@/assets/logo-ecom-finance-new.png";
 import { formatCNPJ } from "@/lib/empresas-data";
+import { supabase } from "@/integrations/supabase/client";
+
 export default function Auth() {
   const navigate = useNavigate();
   const {
@@ -122,24 +126,57 @@ export default function Auth() {
     setIsLoading(true);
     try {
       // 1. Criar conta do usuário
-      const {
-        user
-      } = await signUp(signupEmail, signupPassword, signupRazaoSocial);
+      const { user } = await signUp(signupEmail, signupPassword, signupRazaoSocial);
 
-      // 2. Criar a empresa
       if (user) {
-        await createEmpresa.mutateAsync({
-          razao_social: signupRazaoSocial,
-          nome_fantasia: signupNomeFantasia || null,
-          cnpj: signupCnpj,
-          regime_tributario: signupRegime,
-          ativo: true
-        });
+        // Aguardar um pouco para o trigger criar profile/roles
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // 2. Criar a empresa
+        const { data: empresaData, error: empresaError } = await supabase
+          .from("empresas")
+          .insert({
+            razao_social: signupRazaoSocial,
+            nome_fantasia: signupNomeFantasia || null,
+            cnpj: signupCnpj,
+            regime_tributario: signupRegime,
+            ativo: true
+          })
+          .select()
+          .single();
+
+        if (empresaError) throw empresaError;
+
+        // 3. Vincular usuário à empresa como 'dono'
+        const { error: vinculoError } = await supabase
+          .from("user_empresas")
+          .insert({
+            user_id: user.id,
+            empresa_id: empresaData.id,
+            role_na_empresa: "dono"
+          });
+
+        if (vinculoError) throw vinculoError;
+
+        // 4. Atualizar onboarding status
+        const { error: onboardingError } = await supabase
+          .from("onboarding_status")
+          .update({
+            empresa_criada: true,
+            empresa_id: empresaData.id
+          })
+          .eq("user_id", user.id);
+
+        if (onboardingError) {
+          console.warn("Erro ao atualizar onboarding:", onboardingError);
+        }
       }
+      
       toast.success("Conta e empresa criadas com sucesso! Você já pode fazer login.");
       setActiveView("login");
       setLoginEmail(signupEmail);
     } catch (error: any) {
+      console.error("Erro no cadastro:", error);
       toast.error(error.message || "Erro ao criar conta");
     } finally {
       setIsLoading(false);

@@ -10,6 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { OnboardingBanner } from "@/components/onboarding/OnboardingBanner";
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -35,6 +36,9 @@ export function MainLayout({
       <AppSidebar />
       
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Onboarding Banner */}
+        <OnboardingBanner />
+        
         {/* Header */}
         <header className="h-16 bg-card border-b border-border flex items-center justify-between px-6 sticky top-0 z-10">
           <div className="flex items-center gap-4 flex-1">
