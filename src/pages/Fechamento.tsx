@@ -263,26 +263,85 @@ export default function Fechamento() {
     return listarPendenciasFechamento(checklistsCompletos);
   }, [checklistsCompletos]);
 
-  // Status do fechamento (etapas gerais)
+  // Status do fechamento (etapas gerais) - Critérios realistas baseados nos dados
   const statusFechamento = useMemo(() => {
-    const conciliacaoOk = mktResumo.conciliadas > 0 && mktResumo.pendentes === 0;
-    const contasPagarOk = contasPagarResumo.totalVencido === 0;
-    const contasReceberOk = contasReceberResumo.totalVencido === 0;
-    const dreOk = hasDREData && transacoesCount > 0;
+    // 1. Importação de dados - verificar múltiplas fontes
+    const temImportacoesMarketplace = marketplaceTransacoes.length > 0;
+    const temMovimentosFinanceiros = fluxoResumo.totalEntradas > 0 || fluxoResumo.totalSaidas > 0;
+    const temContasPagar = (contasPagarResumo.totalEmAberto + contasPagarResumo.totalPago) > 0;
+    const temContasReceber = (contasReceberResumo.totalEmAberto + contasReceberResumo.totalRecebido) > 0;
+    const fontesComDados = [temImportacoesMarketplace, temMovimentosFinanceiros, temContasPagar, temContasReceber].filter(Boolean).length;
     
+    const importacaoStatus = fontesComDados >= 3 ? "done" 
+      : fontesComDados >= 1 ? "partial" 
+      : "pending";
+    const importacaoDetail = `${fontesComDados}/4 fontes importadas`;
+
+    // 2. Conciliação marketplace - incluir "importado" como pendente real
+    const pendentesReais = mktResumo.pendentes + (marketplaceTransacoes.filter(t => t.status === "importado").length);
+    const conciliacaoStatus = mktResumo.conciliadas > 0 && pendentesReais === 0 ? "done"
+      : mktResumo.conciliadas > 0 ? "partial" 
+      : pendentesReais > 0 ? "attention"
+      : "pending";
+    const conciliacaoDetail = pendentesReais > 0 
+      ? `${pendentesReais} pendente${pendentesReais > 1 ? 's' : ''}` 
+      : mktResumo.conciliadas > 0 ? `${mktResumo.conciliadas} conciliadas` : undefined;
+
+    // 3. Contas a pagar - considerar proporção de vencidos
+    const totalContasPagar = contasPagarResumo.totalEmAberto + contasPagarResumo.totalPago;
+    const percentVencidoPagar = contasPagarResumo.totalEmAberto > 0 
+      ? (contasPagarResumo.totalVencido / contasPagarResumo.totalEmAberto) * 100 
+      : 0;
+    const contasPagarStatus = contasPagarResumo.totalEmAberto === 0 && contasPagarResumo.totalPago > 0 ? "done"
+      : percentVencidoPagar > 20 ? "attention"
+      : contasPagarResumo.totalPago > 0 ? "partial"
+      : totalContasPagar === 0 ? "pending"
+      : "partial";
+    const contasPagarDetail = contasPagarResumo.totalVencido > 0 
+      ? `${formatCurrency(contasPagarResumo.totalVencido)} vencido`
+      : contasPagarResumo.totalEmAberto > 0 
+        ? `${formatCurrency(contasPagarResumo.totalEmAberto)} em aberto`
+        : contasPagarResumo.totalPago > 0 ? "Todas pagas" : undefined;
+
+    // 4. Contas a receber - mesma lógica
+    const totalContasReceber = contasReceberResumo.totalEmAberto + contasReceberResumo.totalRecebido;
+    const percentVencidoReceber = contasReceberResumo.totalEmAberto > 0 
+      ? (contasReceberResumo.totalVencido / contasReceberResumo.totalEmAberto) * 100 
+      : 0;
+    const contasReceberStatus = contasReceberResumo.totalEmAberto === 0 && contasReceberResumo.totalRecebido > 0 ? "done"
+      : percentVencidoReceber > 20 ? "attention"
+      : contasReceberResumo.totalRecebido > 0 ? "partial"
+      : totalContasReceber === 0 ? "pending"
+      : "partial";
+    const contasReceberDetail = contasReceberResumo.totalVencido > 0 
+      ? `${formatCurrency(contasReceberResumo.totalVencido)} vencido`
+      : contasReceberResumo.totalEmAberto > 0 
+        ? `${formatCurrency(contasReceberResumo.totalEmAberto)} em aberto`
+        : contasReceberResumo.totalRecebido > 0 ? "Todas recebidas" : undefined;
+
+    // 5. DRE consolidado - verificar se há dados E categorização
+    const temDadosDRE = hasDREData && transacoesCount > 0;
+    const temCategorizacao = (dreData?.receitaBruta ?? 0) > 0 || (dreData?.totalDespesas ?? 0) > 0;
+    const dreStatus = temDadosDRE && temCategorizacao ? "done"
+      : transacoesCount > 0 ? "partial"
+      : "pending";
+    const dreDetail = temCategorizacao 
+      ? `${transacoesCount} transações categorizadas`
+      : transacoesCount > 0 ? `${transacoesCount} transações pendentes` : undefined;
+
     return [
-      { step: "Importação de dados", status: marketplaceTransacoes.length > 0 || transacoesCount > 0 ? "done" : "pending" },
-      { step: "Conciliação marketplace", status: conciliacaoOk ? "done" : mktResumo.conciliadas > 0 ? "partial" : "pending" },
-      { step: "Contas a pagar", status: contasPagarOk ? "done" : "attention" },
-      { step: "Contas a receber", status: contasReceberOk ? "done" : "attention" },
+      { step: "Importação de dados", status: importacaoStatus, detail: importacaoDetail },
+      { step: "Conciliação marketplace", status: conciliacaoStatus, detail: conciliacaoDetail },
+      { step: "Contas a pagar", status: contasPagarStatus, detail: contasPagarDetail },
+      { step: "Contas a receber", status: contasReceberStatus, detail: contasReceberDetail },
       { 
         step: "Checklist por Canal", 
         status: checklistCanalStatus.status,
         detail: checklistCanalStatus.total > 0 ? `${checklistCanalStatus.concluidos}/${checklistCanalStatus.total} canais` : undefined
       },
-      { step: "DRE consolidado", status: dreOk ? "done" : "pending" },
+      { step: "DRE consolidado", status: dreStatus, detail: dreDetail },
     ];
-  }, [mktResumo, contasPagarResumo, contasReceberResumo, hasDREData, transacoesCount, marketplaceTransacoes, checklistCanalStatus]);
+  }, [mktResumo, contasPagarResumo, contasReceberResumo, hasDREData, transacoesCount, marketplaceTransacoes, checklistCanalStatus, fluxoResumo, dreData]);
 
   // Handler para encerrar mês
   const handleEncerrarMes = () => {
