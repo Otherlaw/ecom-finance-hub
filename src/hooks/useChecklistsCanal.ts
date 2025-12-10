@@ -27,6 +27,7 @@ export interface ChecklistCanalItem {
   status: string;
   obrigatorio: boolean;
   exige_upload: boolean;
+  bloqueia_fechamento: boolean; // Etapa crítica para fechamento mensal
   observacoes: string | null;
   data_hora_conclusao: string | null;
   responsavel: string | null;
@@ -242,6 +243,7 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
       tipoEtapa,
       obrigatorio,
       exigeUpload,
+      bloqueiaFechamento = true,
       ordem,
     }: {
       checklistId: string;
@@ -250,6 +252,7 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
       tipoEtapa: string;
       obrigatorio: boolean;
       exigeUpload: boolean;
+      bloqueiaFechamento?: boolean;
       ordem?: number;
     }) => {
       // Se não passar ordem, pegar a maior ordem existente + 1
@@ -276,6 +279,7 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
           status: "pendente",
           obrigatorio,
           exige_upload: exigeUpload,
+          bloqueia_fechamento: bloqueiaFechamento,
         })
         .select()
         .single();
@@ -301,6 +305,7 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
       tipoEtapa,
       obrigatorio,
       exigeUpload,
+      bloqueiaFechamento,
       status,
       observacoes,
     }: {
@@ -310,6 +315,7 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
       tipoEtapa?: string;
       obrigatorio?: boolean;
       exigeUpload?: boolean;
+      bloqueiaFechamento?: boolean;
       status?: string;
       observacoes?: string;
     }) => {
@@ -322,6 +328,7 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
       if (tipoEtapa !== undefined) updateData.tipo_etapa = tipoEtapa;
       if (obrigatorio !== undefined) updateData.obrigatorio = obrigatorio;
       if (exigeUpload !== undefined) updateData.exige_upload = exigeUpload;
+      if (bloqueiaFechamento !== undefined) updateData.bloqueia_fechamento = bloqueiaFechamento;
       if (status !== undefined) {
         updateData.status = status;
         if (status === "concluido") {
@@ -566,4 +573,118 @@ export function getStatusColor(status: string): string {
     case "nao_aplicavel": return "bg-secondary text-secondary-foreground";
     default: return "bg-muted text-muted-foreground";
   }
+}
+
+// ============= TIPOS E FUNÇÕES PARA FECHAMENTO MENSAL =============
+
+/**
+ * Resumo consolidado do fechamento mensal
+ */
+export interface ResumoFechamentoMensal {
+  totalCanaisComChecklist: number;
+  totalCanaisConcluidos: number;
+  totalEtapasCriticas: number;        // etapas com bloqueia_fechamento = true
+  totalEtapasCriticasConcluidas: number;
+  percentualConclusao: number;        // 0-100
+}
+
+export type StatusFechamento = 'pendente' | 'em_andamento' | 'concluido';
+
+/**
+ * Representa uma pendência crítica do fechamento
+ */
+export interface PendenciaFechamento {
+  canalId: string;
+  canalNome: string;
+  checklistId: string;
+  etapaId: string;
+  etapaNome: string;
+  obrigatorio: boolean;
+  bloqueiaFechamento: boolean;
+  status: string;
+}
+
+/**
+ * Calcula o resumo consolidado do fechamento para o período
+ * Considera apenas etapas com bloqueia_fechamento = true
+ */
+export function calcularResumoFechamento(
+  checklists: ChecklistCanalComItens[]
+): ResumoFechamentoMensal {
+  let totalEtapasCriticas = 0;
+  let totalEtapasCriticasConcluidas = 0;
+  let totalCanaisConcluidos = 0;
+
+  checklists.forEach(checklist => {
+    // Considera apenas etapas que bloqueiam fechamento
+    const etapasCriticas = checklist.itens.filter(i => i.bloqueia_fechamento);
+    const etapasCriticasConcluidas = etapasCriticas.filter(
+      i => i.status === 'concluido' || i.status === 'nao_aplicavel'
+    );
+
+    totalEtapasCriticas += etapasCriticas.length;
+    totalEtapasCriticasConcluidas += etapasCriticasConcluidas.length;
+
+    // Canal considerado concluído se TODAS etapas críticas estão OK
+    if (etapasCriticas.length > 0 && etapasCriticas.length === etapasCriticasConcluidas.length) {
+      totalCanaisConcluidos++;
+    }
+  });
+
+  const percentual = totalEtapasCriticas > 0
+    ? Math.round((totalEtapasCriticasConcluidas / totalEtapasCriticas) * 100)
+    : 0;
+
+  return {
+    totalCanaisComChecklist: checklists.length,
+    totalCanaisConcluidos,
+    totalEtapasCriticas,
+    totalEtapasCriticasConcluidas,
+    percentualConclusao: percentual,
+  };
+}
+
+/**
+ * Determina o status do fechamento mensal
+ */
+export function determinarStatusFechamento(
+  resumo: ResumoFechamentoMensal
+): StatusFechamento {
+  if (resumo.totalEtapasCriticas === 0) return 'pendente';
+  if (resumo.totalEtapasCriticasConcluidas === 0) return 'pendente';
+  if (resumo.totalEtapasCriticasConcluidas === resumo.totalEtapasCriticas) return 'concluido';
+  return 'em_andamento';
+}
+
+/**
+ * Lista todas as pendências críticas do fechamento
+ * Retorna etapas com bloqueia_fechamento = true que não estão concluídas
+ */
+export function listarPendenciasFechamento(
+  checklists: ChecklistCanalComItens[]
+): PendenciaFechamento[] {
+  const pendencias: PendenciaFechamento[] = [];
+
+  checklists.forEach(checklist => {
+    checklist.itens.forEach(item => {
+      if (
+        item.bloqueia_fechamento &&
+        item.status !== 'concluido' &&
+        item.status !== 'nao_aplicavel'
+      ) {
+        pendencias.push({
+          canalId: checklist.canal_id,
+          canalNome: checklist.canal_nome,
+          checklistId: checklist.id,
+          etapaId: item.id,
+          etapaNome: item.nome,
+          obrigatorio: item.obrigatorio,
+          bloqueiaFechamento: item.bloqueia_fechamento,
+          status: item.status,
+        });
+      }
+    });
+  });
+
+  return pendencias;
 }

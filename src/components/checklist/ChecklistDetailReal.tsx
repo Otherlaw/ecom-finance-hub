@@ -109,6 +109,12 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
     nao_aplicavel: checklist.itens.filter(i => i.status === "nao_aplicavel").length,
   };
 
+  // Resumo de etapas críticas (bloqueia_fechamento = true)
+  const etapasCriticas = checklist.itens.filter(i => i.bloqueia_fechamento);
+  const etapasCriticasConcluidas = etapasCriticas.filter(
+    i => i.status === "concluido" || i.status === "nao_aplicavel"
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -146,6 +152,11 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
               </span>
             </div>
             <Progress value={progresso.percentual} className="h-3" />
+            {etapasCriticas.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Etapas críticas: {etapasCriticasConcluidas.length}/{etapasCriticas.length}
+              </p>
+            )}
           </div>
           <div className="md:col-span-3 grid grid-cols-4 gap-4">
             <div className="text-center p-3 rounded-lg bg-success/5 border border-success/20">
@@ -202,6 +213,11 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
                         {item.exige_upload && (
                           <Badge variant="outline" className="text-xs bg-info/10 text-info border-info/20">
                             <Upload className="h-3 w-3 mr-1" />Upload
+                          </Badge>
+                        )}
+                        {item.bloqueia_fechamento && (
+                          <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/20">
+                            Bloqueia fechamento
                           </Badge>
                         )}
                       </div>
