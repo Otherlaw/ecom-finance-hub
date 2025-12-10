@@ -10,6 +10,7 @@ import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
+import { useChecklistsCanal, ChecklistCanalComItens, calcularProgressoChecklist, determinarStatusChecklist } from "@/hooks/useChecklistsCanal";
 import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import { useMemo, useState, useEffect } from "react";
@@ -61,6 +62,37 @@ export default function Fechamento() {
   const { resumo: contasReceberResumo, contas: contasReceber, isLoading: isCRLoading } = useContasReceber({ dataInicio: periodoInicio, dataFim: periodoFim });
   const { empresas } = useEmpresas();
   
+  // Primeira empresa para buscar checklists (pode ser expandido para múltiplas)
+  const empresaPrincipal = empresas?.[0];
+  
+  // Buscar checklists do período
+  const { checklists, isLoading: isChecklistLoading } = useChecklistsCanal({
+    empresaId: empresaPrincipal?.id,
+    mes: parseInt(mes),
+    ano: parseInt(ano),
+  });
+
+  // Buscar itens de cada checklist para calcular progresso
+  const [checklistsCompletos, setChecklistsCompletos] = useState<ChecklistCanalComItens[]>([]);
+  const { buscarChecklistCompleto } = useChecklistsCanal({ empresaId: empresaPrincipal?.id });
+  
+  useEffect(() => {
+    const carregarChecklistsCompletos = async () => {
+      if (checklists.length === 0) {
+        setChecklistsCompletos([]);
+        return;
+      }
+      
+      const completos = await Promise.all(
+        checklists.map(c => buscarChecklistCompleto(c.id))
+      );
+      
+      setChecklistsCompletos(completos.filter(Boolean) as ChecklistCanalComItens[]);
+    };
+    
+    carregarChecklistsCompletos();
+  }, [checklists]);
+
   // Sincronização MEU
   const { temPendencias, totalPendentes, sincronizar, isSincronizando } = useSincronizacaoMEU();
 
@@ -71,7 +103,7 @@ export default function Fechamento() {
     }
   }, [temPendencias]);
 
-  const isLoading = isDRELoading || isFluxoLoading || isMktLoading || isCPLoading || isCRLoading;
+  const isLoading = isDRELoading || isFluxoLoading || isMktLoading || isCPLoading || isCRLoading || isChecklistLoading;
 
   // Opções de período
   const periodoOpcoes = useMemo(() => {
@@ -174,6 +206,25 @@ export default function Fechamento() {
     return Object.values(porEmpresa).sort((a, b) => b.receita - a.receita);
   }, [marketplaceTransacoes, contasPagar, contasReceber, empresas]);
 
+  // Calcular status do checklist por canal
+  const checklistCanalStatus = useMemo(() => {
+    if (checklistsCompletos.length === 0) return { status: 'pending', concluidos: 0, total: 0 };
+    
+    let concluidos = 0;
+    checklistsCompletos.forEach(c => {
+      const status = determinarStatusChecklist(c.itens);
+      if (status === 'concluido' || status === 'nao_aplicavel') {
+        concluidos++;
+      }
+    });
+    
+    const total = checklistsCompletos.length;
+    
+    if (concluidos === total && total > 0) return { status: 'done', concluidos, total };
+    if (concluidos > 0) return { status: 'partial', concluidos, total };
+    return { status: 'pending', concluidos, total };
+  }, [checklistsCompletos]);
+
   // Status do fechamento
   const statusFechamento = useMemo(() => {
     const conciliacaoOk = mktResumo.conciliadas > 0 && mktResumo.pendentes === 0;
@@ -186,9 +237,14 @@ export default function Fechamento() {
       { step: "Conciliação marketplace", status: conciliacaoOk ? "done" : mktResumo.conciliadas > 0 ? "partial" : "pending" },
       { step: "Contas a pagar", status: contasPagarOk ? "done" : "attention" },
       { step: "Contas a receber", status: contasReceberOk ? "done" : "attention" },
+      { 
+        step: "Checklist por Canal", 
+        status: checklistCanalStatus.status,
+        detail: checklistCanalStatus.total > 0 ? `${checklistCanalStatus.concluidos}/${checklistCanalStatus.total} canais` : undefined
+      },
       { step: "DRE consolidado", status: dreOk ? "done" : "pending" },
     ];
-  }, [mktResumo, contasPagarResumo, contasReceberResumo, hasDREData, transacoesCount, marketplaceTransacoes]);
+  }, [mktResumo, contasPagarResumo, contasReceberResumo, hasDREData, transacoesCount, marketplaceTransacoes, checklistCanalStatus]);
 
   const handleAskAssistant = () => {
     openChat('Explique os números deste fechamento mensal', {

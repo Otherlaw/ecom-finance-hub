@@ -1,18 +1,14 @@
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ModuleCard } from "@/components/ModuleCard";
+import { canaisMarketplace } from "@/lib/checklist-data";
 import {
-  ChecklistMensal,
-  CanalMarketplace,
-  Empresa,
-  canaisMarketplace,
-  calcularProgresso,
+  ChecklistCanalComItens,
+  calcularProgressoChecklist,
+  determinarStatusChecklist,
   getStatusLabel,
   getStatusColor,
-  getChecklistStatus,
-  getMesNome,
-  ChecklistStatus,
-} from "@/lib/checklist-data";
+} from "@/hooks/useChecklistsCanal";
 import {
   Building2,
   Check,
@@ -26,10 +22,10 @@ import {
 } from "lucide-react";
 
 interface ConsolidatedViewProps {
-  empresa: Empresa;
+  empresa: { id: string; nome: string; canaisAtivos: string[] };
   mes: number;
   ano: number;
-  checklists: ChecklistMensal[];
+  checklists: ChecklistCanalComItens[];
 }
 
 const iconMap: Record<string, React.ElementType> = {
@@ -39,26 +35,34 @@ const iconMap: Record<string, React.ElementType> = {
   tiktok: Music,
 };
 
+const getMesNome = (mes: number): string => {
+  const meses = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+  ];
+  return meses[mes - 1] || "";
+};
+
 export function ConsolidatedView({ empresa, mes, ano, checklists }: ConsolidatedViewProps) {
   // Canais ativos da empresa
   const canaisAtivos = canaisMarketplace.filter(c => empresa.canaisAtivos.includes(c.id));
 
   // Calcular status consolidado
-  const getConsolidatedStatus = (): { status: ChecklistStatus; canaisConcluidos: number; totalCanais: number } => {
+  const getConsolidatedStatus = (): { status: string; canaisConcluidos: number; totalCanais: number } => {
     let canaisConcluidos = 0;
     const totalCanais = canaisAtivos.length;
 
     canaisAtivos.forEach(canal => {
-      const checklist = checklists.find(c => c.canalId === canal.id);
+      const checklist = checklists.find(c => c.canal_id === canal.id);
       if (checklist) {
-        const status = getChecklistStatus(checklist.itens);
+        const status = determinarStatusChecklist(checklist.itens);
         if (status === 'concluido' || status === 'nao_aplicavel') {
           canaisConcluidos++;
         }
       }
     });
 
-    let status: ChecklistStatus = 'pendente';
+    let status: string = 'pendente';
     if (canaisConcluidos === totalCanais && totalCanais > 0) {
       status = 'concluido';
     } else if (canaisConcluidos > 0) {
@@ -69,7 +73,9 @@ export function ConsolidatedView({ empresa, mes, ano, checklists }: Consolidated
   };
 
   const consolidatedStatus = getConsolidatedStatus();
-  const percentualGeral = Math.round((consolidatedStatus.canaisConcluidos / consolidatedStatus.totalCanais) * 100) || 0;
+  const percentualGeral = consolidatedStatus.totalCanais > 0 
+    ? Math.round((consolidatedStatus.canaisConcluidos / consolidatedStatus.totalCanais) * 100) 
+    : 0;
 
   return (
     <ModuleCard
@@ -101,15 +107,15 @@ export function ConsolidatedView({ empresa, mes, ano, checklists }: Consolidated
       {/* Lista de canais */}
       <div className="space-y-4">
         {canaisAtivos.map((canal) => {
-          const checklist = checklists.find(c => c.canalId === canal.id);
+          const checklist = checklists.find(c => c.canal_id === canal.id);
           const IconComponent = iconMap[canal.id] || Store;
           
-          let canalStatus: ChecklistStatus = 'pendente';
+          let canalStatus: string = 'pendente';
           let progresso = { concluidos: 0, total: 0, percentual: 0 };
           
           if (checklist) {
-            canalStatus = getChecklistStatus(checklist.itens);
-            progresso = calcularProgresso(checklist.itens);
+            canalStatus = determinarStatusChecklist(checklist.itens);
+            progresso = calcularProgressoChecklist(checklist.itens);
           }
 
           return (

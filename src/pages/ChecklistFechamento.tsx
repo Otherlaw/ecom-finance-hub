@@ -8,7 +8,7 @@ import { ConsolidatedView } from "@/components/checklist/ConsolidatedView";
 import { CriarChecklistModal } from "@/components/checklist/CriarChecklistModal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { canaisMarketplace, getMesNome } from "@/lib/checklist-data";
-import { useChecklistsCanal, ChecklistCanalComItens } from "@/hooks/useChecklistsCanal";
+import { useChecklistsCanal, ChecklistCanalComItens, calcularProgressoChecklist, determinarStatusChecklist } from "@/hooks/useChecklistsCanal";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useUserEmpresas } from "@/hooks/useUserEmpresas";
 import { toast } from "@/hooks/use-toast";
@@ -45,8 +45,6 @@ export default function ChecklistFechamento() {
     isLoading, 
     refetch,
     buscarChecklistCompleto,
-    calcularProgresso,
-    determinarStatus,
   } = useChecklistsCanal({ empresaId, mes, ano });
 
   // Empresa selecionada
@@ -225,24 +223,14 @@ export default function ChecklistFechamento() {
               empresa={{
                 id: empresaSelecionada.id,
                 nome: empresaSelecionada.razao_social,
-                cnpj: empresaSelecionada.cnpj,
                 canaisAtivos: canaisDisponiveis.map(c => c.id),
               }}
               mes={mes}
               ano={ano}
               checklists={checklists.map(c => ({
-                id: c.id,
-                empresaId: c.empresa_id,
-                empresaNome: empresaSelecionada.razao_social,
-                canalId: c.canal_id,
-                canalNome: c.canal_nome,
-                mes: c.mes,
-                ano: c.ano,
-                status: c.status as any,
+                ...c,
                 itens: [],
-                criadoEm: new Date(c.criado_em),
-                atualizadoEm: new Date(c.atualizado_em),
-              }))}
+              })) as ChecklistCanalComItens[]}
             />
           )}
         </TabsContent>
