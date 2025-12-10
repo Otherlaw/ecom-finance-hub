@@ -66,7 +66,7 @@ export function AlertDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto bg-gradient-to-br from-zinc-800/95 to-zinc-900/95 backdrop-blur-xl border-zinc-700/50 text-white">
         <DialogHeader>
           <div className="flex items-start gap-4">
             <AssistantCharacter size="lg" mood={alert.severidade} animated={false} />
@@ -90,7 +90,7 @@ export function AlertDetailModal({
 
         <div className="space-y-6 mt-4">
           {/* Metadados */}
-          <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+          <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
             <div className="flex items-center gap-1">
               <Clock className="w-4 h-4" />
               <span>{formatRelativeTime(alert.dataDeteccao)}</span>
@@ -108,15 +108,15 @@ export function AlertDetailModal({
             )}
           </div>
 
-          <Separator />
+          <Separator className="bg-zinc-700/50" />
 
           {/* Descrição completa */}
           <div>
-            <h4 className="font-semibold mb-2 flex items-center gap-2">
+            <h4 className="font-semibold mb-2 flex items-center gap-2 text-white">
               <FileText className="w-4 h-4" />
               Análise Detalhada
             </h4>
-            <div className="bg-muted/50 rounded-lg p-4 whitespace-pre-wrap text-sm">
+            <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-4 whitespace-pre-wrap text-sm text-zinc-300">
               {alert.descricaoCompleta}
             </div>
           </div>
@@ -135,14 +135,14 @@ export function AlertDetailModal({
           {/* Dados de contexto */}
           {alert.dadosContexto && Object.keys(alert.dadosContexto).length > 0 && (
             <div>
-              <h4 className="font-semibold mb-2">Dados da Análise</h4>
+              <h4 className="font-semibold mb-2 text-white">Dados da Análise</h4>
               <div className="grid grid-cols-2 gap-2">
                 {Object.entries(alert.dadosContexto).map(([key, value]) => (
-                  <div key={key} className="bg-muted/30 rounded p-2 text-sm">
-                    <span className="text-muted-foreground capitalize">
+                  <div key={key} className="bg-zinc-800/50 border border-zinc-700/50 rounded p-2 text-sm">
+                    <span className="text-zinc-400 capitalize">
                       {key.replace(/([A-Z])/g, ' $1').trim()}:
                     </span>
-                    <span className="ml-2 font-medium">
+                    <span className="ml-2 font-medium text-white">
                       {typeof value === 'number' 
                         ? value.toLocaleString('pt-BR', { 
                             style: key.toLowerCase().includes('valor') || key.toLowerCase().includes('impacto') 
@@ -161,27 +161,27 @@ export function AlertDetailModal({
           )}
 
           {/* Ação recomendada */}
-          <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+          <div className="bg-primary/10 border border-primary/30 rounded-lg p-4">
             <h4 className="font-semibold mb-2 flex items-center gap-2 text-primary">
               <AlertTriangle className="w-4 h-4" />
               Ação Recomendada
             </h4>
-            <p className="text-sm">{alert.acaoRecomendada}</p>
+            <p className="text-sm text-zinc-300">{alert.acaoRecomendada}</p>
           </div>
 
-          <Separator />
+          <Separator className="bg-zinc-700/50" />
 
           {/* Ações */}
           <div className="flex flex-wrap gap-3">
-            {/* Perguntar ao Assis.Fin */}
+            {/* Perguntar ao Fin */}
             {onAskAssistant && (
               <Button 
                 variant="secondary"
-                className="gap-2"
+                className="gap-2 bg-zinc-700/50 hover:bg-zinc-600/50 text-white border-zinc-600"
                 onClick={() => onAskAssistant(alert)}
               >
                 <MessageCircleQuestion className="w-4 h-4" />
-                Perguntar ao Assis.Fin
+                Perguntar ao Fin
               </Button>
             )}
 
