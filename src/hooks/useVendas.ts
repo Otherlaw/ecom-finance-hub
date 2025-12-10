@@ -14,6 +14,8 @@ export interface VendasFiltros {
   canal?: string;
   conta?: string;
   statusVenda?: StatusVenda;
+  tipoEnvio?: string;
+  teveAds?: "todos" | "com" | "sem";
   considerarFreteComprador?: boolean;
   somenteComDivergencia?: boolean;
   somenteNaoConciliadas?: boolean;
@@ -148,6 +150,20 @@ function aplicarFiltrosLocais(
 
   if (filtros.somenteSemProduto) {
     result = result.filter((v) => v.sem_produto_vinculado);
+  }
+
+  // Filtro por tipo de envio
+  if (filtros.tipoEnvio && filtros.tipoEnvio !== "todos") {
+    result = result.filter((v) => v.tipo_envio === filtros.tipoEnvio);
+  }
+
+  // Filtro por ADS
+  if (filtros.teveAds && filtros.teveAds !== "todos") {
+    if (filtros.teveAds === "com") {
+      result = result.filter((v) => v.custo_ads > 0);
+    } else {
+      result = result.filter((v) => !v.custo_ads || v.custo_ads === 0);
+    }
   }
 
   return result;

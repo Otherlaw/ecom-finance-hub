@@ -31,6 +31,7 @@ import { ptBR } from "date-fns/locale";
 
 interface VendasTableProps {
   vendas: VendaDetalhada[];
+  aliquotaImposto?: number;
 }
 
 type SortField = "data_venda" | "valor_bruto" | "valor_liquido" | "custo_calculado" | "margem";
@@ -47,7 +48,7 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1).replace(".", ",")}%`;
 }
 
-export function VendasTable({ vendas }: VendasTableProps) {
+export function VendasTable({ vendas, aliquotaImposto = 6 }: VendasTableProps) {
   const [sortField, setSortField] = useState<SortField>("data_venda");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
@@ -101,42 +102,56 @@ export function VendasTable({ vendas }: VendasTableProps) {
     );
   };
 
+  // Função para calcular margem de contribuição completa
+  const calcularMargem = (v: VendaDetalhada) => {
+    const imposto = v.valor_bruto * (aliquotaImposto / 100);
+    const margemRs = v.valor_liquido - v.custo_calculado - v.frete_vendedor - v.custo_ads - imposto;
+    const margemPercent = v.valor_bruto > 0 ? (margemRs / v.valor_bruto) * 100 : 0;
+    return { margemRs, margemPercent, imposto };
+  };
+
   const handleExport = () => {
-    // Criar CSV
     const headers = [
       "Canal",
       "Conta",
       "Pedido",
       "Data",
+      "Tipo Envio",
       "SKU",
       "Produto",
       "Qtd",
       "Valor Bruto",
-      "Valor Líquido",
       "Tarifas",
       "Custo",
+      "Frete Comprador",
+      "Frete Vendedor",
+      "Imposto",
+      "ADS",
       "Margem R$",
       "Margem %",
       "Status",
     ];
 
     const rows = sortedVendas.map((v) => {
-      const margem = v.valor_liquido - v.custo_calculado;
-      const margemPercent = v.valor_bruto > 0 ? (margem / v.valor_bruto) * 100 : 0;
+      const { margemRs, margemPercent, imposto } = calcularMargem(v);
 
       return [
         v.canal,
         v.conta_nome || "",
         v.pedido_id || v.referencia_externa || "",
         format(new Date(v.data_venda), "dd/MM/yyyy"),
+        v.tipo_envio || "",
         v.sku_interno || v.sku_marketplace || "",
         v.produto_nome || v.descricao_item || v.descricao,
         v.quantidade,
         v.valor_bruto.toFixed(2),
-        v.valor_liquido.toFixed(2),
         (v.tarifas + v.taxas).toFixed(2),
         v.custo_calculado.toFixed(2),
-        margem.toFixed(2),
+        v.frete_comprador.toFixed(2),
+        v.frete_vendedor.toFixed(2),
+        imposto.toFixed(2),
+        v.custo_ads.toFixed(2),
+        margemRs.toFixed(2),
         margemPercent.toFixed(1) + "%",
         v.status,
       ];
@@ -153,6 +168,24 @@ export function VendasTable({ vendas }: VendasTableProps) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Badge de tipo de envio com cores
+  const TipoEnvioBadge = ({ tipo }: { tipo: string | null }) => {
+    if (!tipo) return <span className="text-muted-foreground">—</span>;
+    
+    const colors: Record<string, string> = {
+      full: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+      flex: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+      coleta: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+      retirada: "bg-purple-500/10 text-purple-600 border-purple-500/30",
+    };
+
+    return (
+      <Badge variant="outline" className={cn("text-xs capitalize", colors[tipo.toLowerCase()] || "")}>
+        {tipo}
+      </Badge>
+    );
   };
 
   if (vendas.length === 0) {
@@ -178,9 +211,9 @@ export function VendasTable({ vendas }: VendasTableProps) {
           <TableHeader className="sticky top-0 bg-background z-10">
             <TableRow>
               <TableHead className="w-[80px]">Canal</TableHead>
-              <TableHead className="w-[120px]">Conta</TableHead>
+              <TableHead className="w-[100px]">Conta</TableHead>
               <TableHead
-                className="w-[100px] cursor-pointer hover:text-foreground"
+                className="w-[80px] cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("data_venda")}
               >
                 <div className="flex items-center">
@@ -188,11 +221,12 @@ export function VendasTable({ vendas }: VendasTableProps) {
                   <SortIcon field="data_venda" />
                 </div>
               </TableHead>
-              <TableHead className="min-w-[200px]">Produto / Descrição</TableHead>
-              <TableHead className="w-[100px]">SKU</TableHead>
-              <TableHead className="w-[60px] text-center">Qtd</TableHead>
+              <TableHead className="w-[80px]">Envio</TableHead>
+              <TableHead className="min-w-[180px]">Produto</TableHead>
+              <TableHead className="w-[80px]">SKU</TableHead>
+              <TableHead className="w-[50px] text-center">Qtd</TableHead>
               <TableHead
-                className="w-[100px] text-right cursor-pointer hover:text-foreground"
+                className="w-[90px] text-right cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("valor_bruto")}
               >
                 <div className="flex items-center justify-end">
@@ -200,38 +234,43 @@ export function VendasTable({ vendas }: VendasTableProps) {
                   <SortIcon field="valor_bruto" />
                 </div>
               </TableHead>
-              <TableHead className="w-[80px] text-right">Tarifas</TableHead>
+              <TableHead className="w-[70px] text-right">Tarifas</TableHead>
               <TableHead
-                className="w-[100px] text-right cursor-pointer hover:text-foreground"
+                className="w-[80px] text-right cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("custo_calculado")}
               >
                 <div className="flex items-center justify-end">
-                  Custo
+                  CMV
                   <SortIcon field="custo_calculado" />
                 </div>
               </TableHead>
+              <TableHead className="w-[80px] text-right">Frete C.</TableHead>
+              <TableHead className="w-[80px] text-right">Frete V.</TableHead>
+              <TableHead className="w-[70px] text-right">Imposto</TableHead>
+              <TableHead className="w-[70px] text-right">ADS</TableHead>
               <TableHead
                 className="w-[100px] text-right cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("margem")}
               >
                 <div className="flex items-center justify-end">
-                  Margem
+                  MC
                   <SortIcon field="margem" />
                 </div>
               </TableHead>
-              <TableHead className="w-[100px]">Status</TableHead>
+              <TableHead className="w-[80px]">Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedVendas.map((v, idx) => {
-              const margem = v.valor_liquido - v.custo_calculado;
-              const margemPercent = v.valor_bruto > 0 ? (margem / v.valor_bruto) * 100 : 0;
+              const { margemRs, margemPercent, imposto } = calcularMargem(v);
 
               const margemColor =
-                margem < 0
-                  ? "text-red-500"
+                margemRs < 0
+                  ? "text-destructive"
                   : margemPercent < 10
                   ? "text-amber-500"
+                  : margemPercent < 20
+                  ? "text-yellow-600"
                   : "text-emerald-500";
 
               const hasWarnings = v.sem_custo || v.sem_produto_vinculado || v.nao_conciliado;
@@ -243,66 +282,77 @@ export function VendasTable({ vendas }: VendasTableProps) {
                       {v.canal}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">
+                  <TableCell className="text-xs text-muted-foreground truncate max-w-[100px]">
                     {v.conta_nome || "-"}
                   </TableCell>
                   <TableCell className="text-xs">
                     {format(new Date(v.data_venda), "dd/MM/yy")}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-start gap-2">
+                    <TipoEnvioBadge tipo={v.tipo_envio} />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-start gap-1.5">
                       {hasWarnings && (
                         <Tooltip>
                           <TooltipTrigger>
-                            <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
                           </TooltipTrigger>
                           <TooltipContent>
                             <div className="text-xs space-y-1">
-                              {v.sem_custo && <p>• Sem custo cadastrado</p>}
-                              {v.sem_produto_vinculado && <p>• Sem produto vinculado</p>}
+                              {v.sem_custo && <p>• Sem custo</p>}
+                              {v.sem_produto_vinculado && <p>• Sem produto</p>}
                               {v.nao_conciliado && <p>• Não conciliado</p>}
                             </div>
                           </TooltipContent>
                         </Tooltip>
                       )}
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {v.produto_nome || v.descricao_item || v.descricao}
-                        </p>
-                        {v.pedido_id && (
-                          <p className="text-xs text-muted-foreground">
-                            Pedido: {v.pedido_id}
-                          </p>
-                        )}
-                      </div>
+                      <p className="text-xs truncate max-w-[160px]">
+                        {v.produto_nome || v.descricao_item || v.descricao}
+                      </p>
                     </div>
                   </TableCell>
                   <TableCell className="text-xs font-mono">
                     {v.sku_interno || v.sku_marketplace || "-"}
                   </TableCell>
-                  <TableCell className="text-center text-sm">{v.quantidade}</TableCell>
-                  <TableCell className="text-right text-sm font-medium">
+                  <TableCell className="text-center text-xs">{v.quantidade}</TableCell>
+                  <TableCell className="text-right text-xs font-medium">
                     {formatCurrency(v.valor_bruto)}
                   </TableCell>
-                  <TableCell className="text-right text-xs text-muted-foreground">
+                  <TableCell className="text-right text-xs text-destructive/80">
                     {formatCurrency(v.tarifas + v.taxas)}
                   </TableCell>
-                  <TableCell className="text-right text-sm">
+                  <TableCell className="text-right text-xs text-destructive/80">
                     {v.sem_custo ? (
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <span className="text-amber-500">-</span>
-                        </TooltipTrigger>
-                        <TooltipContent>Custo não cadastrado</TooltipContent>
-                      </Tooltip>
+                      <span className="text-amber-500">—</span>
                     ) : (
                       formatCurrency(v.custo_calculado)
                     )}
                   </TableCell>
-                  <TableCell className={cn("text-right text-sm font-medium", margemColor)}>
+                  <TableCell className="text-right text-xs">
+                    {v.frete_comprador > 0 ? (
+                      <span className="text-emerald-600">{formatCurrency(v.frete_comprador)}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right text-xs text-destructive/80">
+                    {v.frete_vendedor > 0 ? formatCurrency(v.frete_vendedor) : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="text-right text-xs text-destructive/80">
+                    {formatCurrency(imposto)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs">
+                    {v.custo_ads > 0 ? (
+                      <span className="text-purple-600">{formatCurrency(v.custo_ads)}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className={cn("text-right text-xs font-medium", margemColor)}>
                     <div>
-                      {formatCurrency(margem)}
-                      <span className="block text-xs opacity-75">
+                      {formatCurrency(margemRs)}
+                      <span className="block text-[10px] opacity-75">
                         {formatPercent(margemPercent)}
                       </span>
                     </div>
