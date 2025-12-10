@@ -2,12 +2,17 @@ import { useState } from "react";
 import { format } from "date-fns";
 import { MainLayout } from "@/components/MainLayout";
 import { useVendas, VendasFiltros } from "@/hooks/useVendas";
+import { useVendasPendentes } from "@/hooks/useVendasPendentes";
+import { useEmpresas } from "@/hooks/useEmpresas";
 import { VendasCards } from "@/components/vendas/VendasCards";
 import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
 import { VendasFiltrosPanel } from "@/components/vendas/VendasFiltrosPanel";
 import { VendasTable } from "@/components/vendas/VendasTable";
+import { VendasProductMappingModal } from "@/components/vendas/VendasProductMappingModal";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, ShoppingBag } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Loader2, ShoppingBag, AlertTriangle, Link2 } from "lucide-react";
 
 export default function Vendas() {
   const hoje = format(new Date(), "yyyy-MM-dd");
@@ -29,6 +34,11 @@ export default function Vendas() {
     somenteSemProduto: false,
   });
 
+  const [showMappingModal, setShowMappingModal] = useState(false);
+
+  const { empresas } = useEmpresas();
+  const empresaId = empresas?.[0]?.id;
+
   const { 
     vendas, 
     resumo, 
@@ -38,6 +48,8 @@ export default function Vendas() {
     aliquotaImposto,
     isLoading 
   } = useVendas(filtros);
+
+  const { resumo: resumoPendentes } = useVendasPendentes({ empresaId });
 
   const handleFiltroChange = (campo: keyof VendasFiltros, valor: any) => {
     setFiltros((prev) => ({ ...prev, [campo]: valor }));
@@ -78,6 +90,30 @@ export default function Vendas() {
             </div>
           </div>
         </div>
+
+        {/* Alerta de SKUs pendentes */}
+        {resumoPendentes.totalSkusPendentes > 0 && (
+          <Alert variant="destructive" className="bg-warning/10 border-warning text-warning-foreground">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle className="font-semibold">
+              {resumoPendentes.totalSkusPendentes} SKUs pendentes de mapeamento
+            </AlertTitle>
+            <AlertDescription className="flex items-center justify-between">
+              <span>
+                {resumoPendentes.totalVendasAfetadas} vendas sem CMV calculado
+              </span>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setShowMappingModal(true)}
+                className="ml-4"
+              >
+                <Link2 className="h-4 w-4 mr-1" />
+                Mapear Agora
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
@@ -127,6 +163,15 @@ export default function Vendas() {
           </>
         )}
       </div>
+
+      {/* Modal de mapeamento */}
+      {empresaId && (
+        <VendasProductMappingModal
+          open={showMappingModal}
+          onOpenChange={setShowMappingModal}
+          empresaId={empresaId}
+        />
+      )}
     </MainLayout>
   );
 }
