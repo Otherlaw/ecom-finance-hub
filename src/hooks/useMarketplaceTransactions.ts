@@ -655,10 +655,16 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
   const totalTaxas = transacoes.reduce((acc, t) => acc + (t.taxas || 0), 0);
   const totalOutrosDescontos = transacoes.reduce((acc, t) => acc + (t.outros_descontos || 0), 0);
 
+  // Contagem separada para "importado" e "pendente"
+  const importadas = transacoes.filter(t => t.status === "importado").length;
+  const pendentesStatus = transacoes.filter(t => t.status === "pendente").length;
+  
   const resumo: MarketplaceResumo = {
     total: transacoes.length,
-    importadas: transacoes.filter(t => t.status === "importado").length,
-    pendentes: transacoes.filter(t => t.status === "pendente").length,
+    importadas,
+    // IMPORTANTE: pendentes agora inclui TANTO "pendente" QUANTO "importado" 
+    // pois ambos representam transações não conciliadas
+    pendentes: importadas + pendentesStatus,
     conciliadas: transacoes.filter(t => t.status === "conciliado").length,
     ignoradas: transacoes.filter(t => t.status === "ignorado").length,
     totalCreditos: transacoes
