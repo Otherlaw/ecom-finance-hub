@@ -1337,6 +1337,44 @@ export type Database = {
         }
         Relationships: []
       }
+      empresas_config_fiscal: {
+        Row: {
+          aliquota_icms: number | null
+          aliquota_imposto_vendas: number
+          aliquota_pis_cofins: number | null
+          atualizado_em: string | null
+          criado_em: string | null
+          empresa_id: string
+          id: string
+        }
+        Insert: {
+          aliquota_icms?: number | null
+          aliquota_imposto_vendas?: number
+          aliquota_pis_cofins?: number | null
+          atualizado_em?: string | null
+          criado_em?: string | null
+          empresa_id: string
+          id?: string
+        }
+        Update: {
+          aliquota_icms?: number | null
+          aliquota_imposto_vendas?: number
+          aliquota_pis_cofins?: number | null
+          atualizado_em?: string | null
+          criado_em?: string | null
+          empresa_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresas_config_fiscal_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       estoque: {
         Row: {
           armazem_id: string
@@ -1964,10 +2002,13 @@ export type Database = {
           centro_custo_id: string | null
           conta_nome: string | null
           criado_em: string
+          custo_ads: number | null
           data_repasse: string | null
           data_transacao: string
           descricao: string
           empresa_id: string
+          frete_comprador: number | null
+          frete_vendedor: number | null
           hash_duplicidade: string | null
           id: string
           origem_extrato: string | null
@@ -1978,6 +2019,7 @@ export type Database = {
           status: string
           tarifas: number | null
           taxas: number | null
+          tipo_envio: string | null
           tipo_lancamento: string
           tipo_transacao: string
           valor_bruto: number | null
@@ -1991,10 +2033,13 @@ export type Database = {
           centro_custo_id?: string | null
           conta_nome?: string | null
           criado_em?: string
+          custo_ads?: number | null
           data_repasse?: string | null
           data_transacao: string
           descricao: string
           empresa_id: string
+          frete_comprador?: number | null
+          frete_vendedor?: number | null
           hash_duplicidade?: string | null
           id?: string
           origem_extrato?: string | null
@@ -2005,6 +2050,7 @@ export type Database = {
           status?: string
           tarifas?: number | null
           taxas?: number | null
+          tipo_envio?: string | null
           tipo_lancamento: string
           tipo_transacao: string
           valor_bruto?: number | null
@@ -2018,10 +2064,13 @@ export type Database = {
           centro_custo_id?: string | null
           conta_nome?: string | null
           criado_em?: string
+          custo_ads?: number | null
           data_repasse?: string | null
           data_transacao?: string
           descricao?: string
           empresa_id?: string
+          frete_comprador?: number | null
+          frete_vendedor?: number | null
           hash_duplicidade?: string | null
           id?: string
           origem_extrato?: string | null
@@ -2032,6 +2081,7 @@ export type Database = {
           status?: string
           tarifas?: number | null
           taxas?: number | null
+          tipo_envio?: string | null
           tipo_lancamento?: string
           tipo_transacao?: string
           valor_bruto?: number | null
@@ -2993,20 +3043,20 @@ export type Database = {
           anuncio_id: string | null
           canal: string | null
           canal_venda: string | null
-          categoria_id: string | null
-          centro_custo_id: string | null
-          cmv_margem_bruta: number | null
-          cmv_margem_percentual: number | null
           cmv_total: number | null
           conta_nome: string | null
-          custo_calculado: number | null
+          custo_ads: number | null
           custo_medio: number | null
           data_repasse: string | null
           data_venda: string | null
           descricao: string | null
           descricao_item: string | null
           empresa_id: string | null
+          frete_comprador: number | null
+          frete_vendedor: number | null
           item_id: string | null
+          margem_bruta: number | null
+          margem_percentual: number | null
           nao_conciliado: boolean | null
           outros_descontos: number | null
           pedido_id: string | null
@@ -3015,7 +3065,6 @@ export type Database = {
           produto_id: string | null
           produto_nome: string | null
           quantidade: number | null
-          referencia_externa: string | null
           sem_categoria: boolean | null
           sem_custo: boolean | null
           sem_produto_vinculado: boolean | null
@@ -3024,6 +3073,8 @@ export type Database = {
           status: string | null
           tarifas: number | null
           taxas: number | null
+          teve_ads: boolean | null
+          tipo_envio: string | null
           tipo_lancamento: string | null
           tipo_transacao: string | null
           transacao_id: string | null
@@ -3036,20 +3087,6 @@ export type Database = {
             columns: ["produto_id"]
             isOneToOne: false
             referencedRelation: "produtos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "marketplace_transactions_categoria_id_fkey"
-            columns: ["categoria_id"]
-            isOneToOne: false
-            referencedRelation: "categorias_financeiras"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "marketplace_transactions_centro_custo_id_fkey"
-            columns: ["centro_custo_id"]
-            isOneToOne: false
-            referencedRelation: "centros_de_custo"
             referencedColumns: ["id"]
           },
           {
