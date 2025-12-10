@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface ChatMessage {
   id: string;
@@ -34,7 +35,6 @@ interface UseAssistantChatReturn {
 }
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 // Map routes to friendly names
 const ROUTE_NAMES: Record<string, string> = {
@@ -135,11 +135,17 @@ export function useAssistantChat(): UseAssistantChatReturn {
     };
 
     try {
+      // Obter token de sessão do usuário autenticado
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Você precisa estar logado para usar o Fin');
+      }
+
       const response = await fetch(`${SUPABASE_URL}/functions/v1/assistant-chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           messages: messageHistory,

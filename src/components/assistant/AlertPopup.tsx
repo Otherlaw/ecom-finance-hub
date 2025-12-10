@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, ChevronRight, Bell } from 'lucide-react';
+import { X, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AssistantAlert, SEVERITY_CONFIG, getAssistantPhrase, formatRelativeTime } from '@/lib/assistant-data';
 import { AssistantCharacter } from './AssistantCharacter';
@@ -63,29 +63,26 @@ export function AlertPopup({
       )}
     >
       <div 
-        className={cn(
-          'bg-card border-2 rounded-xl shadow-2xl overflow-hidden',
-          severityConfig.borderColor
-        )}
+        className="bg-gradient-to-br from-zinc-800/95 to-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-2xl shadow-2xl overflow-hidden"
       >
         {/* Header com gradiente */}
         <div className={cn(
-          'px-4 py-3 flex items-center gap-3',
-          severityConfig.bgColor
+          'px-4 py-3 flex items-center gap-3 border-b border-zinc-700/50',
+          'bg-gradient-to-r from-zinc-800/50 to-transparent'
         )}>
           <AssistantCharacter size="sm" mood={alert.severidade} />
           <div className="flex-1 min-w-0">
             <p className={cn('text-xs font-medium', severityConfig.color)}>
-              Assis.Fin • {severityConfig.label}
+              Fin • {severityConfig.label}
             </p>
-            <p className="text-xs text-muted-foreground truncate">
+            <p className="text-xs text-zinc-400 truncate">
               {formatRelativeTime(alert.dataDeteccao)}
             </p>
           </div>
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 shrink-0"
+            className="h-6 w-6 shrink-0 text-zinc-400 hover:text-white hover:bg-zinc-700/50"
             onClick={handleDismiss}
           >
             <X className="h-4 w-4" />
@@ -95,21 +92,21 @@ export function AlertPopup({
         {/* Corpo */}
         <div className="p-4 space-y-3">
           {/* Frase do personagem */}
-          <p className="text-xs text-muted-foreground italic">
+          <p className="text-xs text-zinc-400 italic">
             "{phrase}"
           </p>
 
           {/* Título e descrição */}
           <div>
-            <h4 className="font-semibold text-sm mb-1">{alert.titulo}</h4>
-            <p className="text-xs text-muted-foreground line-clamp-2">
+            <h4 className="font-semibold text-sm mb-1 text-white">{alert.titulo}</h4>
+            <p className="text-xs text-zinc-400 line-clamp-2">
               {alert.descricao}
             </p>
           </div>
 
           {/* Impacto se houver */}
           {alert.impactoEstimado && (
-            <div className="bg-destructive/10 text-destructive text-xs px-2 py-1 rounded">
+            <div className="bg-red-500/10 text-red-400 text-xs px-2 py-1.5 rounded-lg border border-red-500/20">
               💰 {alert.impactoEstimado}
             </div>
           )}
@@ -118,7 +115,7 @@ export function AlertPopup({
           <div className="flex gap-2 pt-1">
             <Button
               size="sm"
-              className="flex-1 h-8 text-xs gap-1"
+              className="flex-1 h-8 text-xs gap-1 bg-primary hover:bg-primary/90"
               onClick={handleViewDetails}
             >
               Ver detalhes
@@ -127,7 +124,7 @@ export function AlertPopup({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 text-xs text-muted-foreground"
+              className="h-8 text-xs text-zinc-400 hover:text-white hover:bg-zinc-700/50"
               onClick={handleDismiss}
             >
               Depois
@@ -136,9 +133,9 @@ export function AlertPopup({
         </div>
 
         {/* Barra de progresso de auto-hide */}
-        <div className="h-1 bg-muted">
+        <div className="h-1 bg-zinc-800">
           <div 
-            className={cn('h-full transition-all ease-linear', severityConfig.bgColor.replace('bg-', 'bg-'))}
+            className="h-full bg-gradient-to-r from-primary/60 to-primary transition-all ease-linear"
             style={{
               animation: `shrinkWidth ${autoHideDelay}s linear forwards`
             }}
