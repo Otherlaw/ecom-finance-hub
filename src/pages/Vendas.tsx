@@ -35,6 +35,7 @@ export default function Vendas() {
     consistencia, 
     canaisDisponiveis, 
     contasDisponiveis,
+    aliquotaImposto,
     isLoading 
   } = useVendas(filtros);
 
@@ -85,7 +86,7 @@ export default function Vendas() {
         ) : (
           <>
             {/* Cards de métricas */}
-            <VendasCards resumo={resumo} />
+            <VendasCards resumo={resumo} aliquotaImposto={aliquotaImposto} />
 
             {/* Bloco de consistência da API */}
             <VendasConsistencia 
