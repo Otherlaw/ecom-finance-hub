@@ -61,6 +61,11 @@ export interface VendaDetalhada {
   nao_conciliado: boolean;
   categoria_id: string | null;
   centro_custo_id: string | null;
+  // Novos campos de frete e ADS
+  frete_comprador: number;
+  frete_vendedor: number;
+  custo_ads: number;
+  tipo_envio: string | null;
 }
 
 export interface ResumoVendas {
@@ -70,6 +75,10 @@ export interface ResumoVendas {
   totalTarifas: number;
   totalTaxas: number;
   totalOutrosDescontos: number;
+  totalFreteComprador: number;
+  totalFreteVendedor: number;
+  totalCustoAds: number;
+  totalImpostoVenda: number;
   margemContribuicao: number;
   margemContribuicaoPercent: number;
   ticketMedio: number;
@@ -144,13 +153,16 @@ function aplicarFiltrosLocais(
   return result;
 }
 
-function calcularResumo(vendas: VendaDetalhada[]): ResumoVendas {
+function calcularResumo(vendas: VendaDetalhada[], aliquotaImposto: number = 0): ResumoVendas {
   let totalFaturamentoBruto = 0;
   let totalFaturamentoLiquido = 0;
   let totalCMV = 0;
   let totalTarifas = 0;
   let totalTaxas = 0;
   let totalOutrosDescontos = 0;
+  let totalFreteComprador = 0;
+  let totalFreteVendedor = 0;
+  let totalCustoAds = 0;
   let qtdItens = 0;
 
   const transacoesUnicas = new Set<string>();
@@ -162,12 +174,16 @@ function calcularResumo(vendas: VendaDetalhada[]): ResumoVendas {
     totalTarifas += v.tarifas;
     totalTaxas += v.taxas;
     totalOutrosDescontos += v.outros_descontos;
+    totalFreteComprador += (v as any).frete_comprador || 0;
+    totalFreteVendedor += (v as any).frete_vendedor || 0;
+    totalCustoAds += (v as any).custo_ads || 0;
     qtdItens += v.quantidade;
     transacoesUnicas.add(v.transacao_id);
   });
 
   const qtdTransacoes = transacoesUnicas.size;
-  const margemContribuicao = totalFaturamentoLiquido - totalCMV;
+  const totalImpostoVenda = totalFaturamentoBruto * (aliquotaImposto / 100);
+  const margemContribuicao = totalFaturamentoLiquido - totalCMV - totalImpostoVenda - totalFreteVendedor - totalCustoAds;
   const margemContribuicaoPercent =
     totalFaturamentoBruto > 0 ? (margemContribuicao / totalFaturamentoBruto) * 100 : 0;
   const ticketMedio = qtdTransacoes > 0 ? totalFaturamentoBruto / qtdTransacoes : 0;
@@ -179,6 +195,10 @@ function calcularResumo(vendas: VendaDetalhada[]): ResumoVendas {
     totalTarifas,
     totalTaxas,
     totalOutrosDescontos,
+    totalFreteComprador,
+    totalFreteVendedor,
+    totalCustoAds,
+    totalImpostoVenda,
     margemContribuicao,
     margemContribuicaoPercent,
     ticketMedio,
@@ -204,6 +224,24 @@ function calcularConsistencia(vendas: VendaDetalhada[]): ConsistenciaVendas {
 export function useVendas(filtros: VendasFiltros) {
   const { empresas } = useEmpresas();
   const empresaAtiva = empresas?.[0]; // Primeira empresa como padrão
+
+  // Buscar config fiscal da empresa
+  const { data: configFiscal } = useQuery({
+    queryKey: ["empresa-config-fiscal", empresaAtiva?.id],
+    queryFn: async () => {
+      if (!empresaAtiva?.id) return null;
+      const { data, error } = await supabase
+        .from("empresas_config_fiscal")
+        .select("aliquota_imposto_vendas")
+        .eq("empresa_id", empresaAtiva.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!empresaAtiva?.id,
+  });
+
+  const aliquotaImposto = configFiscal?.aliquota_imposto_vendas || 6; // Default 6% (Simples)
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["vendas", filtros, empresaAtiva?.id],
@@ -234,6 +272,10 @@ export function useVendas(filtros: VendasFiltros) {
           tipo_lancamento,
           categoria_id,
           centro_custo_id,
+          tipo_envio,
+          frete_comprador,
+          frete_vendedor,
+          custo_ads,
           marketplace_transaction_items (
             id,
             sku_marketplace,
@@ -306,7 +348,11 @@ export function useVendas(filtros: VendasFiltros) {
             nao_conciliado: t.status !== "conciliado",
             categoria_id: t.categoria_id,
             centro_custo_id: t.centro_custo_id,
-          });
+            frete_comprador: t.frete_comprador || 0,
+            frete_vendedor: t.frete_vendedor || 0,
+            custo_ads: t.custo_ads || 0,
+            tipo_envio: t.tipo_envio,
+          } as VendaDetalhada);
         } else {
           // Uma linha para cada item
           items.forEach((item: any) => {
@@ -354,7 +400,11 @@ export function useVendas(filtros: VendasFiltros) {
               nao_conciliado: t.status !== "conciliado",
               categoria_id: t.categoria_id,
               centro_custo_id: t.centro_custo_id,
-            });
+              frete_comprador: t.frete_comprador || 0,
+              frete_vendedor: t.frete_vendedor || 0,
+              custo_ads: t.custo_ads || 0,
+              tipo_envio: t.tipo_envio,
+            } as VendaDetalhada);
           });
         }
       });
@@ -370,8 +420,8 @@ export function useVendas(filtros: VendasFiltros) {
   );
 
   const resumo = useMemo(
-    () => calcularResumo(vendasFiltradas),
-    [vendasFiltradas]
+    () => calcularResumo(vendasFiltradas, aliquotaImposto),
+    [vendasFiltradas, aliquotaImposto]
   );
 
   const consistencia = useMemo(
@@ -402,6 +452,7 @@ export function useVendas(filtros: VendasFiltros) {
     consistencia,
     canaisDisponiveis,
     contasDisponiveis,
+    aliquotaImposto,
     isLoading,
     error,
     refetch,
