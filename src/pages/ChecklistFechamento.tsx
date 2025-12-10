@@ -1,159 +1,101 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { ModuleCard } from "@/components/ModuleCard";
 import { ChecklistFilters } from "@/components/checklist/ChecklistFilters";
 import { ChannelCard } from "@/components/checklist/ChannelCard";
-import { ChecklistDetail } from "@/components/checklist/ChecklistDetail";
+import { ChecklistDetailReal } from "@/components/checklist/ChecklistDetailReal";
 import { ConsolidatedView } from "@/components/checklist/ConsolidatedView";
+import { CriarChecklistModal } from "@/components/checklist/CriarChecklistModal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  ChecklistMensal,
-  ChecklistItem,
-  canaisMarketplace,
-  empresasMock,
-  templatesChecklist,
-  checklistsMock,
-  getMesNome,
-} from "@/lib/checklist-data";
+import { canaisMarketplace, getMesNome } from "@/lib/checklist-data";
+import { useChecklistsCanal, ChecklistCanalComItens } from "@/hooks/useChecklistsCanal";
+import { useEmpresas } from "@/hooks/useEmpresas";
+import { useUserEmpresas } from "@/hooks/useUserEmpresas";
 import { toast } from "@/hooks/use-toast";
-import { ClipboardCheck, LayoutGrid, Building2 } from "lucide-react";
+import { ClipboardCheck, LayoutGrid, Building2, Loader2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ChecklistFechamento() {
-  const [empresaId, setEmpresaId] = useState<string>(empresasMock[0].id);
+  const { empresas, isLoading: loadingEmpresas } = useEmpresas();
+  const { userEmpresas } = useUserEmpresas();
+  
+  // Estado inicial: primeira empresa do usuário
+  const [empresaId, setEmpresaId] = useState<string>("");
   const [canalId, setCanalId] = useState<string>("todos");
   const [mes, setMes] = useState<number>(new Date().getMonth() + 1);
   const [ano, setAno] = useState<number>(new Date().getFullYear());
-  const [checklists, setChecklists] = useState<ChecklistMensal[]>(checklistsMock);
-  const [selectedChecklist, setSelectedChecklist] = useState<ChecklistMensal | null>(null);
+  const [selectedChecklistId, setSelectedChecklistId] = useState<string | null>(null);
+  const [selectedChecklist, setSelectedChecklist] = useState<ChecklistCanalComItens | null>(null);
   const [activeTab, setActiveTab] = useState<string>("canais");
+  const [showCriarModal, setShowCriarModal] = useState(false);
+  const [canalParaCriar, setCanalParaCriar] = useState<string>("");
+
+  // Definir empresa inicial quando carregar
+  useEffect(() => {
+    if (!empresaId && userEmpresas && userEmpresas.length > 0) {
+      setEmpresaId(userEmpresas[0].empresa_id);
+    } else if (!empresaId && empresas && empresas.length > 0) {
+      setEmpresaId(empresas[0].id);
+    }
+  }, [empresas, userEmpresas, empresaId]);
+
+  // Hook de checklists
+  const { 
+    checklists, 
+    isLoading, 
+    refetch,
+    buscarChecklistCompleto,
+    calcularProgresso,
+    determinarStatus,
+  } = useChecklistsCanal({ empresaId, mes, ano });
 
   // Empresa selecionada
   const empresaSelecionada = useMemo(
-    () => empresasMock.find((e) => e.id === empresaId),
-    [empresaId]
+    () => empresas?.find((e) => e.id === empresaId),
+    [empresas, empresaId]
   );
 
-  // Canais disponíveis para a empresa
+  // Canais disponíveis (todos os canais ativos)
   const canaisDisponiveis = useMemo(
-    () => canaisMarketplace.filter((c) => empresaSelecionada?.canaisAtivos.includes(c.id)),
-    [empresaSelecionada]
+    () => canaisMarketplace.filter((c) => c.ativo),
+    []
   );
 
-  // Checklists filtrados
-  const checklistsFiltrados = useMemo(
-    () =>
-      checklists.filter(
-        (c) => c.empresaId === empresaId && c.mes === mes && c.ano === ano
-      ),
-    [checklists, empresaId, mes, ano]
-  );
-
-  // Criar novo checklist
-  const criarChecklist = (canalIdParam: string) => {
-    const template = templatesChecklist.find((t) => t.canalId === canalIdParam);
-    const canal = canaisMarketplace.find((c) => c.id === canalIdParam);
-
-    if (!template || !canal || !empresaSelecionada) {
-      toast({
-        title: "Erro",
-        description: "Não foi possível criar o checklist. Template não encontrado.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Verificar se já existe
-    const existe = checklists.find(
-      (c) =>
-        c.empresaId === empresaId &&
-        c.canalId === canalIdParam &&
-        c.mes === mes &&
-        c.ano === ano
-    );
-
-    if (existe) {
-      setSelectedChecklist(existe);
-      toast({
-        title: "Checklist existente",
-        description: "Um checklist para este canal e período já existe.",
-      });
-      return;
-    }
-
-    // Criar itens a partir do template
-    const novosItens: ChecklistItem[] = template.itens.map((item, index) => ({
-      id: `cli_${Date.now()}_${index}`,
-      checklistMensalId: "",
-      nome: item.nome,
-      descricao: item.descricao,
-      tipoEtapa: item.tipoEtapa,
-      ordem: item.ordem,
-      status: "pendente",
-      obrigatorio: item.obrigatorio,
-      exigeUpload: item.exigeUpload,
-      arquivos: [],
-    }));
-
-    const novoChecklist: ChecklistMensal = {
-      id: `cl_${empresaId}_${canalIdParam}_${mes}${ano}`,
-      empresaId,
-      empresaNome: empresaSelecionada.nome,
-      canalId: canalIdParam,
-      canalNome: canal.nome,
-      mes,
-      ano,
-      status: "pendente",
-      itens: novosItens,
-      criadoEm: new Date(),
-      atualizadoEm: new Date(),
-    };
-
-    // Atualizar IDs dos itens
-    novoChecklist.itens = novoChecklist.itens.map((item) => ({
-      ...item,
-      checklistMensalId: novoChecklist.id,
-    }));
-
-    setChecklists((prev) => [...prev, novoChecklist]);
-    setSelectedChecklist(novoChecklist);
-
-    toast({
-      title: "Checklist criado",
-      description: `Checklist de ${canal.nome} para ${getMesNome(mes)}/${ano} foi criado com sucesso.`,
-    });
-  };
-
-  // Atualizar checklist
-  const handleUpdateChecklist = (updatedChecklist: ChecklistMensal) => {
-    setChecklists((prev) =>
-      prev.map((c) => (c.id === updatedChecklist.id ? updatedChecklist : c))
-    );
-    setSelectedChecklist(updatedChecklist);
-  };
-
-  // Criar checklist geral (todos os canais)
-  const handleCriarChecklistGeral = () => {
-    if (!empresaSelecionada) return;
-
-    // Criar checklists para todos os canais que ainda não têm
-    empresaSelecionada.canaisAtivos.forEach((cId) => {
-      const existe = checklists.find(
-        (c) =>
-          c.empresaId === empresaId &&
-          c.canalId === cId &&
-          c.mes === mes &&
-          c.ano === ano
-      );
-
-      if (!existe) {
-        criarChecklist(cId);
+  // Carregar checklist completo quando selecionado
+  useEffect(() => {
+    const carregarChecklist = async () => {
+      if (selectedChecklistId) {
+        const checklistCompleto = await buscarChecklistCompleto(selectedChecklistId);
+        setSelectedChecklist(checklistCompleto);
+      } else {
+        setSelectedChecklist(null);
       }
-    });
+    };
+    carregarChecklist();
+  }, [selectedChecklistId, buscarChecklistCompleto]);
 
-    toast({
-      title: "Checklists criados",
-      description: `Checklists para todos os canais de ${getMesNome(mes)}/${ano} foram criados.`,
-    });
+  // Abrir modal de criação para canal específico
+  const handleCriarChecklist = (canalIdParam?: string) => {
+    setCanalParaCriar(canalIdParam || "");
+    setShowCriarModal(true);
+  };
+
+  // Callback após criar checklist
+  const handleChecklistCriado = (novoChecklistId: string) => {
+    setSelectedChecklistId(novoChecklistId);
+    refetch();
+  };
+
+  // Voltar para lista
+  const handleVoltar = () => {
+    setSelectedChecklistId(null);
+    setSelectedChecklist(null);
+    refetch();
+  };
+
+  // Buscar checklist de um canal
+  const getChecklistDoCanal = (cId: string) => {
+    return checklists.find((c) => c.canal_id === cId);
   };
 
   // Se um checklist está selecionado, mostrar detalhes
@@ -163,11 +105,28 @@ export default function ChecklistFechamento() {
         title="Checklist de Fechamento"
         subtitle="Gerenciamento de etapas por canal"
       >
-        <ChecklistDetail
+        <ChecklistDetailReal
           checklist={selectedChecklist}
-          onBack={() => setSelectedChecklist(null)}
-          onUpdate={handleUpdateChecklist}
+          onBack={handleVoltar}
+          onRefresh={() => {
+            // Recarregar o checklist após alterações
+            buscarChecklistCompleto(selectedChecklist.id).then(setSelectedChecklist);
+          }}
         />
+      </MainLayout>
+    );
+  }
+
+  // Loading enquanto carrega checklist selecionado
+  if (selectedChecklistId && !selectedChecklist) {
+    return (
+      <MainLayout
+        title="Checklist de Fechamento"
+        subtitle="Carregando..."
+      >
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
       </MainLayout>
     );
   }
@@ -187,7 +146,7 @@ export default function ChecklistFechamento() {
         onCanalChange={setCanalId}
         onMesChange={setMes}
         onAnoChange={setAno}
-        onCriarChecklist={handleCriarChecklistGeral}
+        onCriarChecklist={() => handleCriarChecklist()}
         showCriarButton={true}
       />
 
@@ -206,11 +165,17 @@ export default function ChecklistFechamento() {
 
         {/* Visão por Canal */}
         <TabsContent value="canais" className="mt-6">
-          {canalId !== "todos" ? (
+          {isLoading || loadingEmpresas ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-[200px] rounded-xl" />
+              ))}
+            </div>
+          ) : canalId !== "todos" ? (
             // Canal específico selecionado
             (() => {
               const canal = canaisMarketplace.find((c) => c.id === canalId);
-              const checklist = checklistsFiltrados.find((c) => c.canalId === canalId);
+              const checklist = getChecklistDoCanal(canalId);
 
               if (!canal) return null;
 
@@ -218,9 +183,9 @@ export default function ChecklistFechamento() {
                 <div className="max-w-md">
                   <ChannelCard
                     canal={canal}
-                    checklist={checklist}
-                    onClick={() => checklist && setSelectedChecklist(checklist)}
-                    onCriar={() => criarChecklist(canalId)}
+                    checklistReal={checklist}
+                    onClick={() => checklist && setSelectedChecklistId(checklist.id)}
+                    onCriar={() => handleCriarChecklist(canalId)}
                   />
                 </div>
               );
@@ -229,25 +194,25 @@ export default function ChecklistFechamento() {
             // Todos os canais
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {canaisDisponiveis.map((canal) => {
-                const checklist = checklistsFiltrados.find((c) => c.canalId === canal.id);
+                const checklist = getChecklistDoCanal(canal.id);
 
                 return (
                   <ChannelCard
                     key={canal.id}
                     canal={canal}
-                    checklist={checklist}
-                    onClick={() => checklist && setSelectedChecklist(checklist)}
-                    onCriar={() => criarChecklist(canal.id)}
+                    checklistReal={checklist}
+                    onClick={() => checklist && setSelectedChecklistId(checklist.id)}
+                    onCriar={() => handleCriarChecklist(canal.id)}
                   />
                 );
               })}
             </div>
           )}
 
-          {canaisDisponiveis.length === 0 && (
+          {canaisDisponiveis.length === 0 && !isLoading && (
             <ModuleCard title="Nenhum canal disponível" icon={ClipboardCheck}>
               <p className="text-muted-foreground">
-                A empresa selecionada não possui canais de marketplace configurados.
+                Não há canais de marketplace configurados.
               </p>
             </ModuleCard>
           )}
@@ -257,14 +222,42 @@ export default function ChecklistFechamento() {
         <TabsContent value="consolidado" className="mt-6">
           {empresaSelecionada && (
             <ConsolidatedView
-              empresa={empresaSelecionada}
+              empresa={{
+                id: empresaSelecionada.id,
+                nome: empresaSelecionada.razao_social,
+                cnpj: empresaSelecionada.cnpj,
+                canaisAtivos: canaisDisponiveis.map(c => c.id),
+              }}
               mes={mes}
               ano={ano}
-              checklists={checklistsFiltrados}
+              checklists={checklists.map(c => ({
+                id: c.id,
+                empresaId: c.empresa_id,
+                empresaNome: empresaSelecionada.razao_social,
+                canalId: c.canal_id,
+                canalNome: c.canal_nome,
+                mes: c.mes,
+                ano: c.ano,
+                status: c.status as any,
+                itens: [],
+                criadoEm: new Date(c.criado_em),
+                atualizadoEm: new Date(c.atualizado_em),
+              }))}
             />
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Modal de criação */}
+      <CriarChecklistModal
+        open={showCriarModal}
+        onOpenChange={setShowCriarModal}
+        empresaId={empresaId}
+        canalIdInicial={canalParaCriar}
+        mesInicial={mes}
+        anoInicial={ano}
+        onSuccess={handleChecklistCriado}
+      />
     </MainLayout>
   );
 }

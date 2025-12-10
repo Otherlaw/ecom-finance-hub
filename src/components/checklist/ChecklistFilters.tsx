@@ -1,6 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { empresasMock, canaisMarketplace, getMeses } from "@/lib/checklist-data";
+import { canaisMarketplace, getMeses } from "@/lib/checklist-data";
+import { useEmpresas } from "@/hooks/useEmpresas";
 import { Building2, Store, Calendar, Plus } from "lucide-react";
 
 interface ChecklistFiltersProps {
@@ -28,28 +29,28 @@ export function ChecklistFilters({
   onCriarChecklist,
   showCriarButton = true,
 }: ChecklistFiltersProps) {
+  const { empresas, isLoading } = useEmpresas();
+  
   const currentYear = new Date().getFullYear();
-  const anos = [currentYear - 1, currentYear, currentYear + 1];
-
-  // Filtrar canais ativos da empresa selecionada
-  const empresaSelecionada = empresasMock.find(e => e.id === empresaId);
-  const canaisDisponiveis = canaisMarketplace.filter(
-    c => !empresaSelecionada || empresaSelecionada.canaisAtivos.includes(c.id)
-  );
+  // Permitir anos passados (3 anos) + ano atual + 1 ano futuro
+  const anos = [];
+  for (let i = currentYear - 3; i <= currentYear + 1; i++) {
+    anos.push(i);
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-4 p-4 bg-card rounded-xl border border-border">
       {/* Empresa */}
       <div className="flex items-center gap-2">
         <Building2 className="h-4 w-4 text-muted-foreground" />
-        <Select value={empresaId} onValueChange={onEmpresaChange}>
+        <Select value={empresaId} onValueChange={onEmpresaChange} disabled={isLoading}>
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Selecione a empresa" />
           </SelectTrigger>
           <SelectContent>
-            {empresasMock.map((empresa) => (
+            {empresas?.map((empresa) => (
               <SelectItem key={empresa.id} value={empresa.id}>
-                {empresa.nome}
+                {empresa.nome_fantasia || empresa.razao_social}
               </SelectItem>
             ))}
           </SelectContent>
@@ -65,7 +66,7 @@ export function ChecklistFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos os canais</SelectItem>
-            {canaisDisponiveis.map((canal) => (
+            {canaisMarketplace.map((canal) => (
               <SelectItem key={canal.id} value={canal.id}>
                 <div className="flex items-center gap-2">
                   <div 
