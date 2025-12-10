@@ -2893,6 +2893,42 @@ export type Database = {
           },
         ]
       }
+      tutorial_progress: {
+        Row: {
+          atualizado_em: string | null
+          concluido: boolean | null
+          criado_em: string | null
+          data_conclusao: string | null
+          data_inicio: string | null
+          id: string
+          step_atual: number | null
+          tutorial_id: string
+          user_id: string
+        }
+        Insert: {
+          atualizado_em?: string | null
+          concluido?: boolean | null
+          criado_em?: string | null
+          data_conclusao?: string | null
+          data_inicio?: string | null
+          id?: string
+          step_atual?: number | null
+          tutorial_id: string
+          user_id: string
+        }
+        Update: {
+          atualizado_em?: string | null
+          concluido?: boolean | null
+          criado_em?: string | null
+          data_conclusao?: string | null
+          data_inicio?: string | null
+          id?: string
+          step_atual?: number | null
+          tutorial_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_empresas: {
         Row: {
           created_at: string | null
