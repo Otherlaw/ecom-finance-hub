@@ -37,6 +37,7 @@ import Auth from "./pages/Auth";
 import Perfil from "./pages/Perfil";
 import Planos from "./pages/Planos";
 import Integracoes from "./pages/Integracoes";
+import PatrimonioImobilizado from "./pages/PatrimonioImobilizado";
 import NotFound from "./pages/NotFound";
 import { AssistantWidget } from "./components/assistant/AssistantWidget";
 import { AssistantChatProvider } from "./contexts/AssistantChatContext";
@@ -59,6 +60,7 @@ const App = () => (
             <Route path="/fluxo-caixa" element={<FluxoCaixa />} />
             <Route path="/dre" element={<DRE />} />
             <Route path="/balanco" element={<Balanco />} />
+            <Route path="/patrimonio" element={<PatrimonioImobilizado />} />
             <Route path="/kpis" element={<KPIs />} />
             <Route path="/projecoes" element={<Projecoes />} />
             <Route path="/icms" element={<ICMS />} />

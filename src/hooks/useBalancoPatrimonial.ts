@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { usePatrimonio } from "./usePatrimonio";
 
 export interface DadosBalanco {
   ativo: {
@@ -13,6 +14,7 @@ export interface DadosBalanco {
     naoCirculante: {
       investimentos: number;
       imobilizado: number;
+      intangivel: number;
     };
   };
   passivo: {
@@ -27,8 +29,6 @@ export interface DadosBalanco {
     };
   };
   patrimonioLiquido: {
-    // K Inicial (Capital Inicial) - valor configurado na empresa
-    capitalInicial: number;
     capitalSocial: number;
     reservas: number;
     lucrosAcumulados: number;
@@ -36,26 +36,13 @@ export interface DadosBalanco {
 }
 
 export function useBalancoPatrimonial(empresaId?: string) {
+  // Hook de patrimônio para dados de bens e PL
+  const patrimonio = usePatrimonio(empresaId);
+
   return useQuery({
     queryKey: ["balanco-patrimonial", empresaId],
     queryFn: async (): Promise<DadosBalanco> => {
-      // Buscar capital_inicial da empresa (K Inicial)
-      let capitalInicial = 0;
-      if (empresaId) {
-        const { data: empresaData } = await supabase
-          .from("empresas")
-          .select("capital_inicial")
-          .eq("id", empresaId)
-          .maybeSingle();
-        capitalInicial = empresaData?.capital_inicial || 0;
-      } else {
-        // Se não tiver empresaId, buscar a primeira empresa do usuário
-        const { data: empresas } = await supabase
-          .from("empresas")
-          .select("capital_inicial")
-          .limit(1);
-        capitalInicial = empresas?.[0]?.capital_inicial || 0;
-      }
+      // ===== ATIVO CIRCULANTE =====
 
       // Buscar dados de estoque (quantidade * custo_medio)
       const { data: estoqueData } = await supabase
@@ -86,17 +73,20 @@ export function useBalancoPatrimonial(empresaId?: string) {
         return acc + (item.valor_credito || 0);
       }, 0);
 
+      // ===== PASSIVO CIRCULANTE =====
+
       // Buscar contas a pagar pendentes (fornecedores)
       const { data: contasPagar } = await supabase
         .from("contas_a_pagar")
-        .select("valor_em_aberto, tipo_lancamento")
+        .select("valor_em_aberto")
         .in("status", ["em_aberto", "parcialmente_pago"]);
       
       const valorContasPagar = (contasPagar || []).reduce((acc, item) => {
         return acc + (item.valor_em_aberto || 0);
       }, 0);
 
-      // Buscar saldo de movimentos financeiros para caixa
+      // ===== CAIXA (Movimentos Financeiros) =====
+
       const { data: movimentos } = await supabase
         .from("movimentos_financeiros")
         .select("tipo, valor");
@@ -109,18 +99,15 @@ export function useBalancoPatrimonial(empresaId?: string) {
         }
       }, 0);
 
-      // Valores configuráveis (futuramente podem vir da empresa também)
-      const reservas = 0;
-      const investimentos = 0;
-      const imobilizado = 0;
+      // ===== BENS PATRIMONIAIS (do hook usePatrimonio) =====
+      const totaisBens = patrimonio.calcularTotaisBens();
+
+      // ===== PATRIMÔNIO LÍQUIDO (do hook usePatrimonio) =====
+      const saldosPL = patrimonio.calcularSaldosPL();
+
+      // Valores fixos (futuramente podem vir de configuração ou outras tabelas)
       const obrigacoesFiscais = 0;
       const obrigacoesTrabalhistas = 0;
-
-      // Calcular lucros acumulados
-      // PL = K Inicial + Lucros Acumulados (simplificado)
-      const totalAtivos = Math.max(0, saldoCaixa) + valorEstoque + valorContasReceber + valorCreditoIcms + investimentos + imobilizado;
-      const totalPassivos = valorContasPagar + obrigacoesFiscais + obrigacoesTrabalhistas;
-      const lucrosAcumulados = totalAtivos - totalPassivos - capitalInicial - reservas;
 
       return {
         ativo: {
@@ -132,8 +119,9 @@ export function useBalancoPatrimonial(empresaId?: string) {
             creditosRecuperar: 0,
           },
           naoCirculante: {
-            investimentos,
-            imobilizado,
+            investimentos: totaisBens.totalInvestimentos,
+            imobilizado: totaisBens.totalImobilizado,
+            intangivel: totaisBens.totalIntangivel,
           },
         },
         passivo: {
@@ -148,12 +136,12 @@ export function useBalancoPatrimonial(empresaId?: string) {
           },
         },
         patrimonioLiquido: {
-          capitalInicial, // K Inicial vindo da configuração da empresa
-          capitalSocial: 0, // Mantido para compatibilidade (agora usamos capitalInicial)
-          reservas,
-          lucrosAcumulados,
+          capitalSocial: saldosPL.capitalSocial,
+          reservas: saldosPL.reservas,
+          lucrosAcumulados: saldosPL.lucrosAcumulados,
         },
       };
     },
+    enabled: !patrimonio.isLoading, // Aguarda o hook de patrimônio carregar
   });
 }

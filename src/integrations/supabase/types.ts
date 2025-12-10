@@ -2301,6 +2301,109 @@ export type Database = {
           },
         ]
       }
+      patrimonio_bens: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          criado_em: string
+          data_aquisicao: string
+          depreciacao_acumulada: number | null
+          descricao: string
+          empresa_id: string
+          grupo_balanco: string
+          id: string
+          observacoes: string | null
+          tipo: string
+          valor_aquisicao: number
+          valor_residual: number | null
+          vida_util_meses: number | null
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          criado_em?: string
+          data_aquisicao: string
+          depreciacao_acumulada?: number | null
+          descricao: string
+          empresa_id: string
+          grupo_balanco: string
+          id?: string
+          observacoes?: string | null
+          tipo: string
+          valor_aquisicao: number
+          valor_residual?: number | null
+          vida_util_meses?: number | null
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          criado_em?: string
+          data_aquisicao?: string
+          depreciacao_acumulada?: number | null
+          descricao?: string
+          empresa_id?: string
+          grupo_balanco?: string
+          id?: string
+          observacoes?: string | null
+          tipo?: string
+          valor_aquisicao?: number
+          valor_residual?: number | null
+          vida_util_meses?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "patrimonio_bens_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      patrimonio_pl_movimentos: {
+        Row: {
+          atualizado_em: string
+          criado_em: string
+          data_referencia: string
+          descricao: string | null
+          empresa_id: string
+          grupo_pl: string
+          id: string
+          tipo: string
+          valor: number
+        }
+        Insert: {
+          atualizado_em?: string
+          criado_em?: string
+          data_referencia: string
+          descricao?: string | null
+          empresa_id: string
+          grupo_pl: string
+          id?: string
+          tipo: string
+          valor: number
+        }
+        Update: {
+          atualizado_em?: string
+          criado_em?: string
+          data_referencia?: string
+          descricao?: string | null
+          empresa_id?: string
+          grupo_pl?: string
+          id?: string
+          tipo?: string
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "patrimonio_pl_movimentos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       produto_import_jobs: {
         Row: {
           arquivo_nome: string

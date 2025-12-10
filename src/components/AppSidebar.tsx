@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, CalendarCheck, Wallet, CreditCard as CreditCardIcon, FileText, Scale, TrendingUp, LineChart, Receipt, RefreshCw, ClipboardCheck, Package, ShoppingCart, CreditCard, Truck, Calculator, Settings, ChevronLeft, ChevronRight, Building2, Users, LogOut, Bot, FolderTree, List, Sparkles, PenLine, BarChart3, Store, Link2 } from "lucide-react";
+import { LayoutDashboard, CalendarCheck, Wallet, CreditCard as CreditCardIcon, FileText, Scale, TrendingUp, LineChart, Receipt, RefreshCw, ClipboardCheck, Package, ShoppingCart, CreditCard, Truck, Calculator, Settings, ChevronLeft, ChevronRight, Building2, Users, LogOut, Bot, FolderTree, List, Sparkles, PenLine, BarChart3, Store, Link2, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -37,6 +37,10 @@ const mainNavItems: NavItem[] = [{
   title: "Balanço Patrimonial",
   href: "/balanco",
   icon: Scale
+}, {
+  title: "Patrimônio & Imobilizado",
+  href: "/patrimonio",
+  icon: Landmark
 }, {
   title: "KPIs",
   href: "/kpis",
