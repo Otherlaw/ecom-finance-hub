@@ -4,8 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ModuleCard } from "@/components/ModuleCard";
 import { EtapaFormModal } from "./EtapaFormModal";
-import { ChecklistCanalComItens, ChecklistCanalItem, useChecklistsCanal } from "@/hooks/useChecklistsCanal";
-import { getStatusLabel, getStatusColor, getMesNome } from "@/lib/checklist-data";
+import { ChecklistCanalComItens, ChecklistCanalItem, useChecklistsCanal, calcularProgressoChecklist, getStatusLabel, getStatusColor } from "@/hooks/useChecklistsCanal";
+import { getMesNome } from "@/lib/checklist-data";
 import {
   ArrowLeft,
   Download,
@@ -63,9 +63,9 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
   const [etapaParaExcluir, setEtapaParaExcluir] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 
-  const { atualizarEtapa, excluirEtapa, calcularProgresso } = useChecklistsCanal();
+  const { atualizarEtapa, excluirEtapa } = useChecklistsCanal();
 
-  const progresso = calcularProgresso(checklist.itens);
+  const progresso = calcularProgressoChecklist(checklist.itens);
   const IconComponent = iconMap[checklist.canal_id] || Store;
 
   const handleStatusChange = async (itemId: string, newStatus: string) => {

@@ -486,38 +486,6 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
     },
   });
 
-  // Função auxiliar para calcular progresso
-  const calcularProgresso = (itens: ChecklistCanalItem[]) => {
-    const obrigatorios = itens.filter(i => i.obrigatorio);
-    const concluidos = obrigatorios.filter(i => i.status === "concluido" || i.status === "nao_aplicavel");
-    const percentual = obrigatorios.length > 0 
-      ? Math.round((concluidos.length / obrigatorios.length) * 100) 
-      : 0;
-
-    return {
-      total: obrigatorios.length,
-      concluidos: concluidos.length,
-      percentual,
-    };
-  };
-
-  // Função auxiliar para determinar status do checklist
-  const determinarStatus = (itens: ChecklistCanalItem[]): string => {
-    if (itens.length === 0) return "pendente";
-
-    const obrigatorios = itens.filter(i => i.obrigatorio);
-    const todosObrigatoriosConcluidos = obrigatorios.every(
-      i => i.status === "concluido" || i.status === "nao_aplicavel"
-    );
-
-    if (todosObrigatoriosConcluidos) return "concluido";
-
-    const algumEmAndamento = itens.some(i => i.status === "em_andamento" || i.status === "concluido");
-    if (algumEmAndamento) return "em_andamento";
-
-    return "pendente";
-  };
-
   return {
     checklists,
     isLoading,
@@ -533,7 +501,69 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
     marcarArquivoProcessado,
     removerArquivo,
     excluirChecklist,
-    calcularProgresso,
-    determinarStatus,
   };
+}
+
+// ============= FUNÇÕES UTILITÁRIAS EXPORTADAS =============
+
+/**
+ * Calcula o progresso de um checklist baseado nos itens obrigatórios
+ */
+export function calcularProgressoChecklist(itens: ChecklistCanalItem[]) {
+  const obrigatorios = itens.filter(i => i.obrigatorio);
+  const concluidos = obrigatorios.filter(i => i.status === "concluido" || i.status === "nao_aplicavel");
+  const percentual = obrigatorios.length > 0 
+    ? Math.round((concluidos.length / obrigatorios.length) * 100) 
+    : 0;
+
+  return {
+    total: obrigatorios.length,
+    concluidos: concluidos.length,
+    percentual,
+  };
+}
+
+/**
+ * Determina o status geral de um checklist baseado nos itens
+ */
+export function determinarStatusChecklist(itens: ChecklistCanalItem[]): string {
+  if (itens.length === 0) return "pendente";
+
+  const obrigatorios = itens.filter(i => i.obrigatorio);
+  const todosObrigatoriosConcluidos = obrigatorios.every(
+    i => i.status === "concluido" || i.status === "nao_aplicavel"
+  );
+
+  if (todosObrigatoriosConcluidos && obrigatorios.length > 0) return "concluido";
+
+  const algumEmAndamento = itens.some(i => i.status === "em_andamento" || i.status === "concluido");
+  if (algumEmAndamento) return "em_andamento";
+
+  return "pendente";
+}
+
+/**
+ * Retorna label para o status
+ */
+export function getStatusLabel(status: string): string {
+  switch (status) {
+    case "concluido": return "Concluído";
+    case "em_andamento": return "Em Andamento";
+    case "pendente": return "Pendente";
+    case "nao_aplicavel": return "N/A";
+    default: return status;
+  }
+}
+
+/**
+ * Retorna classes de cor para o status
+ */
+export function getStatusColor(status: string): string {
+  switch (status) {
+    case "concluido": return "bg-success/10 text-success border-success/30";
+    case "em_andamento": return "bg-warning/10 text-warning border-warning/30";
+    case "pendente": return "bg-muted text-muted-foreground";
+    case "nao_aplicavel": return "bg-secondary text-secondary-foreground";
+    default: return "bg-muted text-muted-foreground";
+  }
 }
