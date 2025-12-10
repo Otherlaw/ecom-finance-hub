@@ -14,7 +14,8 @@ function getCorsHeaders(req: Request) {
   // Check if origin matches allowed list or is a Lovable preview domain
   const isAllowed = ALLOWED_ORIGINS.includes(origin) || 
     origin.endsWith('.lovable.app') || 
-    origin.endsWith('.lovable.dev');
+    origin.endsWith('.lovable.dev') ||
+    origin.endsWith('.lovableproject.com');
   
   return {
     'Access-Control-Allow-Origin': isAllowed ? origin : ALLOWED_ORIGINS[0],
