@@ -62,7 +62,7 @@ export default function ICMS() {
 
   const selectedEmpresa = useMemo(() => {
     if (empresaFilter === "todas") return null;
-    return empresas.find(e => e.id === empresaFilter);
+    return (empresas ?? []).find(e => e.id === empresaFilter);
   }, [empresaFilter, empresas]);
 
   const isSimples = selectedEmpresa?.regime_tributario === 'simples_nacional';
@@ -70,7 +70,7 @@ export default function ICMS() {
 
   // Filter creditos
   const filteredCreditos = useMemo(() => {
-    return creditos.filter(c => {
+    return (creditos ?? []).filter(c => {
       const matchEmpresa = empresaFilter === "todas" || c.empresa_id === empresaFilter;
       const matchTipo = tipoFilter === "todos" || c.tipo_credito === tipoFilter;
       const matchOrigem = origemFilter === "todas" || c.origem_credito === origemFilter;
@@ -92,9 +92,9 @@ export default function ICMS() {
 
   // Get resumos per empresa (only regime normal)
   const resumosEmpresa = useMemo(() => {
-    const empresasNormais = empresas.filter(e => canUseICMSCredit(e.regime_tributario as any));
+    const empresasNormais = (empresas ?? []).filter(e => canUseICMSCredit(e.regime_tributario as any));
     return empresasNormais.map(emp => {
-      const creditosEmp = creditos.filter(c => 
+      const creditosEmp = (creditos ?? []).filter(c => 
         c.empresa_id === emp.id && c.tipo_credito === 'compensavel' && c.status_credito === 'ativo'
       );
       const total = creditosEmp.reduce((sum, c) => sum + Number(c.valor_credito), 0);
