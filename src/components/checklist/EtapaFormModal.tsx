@@ -51,6 +51,7 @@ export function EtapaFormModal({
   const [tipoEtapa, setTipoEtapa] = useState("outro");
   const [obrigatorio, setObrigatorio] = useState(true);
   const [exigeUpload, setExigeUpload] = useState(false);
+  const [bloqueiaFechamento, setBloqueiaFechamento] = useState(true);
 
   const { criarEtapa, atualizarEtapa } = useChecklistsCanal();
 
@@ -64,12 +65,14 @@ export function EtapaFormModal({
       setTipoEtapa(etapa.tipo_etapa);
       setObrigatorio(etapa.obrigatorio);
       setExigeUpload(etapa.exige_upload);
+      setBloqueiaFechamento(etapa.bloqueia_fechamento ?? true);
     } else {
       setNome("");
       setDescricao("");
       setTipoEtapa("outro");
       setObrigatorio(true);
       setExigeUpload(false);
+      setBloqueiaFechamento(true);
     }
   }, [etapa, open]);
 
@@ -85,6 +88,7 @@ export function EtapaFormModal({
           tipoEtapa,
           obrigatorio,
           exigeUpload,
+          bloqueiaFechamento,
         });
       } else {
         await criarEtapa.mutateAsync({
@@ -94,6 +98,7 @@ export function EtapaFormModal({
           tipoEtapa,
           obrigatorio,
           exigeUpload,
+          bloqueiaFechamento,
         });
       }
 
@@ -186,6 +191,20 @@ export function EtapaFormModal({
                 id="exigeUpload"
                 checked={exigeUpload}
                 onCheckedChange={setExigeUpload}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="bloqueiaFechamento">Bloqueia fechamento mensal</Label>
+                <p className="text-xs text-muted-foreground">
+                  Se marcado, esta etapa precisa estar concluída para encerrar o mês
+                </p>
+              </div>
+              <Switch
+                id="bloqueiaFechamento"
+                checked={bloqueiaFechamento}
+                onCheckedChange={setBloqueiaFechamento}
               />
             </div>
           </div>

@@ -10,12 +10,21 @@ import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
-import { useChecklistsCanal, ChecklistCanalComItens, calcularProgressoChecklist, determinarStatusChecklist } from "@/hooks/useChecklistsCanal";
+import { 
+  useChecklistsCanal, 
+  ChecklistCanalComItens, 
+  calcularProgressoChecklist, 
+  determinarStatusChecklist,
+  calcularResumoFechamento,
+  determinarStatusFechamento,
+  listarPendenciasFechamento,
+} from "@/hooks/useChecklistsCanal";
 import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import { useMemo, useState, useEffect } from "react";
 import { format, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useNavigate } from "react-router-dom";
 import {
   CalendarCheck,
   Download,
@@ -29,11 +38,24 @@ import {
   TrendingDown,
   Loader2,
   RefreshCw,
+  ListChecks,
+  ExternalLink,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 
 const formatCurrency = (value: number): string => {
   return new Intl.NumberFormat("pt-BR", {
@@ -44,11 +66,14 @@ const formatCurrency = (value: number): string => {
 
 export default function Fechamento() {
   const { openChat } = useAssistantChatContext();
+  const navigate = useNavigate();
   
   const [selectedPeriod, setSelectedPeriod] = useState(() => {
     const now = new Date();
     return format(now, "yyyy-MM");
   });
+
+  const [showConfirmacaoFechamento, setShowConfirmacaoFechamento] = useState(false);
 
   const [ano, mes] = selectedPeriod.split("-");
   const periodoInicio = `${ano}-${mes}-01`;
@@ -225,7 +250,20 @@ export default function Fechamento() {
     return { status: 'pending', concluidos, total };
   }, [checklistsCompletos]);
 
-  // Status do fechamento
+  // Calcular resumo do fechamento mensal (baseado em etapas críticas)
+  const resumoFechamento = useMemo(() => {
+    return calcularResumoFechamento(checklistsCompletos);
+  }, [checklistsCompletos]);
+
+  const statusFechamentoGeral = useMemo(() => {
+    return determinarStatusFechamento(resumoFechamento);
+  }, [resumoFechamento]);
+
+  const pendenciasFechamento = useMemo(() => {
+    return listarPendenciasFechamento(checklistsCompletos);
+  }, [checklistsCompletos]);
+
+  // Status do fechamento (etapas gerais)
   const statusFechamento = useMemo(() => {
     const conciliacaoOk = mktResumo.conciliadas > 0 && mktResumo.pendentes === 0;
     const contasPagarOk = contasPagarResumo.totalVencido === 0;
@@ -245,6 +283,14 @@ export default function Fechamento() {
       { step: "DRE consolidado", status: dreOk ? "done" : "pending" },
     ];
   }, [mktResumo, contasPagarResumo, contasReceberResumo, hasDREData, transacoesCount, marketplaceTransacoes, checklistCanalStatus]);
+
+  // Handler para encerrar mês
+  const handleEncerrarMes = () => {
+    // Por enquanto apenas fecha o modal e mostra toast
+    // Futuramente pode incluir lógica de persistência do fechamento
+    setShowConfirmacaoFechamento(false);
+    toast.success(`Fechamento de ${periodoLabel} registrado com sucesso!`);
+  };
 
   const handleAskAssistant = () => {
     openChat('Explique os números deste fechamento mensal', {
@@ -311,6 +357,94 @@ export default function Fechamento() {
         </div>
       ) : (
         <>
+          {/* Card de Status do Fechamento Mensal */}
+          <div className="p-6 rounded-xl bg-card border border-border mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-bold">Fechamento de {periodoLabel}</h2>
+                <p className="text-sm text-muted-foreground">
+                  Status consolidado dos checklists por canal
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge className={
+                  statusFechamentoGeral === 'concluido' 
+                    ? "bg-success/10 text-success border-success/30" 
+                    : statusFechamentoGeral === 'em_andamento'
+                    ? "bg-warning/10 text-warning border-warning/30"
+                    : "bg-muted text-muted-foreground"
+                }>
+                  {statusFechamentoGeral === 'concluido' ? 'Concluído' :
+                   statusFechamentoGeral === 'em_andamento' ? 'Em Andamento' : 'Pendente'}
+                </Badge>
+                <Button
+                  onClick={() => setShowConfirmacaoFechamento(true)}
+                  className={statusFechamentoGeral === 'concluido' ? 'bg-success hover:bg-success/90' : ''}
+                  variant={statusFechamentoGeral === 'concluido' ? 'default' : 'outline'}
+                >
+                  <ListChecks className="h-4 w-4 mr-2" />
+                  Encerrar Mês
+                </Button>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="text-center p-4 rounded-lg bg-secondary/50 border border-border">
+                <p className="text-3xl font-bold">{resumoFechamento.totalCanaisConcluidos}/{resumoFechamento.totalCanaisComChecklist}</p>
+                <p className="text-xs text-muted-foreground">Canais concluídos</p>
+              </div>
+              <div className="text-center p-4 rounded-lg bg-secondary/50 border border-border">
+                <p className="text-3xl font-bold">{resumoFechamento.totalEtapasCriticasConcluidas}/{resumoFechamento.totalEtapasCriticas}</p>
+                <p className="text-xs text-muted-foreground">Etapas críticas</p>
+              </div>
+              <div className="text-center p-4 rounded-lg bg-secondary/50 border border-border">
+                <p className="text-3xl font-bold">{resumoFechamento.percentualConclusao}%</p>
+                <p className="text-xs text-muted-foreground">Progresso geral</p>
+              </div>
+              <div className="flex items-center justify-center p-4">
+                <Progress value={resumoFechamento.percentualConclusao} className="h-3 w-full" />
+              </div>
+            </div>
+          </div>
+
+          {/* Quadro de Pendências do Fechamento */}
+          {pendenciasFechamento.length > 0 && (
+            <ModuleCard
+              title="Pendências para este mês"
+              description={`${pendenciasFechamento.length} etapas críticas pendentes`}
+              icon={AlertTriangle}
+              className="mb-6"
+            >
+              <div className="space-y-2">
+                {pendenciasFechamento.slice(0, 10).map((p) => (
+                  <div key={p.etapaId} className="flex items-center justify-between p-3 rounded-lg bg-warning/5 border border-warning/20">
+                    <div className="flex items-center gap-3">
+                      <AlertTriangle className="h-4 w-4 text-warning" />
+                      <div>
+                        <span className="font-medium">{p.canalNome}</span>
+                        <span className="mx-2 text-muted-foreground">–</span>
+                        <span>{p.etapaNome}</span>
+                      </div>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => navigate(`/checklist-fechamento?checklistId=${p.checklistId}`)}
+                    >
+                      <ExternalLink className="h-4 w-4 mr-1" />
+                      Ir para checklist
+                    </Button>
+                  </div>
+                ))}
+                {pendenciasFechamento.length > 10 && (
+                  <p className="text-sm text-muted-foreground text-center pt-2">
+                    + {pendenciasFechamento.length - 10} outras pendências
+                  </p>
+                )}
+              </div>
+            </ModuleCard>
+          )}
+
           {/* KPIs principais */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <KPICard
@@ -591,6 +725,43 @@ export default function Fechamento() {
           </div>
         </>
       )}
+
+      {/* Modal de Confirmação de Fechamento */}
+      <AlertDialog open={showConfirmacaoFechamento} onOpenChange={setShowConfirmacaoFechamento}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendenciasFechamento.length > 0 
+                ? "Etapas pendentes no checklist" 
+                : "Confirmar fechamento do mês"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              {pendenciasFechamento.length > 0 ? (
+                <div className="space-y-2">
+                  <p>Ainda existem <strong>{pendenciasFechamento.length}</strong> etapas críticas pendentes.</p>
+                  <div className="max-h-40 overflow-y-auto space-y-1 mt-2 text-sm">
+                    {pendenciasFechamento.map(p => (
+                      <div key={p.etapaId} className="flex gap-2">
+                        <span className="text-warning">•</span>
+                        <span>{p.canalNome} – {p.etapaNome}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-2">Deseja realmente encerrar o mês?</p>
+                </div>
+              ) : (
+                <p>Todas as etapas críticas foram concluídas. Confirma o fechamento de {periodoLabel}?</p>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar para os checklists</AlertDialogCancel>
+            <AlertDialogAction onClick={handleEncerrarMes}>
+              {pendenciasFechamento.length > 0 ? "Encerrar mesmo assim" : "Confirmar fechamento"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </MainLayout>
   );
 }

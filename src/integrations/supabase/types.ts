@@ -268,6 +268,7 @@ export type Database = {
       checklist_canal_itens: {
         Row: {
           atualizado_em: string
+          bloqueia_fechamento: boolean
           checklist_id: string
           criado_em: string
           data_hora_conclusao: string | null
@@ -284,6 +285,7 @@ export type Database = {
         }
         Insert: {
           atualizado_em?: string
+          bloqueia_fechamento?: boolean
           checklist_id: string
           criado_em?: string
           data_hora_conclusao?: string | null
@@ -300,6 +302,7 @@ export type Database = {
         }
         Update: {
           atualizado_em?: string
+          bloqueia_fechamento?: boolean
           checklist_id?: string
           criado_em?: string
           data_hora_conclusao?: string | null
