@@ -263,99 +263,118 @@ export default function Fechamento() {
     return listarPendenciasFechamento(checklistsCompletos);
   }, [checklistsCompletos]);
 
-  // Status do fechamento (etapas gerais) - Critérios realistas baseados nos dados
+  // Status do fechamento (etapas gerais) - Critérios baseados em dados REAIS do banco
   const statusFechamento = useMemo(() => {
-    // 1. Importação de dados - verificar múltiplas fontes E processamento
+    // 1. IMPORTAÇÃO DE DADOS - verificar fontes reais com contagem
     const temImportacoesMarketplace = marketplaceTransacoes.length > 0;
     const temMovimentosFinanceiros = fluxoResumo.totalEntradas > 0 || fluxoResumo.totalSaidas > 0;
-    const temContasPagar = (contasPagarResumo.totalEmAberto + contasPagarResumo.totalPago) > 0;
-    const temContasReceber = (contasReceberResumo.totalEmAberto + contasReceberResumo.totalRecebido) > 0;
-    const fontesComDados = [temImportacoesMarketplace, temMovimentosFinanceiros, temContasPagar, temContasReceber].filter(Boolean).length;
+    const temContasPagar = contasPagar.length > 0;
+    const temContasReceber = contasReceber.length > 0;
+    const fontes = [
+      { nome: "Marketplace", tem: temImportacoesMarketplace },
+      { nome: "Fluxo", tem: temMovimentosFinanceiros },
+      { nome: "Contas Pagar", tem: temContasPagar },
+      { nome: "Contas Receber", tem: temContasReceber },
+    ];
+    const fontesComDados = fontes.filter(f => f.tem).length;
     
-    // Calcular proporção de marketplace não conciliado para usar em vários critérios
-    const mktNaoConciliadas = mktResumo.pendentes + marketplaceTransacoes.filter(t => t.status === "importado").length;
-    const proporcaoNaoConciliada = marketplaceTransacoes.length > 0 
-      ? mktNaoConciliadas / marketplaceTransacoes.length 
-      : 0;
+    // Usar mktResumo.pendentes diretamente (já inclui importado + pendente após correção do hook)
+    const mktPendentes = mktResumo.pendentes;
+    const mktConciliadas = mktResumo.conciliadas;
+    const mktTotal = mktResumo.total;
+    const proporcaoNaoConciliada = mktTotal > 0 ? mktPendentes / mktTotal : 0;
     
-    // Importação só "done" se fontes importadas E marketplace processado (>90% conciliado)
+    // Importação: done se >=3 fontes E mkt >90% conciliado; partial se alguma fonte; pending se nada
     const importacaoStatus = fontesComDados >= 3 && proporcaoNaoConciliada < 0.1 ? "done" 
-      : fontesComDados >= 3 && proporcaoNaoConciliada < 0.5 ? "partial"
       : fontesComDados >= 1 ? "partial" 
       : "pending";
-    const importacaoDetail = proporcaoNaoConciliada > 0.1 && temImportacoesMarketplace
-      ? `${fontesComDados}/4 fontes (${Math.round(proporcaoNaoConciliada * 100)}% mkt pendente)`
-      : `${fontesComDados}/4 fontes importadas`;
+    const importacaoDetail = temImportacoesMarketplace
+      ? `${marketplaceTransacoes.length} mkt, ${contasPagar.length} CP, ${contasReceber.length} CR`
+      : `${fontesComDados}/4 fontes`;
 
-    // 2. Conciliação marketplace - usar pendentesReais já calculado acima
-    const conciliacaoStatus = mktResumo.conciliadas > 0 && mktNaoConciliadas === 0 ? "done"
-      : mktResumo.conciliadas > 0 ? "partial" 
-      : mktNaoConciliadas > 0 ? "attention"
+    // 2. CONCILIAÇÃO MARKETPLACE - X/Y transações conciliadas
+    const conciliacaoStatus = mktConciliadas > 0 && mktPendentes === 0 ? "done"
+      : mktConciliadas > 0 ? "partial" 
+      : mktPendentes > 0 ? "attention"
       : "pending";
-    const conciliacaoDetail = mktNaoConciliadas > 0 
-      ? `${mktNaoConciliadas} pendente${mktNaoConciliadas > 1 ? 's' : ''}` 
-      : mktResumo.conciliadas > 0 ? `${mktResumo.conciliadas} conciliadas` : undefined;
+    const conciliacaoDetail = mktTotal > 0 
+      ? `${mktConciliadas}/${mktTotal} conciliadas`
+      : undefined;
 
-    // 3. Contas a pagar - considerar proporção de vencidos
-    const totalContasPagar = contasPagarResumo.totalEmAberto + contasPagarResumo.totalPago;
-    const percentVencidoPagar = contasPagarResumo.totalEmAberto > 0 
-      ? (contasPagarResumo.totalVencido / contasPagarResumo.totalEmAberto) * 100 
-      : 0;
-    const contasPagarStatus = contasPagarResumo.totalEmAberto === 0 && contasPagarResumo.totalPago > 0 ? "done"
-      : percentVencidoPagar > 20 ? "attention"
-      : contasPagarResumo.totalPago > 0 ? "partial"
-      : totalContasPagar === 0 ? "pending"
+    // 3. CONTAS A PAGAR - contagem de títulos vencidos
+    const qtdContasPagar = contasPagar.length;
+    const vencidosPagar = contasPagar.filter(c => 
+      c.status !== 'pago' && c.status !== 'cancelado' && new Date(c.data_vencimento) < new Date()
+    ).length;
+    const pagosPagar = contasPagar.filter(c => c.status === 'pago').length;
+    
+    const contasPagarStatus = qtdContasPagar === 0 ? "pending"
+      : vencidosPagar > 0 ? "attention"
+      : pagosPagar === qtdContasPagar ? "done"
       : "partial";
-    const contasPagarDetail = contasPagarResumo.totalVencido > 0 
-      ? `${formatCurrency(contasPagarResumo.totalVencido)} vencido`
-      : contasPagarResumo.totalEmAberto > 0 
-        ? `${formatCurrency(contasPagarResumo.totalEmAberto)} em aberto`
-        : contasPagarResumo.totalPago > 0 ? "Todas pagas" : undefined;
+    const contasPagarDetail = qtdContasPagar === 0 
+      ? "Nenhum título"
+      : vencidosPagar > 0 
+        ? `${vencidosPagar} vencidos / ${qtdContasPagar} títulos`
+        : `${pagosPagar}/${qtdContasPagar} pagos`;
 
-    // 4. Contas a receber - mesma lógica
-    const totalContasReceber = contasReceberResumo.totalEmAberto + contasReceberResumo.totalRecebido;
-    const percentVencidoReceber = contasReceberResumo.totalEmAberto > 0 
-      ? (contasReceberResumo.totalVencido / contasReceberResumo.totalEmAberto) * 100 
-      : 0;
-    const contasReceberStatus = contasReceberResumo.totalEmAberto === 0 && contasReceberResumo.totalRecebido > 0 ? "done"
-      : percentVencidoReceber > 20 ? "attention"
-      : contasReceberResumo.totalRecebido > 0 ? "partial"
-      : totalContasReceber === 0 ? "pending"
+    // 4. CONTAS A RECEBER - contagem de títulos vencidos
+    const qtdContasReceber = contasReceber.length;
+    const vencidosReceber = contasReceber.filter(c => 
+      c.status !== 'recebido' && c.status !== 'cancelado' && new Date(c.data_vencimento) < new Date()
+    ).length;
+    const recebidosReceber = contasReceber.filter(c => c.status === 'recebido').length;
+    
+    const contasReceberStatus = qtdContasReceber === 0 ? "pending"
+      : vencidosReceber > 0 ? "attention"
+      : recebidosReceber === qtdContasReceber ? "done"
       : "partial";
-    const contasReceberDetail = contasReceberResumo.totalVencido > 0 
-      ? `${formatCurrency(contasReceberResumo.totalVencido)} vencido`
-      : contasReceberResumo.totalEmAberto > 0 
-        ? `${formatCurrency(contasReceberResumo.totalEmAberto)} em aberto`
-        : contasReceberResumo.totalRecebido > 0 ? "Todas recebidas" : undefined;
+    const contasReceberDetail = qtdContasReceber === 0 
+      ? "Nenhum título"
+      : vencidosReceber > 0 
+        ? `${vencidosReceber} vencidos / ${qtdContasReceber} títulos`
+        : recebidosReceber === qtdContasReceber 
+          ? "Todas recebidas"
+          : `${recebidosReceber}/${qtdContasReceber} recebidos`;
 
-    // 5. DRE consolidado - verificar dados E categorização E marketplace processado
+    // 5. CHECKLIST POR CANAL - usar resumoFechamento para etapas críticas
+    const totalEtapasCriticas = resumoFechamento.totalEtapasCriticas;
+    const etapasCriticasConcluidas = resumoFechamento.totalEtapasCriticasConcluidas;
+    const canaisConcluidos = resumoFechamento.totalCanaisConcluidos;
+    const totalCanais = resumoFechamento.totalCanaisComChecklist;
+    
+    const checklistStatus = totalCanais === 0 ? "pending"
+      : canaisConcluidos === totalCanais && totalEtapasCriticas === etapasCriticasConcluidas ? "done"
+      : etapasCriticasConcluidas > 0 || canaisConcluidos > 0 ? "partial"
+      : "pending";
+    const checklistDetail = totalCanais === 0 
+      ? "Nenhum checklist criado"
+      : `${canaisConcluidos}/${totalCanais} canais (${etapasCriticasConcluidas}/${totalEtapasCriticas} críticas)`;
+
+    // 6. DRE CONSOLIDADO - vinculado ao processamento do marketplace
     const temDadosDRE = hasDREData && transacoesCount > 0;
     const temCategorizacao = (dreData?.receitaBruta ?? 0) > 0 || (dreData?.totalDespesas ?? 0) > 0;
-    // DRE só "done" se marketplace majoritariamente conciliado (dados alimentam DRE)
+    
     const dreStatus = temDadosDRE && temCategorizacao && proporcaoNaoConciliada < 0.1 ? "done"
       : temDadosDRE && temCategorizacao && proporcaoNaoConciliada < 0.5 ? "partial"
-      : mktNaoConciliadas > 0 ? "attention"
+      : mktPendentes > 0 ? "attention"
       : temDadosDRE ? "partial"
       : "pending";
-    const dreDetail = mktNaoConciliadas > 0 
-      ? `${mktNaoConciliadas} transações mkt não conciliadas`
+    const dreDetail = mktPendentes > 0 
+      ? `${mktPendentes} mkt não conciliadas`
       : temCategorizacao 
-        ? `${transacoesCount} transações categorizadas`
-        : transacoesCount > 0 ? `${transacoesCount} transações pendentes` : undefined;
+        ? `DRE com ${transacoesCount} lançamentos`
+        : transacoesCount > 0 ? `${transacoesCount} pendentes de categoria` : undefined;
 
     return [
       { step: "Importação de dados", status: importacaoStatus, detail: importacaoDetail },
       { step: "Conciliação marketplace", status: conciliacaoStatus, detail: conciliacaoDetail },
       { step: "Contas a pagar", status: contasPagarStatus, detail: contasPagarDetail },
       { step: "Contas a receber", status: contasReceberStatus, detail: contasReceberDetail },
-      { 
-        step: "Checklist por Canal", 
-        status: checklistCanalStatus.status,
-        detail: checklistCanalStatus.total > 0 ? `${checklistCanalStatus.concluidos}/${checklistCanalStatus.total} canais` : undefined
-      },
+      { step: "Checklist por Canal", status: checklistStatus, detail: checklistDetail },
       { step: "DRE consolidado", status: dreStatus, detail: dreDetail },
     ];
-  }, [mktResumo, contasPagarResumo, contasReceberResumo, hasDREData, transacoesCount, marketplaceTransacoes, checklistCanalStatus, fluxoResumo, dreData]);
+  }, [mktResumo, contasPagar, contasReceber, hasDREData, transacoesCount, marketplaceTransacoes, resumoFechamento, fluxoResumo, dreData]);
 
   // Handler para encerrar mês
   const handleEncerrarMes = () => {
@@ -754,48 +773,60 @@ export default function Fechamento() {
           {/* Status do Fechamento */}
           <div className="mt-6">
             <ModuleCard title="Status do Fechamento" description="Etapas do mês" icon={CalendarCheck}>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                {statusFechamento.map((item, index) => (
-                  <div
-                    key={index}
-                    className={`p-4 rounded-lg border text-center ${
-                      item.status === "done"
-                        ? "bg-success/5 border-success/20"
-                        : item.status === "partial"
-                        ? "bg-info/5 border-info/20"
-                        : item.status === "attention"
-                        ? "bg-warning/5 border-warning/20"
-                        : "bg-muted/50 border-border"
-                    }`}
-                  >
-                    {item.status === "done" ? (
-                      <Check className="h-6 w-6 mx-auto mb-2 text-success" />
-                    ) : item.status === "partial" ? (
-                      <Clock className="h-6 w-6 mx-auto mb-2 text-info" />
-                    ) : item.status === "attention" ? (
-                      <AlertTriangle className="h-6 w-6 mx-auto mb-2 text-warning" />
-                    ) : (
-                      <Clock className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
-                    )}
-                    <p className="text-sm font-medium">{item.step}</p>
-                    <Badge
-                      className={`mt-2 ${
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                {isLoading ? (
+                  // Skeleton loading state
+                  Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="p-4 rounded-lg border bg-muted/50 border-border text-center animate-pulse">
+                      <div className="h-6 w-6 mx-auto mb-2 bg-muted rounded-full" />
+                      <div className="h-4 w-24 mx-auto mb-2 bg-muted rounded" />
+                      <div className="h-5 w-16 mx-auto bg-muted rounded" />
+                      <div className="h-3 w-20 mx-auto mt-1 bg-muted rounded" />
+                    </div>
+                  ))
+                ) : (
+                  statusFechamento.map((item, index) => (
+                    <div
+                      key={index}
+                      className={`p-4 rounded-lg border text-center transition-all ${
                         item.status === "done"
-                          ? "bg-success/10 text-success"
+                          ? "bg-success/5 border-success/20"
                           : item.status === "partial"
-                          ? "bg-info/10 text-info"
+                          ? "bg-info/5 border-info/20"
                           : item.status === "attention"
-                          ? "bg-warning/10 text-warning"
-                          : "bg-muted text-muted-foreground"
+                          ? "bg-warning/5 border-warning/20"
+                          : "bg-muted/50 border-border"
                       }`}
                     >
-                      {item.status === "done" ? "Concluído" : item.status === "partial" ? "Parcial" : item.status === "attention" ? "Atenção" : "Pendente"}
-                    </Badge>
-                    {item.detail && (
-                      <p className="text-xs text-muted-foreground mt-1">{item.detail}</p>
-                    )}
-                  </div>
-                ))}
+                      {item.status === "done" ? (
+                        <Check className="h-6 w-6 mx-auto mb-2 text-success" />
+                      ) : item.status === "partial" ? (
+                        <Clock className="h-6 w-6 mx-auto mb-2 text-info" />
+                      ) : item.status === "attention" ? (
+                        <AlertTriangle className="h-6 w-6 mx-auto mb-2 text-warning" />
+                      ) : (
+                        <Clock className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
+                      )}
+                      <p className="text-sm font-medium">{item.step}</p>
+                      <Badge
+                        className={`mt-2 ${
+                          item.status === "done"
+                            ? "bg-success/10 text-success"
+                            : item.status === "partial"
+                            ? "bg-info/10 text-info"
+                            : item.status === "attention"
+                            ? "bg-warning/10 text-warning"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {item.status === "done" ? "Concluído" : item.status === "partial" ? "Parcial" : item.status === "attention" ? "Atenção" : "Pendente"}
+                      </Badge>
+                      {item.detail && (
+                        <p className="text-xs text-muted-foreground mt-1">{item.detail}</p>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             </ModuleCard>
           </div>
