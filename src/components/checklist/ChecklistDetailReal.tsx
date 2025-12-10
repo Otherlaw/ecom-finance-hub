@@ -173,7 +173,7 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
         title="Etapas do Checklist"
         description={`${checklist.itens.length} etapas no total`}
         icon={FileText}
-        action={
+        actions={
           <Button onClick={() => { setEtapaParaEditar(null); setShowEtapaModal(true); }} size="sm" className="gap-2">
             <Plus className="h-4 w-4" />
             Nova Etapa
