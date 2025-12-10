@@ -150,8 +150,46 @@ export function VendasFiltrosPanel({
             </Select>
           </div>
 
+          {/* Tipo de Envio */}
+          <div className="space-y-2">
+            <Label className="text-xs">Tipo de Envio</Label>
+            <Select
+              value={filtros.tipoEnvio || "todos"}
+              onValueChange={(v) => onFiltroChange("tipoEnvio", v === "todos" ? "" : v)}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="full">Full</SelectItem>
+                <SelectItem value="flex">Flex</SelectItem>
+                <SelectItem value="coleta">Coleta</SelectItem>
+                <SelectItem value="retirada">Retirada</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Teve ADS */}
+          <div className="space-y-2">
+            <Label className="text-xs">ADS</Label>
+            <Select
+              value={filtros.teveAds || "todos"}
+              onValueChange={(v) => onFiltroChange("teveAds", v)}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="com">Com ADS</SelectItem>
+                <SelectItem value="sem">Sem ADS</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Checkboxes */}
-          <div className="space-y-3 md:col-span-2 lg:col-span-3">
+          <div className="space-y-3 md:col-span-2 lg:col-span-4">
             <Label className="text-xs">Filtros especiais</Label>
             <div className="flex flex-wrap gap-4">
               <label className="flex items-center gap-2 text-sm cursor-pointer">

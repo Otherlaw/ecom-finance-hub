@@ -121,7 +121,7 @@ export default function Vendas() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <VendasTable vendas={vendas} />
+                <VendasTable vendas={vendas} aliquotaImposto={aliquotaImposto} />
               </CardContent>
             </Card>
           </>
