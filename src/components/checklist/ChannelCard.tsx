@@ -9,6 +9,7 @@ import {
   getStatusColor,
   getChecklistStatus 
 } from "@/lib/checklist-data";
+import { ChecklistCanal } from "@/hooks/useChecklistsCanal";
 import { 
   ShoppingBag, 
   Store, 
@@ -24,6 +25,7 @@ import {
 interface ChannelCardProps {
   canal: CanalMarketplace;
   checklist?: ChecklistMensal;
+  checklistReal?: ChecklistCanal;
   onClick: () => void;
   onCriar?: () => void;
 }
@@ -35,12 +37,28 @@ const iconMap: Record<string, React.ElementType> = {
   Music,
 };
 
-export function ChannelCard({ canal, checklist, onClick, onCriar }: ChannelCardProps) {
+export function ChannelCard({ canal, checklist, checklistReal, onClick, onCriar }: ChannelCardProps) {
   const IconComponent = iconMap[canal.icone] || Store;
   
-  const hasChecklist = !!checklist;
-  const progresso = hasChecklist ? calcularProgresso(checklist.itens) : { concluidos: 0, total: 0, percentual: 0 };
-  const status = hasChecklist ? getChecklistStatus(checklist.itens) : 'pendente';
+  // Usar dados reais se disponível, senão mock
+  const hasChecklist = !!(checklistReal || checklist);
+  
+  let progresso = { concluidos: 0, total: 0, percentual: 0 };
+  let status: string = 'pendente';
+  
+  if (checklist) {
+    progresso = calcularProgresso(checklist.itens);
+    status = getChecklistStatus(checklist.itens);
+  } else if (checklistReal) {
+    // Para dados reais, usamos o status salvo no banco
+    status = checklistReal.status;
+    // Se não temos os itens aqui, mostramos progresso baseado no status
+    if (status === 'concluido') {
+      progresso = { concluidos: 1, total: 1, percentual: 100 };
+    } else if (status === 'em_andamento') {
+      progresso = { concluidos: 0, total: 1, percentual: 50 };
+    }
+  }
 
   const getStatusIcon = () => {
     switch (status) {
@@ -81,9 +99,9 @@ export function ChannelCard({ canal, checklist, onClick, onCriar }: ChannelCardP
         </div>
 
         {hasChecklist && (
-          <Badge className={getStatusColor(status)}>
+          <Badge className={getStatusColor(status as any)}>
             {getStatusIcon()}
-            <span className="ml-1">{getStatusLabel(status)}</span>
+            <span className="ml-1">{getStatusLabel(status as any)}</span>
           </Badge>
         )}
       </div>

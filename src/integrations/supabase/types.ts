@@ -218,6 +218,112 @@ export type Database = {
           },
         ]
       }
+      checklist_canal_arquivos: {
+        Row: {
+          checklist_item_id: string
+          data_upload: string
+          id: string
+          nome_arquivo: string
+          processado: boolean
+          resultado_processamento: Json | null
+          tamanho_bytes: number | null
+          tipo_mime: string | null
+          transacoes_importadas: number | null
+          url: string
+        }
+        Insert: {
+          checklist_item_id: string
+          data_upload?: string
+          id?: string
+          nome_arquivo: string
+          processado?: boolean
+          resultado_processamento?: Json | null
+          tamanho_bytes?: number | null
+          tipo_mime?: string | null
+          transacoes_importadas?: number | null
+          url: string
+        }
+        Update: {
+          checklist_item_id?: string
+          data_upload?: string
+          id?: string
+          nome_arquivo?: string
+          processado?: boolean
+          resultado_processamento?: Json | null
+          tamanho_bytes?: number | null
+          tipo_mime?: string | null
+          transacoes_importadas?: number | null
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_canal_arquivos_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_canal_itens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      checklist_canal_itens: {
+        Row: {
+          atualizado_em: string
+          checklist_id: string
+          criado_em: string
+          data_hora_conclusao: string | null
+          descricao: string | null
+          exige_upload: boolean
+          id: string
+          nome: string
+          obrigatorio: boolean
+          observacoes: string | null
+          ordem: number
+          responsavel: string | null
+          status: string
+          tipo_etapa: string
+        }
+        Insert: {
+          atualizado_em?: string
+          checklist_id: string
+          criado_em?: string
+          data_hora_conclusao?: string | null
+          descricao?: string | null
+          exige_upload?: boolean
+          id?: string
+          nome: string
+          obrigatorio?: boolean
+          observacoes?: string | null
+          ordem?: number
+          responsavel?: string | null
+          status?: string
+          tipo_etapa?: string
+        }
+        Update: {
+          atualizado_em?: string
+          checklist_id?: string
+          criado_em?: string
+          data_hora_conclusao?: string | null
+          descricao?: string | null
+          exige_upload?: boolean
+          id?: string
+          nome?: string
+          obrigatorio?: boolean
+          observacoes?: string | null
+          ordem?: number
+          responsavel?: string | null
+          status?: string
+          tipo_etapa?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_canal_itens_checklist_id_fkey"
+            columns: ["checklist_id"]
+            isOneToOne: false
+            referencedRelation: "checklists_canal"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       checklist_etapas: {
         Row: {
           ano: number
@@ -311,6 +417,53 @@ export type Database = {
             columns: ["etapa_id"]
             isOneToOne: false
             referencedRelation: "checklist_etapas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      checklists_canal: {
+        Row: {
+          ano: number
+          atualizado_em: string
+          canal_id: string
+          canal_nome: string
+          criado_em: string
+          descricao: string | null
+          empresa_id: string
+          id: string
+          mes: number
+          status: string
+        }
+        Insert: {
+          ano: number
+          atualizado_em?: string
+          canal_id: string
+          canal_nome: string
+          criado_em?: string
+          descricao?: string | null
+          empresa_id: string
+          id?: string
+          mes: number
+          status?: string
+        }
+        Update: {
+          ano?: number
+          atualizado_em?: string
+          canal_id?: string
+          canal_nome?: string
+          criado_em?: string
+          descricao?: string | null
+          empresa_id?: string
+          id?: string
+          mes?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklists_canal_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
             referencedColumns: ["id"]
           },
         ]
