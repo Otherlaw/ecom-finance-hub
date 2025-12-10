@@ -38,6 +38,7 @@ import Perfil from "./pages/Perfil";
 import Planos from "./pages/Planos";
 import Integracoes from "./pages/Integracoes";
 import PatrimonioImobilizado from "./pages/PatrimonioImobilizado";
+import Vendas from "./pages/Vendas";
 import NotFound from "./pages/NotFound";
 import { AssistantWidget } from "./components/assistant/AssistantWidget";
 import { AssistantChatProvider } from "./contexts/AssistantChatContext";
@@ -53,6 +54,7 @@ const App = () => (
         <AssistantChatProvider>
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/vendas" element={<Vendas />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/perfil" element={<Perfil />} />
             <Route path="/planos" element={<Planos />} />

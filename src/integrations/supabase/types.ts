@@ -1946,6 +1946,13 @@ export type Database = {
             referencedRelation: "marketplace_transactions"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "marketplace_transaction_items_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "vw_vendas_detalhadas"
+            referencedColumns: ["transacao_id"]
+          },
         ]
       }
       marketplace_transactions: {
@@ -2981,7 +2988,79 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      vw_vendas_detalhadas: {
+        Row: {
+          anuncio_id: string | null
+          canal: string | null
+          canal_venda: string | null
+          categoria_id: string | null
+          centro_custo_id: string | null
+          cmv_margem_bruta: number | null
+          cmv_margem_percentual: number | null
+          cmv_total: number | null
+          conta_nome: string | null
+          custo_calculado: number | null
+          custo_medio: number | null
+          data_repasse: string | null
+          data_venda: string | null
+          descricao: string | null
+          descricao_item: string | null
+          empresa_id: string | null
+          item_id: string | null
+          nao_conciliado: boolean | null
+          outros_descontos: number | null
+          pedido_id: string | null
+          preco_total: number | null
+          preco_unitario: number | null
+          produto_id: string | null
+          produto_nome: string | null
+          quantidade: number | null
+          referencia_externa: string | null
+          sem_categoria: boolean | null
+          sem_custo: boolean | null
+          sem_produto_vinculado: boolean | null
+          sku_interno: string | null
+          sku_marketplace: string | null
+          status: string | null
+          tarifas: number | null
+          taxas: number | null
+          tipo_lancamento: string | null
+          tipo_transacao: string | null
+          transacao_id: string | null
+          valor_bruto: number | null
+          valor_liquido: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_transaction_items_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_transactions_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_financeiras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_transactions_centro_custo_id_fkey"
+            columns: ["centro_custo_id"]
+            isOneToOne: false
+            referencedRelation: "centros_de_custo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_transactions_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       has_financial_access: { Args: { _user_id: string }; Returns: boolean }

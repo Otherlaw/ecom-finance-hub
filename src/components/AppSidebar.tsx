@@ -18,6 +18,11 @@ const mainNavItems: NavItem[] = [{
   href: "/",
   icon: LayoutDashboard
 }, {
+  title: "Vendas",
+  href: "/vendas",
+  icon: Store,
+  badge: "NOVO"
+}, {
   title: "Fechamento Mensal",
   href: "/fechamento",
   icon: CalendarCheck
