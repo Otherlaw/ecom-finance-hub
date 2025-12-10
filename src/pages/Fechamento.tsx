@@ -265,26 +265,35 @@ export default function Fechamento() {
 
   // Status do fechamento (etapas gerais) - Critérios realistas baseados nos dados
   const statusFechamento = useMemo(() => {
-    // 1. Importação de dados - verificar múltiplas fontes
+    // 1. Importação de dados - verificar múltiplas fontes E processamento
     const temImportacoesMarketplace = marketplaceTransacoes.length > 0;
     const temMovimentosFinanceiros = fluxoResumo.totalEntradas > 0 || fluxoResumo.totalSaidas > 0;
     const temContasPagar = (contasPagarResumo.totalEmAberto + contasPagarResumo.totalPago) > 0;
     const temContasReceber = (contasReceberResumo.totalEmAberto + contasReceberResumo.totalRecebido) > 0;
     const fontesComDados = [temImportacoesMarketplace, temMovimentosFinanceiros, temContasPagar, temContasReceber].filter(Boolean).length;
     
-    const importacaoStatus = fontesComDados >= 3 ? "done" 
+    // Calcular proporção de marketplace não conciliado para usar em vários critérios
+    const mktNaoConciliadas = mktResumo.pendentes + marketplaceTransacoes.filter(t => t.status === "importado").length;
+    const proporcaoNaoConciliada = marketplaceTransacoes.length > 0 
+      ? mktNaoConciliadas / marketplaceTransacoes.length 
+      : 0;
+    
+    // Importação só "done" se fontes importadas E marketplace processado (>90% conciliado)
+    const importacaoStatus = fontesComDados >= 3 && proporcaoNaoConciliada < 0.1 ? "done" 
+      : fontesComDados >= 3 && proporcaoNaoConciliada < 0.5 ? "partial"
       : fontesComDados >= 1 ? "partial" 
       : "pending";
-    const importacaoDetail = `${fontesComDados}/4 fontes importadas`;
+    const importacaoDetail = proporcaoNaoConciliada > 0.1 && temImportacoesMarketplace
+      ? `${fontesComDados}/4 fontes (${Math.round(proporcaoNaoConciliada * 100)}% mkt pendente)`
+      : `${fontesComDados}/4 fontes importadas`;
 
-    // 2. Conciliação marketplace - incluir "importado" como pendente real
-    const pendentesReais = mktResumo.pendentes + (marketplaceTransacoes.filter(t => t.status === "importado").length);
-    const conciliacaoStatus = mktResumo.conciliadas > 0 && pendentesReais === 0 ? "done"
+    // 2. Conciliação marketplace - usar pendentesReais já calculado acima
+    const conciliacaoStatus = mktResumo.conciliadas > 0 && mktNaoConciliadas === 0 ? "done"
       : mktResumo.conciliadas > 0 ? "partial" 
-      : pendentesReais > 0 ? "attention"
+      : mktNaoConciliadas > 0 ? "attention"
       : "pending";
-    const conciliacaoDetail = pendentesReais > 0 
-      ? `${pendentesReais} pendente${pendentesReais > 1 ? 's' : ''}` 
+    const conciliacaoDetail = mktNaoConciliadas > 0 
+      ? `${mktNaoConciliadas} pendente${mktNaoConciliadas > 1 ? 's' : ''}` 
       : mktResumo.conciliadas > 0 ? `${mktResumo.conciliadas} conciliadas` : undefined;
 
     // 3. Contas a pagar - considerar proporção de vencidos
@@ -319,15 +328,20 @@ export default function Fechamento() {
         ? `${formatCurrency(contasReceberResumo.totalEmAberto)} em aberto`
         : contasReceberResumo.totalRecebido > 0 ? "Todas recebidas" : undefined;
 
-    // 5. DRE consolidado - verificar se há dados E categorização
+    // 5. DRE consolidado - verificar dados E categorização E marketplace processado
     const temDadosDRE = hasDREData && transacoesCount > 0;
     const temCategorizacao = (dreData?.receitaBruta ?? 0) > 0 || (dreData?.totalDespesas ?? 0) > 0;
-    const dreStatus = temDadosDRE && temCategorizacao ? "done"
-      : transacoesCount > 0 ? "partial"
+    // DRE só "done" se marketplace majoritariamente conciliado (dados alimentam DRE)
+    const dreStatus = temDadosDRE && temCategorizacao && proporcaoNaoConciliada < 0.1 ? "done"
+      : temDadosDRE && temCategorizacao && proporcaoNaoConciliada < 0.5 ? "partial"
+      : mktNaoConciliadas > 0 ? "attention"
+      : temDadosDRE ? "partial"
       : "pending";
-    const dreDetail = temCategorizacao 
-      ? `${transacoesCount} transações categorizadas`
-      : transacoesCount > 0 ? `${transacoesCount} transações pendentes` : undefined;
+    const dreDetail = mktNaoConciliadas > 0 
+      ? `${mktNaoConciliadas} transações mkt não conciliadas`
+      : temCategorizacao 
+        ? `${transacoesCount} transações categorizadas`
+        : transacoesCount > 0 ? `${transacoesCount} transações pendentes` : undefined;
 
     return [
       { step: "Importação de dados", status: importacaoStatus, detail: importacaoDetail },
@@ -777,6 +791,9 @@ export default function Fechamento() {
                     >
                       {item.status === "done" ? "Concluído" : item.status === "partial" ? "Parcial" : item.status === "attention" ? "Atenção" : "Pendente"}
                     </Badge>
+                    {item.detail && (
+                      <p className="text-xs text-muted-foreground mt-1">{item.detail}</p>
+                    )}
                   </div>
                 ))}
               </div>
