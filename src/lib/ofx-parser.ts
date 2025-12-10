@@ -202,6 +202,32 @@ function parseAmount(amountStr: string | null): number {
 }
 
 /**
+ * Infer transaction type from amount and TRNTYPE field
+ * Considers both the sign of the amount AND the OFX type field
+ */
+function inferirTipoTransacao(amount: number, trnType: string | null): 'debito' | 'credito' {
+  // 1) Se valor negativo, é definitivamente débito
+  if (amount < 0) return 'debito';
+  
+  const tipo = (trnType || '').toUpperCase().trim();
+  
+  // 2) Tipos OFX que são débitos (saídas) - mesmo com valor positivo
+  const tiposDebito = [
+    'DEBIT', 'DBIT', 'PAYMENT', 'FEE', 'SRVCHG', 'ATM', 'POS', 
+    'CHECK', 'DIRECTDEBIT', 'REPEATPMT', 'XFER', 'CASH', 'HOLD',
+    'OTHER' // OTHER geralmente é débito em bancos brasileiros
+  ];
+  if (tiposDebito.includes(tipo)) return 'debito';
+  
+  // 3) Tipos OFX que são créditos (entradas)
+  const tiposCredito = ['CREDIT', 'CRDT', 'DEP', 'DIRECTDEP', 'PAYROLL', 'INT', 'DIV'];
+  if (tiposCredito.includes(tipo)) return 'credito';
+  
+  // 4) Fallback pelo sinal do valor (se chegou aqui, valor é positivo)
+  return 'credito';
+}
+
+/**
  * Extract single transaction from STMTTRN block
  */
 function parseTransaction(transBlock: string): OFXTransaction | null {
@@ -238,13 +264,16 @@ function parseTransaction(transBlock: string): OFXTransaction | null {
   
   const parsedDate = parseOfxDate(dtPosted);
   
+  // Use inferirTipoTransacao que considera TRNTYPE além do sinal
+  const tipoInferido = inferirTipoTransacao(amount, trnType);
+  
   return {
     date: parsedDate,
     amount: Math.abs(amount),
     description: cleanDescription(description),
     name: name ? cleanDescription(name) : null,
     fitid: fitid || null,
-    type: amount < 0 ? 'debito' : 'credito',
+    type: tipoInferido,
     transactionType: trnType || null,
     checkNum: checkNum || null,
     refNum: refNum || null,

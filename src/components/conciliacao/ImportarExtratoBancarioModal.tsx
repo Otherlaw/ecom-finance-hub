@@ -74,6 +74,25 @@ export function ImportarExtratoBancarioModal({
     }
   };
 
+  // Infere tipo de transação para CSV/XLSX considerando coluna de tipo e sinal do valor
+  const inferirTipoCSV = (valor: number, tipoRaw: string): 'debito' | 'credito' => {
+    // Se valor negativo, é definitivamente débito
+    if (valor < 0) return 'debito';
+    
+    const tipo = (tipoRaw || '').toUpperCase().trim();
+    
+    // Padrões brasileiros para débito
+    const padroesDebito = ['D', 'DEB', 'DEBITO', 'DÉBITO', 'SAIDA', 'SAÍDA', '-', 'PAGAMENTO', 'SAQUE'];
+    if (padroesDebito.includes(tipo)) return 'debito';
+    
+    // Padrões brasileiros para crédito  
+    const padroesCredito = ['C', 'CRED', 'CREDITO', 'CRÉDITO', 'ENTRADA', '+', 'DEPOSITO', 'DEPÓSITO', 'RECEBIMENTO'];
+    if (padroesCredito.includes(tipo)) return 'credito';
+    
+    // Fallback pelo sinal do valor
+    return valor > 0 ? 'credito' : 'debito';
+  };
+
   // Mapeia linhas do CSV/XLSX para TransacaoPreview[]
   const mapLinhasParaTransacoesPreview = (linhas: any[]): TransacaoPreview[] => {
     const transacoes: TransacaoPreview[] = [];
@@ -84,6 +103,11 @@ export function ImportarExtratoBancarioModal({
       const descricao = linha.descricao || linha.Descricao || linha.DESCRICAO || linha["Descrição"] || linha.description || "";
       const valorStr = String(linha.valor || linha.Valor || linha.VALOR || linha.amount || linha.Amount || "0");
       const documento = linha.documento || linha.Documento || linha.DOCUMENTO || linha.doc || null;
+      
+      // Detectar coluna de tipo para inferência inteligente
+      const tipoRaw = linha.tipo || linha.Tipo || linha.TIPO || 
+                      linha.natureza || linha.Natureza || linha.NATUREZA ||
+                      linha["Crédito/Débito"] || linha["C/D"] || linha["Tipo Transação"] || "";
 
       const valor = parseFloat(valorStr.replace(",", ".").replace(/[^\d.-]/g, ""));
 
@@ -99,13 +123,16 @@ export function ImportarExtratoBancarioModal({
         }
 
         const hash = `${dataFormatada}_${valor}_${descricao}_${documento || ""}`;
+        
+        // Usa inferência inteligente considerando coluna de tipo
+        const tipoInferido = inferirTipoCSV(valor, tipoRaw);
 
         transacoes.push({
           data_transacao: dataFormatada,
           descricao: String(descricao),
           documento: documento ? String(documento) : null,
           valor: Math.abs(valor),
-          tipo_lancamento: valor < 0 ? "debito" : "credito",
+          tipo_lancamento: tipoInferido,
           referencia_externa: hash,
         });
       }
@@ -139,8 +166,8 @@ export function ImportarExtratoBancarioModal({
             data_transacao: t.date,
             descricao: t.description,
             documento: t.fitid || t.checkNum || null,
-            valor: Math.abs(t.amount),
-            tipo_lancamento: t.amount < 0 ? "debito" : "credito",
+            valor: t.amount, // Valor já é absoluto do parser
+            tipo_lancamento: t.type, // Usa o tipo inferido pelo parser (considera TRNTYPE)
             referencia_externa: hash,
           };
         });
@@ -326,9 +353,25 @@ export function ImportarExtratoBancarioModal({
                       <TableCell className="max-w-[200px] truncate">{t.descricao}</TableCell>
                       <TableCell>{t.documento || "-"}</TableCell>
                       <TableCell className="text-center">
-                        <Badge variant={t.tipo_lancamento === "credito" ? "default" : "destructive"}>
-                          {t.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
-                        </Badge>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTransacoesPreview((atual) =>
+                              atual.map((item, i) =>
+                                i === index
+                                  ? { ...item, tipo_lancamento: item.tipo_lancamento === 'credito' ? 'debito' : 'credito' }
+                                  : item
+                              )
+                            );
+                          }}
+                          className={`px-3 py-1 rounded-full text-xs font-medium border transition cursor-pointer ${
+                            t.tipo_lancamento === "credito"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800"
+                              : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800"
+                          }`}
+                        >
+                          {t.tipo_lancamento === "credito" ? "↑ Crédito" : "↓ Débito"}
+                        </button>
                       </TableCell>
                       <TableCell className={`text-right font-medium ${
                         t.tipo_lancamento === "credito" ? "text-success" : "text-destructive"
@@ -344,7 +387,7 @@ export function ImportarExtratoBancarioModal({
             <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
               <AlertCircle className="h-4 w-4 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                Transações duplicadas serão automaticamente ignoradas com base na data, valor e descrição.
+                Transações duplicadas serão ignoradas. 💡 <strong>Clique no tipo (Crédito/Débito)</strong> para alternar caso a detecção automática esteja incorreta.
               </p>
             </div>
           </div>
