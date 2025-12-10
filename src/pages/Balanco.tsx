@@ -202,6 +202,10 @@ export default function Balanco() {
                   <span className="text-sm text-muted-foreground">Imobilizado</span>
                   <span className="font-medium">{formatCurrency(balanco.ativo.naoCirculante.imobilizado)}</span>
                 </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Intangível</span>
+                  <span className="font-medium">{formatCurrency(balanco.ativo.naoCirculante.intangivel)}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -249,10 +253,9 @@ export default function Balanco() {
             icon={Landmark}
           >
             <div className="space-y-3 pl-4 border-l-2 border-success/20">
-              {/* K Inicial (Capital Inicial) - valor configurado na empresa */}
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">K Inicial (Capital Inicial)</span>
-                <span className="font-medium">{formatCurrency(balanco.patrimonioLiquido.capitalInicial)}</span>
+                <span className="text-sm text-muted-foreground">Capital Social</span>
+                <span className="font-medium">{formatCurrency(balanco.patrimonioLiquido.capitalSocial)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Reservas</span>
