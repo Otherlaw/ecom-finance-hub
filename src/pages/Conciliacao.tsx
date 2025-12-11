@@ -184,10 +184,19 @@ function BancariaTab() {
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
   const [busca, setBusca] = useState("");
 
-  // Período padrão: mês atual
+  // Período selecionável (padrão: mês atual)
   const hoje = new Date();
-  const periodoInicio = format(startOfMonth(hoje), "yyyy-MM-dd");
-  const periodoFim = format(endOfMonth(hoje), "yyyy-MM-dd");
+  const [mesSelecionado, setMesSelecionado] = useState(hoje.getMonth());
+  const [anoSelecionado, setAnoSelecionado] = useState(hoje.getFullYear());
+  
+  const periodoInicio = format(new Date(anoSelecionado, mesSelecionado, 1), "yyyy-MM-dd");
+  const periodoFim = format(endOfMonth(new Date(anoSelecionado, mesSelecionado, 1)), "yyyy-MM-dd");
+  
+  const meses = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+  ];
+  const anos = Array.from({ length: 5 }, (_, i) => hoje.getFullYear() - 2 + i);
   const {
     empresas
   } = useEmpresas();
@@ -301,6 +310,31 @@ function BancariaTab() {
       
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-4 mb-6">
+        {/* Seletor de Período */}
+        <div className="flex items-center gap-2">
+          <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+          <Select value={mesSelecionado.toString()} onValueChange={(v) => setMesSelecionado(parseInt(v))}>
+            <SelectTrigger className="w-[130px]">
+              <SelectValue placeholder="Mês" />
+            </SelectTrigger>
+            <SelectContent>
+              {meses.map((mes, i) => (
+                <SelectItem key={i} value={i.toString()}>{mes}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={anoSelecionado.toString()} onValueChange={(v) => setAnoSelecionado(parseInt(v))}>
+            <SelectTrigger className="w-[100px]">
+              <SelectValue placeholder="Ano" />
+            </SelectTrigger>
+            <SelectContent>
+              {anos.map((ano) => (
+                <SelectItem key={ano} value={ano.toString()}>{ano}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Buscar por descrição..." className="pl-10" value={busca} onChange={e => setBusca(e.target.value)} />
