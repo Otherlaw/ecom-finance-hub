@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { SkuPendenteVenda, useVendasPendentes } from "@/hooks/useVendasPendentes";
 import { Produto, useProdutos } from "@/hooks/useProdutos";
-import { ProdutoFormModalV2 } from "@/components/products/ProdutoFormModalV2";
+import { ProdutoFormModalV2, DadosIniciaisProduto } from "@/components/products/ProdutoFormModalV2";
 
 // Formatação local para evitar dependência circular
 const formatCurrency = (value: number): string => {
@@ -64,7 +64,7 @@ export function VendasProductMappingModal({
   const [selectedSku, setSelectedSku] = useState<SkuPendenteVenda | null>(null);
   const [openPopovers, setOpenPopovers] = useState<Record<string, boolean>>({});
   const [showProductForm, setShowProductForm] = useState(false);
-  const [prefilledProduct, setPrefilledProduct] = useState<Partial<Produto> | null>(null);
+  const [dadosIniciaisProduto, setDadosIniciaisProduto] = useState<DadosIniciaisProduto | null>(null);
 
   const { skusPendentes, resumo, mapearSkuParaProduto, isLoading: loadingSkus } = useVendasPendentes({ empresaId });
   const { produtos, isLoading: loadingProdutos } = useProdutos({ empresaId, status: "ativo", apenasRaiz: false });
@@ -93,15 +93,17 @@ export function VendasProductMappingModal({
 
   const handleCreateProduct = (sku: SkuPendenteVenda) => {
     setSelectedSku(sku);
-    setPrefilledProduct({
+    // Pré-preencher dados do marketplace para facilitar criação
+    setDadosIniciaisProduto({
       sku: sku.sku_marketplace,
       nome: sku.descricao_item || sku.sku_marketplace,
-      empresa_id: empresaId,
+      // Calcular preço médio baseado nas vendas
+      preco_venda: sku.qtd_vendas > 0 ? sku.valor_total_vendido / sku.qtd_vendas : 0,
     });
     setShowProductForm(true);
   };
 
-  const handleProductCreated = async (novoProduto: Produto) => {
+  const handleProductCreated = async (novoProduto?: Produto) => {
     if (selectedSku && novoProduto) {
       await mapearSkuParaProduto.mutateAsync({
         empresaId,
@@ -113,7 +115,7 @@ export function VendasProductMappingModal({
     }
     setShowProductForm(false);
     setSelectedSku(null);
-    setPrefilledProduct(null);
+    setDadosIniciaisProduto(null);
   };
 
   return (
@@ -284,17 +286,14 @@ export function VendasProductMappingModal({
       </Dialog>
 
       {/* Modal de criação de produto */}
-      {showProductForm && prefilledProduct && (
+      {showProductForm && dadosIniciaisProduto && (
         <ProdutoFormModalV2
           open={showProductForm}
           onOpenChange={setShowProductForm}
           empresaId={empresaId}
           produto={null}
-          onSuccess={() => {
-            setShowProductForm(false);
-            setSelectedSku(null);
-            setPrefilledProduct(null);
-          }}
+          dadosIniciais={dadosIniciaisProduto}
+          onSuccess={handleProductCreated}
         />
       )}
     </>

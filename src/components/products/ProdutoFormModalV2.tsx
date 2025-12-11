@@ -33,12 +33,21 @@ import { useFornecedores } from "@/hooks/useFornecedores";
 import { useProdutos, Produto, ProdutoInsert, TipoProduto } from "@/hooks/useProdutos";
 import { CATEGORIAS_PRODUTO, UNIDADES_MEDIDA } from "@/lib/products-data";
 
+export interface DadosIniciaisProduto {
+  sku?: string;
+  nome?: string;
+  descricao?: string;
+  categoria?: string;
+  preco_venda?: number;
+}
+
 interface ProdutoFormModalV2Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   empresaId: string;
   produto?: Produto | null;
-  onSuccess?: () => void;
+  dadosIniciais?: DadosIniciaisProduto | null;
+  onSuccess?: (produto?: Produto) => void;
 }
 
 interface KitComponente {
@@ -70,6 +79,7 @@ export function ProdutoFormModalV2({
   onOpenChange,
   empresaId,
   produto,
+  dadosIniciais,
   onSuccess,
 }: ProdutoFormModalV2Props) {
   const { fornecedores } = useFornecedores();
@@ -156,11 +166,19 @@ export function ProdutoFormModalV2({
         setStatus(produto.status === "inativo" ? "inativo" : "ativo");
         setKitComponentes(produto.kit_componentes || []);
         setImagemUrl(produto.imagem_url || "");
+      } else if (dadosIniciais) {
+        // Pré-preencher com dados do marketplace
+        resetForm();
+        if (dadosIniciais.sku) setSku(dadosIniciais.sku);
+        if (dadosIniciais.nome) setNome(dadosIniciais.nome);
+        if (dadosIniciais.descricao) setDescricao(dadosIniciais.descricao);
+        if (dadosIniciais.categoria) setCategoria(dadosIniciais.categoria);
+        if (dadosIniciais.preco_venda) setPrecoVenda(dadosIniciais.preco_venda);
       } else {
         resetForm();
       }
     }
-  }, [open, produto]);
+  }, [open, produto, dadosIniciais]);
 
   const resetForm = () => {
     setTipo("unico");
@@ -335,11 +353,14 @@ export function ProdutoFormModalV2({
         imagem_url: imagemUrl || undefined,
       };
 
+      let produtoCriado: Produto | undefined;
+      
       if (isEditing && produto) {
         await atualizarProduto.mutateAsync({ id: produto.id, ...baseData });
       } else {
         // Criar produto principal
         const result = await criarProduto.mutateAsync(baseData);
+        produtoCriado = result as Produto;
         
         // Se for variation_parent, criar as variações como produtos filhos
         if (tipo === "variation_parent" && variacoes.length > 0) {
@@ -364,7 +385,7 @@ export function ProdutoFormModalV2({
       }
 
       onOpenChange(false);
-      onSuccess?.();
+      onSuccess?.(produtoCriado);
     } catch (error) {
       console.error("Erro ao salvar produto:", error);
     }
