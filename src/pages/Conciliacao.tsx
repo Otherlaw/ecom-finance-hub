@@ -443,7 +443,13 @@ function BancariaTab() {
                     {t.centro_custo ? <Badge variant="secondary">{t.centro_custo.nome}</Badge> : <span className="text-muted-foreground text-sm">-</span>}
                   </TableCell>
                   <TableCell className="text-center">
-                    <Badge variant={t.tipo_lancamento === "credito" ? "default" : "destructive"}>
+                    <Badge 
+                      variant="outline" 
+                      className={t.tipo_lancamento === "credito" 
+                        ? "bg-success/10 text-success border-success/30" 
+                        : "bg-destructive/10 text-destructive border-destructive/30"
+                      }
+                    >
                       {t.tipo_lancamento === "credito" ? "Crédito" : "Débito"}
                     </Badge>
                   </TableCell>
