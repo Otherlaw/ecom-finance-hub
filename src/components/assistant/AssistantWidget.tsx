@@ -52,16 +52,16 @@ export function AssistantWidget() {
     localStorage.setItem('fin-minimized', String(isMinimized));
   }, [isMinimized]);
 
-  // Mostrar popup para novos alertas
-  useEffect(() => {
-    if (newAlerts.length > 0 && !currentPopupAlert && !isSilenced) {
-      const sortedAlerts = [...newAlerts].sort((a, b) => {
-        const severityOrder = ['critico', 'alto', 'medio', 'baixo', 'informativo'];
-        return severityOrder.indexOf(a.severidade) - severityOrder.indexOf(b.severidade);
-      });
-      setCurrentPopupAlert(sortedAlerts[0]);
-    }
-  }, [newAlerts, currentPopupAlert, isSilenced]);
+  // Popups automáticos desativados - alertas disponíveis apenas na Central de Alertas
+  // useEffect(() => {
+  //   if (newAlerts.length > 0 && !currentPopupAlert && !isSilenced) {
+  //     const sortedAlerts = [...newAlerts].sort((a, b) => {
+  //       const severityOrder = ['critico', 'alto', 'medio', 'baixo', 'informativo'];
+  //       return severityOrder.indexOf(a.severidade) - severityOrder.indexOf(b.severidade);
+  //     });
+  //     setCurrentPopupAlert(sortedAlerts[0]);
+  //   }
+  // }, [newAlerts, currentPopupAlert, isSilenced]);
 
   const handleDismissPopup = () => {
     if (currentPopupAlert) {
