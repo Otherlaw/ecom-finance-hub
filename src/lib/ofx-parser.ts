@@ -23,6 +23,8 @@ export interface OFXAccountInfo {
   accountId: string | null;
   accountType: string | null;
   currency: string | null;
+  holderName: string | null;
+  holderCpfCnpj: string | null;
 }
 
 export interface OFXParseResult {
@@ -346,14 +348,30 @@ function extractTransactions(content: string): OFXTransaction[] {
 
 /**
  * Extract account information from OFX content
+ * Includes account holder name and CPF/CNPJ when available
  */
 function extractAccountInfo(content: string): OFXAccountInfo {
+  // Extract holder info - common in Brazilian bank OFX files
+  const holderName = extractTagValue(content, 'ACCTNAME') || 
+                     extractTagValue(content, 'HOLDER') ||
+                     extractTagValue(content, 'NOME') ||
+                     extractTagValue(content, 'NAME');
+  
+  // Extract CPF/CNPJ - various tag names used by Brazilian banks
+  const holderCpfCnpj = extractTagValue(content, 'CPFCNPJ') ||
+                        extractTagValue(content, 'CPF') ||
+                        extractTagValue(content, 'CNPJ') ||
+                        extractTagValue(content, 'TAXID') ||
+                        extractTagValue(content, 'HOLDERID');
+
   return {
     bankId: extractTagValue(content, 'BANKID'),
     branchId: extractTagValue(content, 'BRANCHID'),
     accountId: extractTagValue(content, 'ACCTID'),
     accountType: extractTagValue(content, 'ACCTTYPE'),
     currency: extractTagValue(content, 'CURDEF'),
+    holderName: holderName || null,
+    holderCpfCnpj: holderCpfCnpj ? holderCpfCnpj.replace(/\D/g, '') : null,
   };
 }
 

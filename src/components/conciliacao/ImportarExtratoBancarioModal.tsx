@@ -55,12 +55,14 @@ export function ImportarExtratoBancarioModal({
 }: ImportarExtratoBancarioModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [empresaId, setEmpresaId] = useState<string>("");
+  const [empresaDetectada, setEmpresaDetectada] = useState<{ id: string; nome: string } | null>(null);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [tipoArquivo, setTipoArquivo] = useState<"ofx" | "csv" | "xlsx" | null>(null);
   const [transacoesPreview, setTransacoesPreview] = useState<TransacaoPreview[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [progressoImportacao, setProgressoImportacao] = useState<{ percent: number; mensagem: string } | null>(null);
+  const [cnpjNaoEncontrado, setCnpjNaoEncontrado] = useState<string | null>(null);
 
   const { empresas } = useEmpresas();
   const { importarTransacoes } = useBankTransactions();
@@ -71,9 +73,33 @@ export function ImportarExtratoBancarioModal({
     setTransacoesPreview([]);
     setStep("upload");
     setEmpresaId("");
+    setEmpresaDetectada(null);
+    setCnpjNaoEncontrado(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  };
+
+  // Identifica empresa pelo CNPJ extraído do OFX
+  const identificarEmpresaPorCnpj = (cnpj: string | null): { id: string; nome: string } | null => {
+    if (!cnpj || !empresas) return null;
+    
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    if (cnpjLimpo.length < 11) return null;
+    
+    const empresa = empresas.find(e => {
+      const empresaCnpj = e.cnpj?.replace(/\D/g, '') || '';
+      return empresaCnpj === cnpjLimpo;
+    });
+    
+    if (empresa) {
+      return { 
+        id: empresa.id, 
+        nome: empresa.nome_fantasia || empresa.razao_social 
+      };
+    }
+    
+    return null;
   };
 
   // Infere tipo de transação para CSV/XLSX considerando coluna de tipo e sinal do valor
@@ -162,14 +188,27 @@ export function ImportarExtratoBancarioModal({
         }
 
         const result = parseOFX(contentText!);
+        
+        // Tentar identificar empresa pelo CNPJ do OFX
+        const empresaEncontrada = identificarEmpresaPorCnpj(result.account.holderCpfCnpj);
+        if (empresaEncontrada) {
+          setEmpresaDetectada(empresaEncontrada);
+          setEmpresaId(empresaEncontrada.id);
+          setCnpjNaoEncontrado(null);
+        } else if (result.account.holderCpfCnpj) {
+          // CNPJ presente mas não encontrado no cadastro
+          setCnpjNaoEncontrado(result.account.holderCpfCnpj);
+          setEmpresaDetectada(null);
+        }
+        
         const transacoes: TransacaoPreview[] = result.transactions.map((t) => {
           const hash = `${t.date}_${t.amount}_${t.description}_${t.fitid || ""}`;
           return {
             data_transacao: t.date,
             descricao: t.description,
             documento: t.fitid || t.checkNum || null,
-            valor: t.amount, // Valor já é absoluto do parser
-            tipo_lancamento: t.type, // Usa o tipo inferido pelo parser (considera TRNTYPE)
+            valor: t.amount,
+            tipo_lancamento: t.type,
             referencia_externa: hash,
           };
         });
@@ -289,22 +328,6 @@ export function ImportarExtratoBancarioModal({
         {step === "upload" && (
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Empresa *</Label>
-              <Select value={empresaId} onValueChange={setEmpresaId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a empresa" />
-                </SelectTrigger>
-                <SelectContent>
-                  {empresas?.map((emp) => (
-                    <SelectItem key={emp.id} value={emp.id}>
-                      {emp.nome_fantasia || emp.razao_social}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <Label>Arquivo de Extrato *</Label>
               <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
                 <Input
@@ -321,7 +344,7 @@ export function ImportarExtratoBancarioModal({
                     Clique ou arraste um arquivo OFX, CSV ou XLSX
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Formatos aceitos: .ofx, .csv ou .xlsx
+                    A empresa será identificada automaticamente pelo CNPJ do extrato
                   </p>
                 </label>
                 {arquivo && (
@@ -338,6 +361,57 @@ export function ImportarExtratoBancarioModal({
 
         {step === "preview" && (
           <div className="space-y-4">
+            {/* Empresa detectada ou erro */}
+            {empresaDetectada && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/20">
+                <Check className="h-4 w-4 text-success" />
+                <span className="text-sm">
+                  Empresa identificada: <strong>{empresaDetectada.nome}</strong>
+                </span>
+              </div>
+            )}
+            
+            {cnpjNaoEncontrado && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <span className="text-sm">
+                    CNPJ {cnpjNaoEncontrado.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')} não encontrado. Selecione a empresa:
+                  </span>
+                </div>
+                <Select value={empresaId} onValueChange={setEmpresaId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a empresa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {empresas?.map((emp) => (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        {emp.nome_fantasia || emp.razao_social}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            {!empresaDetectada && !cnpjNaoEncontrado && tipoArquivo !== 'ofx' && (
+              <div className="space-y-2">
+                <Label>Empresa *</Label>
+                <Select value={empresaId} onValueChange={setEmpresaId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a empresa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {empresas?.map((emp) => (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        {emp.nome_fantasia || emp.razao_social}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="grid grid-cols-3 gap-4">
               <div className="p-3 rounded-lg bg-secondary/50">
                 <p className="text-xs text-muted-foreground">Total Transações</p>
