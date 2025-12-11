@@ -42,7 +42,7 @@ const CANAIS_MARKETPLACE = [
 ];
 
 export default function MapeamentosMarketplace() {
-  const { empresas } = useEmpresas();
+  const { empresas = [], isLoading: loadingEmpresas } = useEmpresas();
   const empresaDefault = empresas[0]?.id || "";
   
   const [empresaId, setEmpresaId] = useState<string>(empresaDefault || "");
