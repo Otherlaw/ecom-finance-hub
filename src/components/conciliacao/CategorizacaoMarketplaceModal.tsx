@@ -324,7 +324,7 @@ export function CategorizacaoMarketplaceModal({
                       <SelectValue placeholder="Selecione..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Nenhuma</SelectItem>
+                      <SelectItem value="__none__">Nenhuma</SelectItem>
                       {categoriasAtivas.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
                           {c.nome}
@@ -345,7 +345,7 @@ export function CategorizacaoMarketplaceModal({
                       <SelectValue placeholder="Selecione..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Nenhum</SelectItem>
+                      <SelectItem value="__none__">Nenhum</SelectItem>
                       {centrosCustoAtivos.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
                           {c.codigo ? `${c.codigo} - ` : ""}{c.nome}
