@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -73,8 +73,8 @@ const TIPOS_LANCAMENTO = [
 ];
 
 export default function RegrasMarketplace() {
-  const { empresas } = useEmpresas();
-  const [empresaId, setEmpresaId] = useState<string>(empresas[0]?.id || "");
+  const { empresas = [] } = useEmpresas();
+  const [empresaId, setEmpresaId] = useState<string>("");
   const { regras, isLoading, createRegra, updateRegra, deleteRegra } = useMarketplaceRules(empresaId);
   const { categorias } = useCategoriasFinanceiras();
   const { centrosFlat } = useCentrosCusto();
@@ -98,9 +98,11 @@ export default function RegrasMarketplace() {
   });
 
   // Set empresa when loaded
-  if (empresas.length > 0 && !empresaId) {
-    setEmpresaId(empresas[0].id);
-  }
+  useMemo(() => {
+    if (empresas.length > 0 && !empresaId) {
+      setEmpresaId(empresas[0].id);
+    }
+  }, [empresas, empresaId]);
 
   const filteredRegras = regras.filter((regra) => {
     const matchSearch = regra.texto_contem.toLowerCase().includes(searchTerm.toLowerCase());
