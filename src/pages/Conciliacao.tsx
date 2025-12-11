@@ -4,7 +4,7 @@ import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/mock-data";
-import { RefreshCw, Upload, Download, Check, AlertTriangle, X, FileSpreadsheet, Search, Filter, Building, CreditCard, ShoppingBag, PenLine, Eye, Tag, RotateCcw, Ban, Store, CalendarIcon, Trash2, Copy, Wand2, ListTodo } from "lucide-react";
+import { RefreshCw, Upload, Download, Check, AlertTriangle, X, FileSpreadsheet, Search, Filter, Building, CreditCard, ShoppingBag, PenLine, Eye, Tag, RotateCcw, Ban, Store, CalendarIcon, Trash2, Copy, Wand2, ListTodo, Sparkles } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,8 @@ import { useBankTransactions, BankTransaction } from "@/hooks/useBankTransaction
 import { useMovimentacoesManuais, ManualTransaction } from "@/hooks/useManualTransactions";
 import { useMarketplaceTransactions, MarketplaceTransaction, DuplicateGroup } from "@/hooks/useMarketplaceTransactions";
 import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
+import { useBankAutoCategorizacao } from "@/hooks/useBankAutoCategorizacao";
+import { useCreditCardAutoCategorizacao } from "@/hooks/useCreditCardAutoCategorizacao";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -201,6 +203,10 @@ function BancariaTab() {
     empresas
   } = useEmpresas();
   const {
+    categorizarAutomaticamente: categorizarBancario,
+    isProcessing: isAutoProcessingBank
+  } = useBankAutoCategorizacao();
+  const {
     transacoes,
     resumo,
     isLoading,
@@ -211,6 +217,13 @@ function BancariaTab() {
     periodoFim,
     status: statusFiltro
   });
+
+  const handleAutoCategorizarBank = async () => {
+    await categorizarBancario.mutateAsync({
+      empresaId: empresaId !== "all" ? empresaId : undefined
+    });
+    refetch();
+  };
 
   // Filtro de busca local
   const transacoesFiltradas = transacoes.filter(t => {
@@ -370,6 +383,16 @@ function BancariaTab() {
           Atualizar
         </Button>
         
+        <Button 
+          variant="secondary" 
+          className="gap-2" 
+          onClick={handleAutoCategorizarBank}
+          disabled={isAutoProcessingBank}
+        >
+          <Sparkles className="h-4 w-4" />
+          {isAutoProcessingBank ? "Processando..." : "Categorizar Auto"}
+        </Button>
+        
         <Button className="gap-2 ml-auto" onClick={() => setImportModalOpen(true)}>
           <Upload className="h-4 w-4" />
           Importar Extrato
@@ -471,6 +494,15 @@ function CartoesTab() {
     faturas,
     isLoading: loadingFaturas
   } = useFaturas();
+  const {
+    categorizarAutomaticamente: categorizarCartao,
+    isProcessing: isAutoProcessingCard
+  } = useCreditCardAutoCategorizacao();
+
+  const handleAutoCategorizarCard = async () => {
+    await categorizarCartao.mutateAsync({});
+    refetch();
+  };
 
   // Estado do modal de categorização
   const [categorizacaoModal, setCategorizacaoModal] = useState<{
@@ -552,6 +584,15 @@ function CartoesTab() {
         <Button variant="outline" className="gap-2">
           <Filter className="h-4 w-4" />
           Filtrar
+        </Button>
+        <Button 
+          variant="secondary" 
+          className="gap-2" 
+          onClick={handleAutoCategorizarCard}
+          disabled={isAutoProcessingCard}
+        >
+          <Sparkles className="h-4 w-4" />
+          {isAutoProcessingCard ? "Processando..." : "Categorizar Auto"}
         </Button>
         <Button variant="outline" className="gap-2" onClick={() => navigate("/cartao-credito")}>
           <Eye className="h-4 w-4" />
