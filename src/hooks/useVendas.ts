@@ -462,6 +462,22 @@ export function useVendas(filtros: VendasFiltros) {
     return Array.from(contas).sort();
   }, [data]);
 
+  // NOVO: Conciliar transação rapidamente
+  const conciliarTransacao = async (transacaoId: string) => {
+    const { error } = await supabase
+      .from("marketplace_transactions")
+      .update({ status: "conciliado" })
+      .eq("id", transacaoId);
+
+    if (error) {
+      console.error("Erro ao conciliar:", error);
+      throw error;
+    }
+
+    await refetch();
+    return true;
+  };
+
   return {
     vendas: vendasFiltradas,
     resumo,
@@ -472,5 +488,6 @@ export function useVendas(filtros: VendasFiltros) {
     isLoading,
     error,
     refetch,
+    conciliarTransacao,
   };
 }
