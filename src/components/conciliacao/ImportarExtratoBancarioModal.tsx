@@ -20,7 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Upload, FileSpreadsheet, AlertCircle, Check, Loader2 } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, Check, Loader2, Trash2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { parseOFX, isValidOFX } from "@/lib/ofx-parser";
 import { useEmpresas } from "@/hooks/useEmpresas";
@@ -258,6 +258,10 @@ export function ImportarExtratoBancarioModal({
     );
   };
 
+  const removerTransacao = (index: number) => {
+    setTransacoesPreview((atual) => atual.filter((_, i) => i !== index));
+  };
+
   const totalCreditos = transacoesPreview
     .filter((t) => t.tipo_lancamento === "credito")
     .reduce((acc, t) => acc + t.valor, 0);
@@ -358,6 +362,7 @@ export function ImportarExtratoBancarioModal({
                     <TableHead>Documento</TableHead>
                     <TableHead className="text-center">Tipo</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -394,6 +399,17 @@ export function ImportarExtratoBancarioModal({
                       }`}>
                         {t.tipo_lancamento === "credito" ? "+" : "-"}{formatCurrency(t.valor)}
                       </TableCell>
+                      <TableCell className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removerTransacao(index)}
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="Remover transação"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -403,7 +419,7 @@ export function ImportarExtratoBancarioModal({
             <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
               <AlertCircle className="h-4 w-4 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                Transações duplicadas serão ignoradas. 💡 <strong>Clique no tipo (Crédito/Débito)</strong> para alternar caso a detecção automática esteja incorreta.
+                Duplicadas serão ignoradas. 💡 <strong>Clique no tipo</strong> para alternar Crédito/Débito, ou <strong>exclua</strong> transações indesejadas (como transferências entre contas).
               </p>
             </div>
           </div>
