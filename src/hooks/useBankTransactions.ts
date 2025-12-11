@@ -95,9 +95,19 @@ export function useBankTransactions({
     totalDebitos: transacoes?.filter((t) => t.tipo_lancamento === "debito").reduce((acc, t) => acc + t.valor, 0) || 0,
   };
 
-  // Inserir transações em lote (importação)
+  // Inserir transações em lote (importação) - Processamento em batches para evitar timeout
   const importarTransacoes = useMutation({
-    mutationFn: async (transacoes: Omit<BankTransaction, "id" | "criado_em" | "atualizado_em" | "categoria" | "centro_custo" | "empresa">[]) => {
+    mutationFn: async ({ 
+      transacoes, 
+      onProgress 
+    }: { 
+      transacoes: Omit<BankTransaction, "id" | "criado_em" | "atualizado_em" | "categoria" | "centro_custo" | "empresa">[];
+      onProgress?: (progresso: number, mensagem: string) => void;
+    }) => {
+      const BATCH_SIZE = 50;
+      
+      onProgress?.(5, "Verificando duplicatas...");
+      
       // Verificar duplicatas por referencia_externa
       const referencias = transacoes.map((t) => t.referencia_externa).filter(Boolean);
       
@@ -111,24 +121,51 @@ export function useBankTransactions({
         existentes = (data || []).map((d) => d.referencia_externa as string);
       }
 
+      onProgress?.(15, "Filtrando transações novas...");
+
       // Filtrar apenas transações novas
       const novas = transacoes.filter(
         (t) => !t.referencia_externa || !existentes.includes(t.referencia_externa)
       );
 
       if (novas.length === 0) {
+        onProgress?.(100, "Concluído - todas duplicadas");
         return { importadas: 0, duplicadas: transacoes.length };
       }
 
-      const { data, error } = await supabase
-        .from("bank_transactions")
-        .insert(novas)
-        .select();
+      // Processar em batches de 50 para evitar timeout
+      let totalImportadas = 0;
+      const totalBatches = Math.ceil(novas.length / BATCH_SIZE);
 
-      if (error) throw error;
+      for (let i = 0; i < novas.length; i += BATCH_SIZE) {
+        const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
+        const batch = novas.slice(i, i + BATCH_SIZE);
+        
+        const progressoBase = 20;
+        const progressoTotal = 95;
+        const progressoAtual = progressoBase + ((batchIndex / totalBatches) * (progressoTotal - progressoBase));
+        
+        onProgress?.(
+          Math.round(progressoAtual), 
+          `Importando lote ${batchIndex}/${totalBatches} (${totalImportadas + batch.length}/${novas.length})...`
+        );
+
+        const { error } = await supabase
+          .from("bank_transactions")
+          .insert(batch);
+
+        if (error) {
+          console.error(`Erro no batch ${batchIndex}:`, error);
+          throw new Error(`Erro ao importar lote ${batchIndex}: ${error.message}`);
+        }
+
+        totalImportadas += batch.length;
+      }
+
+      onProgress?.(100, "Importação concluída!");
 
       return { 
-        importadas: data.length, 
+        importadas: totalImportadas, 
         duplicadas: transacoes.length - novas.length 
       };
     },
@@ -140,9 +177,9 @@ export function useBankTransactions({
         toast.success(`${result.importadas} transações importadas com sucesso`);
       }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error("Erro ao importar transações:", error);
-      toast.error("Erro ao importar transações bancárias");
+      toast.error(error.message || "Erro ao importar transações bancárias");
     },
   });
 

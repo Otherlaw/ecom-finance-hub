@@ -20,7 +20,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Upload, FileSpreadsheet, AlertCircle, Check } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, Check, Loader2 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { parseOFX, isValidOFX } from "@/lib/ofx-parser";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useBankTransactions, BankTransaction } from "@/hooks/useBankTransactions";
@@ -59,6 +60,7 @@ export function ImportarExtratoBancarioModal({
   const [transacoesPreview, setTransacoesPreview] = useState<TransacaoPreview[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<"upload" | "preview">("upload");
+  const [progressoImportacao, setProgressoImportacao] = useState<{ percent: number; mensagem: string } | null>(null);
 
   const { empresas } = useEmpresas();
   const { importarTransacoes } = useBankTransactions();
@@ -216,6 +218,8 @@ export function ImportarExtratoBancarioModal({
       return;
     }
 
+    setProgressoImportacao({ percent: 0, mensagem: "Iniciando importação..." });
+
     const transacoesParaImportar = transacoesPreview.map((t) => ({
       empresa_id: empresaId,
       conta_id: null,
@@ -233,13 +237,25 @@ export function ImportarExtratoBancarioModal({
       referencia_externa: t.referencia_externa,
     }));
 
-    importarTransacoes.mutate(transacoesParaImportar, {
-      onSuccess: () => {
-        resetModal();
-        onOpenChange(false);
-        onSuccess?.();
+    importarTransacoes.mutate(
+      {
+        transacoes: transacoesParaImportar,
+        onProgress: (percent, mensagem) => {
+          setProgressoImportacao({ percent, mensagem });
+        },
       },
-    });
+      {
+        onSuccess: () => {
+          setProgressoImportacao(null);
+          resetModal();
+          onOpenChange(false);
+          onSuccess?.();
+        },
+        onError: () => {
+          setProgressoImportacao(null);
+        },
+      }
+    );
   };
 
   const totalCreditos = transacoesPreview
@@ -402,14 +418,26 @@ export function ImportarExtratoBancarioModal({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
+          {step === "preview" && progressoImportacao && (
+            <div className="flex-1 flex items-center gap-3">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <div className="flex-1 space-y-1">
+                <Progress value={progressoImportacao.percent} className="h-2" />
+                <p className="text-xs text-muted-foreground">{progressoImportacao.mensagem}</p>
+              </div>
+            </div>
+          )}
           {step === "preview" && (
             <Button 
               onClick={handleImportar} 
-              disabled={importarTransacoes.isPending || !empresaId}
+              disabled={importarTransacoes.isPending || !empresaId || !!progressoImportacao}
               className="gap-2"
             >
-              {importarTransacoes.isPending ? (
-                "Importando..."
+              {progressoImportacao ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {progressoImportacao.percent}%
+                </>
               ) : (
                 <>
                   <Check className="h-4 w-4" />
