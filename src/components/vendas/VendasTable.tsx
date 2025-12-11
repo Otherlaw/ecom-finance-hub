@@ -25,6 +25,7 @@ import {
   Package,
   Check,
   Loader2,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -34,6 +35,7 @@ interface VendasTableProps {
   vendas: VendaDetalhada[];
   aliquotaImposto?: number;
   onConciliar?: (transacaoId: string) => Promise<boolean>;
+  onAbrirMapeamento?: (venda: VendaDetalhada) => void;
 }
 
 type SortField = "data_venda" | "valor_bruto" | "valor_liquido" | "custo_calculado" | "margem";
@@ -50,7 +52,7 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1).replace(".", ",")}%`;
 }
 
-export function VendasTable({ vendas, aliquotaImposto = 6, onConciliar }: VendasTableProps) {
+export function VendasTable({ vendas, aliquotaImposto = 6, onConciliar, onAbrirMapeamento }: VendasTableProps) {
   const [sortField, setSortField] = useState<SortField>("data_venda");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [conciliando, setConciliando] = useState<string | null>(null);
@@ -325,9 +327,22 @@ export function VendasTable({ vendas, aliquotaImposto = 6, onConciliar }: Vendas
                           </TooltipContent>
                         </Tooltip>
                       )}
-                      <p className="text-xs truncate max-w-[160px]">
-                        {v.produto_nome || v.descricao_item || v.descricao}
-                      </p>
+                      <div className="flex flex-col gap-1">
+                        <p className="text-xs truncate max-w-[160px]">
+                          {v.produto_nome || v.descricao_item || v.descricao}
+                        </p>
+                        {v.sem_produto_vinculado && onAbrirMapeamento && (
+                          <button
+                            onClick={() => onAbrirMapeamento(v)}
+                            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full
+                                       bg-amber-500/10 text-amber-600 border border-amber-300
+                                       hover:bg-amber-500/20 transition w-fit"
+                          >
+                            <Link2 className="h-3 w-3" />
+                            Mapear
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell className="text-xs font-mono">

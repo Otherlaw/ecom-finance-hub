@@ -36,6 +36,7 @@ export default function Vendas() {
   });
 
   const [showMappingModal, setShowMappingModal] = useState(false);
+  const [skuParaMapear, setSkuParaMapear] = useState<string | null>(null);
 
   const { empresas } = useEmpresas();
   const empresaId = empresas?.[0]?.id;
@@ -81,6 +82,11 @@ export default function Vendas() {
       return;
     }
     await reprocessarMapeamentos.mutateAsync(empresaId);
+  };
+
+  const handleAbrirMapeamentoLinha = (venda: any) => {
+    setSkuParaMapear(venda.sku_marketplace || venda.sku_interno || null);
+    setShowMappingModal(true);
   };
 
   return (
@@ -194,6 +200,7 @@ export default function Vendas() {
                   vendas={vendas} 
                   aliquotaImposto={aliquotaImposto}
                   onConciliar={conciliarTransacao}
+                  onAbrirMapeamento={handleAbrirMapeamentoLinha}
                 />
               </CardContent>
             </Card>
