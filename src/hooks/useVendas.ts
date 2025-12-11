@@ -322,6 +322,16 @@ export function useVendas(filtros: VendasFiltros) {
       (transacoes || []).forEach((t: any) => {
         const items = t.marketplace_transaction_items || [];
         
+        // Critério para "não conciliado": não tem dados financeiros relevantes
+        // (sem tarifas, sem taxas, sem frete vendedor e sem ads)
+        const temDadosFinanceiros = 
+          (t.tarifas || 0) !== 0 ||
+          (t.taxas || 0) !== 0 ||
+          (t.frete_vendedor || 0) !== 0 ||
+          (t.custo_ads || 0) !== 0;
+        
+        const naoConciliado = !temDadosFinanceiros && t.status !== "conciliado";
+        
         if (items.length === 0) {
           // Transação sem itens
           vendas.push({
@@ -361,7 +371,7 @@ export function useVendas(filtros: VendasFiltros) {
             sem_produto_vinculado: true,
             sem_custo: true,
             sem_categoria: !t.categoria_id,
-            nao_conciliado: t.status !== "conciliado",
+            nao_conciliado: naoConciliado,
             categoria_id: t.categoria_id,
             centro_custo_id: t.centro_custo_id,
             frete_comprador: t.frete_comprador || 0,
@@ -413,7 +423,7 @@ export function useVendas(filtros: VendasFiltros) {
               sem_produto_vinculado: !item.produto_id,
               sem_custo: custoMedio === 0,
               sem_categoria: !t.categoria_id,
-              nao_conciliado: t.status !== "conciliado",
+              nao_conciliado: naoConciliado,
               categoria_id: t.categoria_id,
               centro_custo_id: t.centro_custo_id,
               frete_comprador: t.frete_comprador || 0,
