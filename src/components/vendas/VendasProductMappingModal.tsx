@@ -66,8 +66,8 @@ export function VendasProductMappingModal({
   const [showProductForm, setShowProductForm] = useState(false);
   const [prefilledProduct, setPrefilledProduct] = useState<Partial<Produto> | null>(null);
 
-  const { skusPendentes, resumo, mapearSkuParaProduto } = useVendasPendentes({ empresaId });
-  const { produtos } = useProdutos({ empresaId, status: "ativo", apenasRaiz: false });
+  const { skusPendentes, resumo, mapearSkuParaProduto, isLoading: loadingSkus } = useVendasPendentes({ empresaId });
+  const { produtos, isLoading: loadingProdutos } = useProdutos({ empresaId, status: "ativo", apenasRaiz: false });
 
   // Filtrar SKUs por termo de busca
   const skusFiltrados = skusPendentes.filter((sku) => {
@@ -156,7 +156,14 @@ export function VendasProductMappingModal({
 
           {/* Lista de SKUs */}
           <ScrollArea className="h-[400px] pr-4">
-            {skusFiltrados.length === 0 ? (
+            {loadingSkus ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                  <Package className="h-8 w-8 animate-pulse" />
+                  <p className="text-sm">Carregando SKUs pendentes...</p>
+                </div>
+              </div>
+            ) : skusFiltrados.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <Package className="h-12 w-12 mb-2 opacity-50" />
                 <p>Nenhum SKU pendente de mapeamento</p>
@@ -211,24 +218,36 @@ export function VendasProductMappingModal({
                           <Command>
                             <CommandInput placeholder="Buscar produto..." />
                             <CommandList>
-                              <CommandEmpty>Nenhum produto encontrado</CommandEmpty>
-                              <CommandGroup heading="Produtos">
-                                {produtos.map((produto) => (
-                                  <CommandItem
-                                    key={produto.id}
-                                    value={`${produto.sku} ${produto.nome}`}
-                                    onSelect={() => handleSelectProduct(sku, produto)}
-                                  >
-                                    <Check className="mr-2 h-4 w-4 opacity-0" />
-                                    <div className="flex flex-col">
-                                      <span className="font-medium">{produto.nome}</span>
-                                      <span className="text-xs text-muted-foreground">
-                                        SKU: {produto.sku}
-                                      </span>
-                                    </div>
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
+                              {loadingProdutos ? (
+                                <div className="p-4 text-center text-sm text-muted-foreground">
+                                  Carregando produtos...
+                                </div>
+                              ) : produtos.length === 0 ? (
+                                <CommandEmpty>
+                                  Nenhum produto cadastrado. Clique em "Criar" para adicionar um novo.
+                                </CommandEmpty>
+                              ) : (
+                                <>
+                                  <CommandEmpty>Nenhum produto encontrado</CommandEmpty>
+                                  <CommandGroup heading={`Produtos (${produtos.length})`}>
+                                    {produtos.map((produto) => (
+                                      <CommandItem
+                                        key={produto.id}
+                                        value={`${produto.sku} ${produto.nome}`}
+                                        onSelect={() => handleSelectProduct(sku, produto)}
+                                      >
+                                        <Check className="mr-2 h-4 w-4 opacity-0" />
+                                        <div className="flex flex-col">
+                                          <span className="font-medium">{produto.nome}</span>
+                                          <span className="text-xs text-muted-foreground">
+                                            SKU: {produto.sku} • Custo: {formatCurrency(produto.custo_medio || 0)}
+                                          </span>
+                                        </div>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </>
+                              )}
                             </CommandList>
                           </Command>
                         </PopoverContent>

@@ -150,6 +150,64 @@ export function useVendasPendentes(params?: UseVendasPendentesParams) {
     },
   });
 
+  // NOVO: Reprocessar mapeamentos existentes para itens órfãos
+  const reprocessarMapeamentos = useMutation({
+    mutationFn: async (empresaId: string) => {
+      // 1. Buscar todos os mapeamentos ativos
+      const { data: mapeamentos, error: errorMap } = await supabase
+        .from("produto_marketplace_map")
+        .select("*")
+        .eq("empresa_id", empresaId)
+        .eq("ativo", true);
+
+      if (errorMap) throw errorMap;
+
+      if (!mapeamentos || mapeamentos.length === 0) {
+        return { totalAtualizados: 0, mapeamentosProcessados: 0 };
+      }
+
+      let totalAtualizados = 0;
+
+      // 2. Para cada mapeamento, atualizar itens órfãos
+      for (const map of mapeamentos) {
+        // Buscar transações do canal
+        const { data: transacoesIds } = await supabase
+          .from("marketplace_transactions")
+          .select("id")
+          .eq("empresa_id", empresaId)
+          .eq("canal", map.canal);
+
+        if (!transacoesIds || transacoesIds.length === 0) continue;
+
+        // Atualizar itens sem produto_id que correspondem ao SKU
+        const { data: atualizados } = await supabase
+          .from("marketplace_transaction_items")
+          .update({ produto_id: map.produto_id })
+          .eq("sku_marketplace", map.sku_marketplace)
+          .is("produto_id", null)
+          .in("transaction_id", transacoesIds.map(t => t.id))
+          .select("id");
+
+        totalAtualizados += atualizados?.length || 0;
+      }
+
+      return { totalAtualizados, mapeamentosProcessados: mapeamentos.length };
+    },
+    onSuccess: (result) => {
+      if (result.totalAtualizados > 0) {
+        toast.success(`${result.totalAtualizados} itens atualizados com mapeamentos existentes`);
+      } else {
+        toast.info("Nenhum item órfão encontrado para atualizar");
+      }
+      queryClient.invalidateQueries({ queryKey: ["vendas-skus-pendentes"] });
+      queryClient.invalidateQueries({ queryKey: ["vendas"] });
+    },
+    onError: (error) => {
+      console.error("Erro ao reprocessar mapeamentos:", error);
+      toast.error("Erro ao reprocessar mapeamentos");
+    },
+  });
+
   // Resumo
   const resumo = {
     totalSkusPendentes: skusPendentes.length,
@@ -163,5 +221,6 @@ export function useVendasPendentes(params?: UseVendasPendentesParams) {
     refetch,
     resumo,
     mapearSkuParaProduto,
+    reprocessarMapeamentos,
   };
 }

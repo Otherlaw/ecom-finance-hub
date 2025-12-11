@@ -4,7 +4,7 @@ import { MainLayout } from "@/components/MainLayout";
 import { useVendas, VendasFiltros } from "@/hooks/useVendas";
 import { useVendasPendentes } from "@/hooks/useVendasPendentes";
 import { useEmpresas } from "@/hooks/useEmpresas";
-import { VendasCards } from "@/components/vendas/VendasCards";
+import { VendasDashboard } from "@/components/vendas/VendasDashboard";
 import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
 import { VendasFiltrosPanel } from "@/components/vendas/VendasFiltrosPanel";
 import { VendasTable } from "@/components/vendas/VendasTable";
@@ -12,7 +12,8 @@ import { VendasProductMappingModal } from "@/components/vendas/VendasProductMapp
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, ShoppingBag, AlertTriangle, Link2 } from "lucide-react";
+import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Vendas() {
   const hoje = format(new Date(), "yyyy-MM-dd");
@@ -46,10 +47,11 @@ export default function Vendas() {
     canaisDisponiveis, 
     contasDisponiveis,
     aliquotaImposto,
-    isLoading 
+    isLoading,
+    conciliarTransacao,
   } = useVendas(filtros);
 
-  const { resumo: resumoPendentes } = useVendasPendentes({ empresaId });
+  const { resumo: resumoPendentes, reprocessarMapeamentos } = useVendasPendentes({ empresaId });
 
   const handleFiltroChange = (campo: keyof VendasFiltros, valor: any) => {
     setFiltros((prev) => ({ ...prev, [campo]: valor }));
@@ -73,6 +75,14 @@ export default function Vendas() {
     }));
   };
 
+  const handleReprocessarMapeamentos = async () => {
+    if (!empresaId) {
+      toast.error("Nenhuma empresa selecionada");
+      return;
+    }
+    await reprocessarMapeamentos.mutateAsync(empresaId);
+  };
+
   return (
     <MainLayout title="Vendas">
       <div className="flex flex-col gap-6 p-6">
@@ -89,6 +99,23 @@ export default function Vendas() {
               </p>
             </div>
           </div>
+
+          {/* Botão de reprocessar mapeamentos */}
+          {empresaId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReprocessarMapeamentos}
+              disabled={reprocessarMapeamentos.isPending}
+            >
+              {reprocessarMapeamentos.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              Reprocessar Mapeamentos
+            </Button>
+          )}
         </div>
 
         {/* Alerta de SKUs pendentes */}
@@ -121,8 +148,14 @@ export default function Vendas() {
           </div>
         ) : (
           <>
-            {/* Cards de métricas */}
-            <VendasCards resumo={resumo} aliquotaImposto={aliquotaImposto} />
+            {/* Dashboard de métricas */}
+            <VendasDashboard
+              resumo={resumo}
+              vendas={vendas}
+              aliquotaImposto={aliquotaImposto}
+              considerarFreteComprador={filtros.considerarFreteComprador ?? true}
+              onConsiderarFreteChange={(value) => handleFiltroChange("considerarFreteComprador", value)}
+            />
 
             {/* Bloco de consistência da API */}
             <VendasConsistencia 
@@ -157,7 +190,11 @@ export default function Vendas() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <VendasTable vendas={vendas} aliquotaImposto={aliquotaImposto} />
+                <VendasTable 
+                  vendas={vendas} 
+                  aliquotaImposto={aliquotaImposto}
+                  onConciliar={conciliarTransacao}
+                />
               </CardContent>
             </Card>
           </>

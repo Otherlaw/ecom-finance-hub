@@ -23,15 +23,17 @@ import {
   ChevronUp,
   Download,
   Package,
-  DollarSign,
+  Check,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { toast } from "sonner";
 
 interface VendasTableProps {
   vendas: VendaDetalhada[];
   aliquotaImposto?: number;
+  onConciliar?: (transacaoId: string) => Promise<boolean>;
 }
 
 type SortField = "data_venda" | "valor_bruto" | "valor_liquido" | "custo_calculado" | "margem";
@@ -48,9 +50,10 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1).replace(".", ",")}%`;
 }
 
-export function VendasTable({ vendas, aliquotaImposto = 6 }: VendasTableProps) {
+export function VendasTable({ vendas, aliquotaImposto = 6, onConciliar }: VendasTableProps) {
   const [sortField, setSortField] = useState<SortField>("data_venda");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [conciliando, setConciliando] = useState<string | null>(null);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -108,6 +111,20 @@ export function VendasTable({ vendas, aliquotaImposto = 6 }: VendasTableProps) {
     const margemRs = v.valor_liquido - v.custo_calculado - v.frete_vendedor - v.custo_ads - imposto;
     const margemPercent = v.valor_bruto > 0 ? (margemRs / v.valor_bruto) * 100 : 0;
     return { margemRs, margemPercent, imposto };
+  };
+
+  const handleConciliar = async (transacaoId: string) => {
+    if (!onConciliar) return;
+    
+    setConciliando(transacaoId);
+    try {
+      await onConciliar(transacaoId);
+      toast.success("Transação conciliada com sucesso");
+    } catch (error) {
+      toast.error("Erro ao conciliar transação");
+    } finally {
+      setConciliando(null);
+    }
   };
 
   const handleExport = () => {
@@ -257,7 +274,7 @@ export function VendasTable({ vendas, aliquotaImposto = 6 }: VendasTableProps) {
                   <SortIcon field="margem" />
                 </div>
               </TableHead>
-              <TableHead className="w-[80px]">Status</TableHead>
+              <TableHead className="w-[100px]">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -274,6 +291,7 @@ export function VendasTable({ vendas, aliquotaImposto = 6 }: VendasTableProps) {
                   : "text-emerald-500";
 
               const hasWarnings = v.sem_custo || v.sem_produto_vinculado || v.nao_conciliado;
+              const isConciliando = conciliando === v.transacao_id;
 
               return (
                 <TableRow key={`${v.transacao_id}-${v.item_id || idx}`}>
@@ -358,15 +376,38 @@ export function VendasTable({ vendas, aliquotaImposto = 6 }: VendasTableProps) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge
-                      variant={v.status === "conciliado" ? "default" : "secondary"}
-                      className={cn(
-                        "text-xs",
-                        v.status === "conciliado" && "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
+                    <div className="flex items-center gap-1">
+                      {v.status === "conciliado" ? (
+                        <Badge
+                          variant="default"
+                          className="text-xs bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
+                        >
+                          <Check className="h-3 w-3 mr-1" />
+                          Conciliado
+                        </Badge>
+                      ) : onConciliar ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => handleConciliar(v.transacao_id)}
+                          disabled={isConciliando}
+                        >
+                          {isConciliando ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <>
+                              <Check className="h-3 w-3 mr-1" />
+                              Conciliar
+                            </>
+                          )}
+                        </Button>
+                      ) : (
+                        <Badge variant="secondary" className="text-xs">
+                          {v.status}
+                        </Badge>
                       )}
-                    >
-                      {v.status}
-                    </Badge>
+                    </div>
                   </TableCell>
                 </TableRow>
               );
