@@ -173,30 +173,34 @@ export function VendasProductMappingModal({
                 {skusFiltrados.map((sku) => (
                   <div
                     key={`${sku.sku_marketplace}-${sku.canal}`}
-                    className="flex items-center justify-between p-4 border rounded-lg bg-card"
+                    className="p-4 border rounded-lg bg-card"
                   >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
-                          {sku.sku_marketplace}
-                        </code>
-                        <Badge variant="outline" className="text-xs">
-                          {sku.canal}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1 truncate">
-                        {sku.descricao_item || "Sem descrição"}
-                      </p>
-                      <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <ShoppingCart className="h-3 w-3" />
-                          {sku.qtd_vendas} vendas
-                        </span>
-                        <span>{formatCurrency(sku.valor_total_vendido)}</span>
+                    <div className="flex items-start justify-between gap-4">
+                      {/* Info do SKU */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
+                            {sku.sku_marketplace}
+                          </code>
+                          <Badge variant="outline" className="text-xs">
+                            {sku.canal}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                          {sku.descricao_item || "Sem descrição"}
+                        </p>
+                        <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <ShoppingCart className="h-3 w-3" />
+                            {sku.qtd_vendas} vendas
+                          </span>
+                          <span>{formatCurrency(sku.valor_total_vendido)}</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 ml-4">
+                    {/* Ações - Sempre visíveis */}
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t">
                       {/* Popover para selecionar produto */}
                       <Popover
                         open={openPopovers[sku.sku_marketplace]}
@@ -208,13 +212,13 @@ export function VendasProductMappingModal({
                         }
                       >
                         <PopoverTrigger asChild>
-                          <Button variant="outline" size="sm">
-                            <Link2 className="h-4 w-4 mr-1" />
-                            Vincular
+                          <Button variant="default" size="sm" className="gap-1">
+                            <Link2 className="h-4 w-4" />
+                            Vincular a produto existente
                             <ChevronsUpDown className="ml-1 h-3 w-3 opacity-50" />
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-[350px] p-0" align="end">
+                        <PopoverContent className="w-[350px] p-0" align="start">
                           <Command>
                             <CommandInput placeholder="Buscar produto..." />
                             <CommandList>
@@ -255,12 +259,13 @@ export function VendasProductMappingModal({
 
                       {/* Botão criar produto */}
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
                         onClick={() => handleCreateProduct(sku)}
+                        className="gap-1"
                       >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Criar
+                        <Plus className="h-4 w-4" />
+                        Criar novo produto
                       </Button>
                     </div>
                   </div>
