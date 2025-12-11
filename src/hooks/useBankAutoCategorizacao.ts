@@ -112,6 +112,17 @@ let cacheCategoriasByNome: Map<string, string> = new Map();
 let cacheCentrosCustoByNome: Map<string, string> = new Map();
 let cacheCarregado = false;
 
+// Cache de regras aprendidas
+interface RegraAprendida {
+  id: string;
+  estabelecimento_pattern: string;
+  categoria_id: string | null;
+  centro_custo_id: string | null;
+  responsavel_id: string | null;
+  uso_count: number;
+}
+let cacheRegrasAprendidas: RegraAprendida[] = [];
+
 async function carregarCaches() {
   if (cacheCarregado) return;
 
@@ -138,7 +149,49 @@ async function carregarCaches() {
     });
   }
 
+  // Carregar regras aprendidas do banco
+  const { data: regras } = await supabase
+    .from("regras_categorizacao")
+    .select("id, estabelecimento_pattern, categoria_id, centro_custo_id, responsavel_id, uso_count")
+    .eq("ativo", true)
+    .order("uso_count", { ascending: false });
+
+  if (regras) {
+    cacheRegrasAprendidas = regras;
+  }
+
   cacheCarregado = true;
+}
+
+// Normaliza texto para comparação
+function normalizeTexto(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Busca regra aprendida que bate com a descrição
+function encontrarRegraAprendida(descricao: string): RegraAprendida | null {
+  const descNorm = normalizeTexto(descricao);
+  
+  // Busca match exato primeiro
+  let melhorMatch = cacheRegrasAprendidas.find(
+    r => normalizeTexto(r.estabelecimento_pattern) === descNorm
+  );
+  
+  // Se não encontrou exato, busca por similaridade (contém)
+  if (!melhorMatch) {
+    melhorMatch = cacheRegrasAprendidas.find(r => {
+      const pattern = normalizeTexto(r.estabelecimento_pattern);
+      return descNorm.includes(pattern) || pattern.includes(descNorm);
+    });
+  }
+  
+  return melhorMatch || null;
 }
 
 async function buscarOuCriarCategoria(nome: string, tipo: string): Promise<string | null> {
@@ -199,7 +252,7 @@ async function buscarOuCriarCentroCusto(nome: string): Promise<string | null> {
   }
 }
 
-function encontrarRegra(descricao: string, tipoLancamento: 'credito' | 'debito'): RegraBank | null {
+function encontrarRegraFixa(descricao: string, tipoLancamento: 'credito' | 'debito'): RegraBank | null {
   const descNorm = descricao.toLowerCase().trim();
   
   for (const regra of REGRAS_BANCARIAS) {
@@ -217,6 +270,7 @@ export function useBankAutoCategorizacao() {
     mutationFn: async ({ empresaId }) => {
       // Limpar cache para garantir dados atualizados
       cacheCarregado = false;
+      await carregarCaches();
       
       // Buscar transações sem categoria
       let query = supabase
@@ -241,11 +295,40 @@ export function useBankAutoCategorizacao() {
 
       for (const t of transacoes) {
         const tipoLanc = t.tipo_lancamento as 'credito' | 'debito';
-        const regra = encontrarRegra(t.descricao, tipoLanc);
+        
+        // PRIORIDADE 1: Regras aprendidas (do banco de dados)
+        const regraAprendida = encontrarRegraAprendida(t.descricao);
+        
+        if (regraAprendida && regraAprendida.categoria_id) {
+          const { error: updateError } = await supabase
+            .from("bank_transactions")
+            .update({
+              categoria_id: regraAprendida.categoria_id,
+              centro_custo_id: regraAprendida.centro_custo_id,
+              responsavel_id: regraAprendida.responsavel_id,
+              status: "pendente",
+            })
+            .eq("id", t.id);
 
-        if (regra) {
-          const categoriaId = await buscarOuCriarCategoria(regra.categoria_nome, regra.categoria_tipo);
-          const centroCustoId = await buscarOuCriarCentroCusto(regra.centro_custo_nome);
+          if (updateError) {
+            erros++;
+          } else {
+            categorizadas++;
+            // Incrementa uso da regra
+            await supabase
+              .from("regras_categorizacao")
+              .update({ uso_count: regraAprendida.uso_count + 1 })
+              .eq("id", regraAprendida.id);
+          }
+          continue;
+        }
+
+        // PRIORIDADE 2: Regras fixas (hardcoded)
+        const regraFixa = encontrarRegraFixa(t.descricao, tipoLanc);
+
+        if (regraFixa) {
+          const categoriaId = await buscarOuCriarCategoria(regraFixa.categoria_nome, regraFixa.categoria_tipo);
+          const centroCustoId = await buscarOuCriarCentroCusto(regraFixa.centro_custo_nome);
 
           if (categoriaId) {
             const { error: updateError } = await supabase

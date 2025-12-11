@@ -18,12 +18,15 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { useResponsaveis } from "@/hooks/useResponsaveis";
+import { useRegrasCategorizacao } from "@/hooks/useRegrasCategorizacao";
 import { BankTransaction, useBankTransactions } from "@/hooks/useBankTransactions";
 import { formatCurrency } from "@/lib/mock-data";
-import { Check, X, RotateCcw, Tag, Building2, User } from "lucide-react";
+import { Check, X, RotateCcw, Tag, Building2, User, Wand2 } from "lucide-react";
+import { toast } from "sonner";
 
 interface CategorizacaoBancariaModalProps {
   open: boolean;
@@ -41,17 +44,20 @@ export function CategorizacaoBancariaModal({
   const [categoriaId, setCategoriaId] = useState<string>("");
   const [centroCustoId, setCentroCustoId] = useState<string>("");
   const [responsavelId, setResponsavelId] = useState<string>("");
+  const [salvarComoRegra, setSalvarComoRegra] = useState(false);
 
   const { categorias, isLoading: loadingCategorias } = useCategoriasFinanceiras();
   const { centrosCusto, isLoading: loadingCentros } = useCentrosCusto();
   const { responsaveis, isLoading: loadingResponsaveis } = useResponsaveis();
   const { atualizarTransacao, conciliarTransacao, ignorarTransacao, reabrirTransacao } = useBankTransactions();
+  const { aprenderCategorizacao } = useRegrasCategorizacao();
 
   useEffect(() => {
     if (transacao) {
       setCategoriaId(transacao.categoria_id || "");
       setCentroCustoId(transacao.centro_custo_id || "");
       setResponsavelId(transacao.responsavel_id || "");
+      setSalvarComoRegra(false);
     }
   }, [transacao]);
 
@@ -88,6 +94,19 @@ export function CategorizacaoBancariaModal({
 
     conciliarTransacao.mutate(transacaoAtualizada, {
       onSuccess: () => {
+        // Salvar como regra automática se checkbox marcado
+        if (salvarComoRegra && transacao?.descricao) {
+          aprenderCategorizacao.mutate({
+            estabelecimento: transacao.descricao,
+            categoria_id: categoriaId || null,
+            centro_custo_id: centroCustoId === "none" ? null : (centroCustoId || null),
+            responsavel_id: responsavelId === "none" ? null : (responsavelId || null),
+          }, {
+            onSuccess: () => {
+              toast.success("Regra de categorização automática salva!");
+            }
+          });
+        }
         onSuccess?.();
         onOpenChange(false);
       },
@@ -261,6 +280,24 @@ export function CategorizacaoBancariaModal({
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Checkbox para salvar como regra automática */}
+            {!isConciliado && !isIgnorado && categoriaId && (
+              <div className="flex items-center space-x-2 p-3 rounded-lg bg-primary/5 border border-primary/20">
+                <Checkbox
+                  id="salvarComoRegra"
+                  checked={salvarComoRegra}
+                  onCheckedChange={(checked) => setSalvarComoRegra(checked === true)}
+                />
+                <Label 
+                  htmlFor="salvarComoRegra" 
+                  className="text-sm cursor-pointer flex items-center gap-2"
+                >
+                  <Wand2 className="h-4 w-4 text-primary" />
+                  Categorizar automaticamente transações futuras similares
+                </Label>
+              </div>
+            )}
           </div>
         </div>
 
