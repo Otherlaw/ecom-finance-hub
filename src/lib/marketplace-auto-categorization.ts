@@ -460,7 +460,9 @@ const REGRAS_POR_CANAL: Record<string, RegraAutomatica[]> = {
 export async function aplicarCategorizacaoAutomatica(
   transacao: TransacaoParaCategorizacao
 ): Promise<CategorizacaoAutomatica | null> {
-  const canalNormalizado = transacao.canal.toLowerCase().trim();
+  // Normalizar canal: "Mercado Livre" -> "mercado_livre", "Mercado Pago" -> "mercado_pago"
+  const canalRaw = transacao.canal.toLowerCase().trim();
+  const canalNormalizado = canalRaw.replace(/\s+/g, '_'); // Substitui espaços por underscore
   const descricaoNormalizada = transacao.descricao.toLowerCase().trim();
 
   // Obter regras do canal
