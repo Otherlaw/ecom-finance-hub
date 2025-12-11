@@ -484,7 +484,7 @@ export default function RegrasMarketplace() {
                     <SelectValue placeholder="Selecione uma categoria" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Nenhuma</SelectItem>
+                    <SelectItem value="__none__">Nenhuma</SelectItem>
                     {categorias
                       .filter((c) => c.ativo)
                       .map((cat) => (
@@ -506,7 +506,7 @@ export default function RegrasMarketplace() {
                     <SelectValue placeholder="Selecione um centro de custo" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Nenhum</SelectItem>
+                    <SelectItem value="__none__">Nenhum</SelectItem>
                     {centrosFlat.map((cc) => (
                       <SelectItem key={cc.id} value={cc.id}>
                         {cc.fullPath}
