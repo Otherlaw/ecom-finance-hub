@@ -7,12 +7,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { format, subDays, startOfDay, endOfDay } from "date-fns";
+import { format, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarIcon, Clock, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-export type PeriodOption = "today" | "7days" | "15days" | "30days" | "custom";
+export type PeriodOption = "today" | "7days" | "15days" | "30days" | "month" | "year" | "custom";
 
 export interface DateRange {
   from: Date;
@@ -28,9 +28,11 @@ export interface PeriodFilterProps {
 
 const periodOptions: { value: PeriodOption; label: string }[] = [
   { value: "today", label: "Hoje" },
-  { value: "7days", label: "Últimos 7 dias" },
-  { value: "15days", label: "Últimos 15 dias" },
-  { value: "30days", label: "Últimos 30 dias" },
+  { value: "7days", label: "7 dias" },
+  { value: "15days", label: "15 dias" },
+  { value: "30days", label: "30 dias" },
+  { value: "month", label: "Mês atual" },
+  { value: "year", label: "Ano inteiro" },
   { value: "custom", label: "Personalizado" },
 ];
 
@@ -48,6 +50,13 @@ export function getDateRangeForPeriod(period: PeriodOption, customRange?: DateRa
       return { from: startOfDay(subDays(today, 14)), to: todayEnd };
     case "30days":
       return { from: startOfDay(subDays(today, 29)), to: todayEnd };
+    case "month":
+      return { from: startOfMonth(today), to: endOfMonth(today) };
+    case "year":
+      return { 
+        from: new Date(today.getFullYear(), 0, 1), 
+        to: new Date(today.getFullYear(), 11, 31) 
+      };
     case "custom":
       return customRange || { from: todayStart, to: todayEnd };
     default:

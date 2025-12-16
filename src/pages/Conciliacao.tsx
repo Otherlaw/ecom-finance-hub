@@ -39,6 +39,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
+import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
 
 // Mock removido - usando dados reais de manual_transactions
 
@@ -186,19 +187,17 @@ function BancariaTab() {
   const [statusFiltro, setStatusFiltro] = useState<string>("todos");
   const [busca, setBusca] = useState("");
 
-  // Período selecionável (padrão: mês atual)
-  const hoje = new Date();
-  const [mesSelecionado, setMesSelecionado] = useState(hoje.getMonth());
-  const [anoSelecionado, setAnoSelecionado] = useState(hoje.getFullYear());
+  // Período com PeriodFilter
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("30days");
+  const [dateRange, setDateRange] = useState<DateRange>(() => getDateRangeForPeriod("30days"));
   
-  const periodoInicio = format(new Date(anoSelecionado, mesSelecionado, 1), "yyyy-MM-dd");
-  const periodoFim = format(endOfMonth(new Date(anoSelecionado, mesSelecionado, 1)), "yyyy-MM-dd");
+  const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
+    setSelectedPeriod(period);
+    setDateRange(range);
+  };
   
-  const meses = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-  ];
-  const anos = Array.from({ length: 5 }, (_, i) => hoje.getFullYear() - 2 + i);
+  const periodoInicio = format(dateRange.from, "yyyy-MM-dd");
+  const periodoFim = format(dateRange.to, "yyyy-MM-dd");
   const {
     empresas
   } = useEmpresas();
@@ -323,30 +322,12 @@ function BancariaTab() {
       
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-4 mb-6">
-        {/* Seletor de Período */}
-        <div className="flex items-center gap-2">
-          <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-          <Select value={mesSelecionado.toString()} onValueChange={(v) => setMesSelecionado(parseInt(v))}>
-            <SelectTrigger className="w-[130px]">
-              <SelectValue placeholder="Mês" />
-            </SelectTrigger>
-            <SelectContent>
-              {meses.map((mes, i) => (
-                <SelectItem key={i} value={i.toString()}>{mes}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={anoSelecionado.toString()} onValueChange={(v) => setAnoSelecionado(parseInt(v))}>
-            <SelectTrigger className="w-[100px]">
-              <SelectValue placeholder="Ano" />
-            </SelectTrigger>
-            <SelectContent>
-              {anos.map((ano) => (
-                <SelectItem key={ano} value={ano.toString()}>{ano}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Seletor de Período com PeriodFilter */}
+        <PeriodFilter
+          selectedPeriod={selectedPeriod}
+          onPeriodChange={handlePeriodChange}
+          isLoading={isLoading}
+        />
 
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
