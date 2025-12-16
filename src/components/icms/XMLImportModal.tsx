@@ -144,29 +144,28 @@ export function XMLImportModal({
     const competencia = `${hoje.substring(0, 7)}`;
 
     nfe.itens.forEach((item) => {
-      if (item.valorIcms > 0) {
-        credits.push({
-          empresaId: empId,
-          tipoCredito,
-          origemCredito: origem,
-          chaveAcesso: nfe.chaveAcesso,
-          numeroNF: nfe.numero,
-          ncm: item.ncm,
-          cfop: item.cfop,
-          descricao: item.descricao,
-          quantidade: item.quantidade,
-          valorUnitario: item.valorUnitario,
-          valorTotal: item.valorTotal,
-          ufOrigem: nfe.emitente.uf,
-          aliquotaIcms: item.aliquotaIcms,
-          valorIcmsDestacado: item.valorIcms,
-          percentualAproveitamento: 100,
-          valorCreditoBruto: item.valorIcms,
-          valorCredito: item.valorIcms,
-          dataCompetencia: competencia,
-          fornecedorNome: nfe.emitente.razaoSocial,
-        });
-      }
+      // Registrar item mesmo sem ICMS (será crédito informativo/R$ 0)
+      credits.push({
+        empresaId: empId,
+        tipoCredito,
+        origemCredito: origem,
+        chaveAcesso: nfe.chaveAcesso,
+        numeroNF: nfe.numero,
+        ncm: item.ncm,
+        cfop: item.cfop,
+        descricao: item.descricao,
+        quantidade: item.quantidade,
+        valorUnitario: item.valorUnitario,
+        valorTotal: item.valorTotal,
+        ufOrigem: nfe.emitente.uf,
+        aliquotaIcms: item.aliquotaIcms || 0,
+        valorIcmsDestacado: item.valorIcms || 0,
+        percentualAproveitamento: 100,
+        valorCreditoBruto: item.valorIcms || 0,
+        valorCredito: item.valorIcms || 0,
+        dataCompetencia: competencia,
+        fornecedorNome: nfe.emitente.razaoSocial,
+      });
     });
 
     return credits;
@@ -286,11 +285,10 @@ export function XMLImportModal({
       return;
     }
 
-    // Check if any file has ICMS
+    // Check if any file has ICMS - apenas aviso, não bloqueia
     const hasIcms = validNFes.some(nfe => nfe.itens.some(item => item.valorIcms > 0));
     if (!hasIcms) {
-      toast.warning("Nenhum item com ICMS destacado foi encontrado nos arquivos XML.");
-      return;
+      toast.info("Nenhum item com ICMS destacado. A nota será registrada para controle, mas sem crédito a compensar.");
     }
 
     setStep("preview");
@@ -620,6 +618,16 @@ export function XMLImportModal({
               </div>
             </div>
 
+            {previewCredits.length > 0 && previewCredits.every(c => c.valorCredito === 0) && (
+              <Alert className="bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
+                <Info className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-700 dark:text-amber-400 text-sm">
+                  <strong>Sem ICMS destacado:</strong> Esta(s) nota(s) será(ão) registrada(s) apenas para controle. 
+                  Nenhum crédito será gerado para compensação.
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="flex items-center gap-4 p-3 rounded-lg bg-secondary/30">
               <div>
                 <span className="text-sm text-muted-foreground">Empresa:</span>
@@ -627,7 +635,12 @@ export function XMLImportModal({
               </div>
               <div>
                 <span className="text-sm text-muted-foreground">Origem:</span>
-                <span className="ml-2 font-medium">{ORIGEM_CREDITO_CONFIG[origemCredito].label}</span>
+                <span className="ml-2 font-medium">
+                  {origemCredito.startsWith('custom_') 
+                    ? origensPersonalizadas.find(o => o.id === origemCredito.replace('custom_', ''))?.nome || origemCredito
+                    : ORIGEM_CREDITO_CONFIG[origemCredito]?.label || origemCredito
+                  }
+                </span>
               </div>
             </div>
 
