@@ -7,6 +7,17 @@ const corsHeaders = {
 
 const ML_API_URL = "https://api.mercadolibre.com";
 
+// Mapear logistic_type para tipo_envio amigável
+const logisticTypeMap: Record<string, string> = {
+  "fulfillment": "full",
+  "xd_drop_off": "flex",
+  "self_service": "coleta",
+  "cross_docking": "flex",
+  "drop_off": "coleta",
+  "custom": "retirada",
+  "not_specified": "coleta",
+};
+
 interface MLOrder {
   id: number;
   status: string;
@@ -31,7 +42,15 @@ interface MLOrder {
   shipping: {
     id: number;
     cost: number;
+    logistic_type?: string;
   };
+}
+
+interface ShippingDetails {
+  logistic_type?: string;
+  receiver_cost?: number;
+  sender_cost?: number;
+  base_cost?: number;
 }
 
 Deno.serve(async (req) => {
@@ -44,6 +63,7 @@ Deno.serve(async (req) => {
   let registros_criados = 0;
   let registros_atualizados = 0;
   let registros_erro = 0;
+  let itens_mapeados_automaticamente = 0;
 
   try {
     const { empresa_id, days_back = 30 } = await req.json();
@@ -89,42 +109,101 @@ Deno.serve(async (req) => {
       accessToken = refreshResult.access_token;
     }
 
-    console.log(`[ML Sync] Iniciando sync para empresa ${empresa_id}`);
+    console.log(`[ML Sync] Iniciando sync para empresa ${empresa_id}, últimos ${days_back} dias`);
 
     // Calcular período
     const dateFrom = new Date();
     dateFrom.setDate(dateFrom.getDate() - days_back);
     const dateFromStr = dateFrom.toISOString();
 
-    // Buscar pedidos do ML
-    const ordersUrl = `${ML_API_URL}/orders/search?seller=${tokenData.user_id_provider}&order.date_created.from=${dateFromStr}&sort=date_desc`;
-    
-    const ordersResponse = await fetch(ordersUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
+    // ========== PAGINAÇÃO: Buscar TODOS os pedidos ==========
+    let offset = 0;
+    const limit = 50;
+    let allOrders: MLOrder[] = [];
+    let totalOrders = 0;
+
+    do {
+      const ordersUrl = `${ML_API_URL}/orders/search?seller=${tokenData.user_id_provider}&order.date_created.from=${dateFromStr}&sort=date_desc&offset=${offset}&limit=${limit}`;
+      
+      console.log(`[ML Sync] Buscando pedidos: offset=${offset}, limit=${limit}`);
+      
+      const ordersResponse = await fetch(ordersUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!ordersResponse.ok) {
+        const errorText = await ordersResponse.text();
+        console.error("[ML Sync] Erro ao buscar pedidos:", errorText);
+        throw new Error(`Erro ao buscar pedidos: ${ordersResponse.status}`);
+      }
+
+      const ordersData = await ordersResponse.json();
+      const pageOrders = ordersData.results || [];
+      allOrders = allOrders.concat(pageOrders);
+      totalOrders = ordersData.paging?.total || 0;
+      
+      console.log(`[ML Sync] Página ${Math.floor(offset/limit) + 1}: ${pageOrders.length} pedidos (total disponível: ${totalOrders})`);
+      
+      offset += limit;
+      
+      // Pequena pausa para não sobrecarregar a API
+      if (offset < totalOrders) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    } while (offset < totalOrders);
+
+    console.log(`[ML Sync] Total de ${allOrders.length} pedidos encontrados`);
+
+    // Buscar mapeamentos existentes para a empresa
+    const { data: mapeamentosExistentes } = await supabase
+      .from("produto_marketplace_map")
+      .select("sku_marketplace, produto_id")
+      .eq("empresa_id", empresa_id)
+      .eq("canal", "Mercado Livre")
+      .eq("ativo", true);
+
+    const mapeamentoMap = new Map<string, string>();
+    mapeamentosExistentes?.forEach(m => {
+      mapeamentoMap.set(m.sku_marketplace, m.produto_id);
     });
 
-    if (!ordersResponse.ok) {
-      const errorText = await ordersResponse.text();
-      console.error("[ML Sync] Erro ao buscar pedidos:", errorText);
-      throw new Error(`Erro ao buscar pedidos: ${ordersResponse.status}`);
-    }
-
-    const ordersData = await ordersResponse.json();
-    const orders: MLOrder[] = ordersData.results || [];
-
-    console.log(`[ML Sync] Encontrados ${orders.length} pedidos`);
+    console.log(`[ML Sync] ${mapeamentoMap.size} mapeamentos de produtos ativos encontrados`);
 
     // Processar cada pedido
-    for (const order of orders) {
+    for (const order of allOrders) {
       registros_processados++;
 
       try {
         // Calcular valores
         const valorBruto = order.total_amount;
         const taxas = order.payments?.reduce((sum, p) => sum + (p.marketplace_fee || 0), 0) || 0;
-        const frete = order.shipping?.cost || 0;
+        
+        // ========== BUSCAR DETALHES DO SHIPPING ==========
+        let tipoEnvio: string | null = null;
+        let freteComprador = 0;
+        let freteVendedor = 0;
+
+        if (order.shipping?.id) {
+          try {
+            const shippingUrl = `${ML_API_URL}/shipments/${order.shipping.id}`;
+            const shippingResponse = await fetch(shippingUrl, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+
+            if (shippingResponse.ok) {
+              const shippingData: ShippingDetails = await shippingResponse.json();
+              tipoEnvio = logisticTypeMap[shippingData.logistic_type || ""] || null;
+              freteComprador = shippingData.receiver_cost || 0;
+              freteVendedor = shippingData.sender_cost || shippingData.base_cost || order.shipping.cost || 0;
+            }
+          } catch (shippingError) {
+            console.warn(`[ML Sync] Erro ao buscar shipping ${order.shipping.id}:`, shippingError);
+          }
+        }
+
+        const frete = freteVendedor;
         const valorLiquido = valorBruto - taxas - frete;
 
         // Verificar se já existe
@@ -152,6 +231,9 @@ Deno.serve(async (req) => {
           pedido_id: String(order.id),
           origem_extrato: "api_mercado_livre",
           status: order.status === "paid" ? "importado" : "pendente",
+          tipo_envio: tipoEnvio,
+          frete_comprador: freteComprador,
+          frete_vendedor: freteVendedor,
         };
 
         if (existing) {
@@ -175,17 +257,28 @@ Deno.serve(async (req) => {
             continue;
           }
 
-          // Inserir itens do pedido
+          // Inserir itens do pedido COM MAPEAMENTO AUTOMÁTICO
           if (order.order_items && newTx) {
             for (const item of order.order_items) {
+              const skuMarketplace = item.item.seller_sku || item.item.id;
+              
+              // Buscar mapeamento existente
+              const produtoId = mapeamentoMap.get(skuMarketplace) || null;
+
+              if (produtoId) {
+                itens_mapeados_automaticamente++;
+                console.log(`[ML Sync] SKU ${skuMarketplace} mapeado automaticamente para produto ${produtoId}`);
+              }
+
               await supabase.from("marketplace_transaction_items").insert({
                 transaction_id: newTx.id,
-                sku_marketplace: item.item.seller_sku || item.item.id,
+                sku_marketplace: skuMarketplace,
                 descricao_item: item.item.title,
                 quantidade: item.quantity,
                 preco_unitario: item.unit_price,
                 preco_total: item.quantity * item.unit_price,
                 anuncio_id: item.item.id,
+                produto_id: produtoId,
               });
             }
           }
@@ -216,16 +309,20 @@ Deno.serve(async (req) => {
       provider: "mercado_livre",
       tipo: "sync",
       status: registros_erro > 0 ? "partial" : "success",
-      mensagem: `Sync concluído: ${registros_criados} novos, ${registros_atualizados} atualizados`,
+      mensagem: `Sync concluído: ${registros_criados} novos, ${registros_atualizados} atualizados, ${itens_mapeados_automaticamente} itens mapeados automaticamente`,
       registros_processados,
       registros_criados,
       registros_atualizados,
       registros_erro,
       duracao_ms,
-      detalhes: { days_back, total_orders: orders.length },
+      detalhes: { 
+        days_back, 
+        total_orders: allOrders.length,
+        itens_mapeados_automaticamente,
+      },
     });
 
-    console.log(`[ML Sync] Concluído em ${duracao_ms}ms: ${registros_criados} novos, ${registros_atualizados} atualizados, ${registros_erro} erros`);
+    console.log(`[ML Sync] Concluído em ${duracao_ms}ms: ${registros_criados} novos, ${registros_atualizados} atualizados, ${registros_erro} erros, ${itens_mapeados_automaticamente} itens mapeados automaticamente`);
 
     return new Response(
       JSON.stringify({
@@ -234,6 +331,7 @@ Deno.serve(async (req) => {
         registros_criados,
         registros_atualizados,
         registros_erro,
+        itens_mapeados_automaticamente,
         duracao_ms,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
