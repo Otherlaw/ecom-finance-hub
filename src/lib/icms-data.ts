@@ -63,7 +63,7 @@ export interface CreditoICMS {
   
   // Classificação do crédito
   tipoCredito: TipoCreditoICMS;
-  origemCredito: OrigemCredito;
+  origemCredito: string; // Pode ser OrigemCredito padrão ou custom_UUID
   statusCredito: StatusCredito;
   
   // Dados da NF
