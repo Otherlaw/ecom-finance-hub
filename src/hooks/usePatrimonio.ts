@@ -142,10 +142,13 @@ export function usePatrimonio(empresaId?: string) {
   });
 
   const updateBemMutation = useMutation({
-    mutationFn: async ({ id, ...updates }: Partial<PatrimonioBem> & { id: string }) => {
+    mutationFn: async ({ id, criado_em, atualizado_em, ...updates }: Partial<PatrimonioBem> & { id: string }) => {
+      // Remove campos readonly que não devem ser enviados na atualização
+      const { ...validUpdates } = updates;
+      
       const { data, error } = await supabase
         .from("patrimonio_bens")
-        .update(updates)
+        .update(validUpdates)
         .eq("id", id)
         .select()
         .single();
