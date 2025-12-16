@@ -9,6 +9,8 @@ import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
 import { VendasFiltrosPanel } from "@/components/vendas/VendasFiltrosPanel";
 import { VendasTable } from "@/components/vendas/VendasTable";
 import { VendasProductMappingModal } from "@/components/vendas/VendasProductMappingModal";
+import { VendasCategorizacaoModal } from "@/components/vendas/VendasCategorizacaoModal";
+import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,12 +18,13 @@ import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw } from "lucide-re
 import { toast } from "sonner";
 
 export default function Vendas() {
-  const hoje = format(new Date(), "yyyy-MM-dd");
-  const inicioMes = format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd");
+  // Estados do filtro de período
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("30days");
+  const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("30days"));
 
   const [filtros, setFiltros] = useState<VendasFiltros>({
-    dataInicio: inicioMes,
-    dataFim: hoje,
+    dataInicio: format(dateRange.from, "yyyy-MM-dd"),
+    dataFim: format(dateRange.to, "yyyy-MM-dd"),
     titulo: "",
     sku: "",
     pedidoId: "",
@@ -37,6 +40,10 @@ export default function Vendas() {
 
   const [showMappingModal, setShowMappingModal] = useState(false);
   const [skuParaMapear, setSkuParaMapear] = useState<string | null>(null);
+  
+  // Estado para modal de categorização
+  const [showCategorizacaoModal, setShowCategorizacaoModal] = useState(false);
+  const [vendaParaCategorizar, setVendaParaCategorizar] = useState<any>(null);
 
   const { empresas } = useEmpresas();
   const empresaId = empresas?.[0]?.id;
@@ -53,6 +60,17 @@ export default function Vendas() {
   } = useVendas(filtros);
 
   const { resumo: resumoPendentes, reprocessarMapeamentos } = useVendasPendentes({ empresaId });
+
+  // Handler para mudança de período
+  const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
+    setSelectedPeriod(period);
+    setDateRange(range);
+    setFiltros((prev) => ({
+      ...prev,
+      dataInicio: format(range.from, "yyyy-MM-dd"),
+      dataFim: format(range.to, "yyyy-MM-dd"),
+    }));
+  };
 
   const handleFiltroChange = (campo: keyof VendasFiltros, valor: any) => {
     setFiltros((prev) => ({ ...prev, [campo]: valor }));
@@ -76,6 +94,17 @@ export default function Vendas() {
     }));
   };
 
+  const limparFiltrosEspeciais = () => {
+    setFiltros((prev) => ({
+      ...prev,
+      somenteNaoConciliadas: false,
+      somenteSemCusto: false,
+      somenteSemProduto: false,
+      tipoEnvio: "",
+      teveAds: "todos",
+    }));
+  };
+
   const handleReprocessarMapeamentos = async () => {
     if (!empresaId) {
       toast.error("Nenhuma empresa selecionada");
@@ -89,8 +118,32 @@ export default function Vendas() {
     setShowMappingModal(true);
   };
 
+  // Handler para abrir modal de categorização (usado pela tabela)
+  const handleAbrirCategorizacao = (venda: any) => {
+    setVendaParaCategorizar(venda);
+    setShowCategorizacaoModal(true);
+  };
+
+  // Handler wrapper para o botão conciliar na tabela
+  const handleConciliarWrapper = async (transacaoId: string): Promise<boolean> => {
+    const venda = vendas.find(v => v.transacao_id === transacaoId);
+    if (venda) {
+      handleAbrirCategorizacao(venda);
+    }
+    return false; // Retorna false para não fechar automaticamente, o modal vai cuidar disso
+  };
+
   return (
-    <MainLayout title="Vendas">
+    <MainLayout 
+      title="Vendas"
+      actions={
+        <PeriodFilter
+          selectedPeriod={selectedPeriod}
+          onPeriodChange={handlePeriodChange}
+          isLoading={isLoading}
+        />
+      }
+    >
       <div className="flex flex-col gap-6 p-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -181,6 +234,7 @@ export default function Vendas() {
               onFiltroChange={handleFiltroChange}
               canaisDisponiveis={canaisDisponiveis}
               contasDisponiveis={contasDisponiveis}
+              onLimparFiltrosEspeciais={limparFiltrosEspeciais}
             />
 
             {/* Tabela de vendas */}
@@ -199,7 +253,7 @@ export default function Vendas() {
                 <VendasTable 
                   vendas={vendas} 
                   aliquotaImposto={aliquotaImposto}
-                  onConciliar={conciliarTransacao}
+                  onConciliar={handleConciliarWrapper}
                   onAbrirMapeamento={handleAbrirMapeamentoLinha}
                 />
               </CardContent>
@@ -214,6 +268,20 @@ export default function Vendas() {
           open={showMappingModal}
           onOpenChange={setShowMappingModal}
           empresaId={empresaId}
+        />
+      )}
+
+      {/* Modal de categorização */}
+      {empresaId && vendaParaCategorizar && (
+        <VendasCategorizacaoModal
+          open={showCategorizacaoModal}
+          onOpenChange={setShowCategorizacaoModal}
+          venda={vendaParaCategorizar}
+          empresaId={empresaId}
+          onSuccess={() => {
+            setShowCategorizacaoModal(false);
+            setVendaParaCategorizar(null);
+          }}
         />
       )}
     </MainLayout>

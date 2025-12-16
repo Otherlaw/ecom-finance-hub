@@ -3,14 +3,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
 import { VendasFiltros } from "@/hooks/useVendas";
-import { Filter, Search } from "lucide-react";
+import { Filter, Search, X } from "lucide-react";
 
 interface VendasFiltrosPanelProps {
   filtros: VendasFiltros;
   onFiltroChange: (campo: keyof VendasFiltros, valor: any) => void;
   canaisDisponiveis: string[];
   contasDisponiveis: string[];
+  onLimparFiltrosEspeciais?: () => void;
 }
 
 export function VendasFiltrosPanel({
@@ -18,7 +20,15 @@ export function VendasFiltrosPanel({
   onFiltroChange,
   canaisDisponiveis,
   contasDisponiveis,
+  onLimparFiltrosEspeciais,
 }: VendasFiltrosPanelProps) {
+  const temFiltrosEspeciaisAtivos = 
+    filtros.somenteNaoConciliadas || 
+    filtros.somenteSemCusto || 
+    filtros.somenteSemProduto ||
+    (filtros.tipoEnvio && filtros.tipoEnvio !== "todos") ||
+    (filtros.teveAds && filtros.teveAds !== "todos");
+
   return (
     <Card>
       <CardContent className="p-4">
@@ -28,27 +38,6 @@ export function VendasFiltrosPanel({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-          {/* Período */}
-          <div className="space-y-2">
-            <Label className="text-xs">Data Início</Label>
-            <Input
-              type="date"
-              value={filtros.dataInicio}
-              onChange={(e) => onFiltroChange("dataInicio", e.target.value)}
-              className="h-9"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs">Data Fim</Label>
-            <Input
-              type="date"
-              value={filtros.dataFim}
-              onChange={(e) => onFiltroChange("dataFim", e.target.value)}
-              className="h-9"
-            />
-          </div>
-
           {/* Canal */}
           <div className="space-y-2">
             <Label className="text-xs">Canal</Label>
@@ -190,7 +179,20 @@ export function VendasFiltrosPanel({
 
           {/* Checkboxes */}
           <div className="space-y-3 md:col-span-2 lg:col-span-4">
-            <Label className="text-xs">Filtros especiais</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Filtros especiais</Label>
+              {temFiltrosEspeciaisAtivos && onLimparFiltrosEspeciais && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onLimparFiltrosEspeciais}
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Limpar filtros
+                </Button>
+              )}
+            </div>
             <div className="flex flex-wrap gap-4">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <Checkbox
