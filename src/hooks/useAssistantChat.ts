@@ -12,6 +12,7 @@ export interface ChatMessage {
 
 export interface ChatContext {
   empresa?: {
+    id: string;
     nome: string;
     regime: string;
   };

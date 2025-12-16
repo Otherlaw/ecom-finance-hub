@@ -184,7 +184,7 @@ export default function ICMS() {
   const handleAskAssistant = () => {
     openChat('Explique a situação dos créditos de ICMS', {
       telaAtual: 'Créditos de ICMS',
-      empresa: selectedEmpresa ? { nome: selectedEmpresa.razao_social, regime: selectedEmpresa.regime_tributario } : undefined,
+      empresa: selectedEmpresa ? { id: selectedEmpresa.id, nome: selectedEmpresa.razao_social, regime: selectedEmpresa.regime_tributario } : undefined,
       dadosAdicionais: {
         creditosCompensaveis: formatCurrency(totalCompensaveis),
         creditosNaoCompensaveis: formatCurrency(totalNaoCompensaveis),

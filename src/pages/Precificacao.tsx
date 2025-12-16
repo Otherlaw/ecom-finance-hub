@@ -541,6 +541,7 @@ export default function Precificacao() {
     openChat('Explique como esta precificação foi calculada', {
       telaAtual: 'Precificação',
       empresa: empresaSelecionada ? {
+        id: empresaSelecionada.id,
         nome: empresaSelecionada.nome,
         regime: empresaSelecionada.regimeTributario
       } : undefined,
