@@ -17,9 +17,10 @@ import {
 } from "@/components/ui/select";
 import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
+import { useResponsaveis } from "@/hooks/useResponsaveis";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Loader2, Tag, Building2 } from "lucide-react";
+import { Loader2, Tag, Building2, User } from "lucide-react";
 import { formatCurrency } from "@/lib/mock-data";
 import { registrarMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
 import { useQueryClient } from "@tanstack/react-query";
@@ -35,6 +36,7 @@ interface CategorizacaoModalProps {
     estabelecimento?: string | null;
     categoria_id?: string | null;
     centro_custo_id?: string | null;
+    responsavel_id?: string | null;
   } | null;
   tipo: "cartao" | "bancaria";
   onSuccess?: () => void;
@@ -49,17 +51,20 @@ export function CategorizacaoModal({
 }: CategorizacaoModalProps) {
   const [categoriaId, setCategoriaId] = useState<string>("");
   const [centroCustoId, setCentroCustoId] = useState<string>("");
+  const [responsavelId, setResponsavelId] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   const queryClient = useQueryClient();
 
   const { categoriasPorTipo, categorias, isLoading: loadingCategorias } = useCategoriasFinanceiras();
   const { centrosFlat, isLoading: loadingCentros } = useCentrosCusto();
+  const { responsaveis, isLoading: loadingResponsaveis } = useResponsaveis();
 
   // Carrega valores atuais quando a transação muda
   useEffect(() => {
     if (transacao) {
       setCategoriaId(transacao.categoria_id || "");
       setCentroCustoId(transacao.centro_custo_id || "none");
+      setResponsavelId(transacao.responsavel_id || "none");
     }
   }, [transacao]);
 
@@ -99,6 +104,7 @@ export function CategorizacaoModal({
           .update({
             categoria_id: categoriaId,
             centro_custo_id: centroCustoId === "none" ? null : (centroCustoId || null),
+            responsavel_id: responsavelId === "none" ? null : (responsavelId || null),
             status: "conciliado",
           })
           .eq("id", transacao.id);
@@ -125,6 +131,7 @@ export function CategorizacaoModal({
               categoriaNome: categoriaSelecionada?.nome || undefined,
               centroCustoId: centroCustoId === "none" ? undefined : (centroCustoId || undefined),
               centroCustoNome: centroSelecionado?.nome || undefined,
+              responsavelId: responsavelId === "none" ? undefined : (responsavelId || undefined),
               observacoes: txCompleta.observacoes || undefined,
             });
           } catch (meuError) {
@@ -151,7 +158,9 @@ export function CategorizacaoModal({
     }
   };
 
-  const isLoading = loadingCategorias || loadingCentros;
+  const isLoading = loadingCategorias || loadingCentros || loadingResponsaveis;
+
+  const responsaveisAtivos = responsaveis?.filter(r => r.ativo) || [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -238,6 +247,32 @@ export function CategorizacaoModal({
                         </span>
                       </SelectItem>
                     ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Responsável */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <User className="h-4 w-4 text-muted-foreground" />
+                Responsável
+              </Label>
+              <Select 
+                value={responsavelId || "none"} 
+                onValueChange={(val) => setResponsavelId(val === "none" ? "" : val)} 
+                disabled={isLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o responsável (opcional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nenhum</SelectItem>
+                  {responsaveisAtivos.map((resp) => (
+                    <SelectItem key={resp.id} value={resp.id}>
+                      {resp.nome}
+                      {resp.funcao && <span className="text-muted-foreground ml-1">({resp.funcao})</span>}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
