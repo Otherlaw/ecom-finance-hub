@@ -140,8 +140,9 @@ export function XMLImportModal({
     origem: string
   ): PreviewCredit[] => {
     const credits: PreviewCredit[] = [];
-    const hoje = new Date().toISOString().split("T")[0];
-    const competencia = `${hoje.substring(0, 7)}`;
+    // Usar data de emissão da NF-e, com fallback para data atual
+    const dataEmissao = nfe.dataEmissao || new Date().toISOString().split("T")[0];
+    const competencia = `${dataEmissao.substring(0, 7)}`;
 
     nfe.itens.forEach((item) => {
       // Registrar item mesmo sem ICMS (será crédito informativo/R$ 0)
