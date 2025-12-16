@@ -48,6 +48,7 @@ interface ICMSCalculatorModalProps {
 const initialFormData = {
   empresa: "",
   origemCredito: "compra_mercadoria" as OrigemCredito,
+  origemDescricao: "",
   numeroNF: "",
   ncm: "",
   cfop: "",
@@ -82,6 +83,7 @@ export function ICMSCalculatorModal({
       setFormData({
         empresa: editingCredit.empresa,
         origemCredito: editingCredit.origemCredito || "compra_mercadoria",
+        origemDescricao: "",
         numeroNF: editingCredit.numeroNF || "",
         ncm: editingCredit.ncm,
         cfop: editingCredit.cfop || "",
@@ -363,6 +365,21 @@ export function ICMSCalculatorModal({
               placeholder="Ex: 12345"
             />
           </div>
+
+          {formData.origemCredito === 'outro' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="origemDescricao">Descrição da Origem *</Label>
+              <Input
+                id="origemDescricao"
+                placeholder="Ex: Carla Clips, Auto Posto de Gasolina..."
+                value={formData.origemDescricao}
+                onChange={(e) => handleChange("origemDescricao", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Informe o nome ou descrição que identifica esta origem de crédito.
+              </p>
+            </div>
+          )}
 
           {isSimples && (
             <Alert className="bg-blue-50 border-blue-200">

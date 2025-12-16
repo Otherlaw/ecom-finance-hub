@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Upload, FileX, FileCheck, AlertTriangle, CheckCircle2, Info, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -97,6 +98,7 @@ export function XMLImportModal({
 }: XMLImportModalProps) {
   const [empresaId, setEmpresaId] = useState<string>("");
   const [origemCredito, setOrigemCredito] = useState<OrigemCredito>("compra_mercadoria");
+  const [origemDescricao, setOrigemDescricao] = useState<string>("");
   const [parsedFiles, setParsedFiles] = useState<ParsedFile[]>([]);
   const [previewCredits, setPreviewCredits] = useState<PreviewCredit[]>([]);
   const [step, setStep] = useState<"upload" | "preview">("upload");
@@ -295,6 +297,7 @@ export function XMLImportModal({
       empresa_id: c.empresaId,
       tipo_credito: c.tipoCredito,
       origem_credito: c.origemCredito,
+      origem_descricao: origemCredito === 'outro' && origemDescricao ? origemDescricao : null,
       chave_acesso: c.chaveAcesso,
       numero_nf: c.numeroNF,
       ncm: c.ncm,
@@ -324,6 +327,7 @@ export function XMLImportModal({
     setStep("upload");
     setEmpresaId("");
     setOrigemCredito("compra_mercadoria");
+    setOrigemDescricao("");
     setAutoDetectedEmpresa(null);
     onOpenChange(false);
   };
@@ -401,6 +405,21 @@ export function XMLImportModal({
                 </Select>
               </div>
             </div>
+
+            {origemCredito === 'outro' && (
+              <div className="space-y-2">
+                <Label htmlFor="origemDescricao">Descrição da Origem *</Label>
+                <Input
+                  id="origemDescricao"
+                  placeholder="Ex: Carla Clips, Auto Posto de Gasolina..."
+                  value={origemDescricao}
+                  onChange={(e) => setOrigemDescricao(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Informe o nome ou descrição que identifica esta origem de crédito.
+                </p>
+              </div>
+            )}
 
             {isSimples && (
               <Alert className="bg-blue-50 border-blue-200">

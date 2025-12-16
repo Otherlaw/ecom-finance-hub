@@ -19,6 +19,7 @@ import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useCreditosICMS, CreditoICMSDB, CreditoICMSInsert } from "@/hooks/useCreditosICMS";
+import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
 import { 
   Receipt, AlertTriangle, TrendingDown, Calculator, 
   Upload, Lightbulb, Trash2, Edit2, Info, Building2, 
@@ -45,6 +46,13 @@ export default function ICMS() {
   const [empresaFilter, setEmpresaFilter] = useState<string>("todas");
   const [tipoFilter, setTipoFilter] = useState<string>("todos");
   const [origemFilter, setOrigemFilter] = useState<string>("todas");
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("year");
+  const [dateRange, setDateRange] = useState<DateRange>(() => getDateRangeForPeriod("year"));
+
+  const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
+    setSelectedPeriod(period);
+    setDateRange(range);
+  };
 
   // Hooks
   const { empresas, isLoading: empresasLoading } = useEmpresas();
@@ -74,9 +82,14 @@ export default function ICMS() {
       const matchEmpresa = empresaFilter === "todas" || c.empresa_id === empresaFilter;
       const matchTipo = tipoFilter === "todos" || c.tipo_credito === tipoFilter;
       const matchOrigem = origemFilter === "todas" || c.origem_credito === origemFilter;
-      return matchEmpresa && matchTipo && matchOrigem && c.status_credito === 'ativo';
+      
+      // Filtro de período
+      const dataLancamento = new Date(c.data_lancamento);
+      const matchPeriodo = dataLancamento >= dateRange.from && dataLancamento <= dateRange.to;
+      
+      return matchEmpresa && matchTipo && matchOrigem && matchPeriodo && c.status_credito === 'ativo';
     });
-  }, [creditos, empresaFilter, tipoFilter, origemFilter]);
+  }, [creditos, empresaFilter, tipoFilter, origemFilter, dateRange]);
 
   // Separate compensable and non-compensable
   const creditosCompensaveis = useMemo(() => 
@@ -187,6 +200,15 @@ export default function ICMS() {
     return emp?.razao_social || 'N/A';
   };
 
+  // Helper para exibir origem com descrição personalizada
+  const getOrigemDisplay = (credito: CreditoICMSDB) => {
+    const config = ORIGEM_CREDITO_CONFIG[credito.origem_credito];
+    if (credito.origem_credito === 'outro' && credito.origem_descricao) {
+      return `Outro (${credito.origem_descricao})`;
+    }
+    return config.label;
+  };
+
   if (isLoading) {
     return (
       <MainLayout title="Controle de Crédito de ICMS" subtitle="Carregando...">
@@ -217,52 +239,62 @@ export default function ICMS() {
       }
     >
       {/* Filters */}
-      <div className="mb-6 flex flex-wrap items-center gap-4 p-4 rounded-lg bg-secondary/30 border">
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium text-sm">Filtros:</span>
+      <div className="mb-6 space-y-4 p-4 rounded-lg bg-secondary/30 border">
+        {/* Filtro de Período */}
+        <PeriodFilter
+          selectedPeriod={selectedPeriod}
+          onPeriodChange={handlePeriodChange}
+          isLoading={isLoading}
+        />
+        
+        {/* Outros Filtros */}
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium text-sm">Filtros:</span>
+          </div>
+          <Select value={empresaFilter} onValueChange={setEmpresaFilter}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="Empresa" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas as empresas</SelectItem>
+              {empresas.map((emp) => (
+                <SelectItem key={emp.id} value={emp.id}>
+                  {emp.razao_social}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={tipoFilter} onValueChange={setTipoFilter}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="Tipo de Crédito" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os tipos</SelectItem>
+              <SelectItem value="compensavel">Compensável</SelectItem>
+              <SelectItem value="nao_compensavel">Não Compensável</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={origemFilter} onValueChange={setOrigemFilter}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="Origem" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas as origens</SelectItem>
+              {(Object.keys(ORIGEM_CREDITO_CONFIG) as OrigemCredito[]).map((origem) => (
+                <SelectItem key={origem} value={origem}>
+                  {ORIGEM_CREDITO_CONFIG[origem].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedEmpresa && (
+            <Badge variant="outline" className={`${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.bgColor} ${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.color} border`}>
+              {REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.label}
+            </Badge>
+          )}
         </div>
-        <Select value={empresaFilter} onValueChange={setEmpresaFilter}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Empresa" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todas">Todas as empresas</SelectItem>
-            {empresas.map((emp) => (
-              <SelectItem key={emp.id} value={emp.id}>
-                {emp.razao_social}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={tipoFilter} onValueChange={setTipoFilter}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Tipo de Crédito" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos os tipos</SelectItem>
-            <SelectItem value="compensavel">Compensável</SelectItem>
-            <SelectItem value="nao_compensavel">Não Compensável</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={origemFilter} onValueChange={setOrigemFilter}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Origem" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todas">Todas as origens</SelectItem>
-            {(Object.keys(ORIGEM_CREDITO_CONFIG) as OrigemCredito[]).map((origem) => (
-              <SelectItem key={origem} value={origem}>
-                {ORIGEM_CREDITO_CONFIG[origem].label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {selectedEmpresa && (
-          <Badge variant="outline" className={`${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.bgColor} ${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.color} border`}>
-            {REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.label}
-          </Badge>
-        )}
       </div>
 
       {/* Simples Nacional Warning */}
@@ -416,8 +448,12 @@ export default function ICMS() {
                       <Badge variant="outline">{getEmpresaNome(credito.empresa_id)}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={`${ORIGEM_CREDITO_CONFIG[credito.origem_credito].bgColor} ${ORIGEM_CREDITO_CONFIG[credito.origem_credito].color} text-xs`}>
-                        {ORIGEM_CREDITO_CONFIG[credito.origem_credito].label}
+                      <Badge 
+                        variant="outline" 
+                        className={`${ORIGEM_CREDITO_CONFIG[credito.origem_credito].bgColor} ${ORIGEM_CREDITO_CONFIG[credito.origem_credito].color} text-xs`}
+                        title={credito.origem_descricao || undefined}
+                      >
+                        {getOrigemDisplay(credito)}
                       </Badge>
                     </TableCell>
                     <TableCell className="max-w-[200px] truncate" title={credito.descricao}>
@@ -487,8 +523,12 @@ export default function ICMS() {
                       <Badge variant="outline">{getEmpresaNome(credito.empresa_id)}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={`${ORIGEM_CREDITO_CONFIG[credito.origem_credito].bgColor} ${ORIGEM_CREDITO_CONFIG[credito.origem_credito].color} text-xs`}>
-                        {ORIGEM_CREDITO_CONFIG[credito.origem_credito].label}
+                      <Badge 
+                        variant="outline" 
+                        className={`${ORIGEM_CREDITO_CONFIG[credito.origem_credito].bgColor} ${ORIGEM_CREDITO_CONFIG[credito.origem_credito].color} text-xs`}
+                        title={credito.origem_descricao || undefined}
+                      >
+                        {getOrigemDisplay(credito)}
                       </Badge>
                     </TableCell>
                     <TableCell className="max-w-[200px] truncate" title={credito.descricao}>

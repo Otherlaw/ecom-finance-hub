@@ -1201,6 +1201,7 @@ export type Database = {
           numero_nf: string | null
           observacoes: string | null
           origem_credito: string
+          origem_descricao: string | null
           percentual_aproveitamento: number
           quantidade: number
           status_credito: string
@@ -1230,6 +1231,7 @@ export type Database = {
           numero_nf?: string | null
           observacoes?: string | null
           origem_credito: string
+          origem_descricao?: string | null
           percentual_aproveitamento?: number
           quantidade?: number
           status_credito?: string
@@ -1259,6 +1261,7 @@ export type Database = {
           numero_nf?: string | null
           observacoes?: string | null
           origem_credito?: string
+          origem_descricao?: string | null
           percentual_aproveitamento?: number
           quantidade?: number
           status_credito?: string
