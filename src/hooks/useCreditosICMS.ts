@@ -7,7 +7,7 @@ export interface CreditoICMSDB {
   id: string;
   empresa_id: string;
   tipo_credito: TipoCreditoICMS;
-  origem_credito: OrigemCredito;
+  origem_credito: string; // Pode ser OrigemCredito padrão ou custom_UUID
   origem_descricao: string | null;
   status_credito: StatusCredito;
   chave_acesso: string | null;
@@ -42,7 +42,7 @@ export interface CreditoICMSDB {
 export interface CreditoICMSInsert {
   empresa_id: string;
   tipo_credito: TipoCreditoICMS;
-  origem_credito: OrigemCredito;
+  origem_credito: string; // Pode ser OrigemCredito padrão ou custom_UUID
   origem_descricao?: string | null;
   status_credito?: StatusCredito;
   chave_acesso?: string | null;

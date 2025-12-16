@@ -47,7 +47,7 @@ interface ICMSCalculatorModalProps {
 
 const initialFormData = {
   empresa: "",
-  origemCredito: "compra_mercadoria" as OrigemCredito,
+  origemCredito: "compra_mercadoria",
   origemDescricao: "",
   numeroNF: "",
   ncm: "",

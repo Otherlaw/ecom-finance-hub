@@ -25,10 +25,11 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectSeparator,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Upload, FileX, FileCheck, AlertTriangle, CheckCircle2, Info, Building2 } from "lucide-react";
+import { Upload, FileX, FileCheck, AlertTriangle, CheckCircle2, Info, Building2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -42,6 +43,7 @@ import {
 import { REGIME_TRIBUTARIO_CONFIG, canUseICMSCredit } from "@/lib/empresas-data";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { CreditoICMSInsert } from "@/hooks/useCreditosICMS";
+import { useOrigensCredito, ORIGENS_PADRAO } from "@/hooks/useOrigensCredito";
 
 interface XMLImportModalProps {
   open: boolean;
@@ -61,7 +63,7 @@ interface ParsedFile {
 interface PreviewCredit {
   empresaId: string;
   tipoCredito: TipoCreditoICMS;
-  origemCredito: OrigemCredito;
+  origemCredito: string; // Pode ser OrigemCredito padrão ou custom_UUID
   chaveAcesso: string;
   numeroNF: string;
   ncm: string;
@@ -80,7 +82,7 @@ interface PreviewCredit {
   fornecedorNome: string;
 }
 
-// Origens disponíveis para seleção (sem nota_adquirida)
+// Origens padrão disponíveis para seleção
 const ORIGENS_DISPONIVEIS: OrigemCredito[] = [
   'compra_mercadoria',
   'compra_insumo',
@@ -90,6 +92,9 @@ const ORIGENS_DISPONIVEIS: OrigemCredito[] = [
   'outro',
 ];
 
+// Tipo para valor de origem (pode ser padrão ou custom_UUID)
+type OrigemValue = OrigemCredito | `custom_${string}`;
+
 export function XMLImportModal({
   open,
   onOpenChange,
@@ -97,15 +102,20 @@ export function XMLImportModal({
   existingKeys,
 }: XMLImportModalProps) {
   const [empresaId, setEmpresaId] = useState<string>("");
-  const [origemCredito, setOrigemCredito] = useState<OrigemCredito>("compra_mercadoria");
+  const [origemCredito, setOrigemCredito] = useState<OrigemValue>("compra_mercadoria");
   const [origemDescricao, setOrigemDescricao] = useState<string>("");
   const [parsedFiles, setParsedFiles] = useState<ParsedFile[]>([]);
   const [previewCredits, setPreviewCredits] = useState<PreviewCredit[]>([]);
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [isProcessing, setIsProcessing] = useState(false);
   const [autoDetectedEmpresa, setAutoDetectedEmpresa] = useState<string | null>(null);
+  
+  // Estados para criar nova origem
+  const [showNovaOrigem, setShowNovaOrigem] = useState(false);
+  const [novaOrigemNome, setNovaOrigemNome] = useState("");
 
   const { empresas, isLoading: empresasLoading } = useEmpresas();
+  const { origensPersonalizadas, createOrigem, getOrigemLabel } = useOrigensCredito(empresaId);
   
   const selectedEmpresa = empresas.find(e => e.id === empresaId);
   const isSimples = selectedEmpresa?.regime_tributario === 'simples_nacional';
@@ -127,7 +137,7 @@ export function XMLImportModal({
     nfe: NotaFiscalXML,
     empId: string,
     tipoCredito: TipoCreditoICMS,
-    origem: OrigemCredito
+    origem: string
   ): PreviewCredit[] => {
     const credits: PreviewCredit[] = [];
     const hoje = new Date().toISOString().split("T")[0];
@@ -329,7 +339,31 @@ export function XMLImportModal({
     setOrigemCredito("compra_mercadoria");
     setOrigemDescricao("");
     setAutoDetectedEmpresa(null);
+    setShowNovaOrigem(false);
+    setNovaOrigemNome("");
     onOpenChange(false);
+  };
+
+  const handleCriarOrigem = async () => {
+    if (!novaOrigemNome.trim()) {
+      toast.error("Informe o nome da origem");
+      return;
+    }
+    if (!empresaId) {
+      toast.error("Selecione uma empresa primeiro");
+      return;
+    }
+    try {
+      const result = await createOrigem.mutateAsync({
+        empresa_id: empresaId,
+        nome: novaOrigemNome.trim(),
+      });
+      setOrigemCredito(`custom_${result.id}`);
+      setShowNovaOrigem(false);
+      setNovaOrigemNome("");
+    } catch (error) {
+      console.error("Erro ao criar origem:", error);
+    }
   };
 
   const validFilesCount = parsedFiles.filter((f) => f.nfe && !f.isDuplicate).length;
@@ -358,18 +392,44 @@ export function XMLImportModal({
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="origem">Origem do Crédito *</Label>
-                <Select value={origemCredito} onValueChange={(v) => setOrigemCredito(v as OrigemCredito)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione a origem" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ORIGENS_DISPONIVEIS.map((origem) => (
-                      <SelectItem key={origem} value={origem}>
-                        {ORIGEM_CREDITO_CONFIG[origem].label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <Select value={origemCredito} onValueChange={(v) => setOrigemCredito(v as OrigemValue)}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Selecione a origem" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ORIGENS_DISPONIVEIS.map((origem) => (
+                        <SelectItem key={origem} value={origem}>
+                          {ORIGEM_CREDITO_CONFIG[origem].label}
+                        </SelectItem>
+                      ))}
+                      {origensPersonalizadas.length > 0 && (
+                        <>
+                          <SelectSeparator />
+                          {origensPersonalizadas.map((origem) => (
+                            <SelectItem key={origem.id} value={`custom_${origem.id}`}>
+                              {origem.nome}
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <Button 
+                    variant="outline" 
+                    size="icon"
+                    onClick={() => setShowNovaOrigem(true)}
+                    disabled={!empresaId}
+                    title={empresaId ? "Criar nova origem" : "Selecione uma empresa primeiro"}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                {!empresaId && (
+                  <p className="text-xs text-muted-foreground">
+                    Selecione uma empresa para criar origens personalizadas.
+                  </p>
+                )}
               </div>
               
               <div className="space-y-2">
@@ -641,6 +701,38 @@ export function XMLImportModal({
           )}
         </DialogFooter>
       </DialogContent>
+
+      {/* Mini-modal para criar nova origem */}
+      <Dialog open={showNovaOrigem} onOpenChange={setShowNovaOrigem}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Nova Origem de Crédito</DialogTitle>
+            <DialogDescription>
+              Crie uma origem personalizada para identificar seus créditos.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="novaOrigem">Nome da Origem *</Label>
+              <Input
+                id="novaOrigem"
+                placeholder="Ex: Carla Clips, Auto Posto..."
+                value={novaOrigemNome}
+                onChange={(e) => setNovaOrigemNome(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCriarOrigem()}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNovaOrigem(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleCriarOrigem} disabled={createOrigem.isPending}>
+              {createOrigem.isPending ? "Criando..." : "Criar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
