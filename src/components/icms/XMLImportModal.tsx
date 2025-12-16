@@ -340,7 +340,7 @@ export function XMLImportModal({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh]">
+      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
@@ -351,7 +351,8 @@ export function XMLImportModal({
           </DialogDescription>
         </DialogHeader>
 
-        {step === "upload" && (
+        <div className="flex-1 overflow-y-auto">
+          {step === "upload" && (
           <div className="space-y-6 py-4">
             {/* Seletor de Origem */}
             <div className="grid grid-cols-2 gap-4">
@@ -615,8 +616,9 @@ export function XMLImportModal({
             </div>
           </div>
         )}
+        </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 pt-4 border-t">
           {step === "preview" && (
             <Button variant="outline" onClick={() => setStep("upload")}>
               Voltar
