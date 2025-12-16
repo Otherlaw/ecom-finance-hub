@@ -44,10 +44,12 @@ import {
   DollarSign,
   AlertTriangle,
   Info,
+  User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
+import { useResponsaveis } from "@/hooks/useResponsaveis";
 import { useMarketplaceTransactions, MarketplaceTransaction } from "@/hooks/useMarketplaceTransactions";
 import { useProdutos } from "@/hooks/useProdutos";
 
@@ -70,11 +72,13 @@ export function CategorizacaoMarketplaceModal({
   // Todos os hooks ANTES de qualquer early return
   const { categorias } = useCategoriasFinanceiras();
   const { centrosCusto } = useCentrosCusto();
+  const { responsaveis } = useResponsaveis();
   const { atualizarTransacao, conciliarTransacao, ignorarTransacao, reabrirTransacao } = useMarketplaceTransactions();
   const { produtos } = useProdutos({ empresaId: transaction?.empresa_id || "" });
 
   const [categoriaId, setCategoriaId] = useState<string>("");
   const [centroCustoId, setCentroCustoId] = useState<string>("");
+  const [responsavelId, setResponsavelId] = useState<string>("");
   const [canalVenda, setCanalVenda] = useState<string>("");
   
   const [tarifas, setTarifas] = useState<string>("0");
@@ -89,6 +93,7 @@ export function CategorizacaoMarketplaceModal({
     if (transaction && open) {
       setCategoriaId(transaction.categoria_id || "");
       setCentroCustoId(transaction.centro_custo_id || "");
+      setResponsavelId(transaction.responsavel_id || "");
       setCanalVenda(transaction.canal_venda || "");
       setTarifas(String(transaction.tarifas || 0));
       setTaxas(String(transaction.taxas || 0));
@@ -104,6 +109,11 @@ export function CategorizacaoMarketplaceModal({
   const centrosCustoAtivos = useMemo(
     () => centrosCusto.filter((c) => c.ativo),
     [centrosCusto]
+  );
+
+  const responsaveisAtivos = useMemo(
+    () => responsaveis?.filter((r) => r.ativo) || [],
+    [responsaveis]
   );
 
   const totalDescontos = useMemo(() => {
@@ -132,6 +142,7 @@ export function CategorizacaoMarketplaceModal({
     id: transaction.id,
     categoriaId: categoriaId || undefined,
     centroCustoId: centroCustoId || undefined,
+    responsavelId: responsavelId || undefined,
     canalVenda: canalVenda || undefined,
     tarifas: parseNumber(tarifas),
     taxas: parseNumber(taxas),
@@ -354,6 +365,32 @@ export function CategorizacaoMarketplaceModal({
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              {/* Responsável */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  Responsável
+                </Label>
+                <Select
+                  value={responsavelId || "__none__"}
+                  onValueChange={(val) => setResponsavelId(val === "__none__" ? "" : val)}
+                  disabled={isConciliado || isIgnorado}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o responsável (opcional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Nenhum</SelectItem>
+                    {responsaveisAtivos.map((resp) => (
+                      <SelectItem key={resp.id} value={resp.id}>
+                        {resp.nome}
+                        {resp.funcao && <span className="text-muted-foreground ml-1">({resp.funcao})</span>}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
