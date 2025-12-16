@@ -4,6 +4,7 @@ import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useBalancoPatrimonial } from "@/hooks/useBalancoPatrimonial";
+import { useEmpresas } from "@/hooks/useEmpresas";
 import { formatCurrency } from "@/lib/mock-data";
 import { Scale, Download, Building, Wallet, Landmark, TrendingUp, Loader2, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,8 +12,14 @@ import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function Balanco() {
-  const [periodo, setPeriodo] = useState("atual");
-  const { data: balanco, isLoading, error } = useBalancoPatrimonial();
+  const hoje = new Date();
+  const [mes, setMes] = useState(hoje.getMonth() + 1);
+  const [ano, setAno] = useState(hoje.getFullYear());
+  
+  const { empresas } = useEmpresas();
+  const empresaId = empresas?.[0]?.id;
+  
+  const { data: balanco, isLoading, error } = useBalancoPatrimonial(empresaId, mes, ano);
 
   if (isLoading) {
     return (
@@ -79,12 +86,37 @@ export default function Balanco() {
       subtitle="Posição patrimonial da empresa (dados reais do sistema)"
       actions={
         <div className="flex items-center gap-2">
-          <Select value={periodo} onValueChange={setPeriodo}>
-            <SelectTrigger className="w-[160px]">
+          <Select value={mes.toString()} onValueChange={(v) => setMes(parseInt(v))}>
+            <SelectTrigger className="w-[120px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="atual">Posição Atual</SelectItem>
+              {[
+                { value: "1", label: "Janeiro" },
+                { value: "2", label: "Fevereiro" },
+                { value: "3", label: "Março" },
+                { value: "4", label: "Abril" },
+                { value: "5", label: "Maio" },
+                { value: "6", label: "Junho" },
+                { value: "7", label: "Julho" },
+                { value: "8", label: "Agosto" },
+                { value: "9", label: "Setembro" },
+                { value: "10", label: "Outubro" },
+                { value: "11", label: "Novembro" },
+                { value: "12", label: "Dezembro" },
+              ].map((m) => (
+                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={ano.toString()} onValueChange={(v) => setAno(parseInt(v))}>
+            <SelectTrigger className="w-[100px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[2023, 2024, 2025, 2026].map((a) => (
+                <SelectItem key={a} value={a.toString()}>{a}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Button className="gap-2">
