@@ -256,11 +256,14 @@ export const useIntegracoes = ({ empresaId }: UseIntegracoesParams = {}) => {
 
   // Sincronizar manualmente
   const syncManually = useMutation({
-    mutationFn: async ({ empresaId, provider }: { empresaId: string; provider: Provider }) => {
+    mutationFn: async ({ empresaId, provider, days_back = 7 }: { empresaId: string; provider: Provider; days_back?: number }) => {
       const functionName = provider === "mercado_livre" ? "ml-sync-orders" : `${provider}-sync`;
       
       const { data, error } = await supabase.functions.invoke(functionName, {
-        body: { empresa_id: empresaId },
+        body: { 
+          empresa_id: empresaId,
+          days_back,  // Padrão: 7 dias para garantir 100% dos pedidos
+        },
       });
 
       if (error) throw error;
@@ -270,7 +273,7 @@ export const useIntegracoes = ({ empresaId }: UseIntegracoesParams = {}) => {
       queryClient.invalidateQueries({ queryKey: ["integracao_logs"] });
       queryClient.invalidateQueries({ queryKey: ["integracao_config"] });
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
-      toast.success(`Sincronização concluída: ${data?.registros_processados || 0} registros`);
+      toast.success(`Sincronização concluída: ${data?.registros_processados || 0} registros (${data?.days_back || 7} dias)`);
     },
     onError: (error: Error) => {
       toast.error("Erro na sincronização: " + error.message);
