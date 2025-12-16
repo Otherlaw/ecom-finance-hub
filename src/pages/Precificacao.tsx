@@ -21,7 +21,7 @@ import { SimulacaoPrecificacao, ResultadoPrecificacao, GastoExtra, DadosCustoNF,
 import { REGIME_TRIBUTARIO_CONFIG } from '@/lib/empresas-data';
 import { useEmpresas } from '@/hooks/useEmpresas';
 import { useProdutos, Produto } from '@/hooks/useProdutos';
-import { mockPurchases, Purchase, formatDate as formatPurchaseDate } from '@/lib/purchases-data';
+import { useCompras, Compra, CompraItem } from '@/hooks/useCompras';
 import { parseNFeXML, NotaFiscalXML, NotaFiscalItem } from '@/lib/icms-data';
 
 // Tipo local para empresa da precificação
@@ -97,9 +97,14 @@ export default function Precificacao() {
   const [nfModalOpen, setNfModalOpen] = useState(false);
   const [nfSearchTerm, setNfSearchTerm] = useState('');
   const [selectedNFItem, setSelectedNFItem] = useState<{
-    purchase: Purchase;
+    compra: Compra;
     itemIndex: number;
   } | null>(null);
+
+  // Buscar compras reais da empresa selecionada
+  const { compras: comprasReais, isLoading: loadingCompras } = useCompras({
+    empresaId: empresaSelecionada?.id,
+  });
 
   // Modal de upload XML
   const [xmlUploadModalOpen, setXmlUploadModalOpen] = useState(false);
@@ -344,35 +349,31 @@ export default function Precificacao() {
   // Selecionar NF da base
   const handleSelecionarNFItem = () => {
     if (!selectedNFItem) return;
-    const {
-      purchase,
-      itemIndex
-    } = selectedNFItem;
-    const item = purchase.itens[itemIndex];
+    const { compra, itemIndex } = selectedNFItem;
+    const item = compra.itens![itemIndex];
     const custoCalculado = calcularCustoEfetivoNF({
-      valorTotalItem: item.valorTotal,
+      valorTotalItem: item.valor_total,
       quantidade: item.quantidade,
-      freteNF: 0,
+      freteNF: compra.valor_frete || 0,
       despesasAcessorias: 0,
-      descontos: 0,
-      valorTotalNF: purchase.valorTotal,
-      stItem: item.valorIcms || 0,
-      // placeholder
-      ipiItem: 0
+      descontos: compra.valor_desconto || 0,
+      valorTotalNF: compra.valor_total,
+      stItem: item.valor_icms || 0,
+      ipiItem: item.valor_ipi || 0
     }, simulacao?.notaBaixa);
     const dadosCusto: DadosCustoNF = {
       ...custoCalculado,
-      nfNumero: purchase.numeroNF || '',
-      nfChave: purchase.chaveAcesso,
-      fornecedor: purchase.fornecedor,
-      dataEmissao: purchase.dataCompra,
-      itemDescricao: item.descricaoNF,
+      nfNumero: compra.numero_nf || '',
+      nfChave: compra.chave_acesso || undefined,
+      fornecedor: compra.fornecedor_nome,
+      dataEmissao: compra.data_nf || compra.data_pedido,
+      itemDescricao: item.descricao_nf,
       quantidade: item.quantidade,
-      valorUnitario: item.valorUnitario,
-      valorTotalItem: item.valorTotal,
-      valorTotalNF: purchase.valorTotal,
-      icmsDestacado: item.valorIcms || 0,
-      icmsAliquota: item.aliquotaIcms || 0
+      valorUnitario: item.valor_unitario,
+      valorTotalItem: item.valor_total,
+      valorTotalNF: compra.valor_total,
+      icmsDestacado: item.valor_icms || 0,
+      icmsAliquota: item.aliquota_icms || 0
     };
     const fator = simulacao?.notaBaixa ? getFatorNotaBaixa(simulacao.notaBaixa) : 1;
     const custoBaseReal = dadosCusto.custoEfetivoPorUnidade * fator;
@@ -513,18 +514,24 @@ export default function Precificacao() {
     });
   };
 
-  // Filtrar compras
+  // Filtrar compras reais - apenas NFs com dados fiscais
   const comprasFiltradas = useMemo(() => {
-    if (!empresaSelecionada) return [];
-    return mockPurchases.filter(p => {
-      if (p.empresa !== empresaSelecionada.nome.split(' ')[0].toUpperCase()) return false;
+    if (!empresaSelecionada || !comprasReais) return [];
+    return comprasReais.filter(c => {
+      // Filtrar apenas compras com NF emitida (que têm dados fiscais) e itens
+      if (!c.numero_nf && !c.chave_acesso) return false;
+      if (!c.itens || c.itens.length === 0) return false;
       if (nfSearchTerm) {
         const search = nfSearchTerm.toLowerCase();
-        return p.fornecedor.toLowerCase().includes(search) || p.numeroNF?.includes(search) || p.itens.some(i => i.descricaoNF.toLowerCase().includes(search));
+        return (
+          c.fornecedor_nome.toLowerCase().includes(search) ||
+          c.numero_nf?.toLowerCase().includes(search) ||
+          c.itens.some(i => i.descricao_nf.toLowerCase().includes(search))
+        );
       }
       return true;
     });
-  }, [empresaSelecionada, nfSearchTerm]);
+  }, [empresaSelecionada, comprasReais, nfSearchTerm]);
   const marketplaceConfig = MARKETPLACE_CONFIG[marketplaceSelecionado];
   const regimeConfig = empresaSelecionada ? REGIME_TRIBUTARIO_CONFIG[empresaSelecionada.regimeTributario] : null;
   const {
@@ -1518,7 +1525,23 @@ export default function Precificacao() {
               <Input placeholder="Buscar por fornecedor, número ou descrição..." value={nfSearchTerm} onChange={e => setNfSearchTerm(e.target.value)} className="pl-10" />
             </div>
             <ScrollArea className="h-[400px] border rounded-lg">
-              {comprasFiltradas.length === 0 ? <p className="text-center text-muted-foreground py-8">Nenhuma NF encontrada para esta empresa.</p> : <Table>
+              {loadingCompras ? (
+                <p className="text-center text-muted-foreground py-8">Carregando NFs...</p>
+              ) : comprasFiltradas.length === 0 ? (
+                <div className="text-center py-8 space-y-3">
+                  <FileText className="h-12 w-12 mx-auto text-muted-foreground" />
+                  <p className="text-muted-foreground">
+                    Nenhuma NF encontrada para esta empresa.
+                  </p>
+                  <Button variant="outline" size="sm" asChild>
+                    <a href="/compras">
+                      <PlusCircle className="h-4 w-4 mr-2" />
+                      Ir para módulo de Compras
+                    </a>
+                  </Button>
+                </div>
+              ) : (
+                <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>NF</TableHead>
@@ -1530,23 +1553,32 @@ export default function Precificacao() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {comprasFiltradas.flatMap(purchase => purchase.itens.map((item, idx) => <TableRow key={`${purchase.id}-${idx}`} className={selectedNFItem?.purchase.id === purchase.id && selectedNFItem?.itemIndex === idx ? 'bg-primary/10' : ''}>
-                          <TableCell className="font-medium">{purchase.numeroNF || '-'}</TableCell>
-                          <TableCell>{purchase.fornecedor}</TableCell>
-                          <TableCell className="max-w-[200px] truncate">{item.descricaoNF}</TableCell>
+                    {comprasFiltradas.flatMap(compra => 
+                      (compra.itens || []).map((item, idx) => (
+                        <TableRow 
+                          key={`${compra.id}-${idx}`} 
+                          className={selectedNFItem?.compra.id === compra.id && selectedNFItem?.itemIndex === idx ? 'bg-primary/10' : ''}
+                        >
+                          <TableCell className="font-medium">{compra.numero_nf || '-'}</TableCell>
+                          <TableCell>{compra.fornecedor_nome}</TableCell>
+                          <TableCell className="max-w-[200px] truncate">{item.descricao_nf}</TableCell>
                           <TableCell className="text-right">{item.quantidade}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(item.valorTotal)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.valor_total)}</TableCell>
                           <TableCell>
-                            <Button variant={selectedNFItem?.purchase.id === purchase.id && selectedNFItem?.itemIndex === idx ? 'default' : 'outline'} size="sm" onClick={() => setSelectedNFItem({
-                      purchase,
-                      itemIndex: idx
-                    })}>
+                            <Button 
+                              variant={selectedNFItem?.compra.id === compra.id && selectedNFItem?.itemIndex === idx ? 'default' : 'outline'} 
+                              size="sm" 
+                              onClick={() => setSelectedNFItem({ compra, itemIndex: idx })}
+                            >
                               Selecionar
                             </Button>
                           </TableCell>
-                        </TableRow>))}
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
-                </Table>}
+                </Table>
+              )}
             </ScrollArea>
           </div>
           <DialogFooter>
