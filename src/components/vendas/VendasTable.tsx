@@ -158,7 +158,7 @@ export function VendasTable({ vendas, aliquotaImposto = 6, onConciliar, onAbrirM
         v.canal,
         v.conta_nome || "",
         v.pedido_id || v.referencia_externa || "",
-        format(new Date(v.data_venda), "dd/MM/yyyy"),
+        format(new Date(v.data_venda), "dd/MM/yyyy HH:mm"),
         v.tipo_envio || "",
         v.sku_interno || v.sku_marketplace || "",
         v.produto_nome || v.descricao_item || v.descricao,
@@ -306,7 +306,12 @@ export function VendasTable({ vendas, aliquotaImposto = 6, onConciliar, onAbrirM
                     {v.conta_nome || "-"}
                   </TableCell>
                   <TableCell className="text-xs">
-                    {format(new Date(v.data_venda), "dd/MM/yy")}
+                    <div>
+                      {format(new Date(v.data_venda), "dd/MM/yy")}
+                      <span className="block text-[10px] text-muted-foreground">
+                        {format(new Date(v.data_venda), "HH:mm")}
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <TipoEnvioBadge tipo={v.tipo_envio} />
