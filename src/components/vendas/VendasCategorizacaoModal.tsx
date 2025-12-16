@@ -161,12 +161,12 @@ export function VendasCategorizacaoModal({
           {/* Centro de Custo */}
           <div className="space-y-2">
             <Label>Centro de Custo</Label>
-            <Select value={centroCustoId} onValueChange={setCentroCustoId}>
+            <Select value={centroCustoId || "__none__"} onValueChange={(v) => setCentroCustoId(v === "__none__" ? "" : v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione um centro de custo (opcional)" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Nenhum</SelectItem>
+                <SelectItem value="__none__">Nenhum</SelectItem>
                 {centrosAtivos.map((centro) => (
                   <SelectItem key={centro.id} value={centro.id}>
                     {centro.codigo ? `${centro.codigo} - ` : ""}{centro.nome}
