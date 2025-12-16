@@ -229,10 +229,15 @@ export function useBankTransactions({
         throw new Error("Categoria é obrigatória para conciliar");
       }
 
-      // Atualizar status na tabela bank_transactions
+      // Atualizar status na tabela bank_transactions (incluindo dados de categorização)
       const { error: updateError } = await supabase
         .from("bank_transactions")
-        .update({ status: "conciliado" })
+        .update({ 
+          status: "conciliado",
+          categoria_id: transacao.categoria_id,
+          centro_custo_id: transacao.centro_custo_id,
+          responsavel_id: transacao.responsavel_id,
+        })
         .eq("id", transacao.id);
 
       if (updateError) throw updateError;
