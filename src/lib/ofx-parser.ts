@@ -347,6 +347,39 @@ function extractTransactions(content: string): OFXTransaction[] {
 }
 
 /**
+ * Extrai CNPJ dos campos MEMO das transações
+ * Busca o CNPJ mais frequente (provavelmente o da empresa titular)
+ */
+function extractCnpjFromTransactions(transactions: OFXTransaction[]): string | null {
+  const cnpjCounts: Record<string, number> = {};
+  
+  // Regex para CNPJ formatado: XX.XXX.XXX/XXXX-XX
+  const cnpjRegex = /(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/g;
+  
+  for (const trans of transactions) {
+    const memo = trans.memo || trans.description || '';
+    const matches = memo.match(cnpjRegex);
+    
+    if (matches) {
+      for (const cnpj of matches) {
+        const cnpjLimpo = cnpj.replace(/\D/g, '');
+        // Dá peso maior para CNPJs em transações de crédito (recebimentos)
+        const peso = trans.type === 'credito' ? 2 : 1;
+        cnpjCounts[cnpjLimpo] = (cnpjCounts[cnpjLimpo] || 0) + peso;
+      }
+    }
+  }
+  
+  // Retorna o CNPJ mais frequente
+  const sorted = Object.entries(cnpjCounts).sort((a, b) => b[1] - a[1]);
+  if (sorted.length > 0) {
+    console.log('CNPJ extraído do MEMO das transações:', sorted[0][0]);
+    return sorted[0][0];
+  }
+  return null;
+}
+
+/**
  * Extract account information from OFX content
  * Includes account holder name and CPF/CNPJ when available
  */
@@ -464,6 +497,14 @@ export function parseOFX(content: string): OFXParseResult {
   const transactions = extractTransactions(normalizedContent);
   
   console.log("Extracted transactions:", transactions.length);
+  
+  // Se não encontrou CNPJ nas tags padrão, tenta extrair dos MEMOs das transações
+  if (!account.holderCpfCnpj && transactions.length > 0) {
+    const cnpjFromMemo = extractCnpjFromTransactions(transactions);
+    if (cnpjFromMemo) {
+      account.holderCpfCnpj = cnpjFromMemo;
+    }
+  }
   
   // Sort transactions by date (newest first)
   transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

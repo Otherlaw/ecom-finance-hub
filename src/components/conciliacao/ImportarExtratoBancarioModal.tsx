@@ -394,8 +394,16 @@ export function ImportarExtratoBancarioModal({
               </div>
             )}
             
-            {!empresaDetectada && !cnpjNaoEncontrado && tipoArquivo !== 'ofx' && (
+            {!empresaDetectada && !cnpjNaoEncontrado && (
               <div className="space-y-2">
+                {tipoArquivo === 'ofx' && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 mb-2">
+                    <AlertCircle className="h-4 w-4 text-amber-600" />
+                    <span className="text-sm text-amber-700">
+                      Não foi possível identificar a empresa automaticamente. Selecione manualmente:
+                    </span>
+                  </div>
+                )}
                 <Label>Empresa *</Label>
                 <Select value={empresaId} onValueChange={setEmpresaId}>
                   <SelectTrigger>
