@@ -33,7 +33,7 @@ export function VendasCategorizacaoModal({
   const { centrosCusto } = useCentrosCusto();
 
   // Filtrar apenas categorias de receita
-  const categoriasReceita = categorias?.filter(c => c.tipo === "receita" && c.ativo) || [];
+  const categoriasReceita = categorias?.filter(c => c.tipo === "Receitas" && c.ativo) || [];
   const centrosAtivos = centrosCusto?.filter(c => c.ativo) || [];
 
   const formatCurrency = (value: number) => {

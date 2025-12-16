@@ -349,6 +349,10 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["checklists_canal"] });
+      toast.success("Etapa atualizada com sucesso");
+    },
+    onError: (error: Error) => {
+      toast.error("Erro ao atualizar etapa: " + error.message);
     },
   });
 

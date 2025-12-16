@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -6,6 +6,7 @@ import { ModuleCard } from "@/components/ModuleCard";
 import { EtapaFormModal } from "./EtapaFormModal";
 import { ChecklistCanalComItens, ChecklistCanalItem, useChecklistsCanal, calcularProgressoChecklist, getStatusLabel, getStatusColor } from "@/hooks/useChecklistsCanal";
 import { getMesNome } from "@/lib/checklist-data";
+import { supabase } from "@/integrations/supabase/client";
 import {
   ArrowLeft,
   Download,
@@ -25,6 +26,8 @@ import {
   ChevronRight,
   Save,
   X,
+  Loader2,
+  File,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -62,8 +65,67 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
   const [etapaParaEditar, setEtapaParaEditar] = useState<ChecklistCanalItem | null>(null);
   const [etapaParaExcluir, setEtapaParaExcluir] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [currentUploadItemId, setCurrentUploadItemId] = useState<string | null>(null);
 
-  const { atualizarEtapa, excluirEtapa } = useChecklistsCanal();
+  const { atualizarEtapa, excluirEtapa, adicionarArquivo, removerArquivo } = useChecklistsCanal();
+
+  const handleUploadClick = (itemId: string) => {
+    setCurrentUploadItemId(itemId);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentUploadItemId) return;
+
+    setUploadingItemId(currentUploadItemId);
+
+    try {
+      // Upload para Storage
+      const fileName = `checklist/${currentUploadItemId}/${Date.now()}_${file.name}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("product-images")
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      // Gerar URL pública
+      const { data: urlData } = supabase.storage
+        .from("product-images")
+        .getPublicUrl(fileName);
+
+      // Registrar arquivo no banco
+      await adicionarArquivo.mutateAsync({
+        checklistItemId: currentUploadItemId,
+        nomeArquivo: file.name,
+        url: urlData.publicUrl,
+        tamanhoBytes: file.size,
+        tipoMime: file.type,
+      });
+
+      onRefresh();
+      toast({ title: "Arquivo enviado com sucesso" });
+    } catch (error: any) {
+      console.error("Erro no upload:", error);
+      toast({ title: "Erro ao enviar arquivo", description: error.message, variant: "destructive" });
+    } finally {
+      setUploadingItemId(null);
+      setCurrentUploadItemId(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveFile = async (arquivoId: string) => {
+    try {
+      await removerArquivo.mutateAsync(arquivoId);
+      onRefresh();
+      toast({ title: "Arquivo removido" });
+    } catch (error: any) {
+      toast({ title: "Erro ao remover arquivo", variant: "destructive" });
+    }
+  };
 
   const progresso = calcularProgressoChecklist(checklist.itens);
   const IconComponent = iconMap[checklist.canal_id] || Store;
@@ -231,6 +293,54 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
                 <CollapsibleContent>
                   <div className="px-4 pb-4 space-y-4 border-t border-border pt-4">
                     {item.descricao && <p className="text-sm text-muted-foreground">{item.descricao}</p>}
+                    
+                    {/* Área de upload */}
+                    {item.exige_upload && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => handleUploadClick(item.id)}
+                            disabled={uploadingItemId === item.id}
+                          >
+                            {uploadingItemId === item.id ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <Upload className="h-4 w-4 mr-2" />
+                            )}
+                            {uploadingItemId === item.id ? "Enviando..." : "Enviar arquivo"}
+                          </Button>
+                        </div>
+                        {/* Lista de arquivos */}
+                        {item.arquivos && item.arquivos.length > 0 && (
+                          <div className="space-y-1">
+                            {item.arquivos.map((arquivo) => (
+                              <div key={arquivo.id} className="flex items-center gap-2 text-sm p-2 bg-secondary/30 rounded">
+                                <File className="h-4 w-4 text-muted-foreground" />
+                                <a 
+                                  href={arquivo.url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="flex-1 hover:underline text-primary truncate"
+                                >
+                                  {arquivo.nome_arquivo}
+                                </a>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                                  onClick={() => handleRemoveFile(arquivo.id)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-2">
                       <Select value={item.status} onValueChange={(v) => handleStatusChange(item.id, v)}>
                         <SelectTrigger className="w-[180px]">
@@ -280,6 +390,15 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Input de arquivo oculto */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        className="hidden"
+        accept=".csv,.xlsx,.xls,.pdf,.xml,.txt"
+      />
     </div>
   );
 }
