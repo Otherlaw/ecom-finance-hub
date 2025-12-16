@@ -86,6 +86,7 @@ const ORIGENS_DISPONIVEIS: OrigemCredito[] = [
   'frete',
   'energia_eletrica',
   'ativo_imobilizado',
+  'outro',
 ];
 
 export function XMLImportModal({
@@ -596,7 +597,7 @@ export function XMLImportModal({
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="gap-2">
           {step === "preview" && (
             <Button variant="outline" onClick={() => setStep("upload")}>
               Voltar
@@ -605,8 +606,8 @@ export function XMLImportModal({
           <Button variant="outline" onClick={handleClose}>
             Cancelar
           </Button>
-          {step === "upload" && parsedFiles.length > 0 && validFilesCount > 0 && (
-            <Button onClick={handleProsseguir}>
+          {step === "upload" && validFilesCount > 0 && (
+            <Button onClick={handleProsseguir} className="bg-primary hover:bg-primary/90">
               <CheckCircle2 className="h-4 w-4 mr-2" />
               Prosseguir para Conferência
             </Button>
