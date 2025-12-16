@@ -118,7 +118,9 @@ Deno.serve(async (req) => {
     dateFrom.setDate(dateFrom.getDate() - days_back);
     const dateFromStr = dateFrom.toISOString();
 
-    // ========== PAGINAÇÃO: Buscar TODOS os pedidos usando date_last_updated ==========
+    // ========== PAGINAÇÃO: Buscar pedidos usando date_last_updated ==========
+    // IMPORTANTE: Mercado Livre API limita offset máximo a 10.000
+    const ML_MAX_OFFSET = 10000;
     let offset = 0;
     const limit = 50;
     let allOrders: MLOrder[] = [];
@@ -150,6 +152,12 @@ Deno.serve(async (req) => {
       console.log(`[ML Sync] Página ${Math.floor(offset/limit) + 1}: ${pageOrders.length} pedidos (total disponível: ${totalOrders})`);
       
       offset += limit;
+      
+      // LIMITE DA API: Mercado Livre não permite offset >= 10000
+      if (offset >= ML_MAX_OFFSET) {
+        console.warn(`[ML Sync] ⚠ Limite da API atingido (offset=${offset} >= ${ML_MAX_OFFSET}). ${allOrders.length} pedidos carregados de ${totalOrders} disponíveis. Considere reduzir days_back.`);
+        break;
+      }
       
       // Pequena pausa para não sobrecarregar a API
       if (offset < totalOrders) {
