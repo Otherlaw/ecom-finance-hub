@@ -8,6 +8,7 @@ export interface CreditoICMSDB {
   empresa_id: string;
   tipo_credito: TipoCreditoICMS;
   origem_credito: OrigemCredito;
+  origem_descricao: string | null;
   status_credito: StatusCredito;
   chave_acesso: string | null;
   numero_nf: string | null;
@@ -42,6 +43,7 @@ export interface CreditoICMSInsert {
   empresa_id: string;
   tipo_credito: TipoCreditoICMS;
   origem_credito: OrigemCredito;
+  origem_descricao?: string | null;
   status_credito?: StatusCredito;
   chave_acesso?: string | null;
   numero_nf?: string | null;
