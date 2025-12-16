@@ -22,9 +22,13 @@ import {
   BarChart3,
   PieChart,
   Download,
-  Calendar,
   Loader2,
   RefreshCw,
+  HelpCircle,
+  Target,
+  Scale,
+  Wallet,
+  Activity,
 } from "lucide-react";
 import {
   BarChart,
@@ -39,7 +43,13 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
+import {
+  Tooltip as TooltipUI,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const CHART_COLORS = [
   "hsl(4, 86%, 55%)",
@@ -62,17 +72,21 @@ const formatNumber = (value: number): string => {
 };
 
 export default function Dashboard() {
-  const [selectedPeriod, setSelectedPeriod] = useState(() => {
-    const now = new Date();
-    return format(now, "yyyy-MM");
-  });
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("30days");
+  const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("30days"));
 
-  const [ano, mes] = selectedPeriod.split("-");
-  const periodoInicio = `${ano}-${mes}-01`;
-  const periodoFim = format(endOfMonth(new Date(parseInt(ano), parseInt(mes) - 1)), "yyyy-MM-dd");
+  const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
+    setSelectedPeriod(period);
+    setDateRange(range);
+  };
+
+  const periodoInicio = format(dateRange.from, "yyyy-MM-dd");
+  const periodoFim = format(dateRange.to, "yyyy-MM-dd");
+  const mes = format(dateRange.from, "MM");
+  const ano = parseInt(format(dateRange.from, "yyyy"));
 
   // Hooks de dados reais
-  const { dreData, stats, isLoading: isDRELoading, hasData: hasDREData } = useDREData(mes, parseInt(ano));
+  const { dreData, stats, isLoading: isDRELoading, hasData: hasDREData } = useDREData(mes, ano);
   const { resumo: fluxoResumo, agregado, isLoading: isFluxoLoading } = useFluxoCaixa({ periodoInicio, periodoFim });
   const { transacoes: marketplaceTransacoes, resumo: mktResumo, isLoading: isMktLoading } = useMarketplaceTransactions({ periodoInicio, periodoFim });
   const { resumo: contasPagarResumo, isLoading: isCPLoading } = useContasPagar({ dataInicio: periodoInicio, dataFim: periodoFim });
@@ -163,25 +177,120 @@ export default function Dashboard() {
     }));
   }, [agregado]);
 
-  // Opções de período
-  const periodoOpcoes = useMemo(() => {
-    const opcoes = [];
-    for (let i = 0; i < 6; i++) {
-      const data = subMonths(new Date(), i);
-      opcoes.push({
-        value: format(data, "yyyy-MM"),
-        label: format(data, "MMMM yyyy", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase()),
-      });
-    }
-    return opcoes;
-  }, []);
+  // Indicadores de saúde financeira expandidos
+  const indicadoresSaude = useMemo(() => {
+    const receitaBruta = kpis.receitaBruta || 0;
+    const lucroLiquido = kpis.lucroLiquido || 0;
+    const margemBruta = kpis.margemBruta || 0;
+    const margemLiquida = kpis.margemLiquida || 0;
+    const despesasPercentual = kpis.despesasPercentual || 0;
+    const totalEmAberto = contasPagarResumo.totalEmAberto || 0;
+    const totalAReceber = contasReceberResumo.totalEmAberto || 0;
+    const caixa = fluxoResumo.saldoFinal || 0;
+
+    // Liquidez imediata = (Caixa + A Receber) / A Pagar
+    const liquidezImediata = totalEmAberto > 0 ? (caixa + totalAReceber) / totalEmAberto : 0;
+
+    // Concentração de receita (maior canal)
+    const totalCanais = channelData.reduce((a, c) => a + c.valor, 0);
+    const maiorCanal = channelData[0];
+    const concentracaoReceita = totalCanais > 0 && maiorCanal ? (maiorCanal.valor / totalCanais) * 100 : 0;
+
+    // Giro de caixa = Entradas / Saídas
+    const totalEntradas = fluxoResumo.totalEntradas || 0;
+    const totalSaidas = fluxoResumo.totalSaidas || 0;
+    const giroCaixa = totalSaidas > 0 ? totalEntradas / totalSaidas : 0;
+
+    return [
+      {
+        id: "resultado",
+        titulo: "Resultado do Período",
+        valor: formatCurrency(lucroLiquido),
+        descricao: "Lucro ou prejuízo líquido após todas as deduções",
+        paraQueServe: "Indica se sua operação está gerando valor ou queimando capital. Acompanhe mês a mês para identificar tendências.",
+        status: lucroLiquido < 0 ? "critico" : lucroLiquido > receitaBruta * 0.05 ? "saudavel" : "alerta",
+        referencia: "Meta: > 5% da receita",
+        icon: <DollarSign className="h-5 w-5" />,
+      },
+      {
+        id: "margem-bruta",
+        titulo: "Margem Bruta",
+        valor: `${margemBruta.toFixed(1)}%`,
+        descricao: "Percentual que sobra após pagar o custo das mercadorias (CMV)",
+        paraQueServe: "Avalia se você está comprando bem e precificando corretamente. Margem baixa indica problema na compra ou preço de venda.",
+        status: margemBruta < 20 ? "critico" : margemBruta < 30 ? "alerta" : "saudavel",
+        referencia: "E-commerce saudável: > 30%",
+        icon: <Percent className="h-5 w-5" />,
+      },
+      {
+        id: "margem-liquida",
+        titulo: "Margem Líquida",
+        valor: `${margemLiquida.toFixed(1)}%`,
+        descricao: "Percentual do faturamento que vira lucro real após todas as despesas",
+        paraQueServe: "Mostra a eficiência geral do negócio. Considera custos, despesas operacionais, impostos e todas as deduções.",
+        status: margemLiquida < 0 ? "critico" : margemLiquida < 8 ? "alerta" : "saudavel",
+        referencia: "E-commerce saudável: > 8%",
+        icon: <TrendingUp className="h-5 w-5" />,
+      },
+      {
+        id: "indice-despesas",
+        titulo: "Índice de Despesas",
+        valor: `${despesasPercentual.toFixed(1)}%`,
+        descricao: "Quanto das vendas é consumido por despesas operacionais",
+        paraQueServe: "Identifica se custos fixos estão controlados. Despesas altas podem indicar ineficiência operacional ou estrutura inchada.",
+        status: despesasPercentual > 35 ? "critico" : despesasPercentual > 25 ? "alerta" : "saudavel",
+        referencia: "Ideal: < 25% da receita",
+        icon: <BarChart3 className="h-5 w-5" />,
+      },
+      {
+        id: "liquidez",
+        titulo: "Liquidez Imediata",
+        valor: liquidezImediata.toFixed(2),
+        descricao: "Capacidade de pagar dívidas de curto prazo com recursos disponíveis",
+        paraQueServe: "Indica se você consegue honrar compromissos. Valor abaixo de 1 significa que não há caixa suficiente para quitar dívidas.",
+        status: liquidezImediata < 0.5 ? "critico" : liquidezImediata < 1 ? "alerta" : "saudavel",
+        referencia: "Saudável: > 1.0",
+        icon: <Scale className="h-5 w-5" />,
+      },
+      {
+        id: "concentracao",
+        titulo: "Concentração de Receita",
+        valor: `${concentracaoReceita.toFixed(0)}%`,
+        descricao: `Percentual do maior canal (${maiorCanal?.channel || "N/A"}) sobre o total`,
+        paraQueServe: "Avalia risco de dependência de um único marketplace. Alta concentração aumenta vulnerabilidade a mudanças de políticas ou taxas.",
+        status: concentracaoReceita > 80 ? "critico" : concentracaoReceita > 70 ? "alerta" : "saudavel",
+        referencia: "Ideal: < 70% em um canal",
+        icon: <Target className="h-5 w-5" />,
+      },
+      {
+        id: "ticket-medio",
+        titulo: "Ticket Médio",
+        valor: formatCurrency(kpis.ticketMedio),
+        descricao: "Valor médio por pedido vendido no período",
+        paraQueServe: "Acompanhar se estratégias de upsell e cross-sell estão funcionando. Ticket maior significa mais valor por transação.",
+        status: "neutro",
+        referencia: "Acompanhe a evolução",
+        icon: <ShoppingCart className="h-5 w-5" />,
+      },
+      {
+        id: "giro-caixa",
+        titulo: "Giro de Caixa",
+        valor: giroCaixa.toFixed(2),
+        descricao: "Relação entre entradas e saídas do período",
+        paraQueServe: "Indica se a operação gera mais caixa do que consome. Valor maior que 1 significa que o negócio está gerando caixa positivo.",
+        status: giroCaixa < 0.8 ? "critico" : giroCaixa < 1 ? "alerta" : "saudavel",
+        referencia: "Saudável: > 1.0",
+        icon: <Activity className="h-5 w-5" />,
+      },
+    ];
+  }, [kpis, contasPagarResumo, contasReceberResumo, fluxoResumo, channelData]);
 
   return (
     <MainLayout
       title="Dashboard Executivo"
       subtitle="Visão geral consolidada do seu e-commerce"
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
           {temPendencias && (
             <Button 
               variant="outline" 
@@ -193,17 +302,11 @@ export default function Dashboard() {
               Sincronizar ({totalPendentes})
             </Button>
           )}
-          <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-            <SelectTrigger className="w-[180px]">
-              <Calendar className="h-4 w-4 mr-2" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {periodoOpcoes.map(p => (
-                <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <PeriodFilter
+            selectedPeriod={selectedPeriod}
+            onPeriodChange={handlePeriodChange}
+            isLoading={isLoading}
+          />
           <Button className="gap-2">
             <Download className="h-4 w-4" />
             Exportar
@@ -440,45 +543,65 @@ export default function Dashboard() {
             </ModuleCard>
           </div>
 
-          {/* Health Indicator */}
+          {/* Health Indicators - Expanded */}
           <div className="mt-6">
-            <ModuleCard title="Saúde Financeira" description="Indicadores críticos do negócio">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className={`text-center p-6 rounded-xl ${kpis.lucroLiquido < 0 ? "bg-destructive/5 border border-destructive/20" : "bg-success/5 border border-success/20"}`}>
-                  <div className="text-4xl font-bold mb-2">{kpis.lucroLiquido < 0 ? "⚠️" : "✓"}</div>
-                  <h3 className="font-semibold text-lg">Resultado do Mês</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {kpis.lucroLiquido < 0 
-                      ? `Prejuízo de ${formatCurrency(Math.abs(kpis.lucroLiquido))}`
-                      : `Lucro de ${formatCurrency(kpis.lucroLiquido)}`
-                    }
-                  </p>
-                  <Badge className={`mt-3 ${kpis.lucroLiquido < 0 ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}`}>
-                    {kpis.lucroLiquido < 0 ? "Revisar custos" : "Saudável"}
-                  </Badge>
-                </div>
-                
-                <div className={`text-center p-6 rounded-xl ${kpis.despesasPercentual > 30 ? "bg-warning/5 border border-warning/20" : "bg-success/5 border border-success/20"}`}>
-                  <div className="text-4xl font-bold mb-2">📊</div>
-                  <h3 className="font-semibold text-lg">Margem Operacional</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Despesas em {kpis.despesasPercentual.toFixed(1)}% da receita
-                  </p>
-                  <Badge className={`mt-3 ${kpis.despesasPercentual > 30 ? "bg-warning/10 text-warning" : "bg-success/10 text-success"}`}>
-                    {kpis.despesasPercentual > 30 ? "Acima do ideal" : "Controlado"}
-                  </Badge>
-                </div>
-                
-                <div className={`text-center p-6 rounded-xl ${kpis.margemBruta < 20 ? "bg-warning/5 border border-warning/20" : "bg-success/5 border border-success/20"}`}>
-                  <div className="text-4xl font-bold mb-2">✓</div>
-                  <h3 className="font-semibold text-lg">Margem Bruta</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Margem de {kpis.margemBruta.toFixed(1)}% sobre vendas
-                  </p>
-                  <Badge className={`mt-3 ${kpis.margemBruta < 20 ? "bg-warning/10 text-warning" : "bg-success/10 text-success"}`}>
-                    {kpis.margemBruta < 20 ? "Baixa" : "Saudável"}
-                  </Badge>
-                </div>
+            <ModuleCard title="Saúde Financeira" description="Indicadores críticos do negócio com análise detalhada">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {indicadoresSaude.map((indicador) => {
+                  const statusStyles = {
+                    saudavel: "bg-success/5 border-success/20 text-success",
+                    alerta: "bg-warning/5 border-warning/20 text-warning",
+                    critico: "bg-destructive/5 border-destructive/20 text-destructive",
+                    neutro: "bg-muted/30 border-border text-muted-foreground",
+                  };
+                  
+                  const statusLabels = {
+                    saudavel: "Saudável",
+                    alerta: "Atenção",
+                    critico: "Crítico",
+                    neutro: "Neutro",
+                  };
+
+                  const status = indicador.status as keyof typeof statusStyles;
+                  
+                  return (
+                    <TooltipProvider key={indicador.id}>
+                      <TooltipUI>
+                        <TooltipTrigger asChild>
+                          <div className={`p-4 rounded-xl border cursor-help transition-all hover:shadow-md ${statusStyles[status]}`}>
+                            <div className="flex items-center justify-between mb-3">
+                              <div className={`p-2 rounded-lg ${status === "neutro" ? "bg-muted" : status === "saudavel" ? "bg-success/10" : status === "alerta" ? "bg-warning/10" : "bg-destructive/10"}`}>
+                                {indicador.icon}
+                              </div>
+                              <HelpCircle className="h-4 w-4 text-muted-foreground/50" />
+                            </div>
+                            
+                            <h4 className="font-medium text-sm text-foreground mb-1">{indicador.titulo}</h4>
+                            <div className="text-2xl font-bold mb-2">{indicador.valor}</div>
+                            
+                            <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
+                              {indicador.descricao}
+                            </p>
+                            
+                            <div className="flex items-center justify-between">
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${status === "saudavel" ? "border-success/30 text-success" : status === "alerta" ? "border-warning/30 text-warning" : status === "critico" ? "border-destructive/30 text-destructive" : "border-border"}`}
+                              >
+                                {statusLabels[status]}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">{indicador.referencia}</span>
+                            </div>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px] p-3">
+                          <p className="font-semibold text-sm mb-1">Para que serve?</p>
+                          <p className="text-xs text-muted-foreground">{indicador.paraQueServe}</p>
+                        </TooltipContent>
+                      </TooltipUI>
+                    </TooltipProvider>
+                  );
+                })}
               </div>
             </ModuleCard>
           </div>
