@@ -23,6 +23,7 @@ interface MLOrder {
   status: string;
   date_created: string;
   date_closed: string;
+  date_last_updated: string;
   total_amount: number;
   paid_amount: number;
   currency_id: string;
@@ -64,6 +65,7 @@ Deno.serve(async (req) => {
   let registros_atualizados = 0;
   let registros_erro = 0;
   let itens_mapeados_automaticamente = 0;
+  let shipping_extraidos = 0;
 
   try {
     const { empresa_id, days_back = 30 } = await req.json();
@@ -116,16 +118,17 @@ Deno.serve(async (req) => {
     dateFrom.setDate(dateFrom.getDate() - days_back);
     const dateFromStr = dateFrom.toISOString();
 
-    // ========== PAGINAÇÃO: Buscar TODOS os pedidos ==========
+    // ========== PAGINAÇÃO: Buscar TODOS os pedidos usando date_last_updated ==========
     let offset = 0;
     const limit = 50;
     let allOrders: MLOrder[] = [];
     let totalOrders = 0;
 
     do {
-      const ordersUrl = `${ML_API_URL}/orders/search?seller=${tokenData.user_id_provider}&order.date_created.from=${dateFromStr}&sort=date_desc&offset=${offset}&limit=${limit}`;
+      // IMPORTANTE: Usar date_last_updated em vez de date_created para capturar pedidos que mudaram de status
+      const ordersUrl = `${ML_API_URL}/orders/search?seller=${tokenData.user_id_provider}&order.date_last_updated.from=${dateFromStr}&sort=date_desc&offset=${offset}&limit=${limit}`;
       
-      console.log(`[ML Sync] Buscando pedidos: offset=${offset}, limit=${limit}`);
+      console.log(`[ML Sync] Buscando pedidos: offset=${offset}, limit=${limit}, usando date_last_updated`);
       
       const ordersResponse = await fetch(ordersUrl, {
         headers: {
@@ -180,12 +183,14 @@ Deno.serve(async (req) => {
         const valorBruto = order.total_amount;
         const taxas = order.payments?.reduce((sum, p) => sum + (p.marketplace_fee || 0), 0) || 0;
         
-        // ========== BUSCAR DETALHES DO SHIPPING ==========
+        // ========== BUSCAR DETALHES DO SHIPPING COM LOGS DETALHADOS ==========
         let tipoEnvio: string | null = null;
         let freteComprador = 0;
         let freteVendedor = 0;
 
         if (order.shipping?.id) {
+          console.log(`[ML Sync] Pedido ${order.id}: Buscando shipping ${order.shipping.id}...`);
+          
           try {
             const shippingUrl = `${ML_API_URL}/shipments/${order.shipping.id}`;
             const shippingResponse = await fetch(shippingUrl, {
@@ -194,17 +199,37 @@ Deno.serve(async (req) => {
 
             if (shippingResponse.ok) {
               const shippingData: ShippingDetails = await shippingResponse.json();
-              tipoEnvio = logisticTypeMap[shippingData.logistic_type || ""] || null;
+              
+              // Log detalhado para debug
+              console.log(`[ML Sync] Shipping ${order.shipping.id}: logistic_type="${shippingData.logistic_type}", receiver_cost=${shippingData.receiver_cost}, sender_cost=${shippingData.sender_cost}, base_cost=${shippingData.base_cost}`);
+              
+              const rawLogisticType = shippingData.logistic_type || "";
+              tipoEnvio = logisticTypeMap[rawLogisticType] || rawLogisticType || null;
               freteComprador = shippingData.receiver_cost || 0;
               freteVendedor = shippingData.sender_cost || shippingData.base_cost || order.shipping.cost || 0;
+              
+              if (tipoEnvio) {
+                shipping_extraidos++;
+                console.log(`[ML Sync] ✓ Pedido ${order.id}: tipo_envio="${tipoEnvio}", frete_comprador=${freteComprador}, frete_vendedor=${freteVendedor}`);
+              } else {
+                console.warn(`[ML Sync] ⚠ Pedido ${order.id}: logistic_type não mapeado: "${rawLogisticType}"`);
+              }
+            } else {
+              const errText = await shippingResponse.text();
+              console.warn(`[ML Sync] ⚠ Pedido ${order.id}: Erro HTTP ${shippingResponse.status} ao buscar shipping: ${errText}`);
             }
           } catch (shippingError) {
-            console.warn(`[ML Sync] Erro ao buscar shipping ${order.shipping.id}:`, shippingError);
+            console.error(`[ML Sync] ✗ Pedido ${order.id}: Erro ao buscar shipping ${order.shipping.id}:`, shippingError);
           }
+        } else {
+          console.log(`[ML Sync] Pedido ${order.id}: Sem shipping ID`);
         }
 
         const frete = freteVendedor;
         const valorLiquido = valorBruto - taxas - frete;
+
+        // Usar date_closed (com horário) como data da transação
+        const dataTransacao = order.date_closed || order.date_created;
 
         // Verificar se já existe
         const { data: existing } = await supabase
@@ -218,7 +243,7 @@ Deno.serve(async (req) => {
         const transactionData = {
           empresa_id,
           canal: "Mercado Livre",
-          data_transacao: order.date_closed || order.date_created,
+          data_transacao: dataTransacao,  // Agora com horário (timestamp)
           descricao: `Venda #${order.id}`,
           tipo_lancamento: "credito",
           tipo_transacao: "venda",
@@ -237,12 +262,18 @@ Deno.serve(async (req) => {
         };
 
         if (existing) {
-          // Atualizar
-          await supabase
+          // IMPORTANTE: Atualizar TODOS os campos incluindo tipo_envio, frete_comprador, frete_vendedor
+          const { error: updateError } = await supabase
             .from("marketplace_transactions")
             .update(transactionData)
             .eq("id", existing.id);
-          registros_atualizados++;
+          
+          if (updateError) {
+            console.error(`[ML Sync] Erro ao atualizar pedido ${order.id}:`, updateError);
+            registros_erro++;
+          } else {
+            registros_atualizados++;
+          }
         } else {
           // Inserir
           const { data: newTx, error: insertError } = await supabase
@@ -309,7 +340,7 @@ Deno.serve(async (req) => {
       provider: "mercado_livre",
       tipo: "sync",
       status: registros_erro > 0 ? "partial" : "success",
-      mensagem: `Sync concluído: ${registros_criados} novos, ${registros_atualizados} atualizados, ${itens_mapeados_automaticamente} itens mapeados automaticamente`,
+      mensagem: `Sync concluído: ${registros_criados} novos, ${registros_atualizados} atualizados, ${shipping_extraidos} com tipo_envio, ${itens_mapeados_automaticamente} itens mapeados`,
       registros_processados,
       registros_criados,
       registros_atualizados,
@@ -319,10 +350,11 @@ Deno.serve(async (req) => {
         days_back, 
         total_orders: allOrders.length,
         itens_mapeados_automaticamente,
+        shipping_extraidos,
       },
     });
 
-    console.log(`[ML Sync] Concluído em ${duracao_ms}ms: ${registros_criados} novos, ${registros_atualizados} atualizados, ${registros_erro} erros, ${itens_mapeados_automaticamente} itens mapeados automaticamente`);
+    console.log(`[ML Sync] Concluído em ${duracao_ms}ms: ${registros_criados} novos, ${registros_atualizados} atualizados, ${registros_erro} erros, ${shipping_extraidos} com tipo_envio, ${itens_mapeados_automaticamente} itens mapeados`);
 
     return new Response(
       JSON.stringify({
@@ -332,6 +364,7 @@ Deno.serve(async (req) => {
         registros_atualizados,
         registros_erro,
         itens_mapeados_automaticamente,
+        shipping_extraidos,
         duracao_ms,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
