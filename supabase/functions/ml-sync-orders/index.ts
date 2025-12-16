@@ -27,10 +27,16 @@ interface MLOrder {
   total_amount: number;
   paid_amount: number;
   currency_id: string;
+  tags?: string[];
+  buyer?: {
+    id: number;
+    nickname: string;
+  };
   order_items: Array<{
-    item: { id: string; title: string; seller_sku: string };
+    item: { id: string; title: string; seller_sku: string; category_id?: string };
     quantity: number;
     unit_price: number;
+    full_unit_price?: number;
   }>;
   payments: Array<{
     id: number;
@@ -39,6 +45,8 @@ interface MLOrder {
     shipping_cost: number;
     transaction_amount: number;
     date_approved: string;
+    payment_method_id?: string;
+    installments?: number;
   }>;
   shipping: {
     id: number;
@@ -52,6 +60,59 @@ interface ShippingDetails {
   receiver_cost?: number;
   sender_cost?: number;
   base_cost?: number;
+  status?: string;
+  mode?: string;
+}
+
+// Função para buscar pedidos de um dia específico com paginação interna
+async function fetchOrdersForDay(
+  accessToken: string,
+  sellerId: string,
+  dayStart: Date,
+  dayEnd: Date
+): Promise<MLOrder[]> {
+  const ML_MAX_OFFSET = 10000;
+  const limit = 50;
+  let offset = 0;
+  let dayOrders: MLOrder[] = [];
+  let totalOrders = 0;
+
+  const dateFromStr = dayStart.toISOString();
+  const dateToStr = dayEnd.toISOString();
+
+  do {
+    const ordersUrl = `${ML_API_URL}/orders/search?seller=${sellerId}&order.date_created.from=${dateFromStr}&order.date_created.to=${dateToStr}&sort=date_desc&offset=${offset}&limit=${limit}`;
+    
+    const ordersResponse = await fetch(ordersUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!ordersResponse.ok) {
+      const errorText = await ordersResponse.text();
+      console.error(`[ML Sync] Erro ao buscar pedidos do dia ${dayStart.toISOString().split('T')[0]}: ${ordersResponse.status} - ${errorText}`);
+      break;
+    }
+
+    const ordersData = await ordersResponse.json();
+    const pageOrders = ordersData.results || [];
+    dayOrders = dayOrders.concat(pageOrders);
+    totalOrders = ordersData.paging?.total || 0;
+    
+    offset += limit;
+    
+    // LIMITE DA API
+    if (offset >= ML_MAX_OFFSET) {
+      console.warn(`[ML Sync] ⚠ Limite da API atingido para dia ${dayStart.toISOString().split('T')[0]}`);
+      break;
+    }
+    
+    // Pequena pausa
+    if (offset < totalOrders) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  } while (offset < totalOrders);
+
+  return dayOrders;
 }
 
 Deno.serve(async (req) => {
@@ -68,7 +129,7 @@ Deno.serve(async (req) => {
   let shipping_extraidos = 0;
 
   try {
-    const { empresa_id, days_back = 30 } = await req.json();
+    const { empresa_id, days_back = 7 } = await req.json();
 
     if (!empresa_id) {
       return new Response(
@@ -111,61 +172,45 @@ Deno.serve(async (req) => {
       accessToken = refreshResult.access_token;
     }
 
-    console.log(`[ML Sync] Iniciando sync para empresa ${empresa_id}, últimos ${days_back} dias`);
+    console.log(`[ML Sync] ========================================`);
+    console.log(`[ML Sync] Iniciando sync para empresa ${empresa_id}`);
+    console.log(`[ML Sync] Período: últimos ${days_back} dias (busca segmentada por dia)`);
+    console.log(`[ML Sync] ========================================`);
 
-    // Calcular período
-    const dateFrom = new Date();
-    dateFrom.setDate(dateFrom.getDate() - days_back);
-    const dateFromStr = dateFrom.toISOString();
-
-    // ========== PAGINAÇÃO: Buscar pedidos usando date_last_updated ==========
-    // IMPORTANTE: Mercado Livre API limita offset máximo a 10.000
-    const ML_MAX_OFFSET = 10000;
-    let offset = 0;
-    const limit = 50;
+    // ========== BUSCA SEGMENTADA POR DIA ==========
+    // Estratégia: buscar dia a dia para evitar limite de 10.000 offset
     let allOrders: MLOrder[] = [];
-    let totalOrders = 0;
-
-    do {
-      // IMPORTANTE: Usar date_last_updated em vez de date_created para capturar pedidos que mudaram de status
-      const ordersUrl = `${ML_API_URL}/orders/search?seller=${tokenData.user_id_provider}&order.date_last_updated.from=${dateFromStr}&sort=date_desc&offset=${offset}&limit=${limit}`;
+    
+    for (let dayOffset = 0; dayOffset < days_back; dayOffset++) {
+      const dayStart = new Date();
+      dayStart.setDate(dayStart.getDate() - dayOffset);
+      dayStart.setHours(0, 0, 0, 0);
       
-      console.log(`[ML Sync] Buscando pedidos: offset=${offset}, limit=${limit}, usando date_last_updated`);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setHours(23, 59, 59, 999);
       
-      const ordersResponse = await fetch(ordersUrl, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-
-      if (!ordersResponse.ok) {
-        const errorText = await ordersResponse.text();
-        console.error("[ML Sync] Erro ao buscar pedidos:", errorText);
-        throw new Error(`Erro ao buscar pedidos: ${ordersResponse.status}`);
-      }
-
-      const ordersData = await ordersResponse.json();
-      const pageOrders = ordersData.results || [];
-      allOrders = allOrders.concat(pageOrders);
-      totalOrders = ordersData.paging?.total || 0;
+      const dayLabel = dayStart.toISOString().split('T')[0];
+      console.log(`[ML Sync] 📅 Buscando pedidos de ${dayLabel}...`);
       
-      console.log(`[ML Sync] Página ${Math.floor(offset/limit) + 1}: ${pageOrders.length} pedidos (total disponível: ${totalOrders})`);
+      const ordersOfDay = await fetchOrdersForDay(
+        accessToken, 
+        tokenData.user_id_provider, 
+        dayStart, 
+        dayEnd
+      );
       
-      offset += limit;
+      allOrders = allOrders.concat(ordersOfDay);
+      console.log(`[ML Sync] ✓ ${dayLabel}: ${ordersOfDay.length} pedidos`);
       
-      // LIMITE DA API: Mercado Livre não permite offset >= 10000
-      if (offset >= ML_MAX_OFFSET) {
-        console.warn(`[ML Sync] ⚠ Limite da API atingido (offset=${offset} >= ${ML_MAX_OFFSET}). ${allOrders.length} pedidos carregados de ${totalOrders} disponíveis. Considere reduzir days_back.`);
-        break;
-      }
-      
-      // Pequena pausa para não sobrecarregar a API
-      if (offset < totalOrders) {
+      // Pausa entre dias
+      if (dayOffset < days_back - 1) {
         await new Promise(resolve => setTimeout(resolve, 200));
       }
-    } while (offset < totalOrders);
+    }
 
-    console.log(`[ML Sync] Total de ${allOrders.length} pedidos encontrados`);
+    console.log(`[ML Sync] ========================================`);
+    console.log(`[ML Sync] Total: ${allOrders.length} pedidos em ${days_back} dias`);
+    console.log(`[ML Sync] ========================================`);
 
     // Buscar mapeamentos existentes para a empresa
     const { data: mapeamentosExistentes } = await supabase
@@ -180,7 +225,7 @@ Deno.serve(async (req) => {
       mapeamentoMap.set(m.sku_marketplace, m.produto_id);
     });
 
-    console.log(`[ML Sync] ${mapeamentoMap.size} mapeamentos de produtos ativos encontrados`);
+    console.log(`[ML Sync] ${mapeamentoMap.size} mapeamentos de produtos ativos`);
 
     // Processar cada pedido
     for (const order of allOrders) {
@@ -191,14 +236,24 @@ Deno.serve(async (req) => {
         const valorBruto = order.total_amount;
         const taxas = order.payments?.reduce((sum, p) => sum + (p.marketplace_fee || 0), 0) || 0;
         
-        // ========== BUSCAR DETALHES DO SHIPPING COM LOGS DETALHADOS ==========
+        // Informações adicionais dos pagamentos
+        const paymentMethodId = order.payments?.[0]?.payment_method_id || null;
+        const installments = order.payments?.[0]?.installments || 1;
+        
+        // Tags do pedido (fulfilled, delivered, etc.)
+        const orderTags = order.tags?.join(',') || null;
+        
+        // Buyer info
+        const buyerNickname = order.buyer?.nickname || null;
+        
+        // ========== BUSCAR DETALHES DO SHIPPING ==========
         let tipoEnvio: string | null = null;
         let freteComprador = 0;
         let freteVendedor = 0;
+        let shippingStatus: string | null = null;
+        let shippingMode: string | null = null;
 
         if (order.shipping?.id) {
-          console.log(`[ML Sync] Pedido ${order.id}: Buscando shipping ${order.shipping.id}...`);
-          
           try {
             const shippingUrl = `${ML_API_URL}/shipments/${order.shipping.id}`;
             const shippingResponse = await fetch(shippingUrl, {
@@ -208,29 +263,20 @@ Deno.serve(async (req) => {
             if (shippingResponse.ok) {
               const shippingData: ShippingDetails = await shippingResponse.json();
               
-              // Log detalhado para debug
-              console.log(`[ML Sync] Shipping ${order.shipping.id}: logistic_type="${shippingData.logistic_type}", receiver_cost=${shippingData.receiver_cost}, sender_cost=${shippingData.sender_cost}, base_cost=${shippingData.base_cost}`);
-              
               const rawLogisticType = shippingData.logistic_type || "";
               tipoEnvio = logisticTypeMap[rawLogisticType] || rawLogisticType || null;
               freteComprador = shippingData.receiver_cost || 0;
               freteVendedor = shippingData.sender_cost || shippingData.base_cost || order.shipping.cost || 0;
+              shippingStatus = shippingData.status || null;
+              shippingMode = shippingData.mode || null;
               
               if (tipoEnvio) {
                 shipping_extraidos++;
-                console.log(`[ML Sync] ✓ Pedido ${order.id}: tipo_envio="${tipoEnvio}", frete_comprador=${freteComprador}, frete_vendedor=${freteVendedor}`);
-              } else {
-                console.warn(`[ML Sync] ⚠ Pedido ${order.id}: logistic_type não mapeado: "${rawLogisticType}"`);
               }
-            } else {
-              const errText = await shippingResponse.text();
-              console.warn(`[ML Sync] ⚠ Pedido ${order.id}: Erro HTTP ${shippingResponse.status} ao buscar shipping: ${errText}`);
             }
           } catch (shippingError) {
-            console.error(`[ML Sync] ✗ Pedido ${order.id}: Erro ao buscar shipping ${order.shipping.id}:`, shippingError);
+            console.error(`[ML Sync] Erro ao buscar shipping ${order.shipping.id}:`, shippingError);
           }
-        } else {
-          console.log(`[ML Sync] Pedido ${order.id}: Sem shipping ID`);
         }
 
         const frete = freteVendedor;
@@ -251,8 +297,8 @@ Deno.serve(async (req) => {
         const transactionData = {
           empresa_id,
           canal: "Mercado Livre",
-          data_transacao: dataTransacao,  // Agora com horário (timestamp)
-          descricao: `Venda #${order.id}`,
+          data_transacao: dataTransacao,
+          descricao: `Venda #${order.id}${buyerNickname ? ` - ${buyerNickname}` : ''}`,
           tipo_lancamento: "credito",
           tipo_transacao: "venda",
           valor_bruto: valorBruto,
@@ -270,7 +316,7 @@ Deno.serve(async (req) => {
         };
 
         if (existing) {
-          // IMPORTANTE: Atualizar TODOS os campos incluindo tipo_envio, frete_comprador, frete_vendedor
+          // Atualizar registro existente com TODOS os campos
           const { error: updateError } = await supabase
             .from("marketplace_transactions")
             .update(transactionData)
@@ -283,7 +329,7 @@ Deno.serve(async (req) => {
             registros_atualizados++;
           }
         } else {
-          // Inserir
+          // Inserir novo registro
           const { data: newTx, error: insertError } = await supabase
             .from("marketplace_transactions")
             .insert(transactionData)
@@ -306,7 +352,6 @@ Deno.serve(async (req) => {
 
               if (produtoId) {
                 itens_mapeados_automaticamente++;
-                console.log(`[ML Sync] SKU ${skuMarketplace} mapeado automaticamente para produto ${produtoId}`);
               }
 
               await supabase.from("marketplace_transaction_items").insert({
@@ -335,7 +380,7 @@ Deno.serve(async (req) => {
       .from("integracao_config")
       .update({ 
         last_sync_at: new Date().toISOString(),
-        next_sync_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // +30min
+        next_sync_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
       })
       .eq("empresa_id", empresa_id)
       .eq("provider", "mercado_livre");
@@ -348,7 +393,7 @@ Deno.serve(async (req) => {
       provider: "mercado_livre",
       tipo: "sync",
       status: registros_erro > 0 ? "partial" : "success",
-      mensagem: `Sync concluído: ${registros_criados} novos, ${registros_atualizados} atualizados, ${shipping_extraidos} com tipo_envio, ${itens_mapeados_automaticamente} itens mapeados`,
+      mensagem: `Sync ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados, ${shipping_extraidos} com tipo_envio`,
       registros_processados,
       registros_criados,
       registros_atualizados,
@@ -362,7 +407,11 @@ Deno.serve(async (req) => {
       },
     });
 
-    console.log(`[ML Sync] Concluído em ${duracao_ms}ms: ${registros_criados} novos, ${registros_atualizados} atualizados, ${registros_erro} erros, ${shipping_extraidos} com tipo_envio, ${itens_mapeados_automaticamente} itens mapeados`);
+    console.log(`[ML Sync] ========================================`);
+    console.log(`[ML Sync] ✅ Concluído em ${duracao_ms}ms`);
+    console.log(`[ML Sync]    ${registros_criados} novos, ${registros_atualizados} atualizados`);
+    console.log(`[ML Sync]    ${shipping_extraidos} com tipo_envio, ${itens_mapeados_automaticamente} itens mapeados`);
+    console.log(`[ML Sync] ========================================`);
 
     return new Response(
       JSON.stringify({
@@ -374,6 +423,7 @@ Deno.serve(async (req) => {
         itens_mapeados_automaticamente,
         shipping_extraidos,
         duracao_ms,
+        days_back,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -381,7 +431,6 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error("[ML Sync] Erro:", error);
 
-    // Registrar log de erro
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -435,7 +484,6 @@ async function refreshToken(supabase: any, tokenData: any) {
     const data = await response.json();
     const expiresAt = new Date(Date.now() + (data.expires_in * 1000)).toISOString();
 
-    // Atualizar no banco
     await supabase
       .from("integracao_tokens")
       .update({
