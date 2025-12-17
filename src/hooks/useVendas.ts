@@ -264,6 +264,15 @@ export function useVendas(filtros: VendasFiltros) {
     queryFn: async () => {
       if (!empresaAtiva?.id) return [];
 
+      // Converter datas do Brasil (UTC-3) para UTC
+      // Meia-noite no Brasil = 03:00 UTC do mesmo dia
+      // Fim do dia no Brasil (23:59:59) = 02:59:59 UTC do próximo dia
+      const dataInicioUTC = `${filtros.dataInicio}T03:00:00.000Z`;
+      const dataFimDate = new Date(`${filtros.dataFim}T03:00:00.000Z`);
+      dataFimDate.setDate(dataFimDate.getDate() + 1);
+      dataFimDate.setMilliseconds(dataFimDate.getMilliseconds() - 1);
+      const dataFimUTC = dataFimDate.toISOString();
+
       // Query direta nas tabelas já que a view pode não existir ainda
       const { data: transacoes, error } = await supabase
         .from("marketplace_transactions")
@@ -310,8 +319,8 @@ export function useVendas(filtros: VendasFiltros) {
         `)
         .eq("empresa_id", empresaAtiva.id)
         .eq("tipo_lancamento", "credito")
-        .gte("data_transacao", filtros.dataInicio)
-        .lte("data_transacao", filtros.dataFim)
+        .gte("data_transacao", dataInicioUTC)
+        .lt("data_transacao", dataFimUTC)
         .order("data_transacao", { ascending: false });
 
       if (error) throw error;
