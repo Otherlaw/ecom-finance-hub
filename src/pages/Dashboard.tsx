@@ -10,6 +10,8 @@ import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
 import { useMemo, useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { format, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -29,6 +31,7 @@ import {
   Scale,
   Wallet,
   Activity,
+  ImageIcon,
 } from "lucide-react";
 import {
   BarChart,
@@ -50,6 +53,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 const CHART_COLORS = [
   "hsl(4, 86%, 55%)",
@@ -176,6 +187,104 @@ export default function Dashboard() {
       percentual: total > 0 ? ((c.valor / total) * 100).toFixed(1) : "0",
     }));
   }, [agregado]);
+
+  // Query para Top 10 produtos mais vendidos
+  const { data: topProdutosRaw = [], isLoading: isTopProdutosLoading } = useQuery({
+    queryKey: ["top-produtos-vendidos", periodoInicio, periodoFim],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("marketplace_transaction_items")
+        .select(`
+          quantidade,
+          preco_total,
+          sku_marketplace,
+          descricao_item,
+          produto_id,
+          transaction:marketplace_transactions!inner(
+            id,
+            canal,
+            data_transacao,
+            tipo_lancamento
+          ),
+          produto:produtos(
+            id,
+            nome,
+            sku,
+            custo_medio,
+            preco_venda,
+            imagem_url
+          )
+        `)
+        .gte("transaction.data_transacao", periodoInicio)
+        .lte("transaction.data_transacao", periodoFim)
+        .eq("transaction.tipo_lancamento", "credito");
+      
+      if (error) {
+        console.error("Erro ao buscar top produtos:", error);
+        return [];
+      }
+      return data || [];
+    },
+    enabled: !!periodoInicio && !!periodoFim,
+  });
+
+  // Processar dados para Top 10 produtos
+  const topProdutosProcessados = useMemo(() => {
+    const porProduto = new Map<string, {
+      id: string;
+      nome: string;
+      sku: string;
+      custoUnitario: number;
+      precoVenda: number;
+      imagemUrl: string | null;
+      qtdTotal: number;
+      totalFaturado: number;
+      porCanal: Record<string, number>;
+    }>();
+
+    topProdutosRaw.forEach((item: any) => {
+      const produtoId = item.produto_id || item.sku_marketplace || "sem-mapeamento";
+      const produto = item.produto;
+      const canal = item.transaction?.canal || "Outros";
+      const quantidade = Number(item.quantidade) || 0;
+      const precoTotal = Number(item.preco_total) || 0;
+
+      if (!porProduto.has(produtoId)) {
+        porProduto.set(produtoId, {
+          id: produtoId,
+          nome: produto?.nome || item.descricao_item || item.sku_marketplace || "Produto não mapeado",
+          sku: produto?.sku || item.sku_marketplace || "-",
+          custoUnitario: Number(produto?.custo_medio) || 0,
+          precoVenda: Number(produto?.preco_venda) || 0,
+          imagemUrl: produto?.imagem_url || null,
+          qtdTotal: 0,
+          totalFaturado: 0,
+          porCanal: {},
+        });
+      }
+
+      const produtoAgregado = porProduto.get(produtoId)!;
+      produtoAgregado.qtdTotal += quantidade;
+      produtoAgregado.totalFaturado += precoTotal;
+      produtoAgregado.porCanal[canal] = (produtoAgregado.porCanal[canal] || 0) + quantidade;
+    });
+
+    const faturamentoTotal = [...porProduto.values()].reduce((sum, p) => sum + p.totalFaturado, 0);
+
+    return [...porProduto.values()]
+      .map(p => ({
+        ...p,
+        lucro: p.totalFaturado - (p.custoUnitario * p.qtdTotal),
+        margem: p.totalFaturado > 0 
+          ? ((p.totalFaturado - (p.custoUnitario * p.qtdTotal)) / p.totalFaturado * 100)
+          : 0,
+        representatividade: faturamentoTotal > 0 
+          ? (p.totalFaturado / faturamentoTotal * 100)
+          : 0,
+      }))
+      .sort((a, b) => b.totalFaturado - a.totalFaturado)
+      .slice(0, 10);
+  }, [topProdutosRaw]);
 
   // Indicadores de saúde financeira expandidos
   const indicadoresSaude = useMemo(() => {
@@ -464,6 +573,137 @@ export default function Dashboard() {
               ) : (
                 <div className="h-[300px] flex items-center justify-center text-muted-foreground">
                   Nenhuma venda registrada no período
+                </div>
+              )}
+            </ModuleCard>
+          </div>
+
+          {/* Top 10 Produtos Mais Vendidos */}
+          <div className="mt-6">
+            <ModuleCard 
+              title="Top 10 Produtos Mais Vendidos" 
+              description={`No período selecionado`}
+              icon={Package}
+            >
+              {isTopProdutosLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary mr-2" />
+                  <span className="text-muted-foreground">Carregando produtos...</span>
+                </div>
+              ) : topProdutosProcessados.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[300px]">Produto</TableHead>
+                        <TableHead className="text-right">Preço</TableHead>
+                        <TableHead className="text-right">Custo Unit.</TableHead>
+                        <TableHead className="text-right">Qtd. Vendida</TableHead>
+                        <TableHead className="text-right">Total Faturado</TableHead>
+                        <TableHead className="text-right">Repres.</TableHead>
+                        <TableHead className="text-right">Lucro</TableHead>
+                        <TableHead className="text-right">Margem</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {topProdutosProcessados.map((produto, index) => (
+                        <TableRow key={produto.id}>
+                          {/* Coluna Produto */}
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center overflow-hidden shrink-0">
+                                {produto.imagemUrl ? (
+                                  <img 
+                                    src={produto.imagemUrl} 
+                                    alt={produto.nome}
+                                    className="w-full h-full object-cover" 
+                                  />
+                                ) : (
+                                  <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium truncate max-w-[200px]" title={produto.nome}>
+                                  {produto.nome}
+                                </p>
+                                <p className="text-xs text-muted-foreground">{produto.sku}</p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          
+                          {/* Preço */}
+                          <TableCell className="text-right">
+                            {formatCurrency(produto.precoVenda)}
+                          </TableCell>
+                          
+                          {/* Custo Unitário */}
+                          <TableCell className="text-right">
+                            {formatCurrency(produto.custoUnitario)}
+                          </TableCell>
+                          
+                          {/* Qtd Vendida com Tooltip por Canal */}
+                          <TableCell className="text-right">
+                            <TooltipProvider>
+                              <TooltipUI>
+                                <TooltipTrigger className="flex items-center justify-end gap-1 cursor-help">
+                                  <span className="text-muted-foreground">⊙</span>
+                                  <span>{formatNumber(produto.qtdTotal)}</span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <div className="text-xs space-y-1">
+                                    <p className="font-semibold mb-1">Por Canal:</p>
+                                    {Object.entries(produto.porCanal).map(([canal, qtd]) => (
+                                      <p key={canal}>
+                                        {canal}: {formatNumber(qtd as number)}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </TooltipContent>
+                              </TooltipUI>
+                            </TooltipProvider>
+                          </TableCell>
+                          
+                          {/* Total Faturado */}
+                          <TableCell className="text-right font-medium">
+                            {formatCurrency(produto.totalFaturado)}
+                          </TableCell>
+                          
+                          {/* Representatividade */}
+                          <TableCell className="text-right text-muted-foreground">
+                            {produto.representatividade.toFixed(1)}%
+                          </TableCell>
+                          
+                          {/* Lucro */}
+                          <TableCell className="text-right">
+                            <span className={produto.lucro >= 0 ? "text-success" : "text-destructive"}>
+                              {formatCurrency(produto.lucro)}
+                            </span>
+                          </TableCell>
+                          
+                          {/* Margem com Badge colorido */}
+                          <TableCell className="text-right">
+                            <Badge 
+                              variant="outline"
+                              className={
+                                produto.margem >= 20 
+                                  ? "bg-success/10 text-success border-success/30" 
+                                  : produto.margem >= 10 
+                                    ? "bg-warning/10 text-warning border-warning/30" 
+                                    : "bg-destructive/10 text-destructive border-destructive/30"
+                              }
+                            >
+                              {produto.margem.toFixed(1)}%
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="py-8 text-center text-muted-foreground">
+                  <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  Nenhum produto vendido no período selecionado
                 </div>
               )}
             </ModuleCard>
