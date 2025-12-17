@@ -10,6 +10,9 @@ const ML_API_URL = "https://api.mercadolibre.com";
 // Taxa média de parcelamento do ML (5-7% para parcelados)
 const FINANCING_FEE_RATE = 0.05;
 
+// Buffer de 5 minutos para renovar token antes de expirar
+const TOKEN_BUFFER_MS = 5 * 60 * 1000;
+
 // Mapear logistic_type para tipo_envio amigável
 const logisticTypeMap: Record<string, string> = {
   "fulfillment": "full",
@@ -78,6 +81,114 @@ interface BillingInfo {
   };
 }
 
+interface TokenState {
+  id: string;
+  access_token: string;
+  refresh_token: string;
+  expires_at: string | null;
+  user_id_provider: string;
+}
+
+// ============= HELPER: RENOVAÇÃO AUTOMÁTICA DE TOKEN =============
+
+/**
+ * Obtém um access_token válido, renovando se necessário (buffer de 5 min)
+ * IMPORTANTE: Salva o novo refresh_token no banco (o ML pode devolver um novo)
+ */
+async function getValidAccessToken(
+  supabase: any, 
+  tokenState: TokenState
+): Promise<{ access_token: string; tokenState: TokenState } | { error: string }> {
+  const now = Date.now();
+  const exp = tokenState.expires_at ? new Date(tokenState.expires_at).getTime() : 0;
+  
+  // Se token expira em mais de 5 minutos, usar o atual
+  if (exp && (exp - now) > TOKEN_BUFFER_MS) {
+    return { access_token: tokenState.access_token, tokenState };
+  }
+
+  console.log("[ML Sync] 🔄 Token expira em < 5 min, renovando automaticamente...");
+  
+  const refreshResult = await refreshToken(supabase, tokenState);
+  
+  if ('error' in refreshResult) {
+    return { error: refreshResult.error };
+  }
+  
+  // Retornar estado atualizado
+  const updatedTokenState: TokenState = {
+    ...tokenState,
+    access_token: refreshResult.access_token,
+    refresh_token: refreshResult.refresh_token || tokenState.refresh_token,
+    expires_at: refreshResult.expires_at,
+  };
+  
+  return { access_token: refreshResult.access_token, tokenState: updatedTokenState };
+}
+
+/**
+ * Wrapper para fetch do ML com retry automático em 401
+ * Se receber 401, força refresh do token e tenta novamente 1 vez
+ */
+async function mlFetch(
+  url: string,
+  supabase: any,
+  tokenState: TokenState,
+  init: RequestInit = {}
+): Promise<{ response: Response; tokenState: TokenState }> {
+  // Obter token válido (com buffer de 5 min)
+  const tokenResult = await getValidAccessToken(supabase, tokenState);
+  
+  if ('error' in tokenResult) {
+    throw new Error(`Erro ao obter token: ${tokenResult.error}`);
+  }
+  
+  let currentTokenState = tokenResult.tokenState;
+  let accessToken = tokenResult.access_token;
+  
+  // Primeira tentativa
+  let response = await fetch(url, {
+    ...init,
+    headers: {
+      ...(init.headers || {}),
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  
+  // Se 401, tentar refresh e retry 1x
+  if (response.status === 401) {
+    console.log("[ML Sync] ⚠️ 401 recebido, forçando refresh e retry...");
+    
+    // Forçar refresh (ignorar expires_at)
+    const forceTokenState: TokenState = {
+      ...currentTokenState,
+      expires_at: new Date(0).toISOString(), // Forçar expiração
+    };
+    
+    const retryResult = await getValidAccessToken(supabase, forceTokenState);
+    
+    if ('error' in retryResult) {
+      throw new Error(`Erro ao renovar token após 401: ${retryResult.error}`);
+    }
+    
+    currentTokenState = retryResult.tokenState;
+    accessToken = retryResult.access_token;
+    
+    // Retry da requisição
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        ...(init.headers || {}),
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    
+    console.log(`[ML Sync] ✓ Retry executado, status: ${response.status}`);
+  }
+  
+  return { response, tokenState: currentTokenState };
+}
+
 // Utility: processar items em paralelo com limite de concorrência
 async function mapLimit<T, R>(
   items: T[],
@@ -105,16 +216,18 @@ async function mapLimit<T, R>(
 
 // Função para buscar pedidos de um dia específico com paginação interna
 async function fetchOrdersForDay(
-  accessToken: string,
+  supabase: any,
+  tokenState: TokenState,
   sellerId: string,
   dayStart: Date,
   dayEnd: Date
-): Promise<MLOrder[]> {
+): Promise<{ orders: MLOrder[]; tokenState: TokenState }> {
   const ML_MAX_OFFSET = 10000;
   const limit = 50;
   let offset = 0;
   let dayOrders: MLOrder[] = [];
   let totalOrders = 0;
+  let currentTokenState = tokenState;
 
   const dateFromStr = dayStart.toISOString();
   const dateToStr = dayEnd.toISOString();
@@ -122,9 +235,12 @@ async function fetchOrdersForDay(
   do {
     const ordersUrl = `${ML_API_URL}/orders/search?seller=${sellerId}&order.date_created.from=${dateFromStr}&order.date_created.to=${dateToStr}&sort=date_desc&offset=${offset}&limit=${limit}`;
     
-    const ordersResponse = await fetch(ordersUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const { response: ordersResponse, tokenState: updatedState } = await mlFetch(
+      ordersUrl,
+      supabase,
+      currentTokenState
+    );
+    currentTokenState = updatedState;
 
     if (!ordersResponse.ok) {
       const errorText = await ordersResponse.text();
@@ -151,50 +267,58 @@ async function fetchOrdersForDay(
     }
   } while (offset < totalOrders);
 
-  return dayOrders;
+  return { orders: dayOrders, tokenState: currentTokenState };
 }
 
 // Função para buscar detalhes do envio
 async function fetchShippingDetails(
-  accessToken: string,
+  supabase: any,
+  tokenState: TokenState,
   shippingId: number
-): Promise<ShippingDetails | null> {
+): Promise<{ data: ShippingDetails | null; tokenState: TokenState }> {
   try {
     const shippingUrl = `${ML_API_URL}/shipments/${shippingId}`;
-    const shippingResponse = await fetch(shippingUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const { response: shippingResponse, tokenState: updatedState } = await mlFetch(
+      shippingUrl,
+      supabase,
+      tokenState
+    );
 
     if (!shippingResponse.ok) {
-      return null;
+      return { data: null, tokenState: updatedState };
     }
 
-    return await shippingResponse.json();
+    const data = await shippingResponse.json();
+    return { data, tokenState: updatedState };
   } catch (err) {
     console.error(`[ML Sync] ❌ Erro ao buscar shipping ${shippingId}:`, err);
-    return null;
+    return { data: null, tokenState };
   }
 }
 
 // Função para buscar billing_info de um pedido (taxas detalhadas)
 async function fetchBillingInfo(
-  accessToken: string,
+  supabase: any,
+  tokenState: TokenState,
   orderId: number
-): Promise<BillingInfo | null> {
+): Promise<{ data: BillingInfo | null; tokenState: TokenState }> {
   try {
     const billingUrl = `${ML_API_URL}/orders/${orderId}/billing_info`;
-    const response = await fetch(billingUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const { response, tokenState: updatedState } = await mlFetch(
+      billingUrl,
+      supabase,
+      tokenState
+    );
 
     if (!response.ok) {
-      return null;
+      return { data: null, tokenState: updatedState };
     }
 
-    return await response.json();
+    const data = await response.json();
+    return { data, tokenState: updatedState };
   } catch (err) {
     console.error(`[ML Sync] ❌ Erro ao buscar billing_info ${orderId}:`, err);
-    return null;
+    return { data: null, tokenState };
   }
 }
 
@@ -241,6 +365,59 @@ function extractFeesFromOrder(order: MLOrder): { taxas: number; tarifas: number 
     taxas: totalMarketplaceFee,
     tarifas: Math.round(totalFinancingFee * 100) / 100, // arredondar para 2 casas
   };
+}
+
+// Função para renovar token
+async function refreshToken(supabase: any, tokenData: TokenState): Promise<{ access_token: string; refresh_token: string; expires_at: string } | { error: string }> {
+  const ML_APP_ID = Deno.env.get("ML_APP_ID");
+  const ML_CLIENT_SECRET = Deno.env.get("ML_CLIENT_SECRET");
+
+  if (!ML_APP_ID || !ML_CLIENT_SECRET) {
+    return { error: "Credenciais não configuradas" };
+  }
+
+  try {
+    const response = await fetch("https://api.mercadolibre.com/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: ML_APP_ID,
+        client_secret: ML_CLIENT_SECRET,
+        refresh_token: tokenData.refresh_token,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[ML Sync] ❌ Erro ao renovar token: ${response.status} - ${errorText}`);
+      return { error: errorText };
+    }
+
+    const data = await response.json();
+    const expiresAt = new Date(Date.now() + (data.expires_in * 1000)).toISOString();
+
+    // IMPORTANTE: Salvar o novo refresh_token (o ML pode devolver um novo)
+    await supabase
+      .from("integracao_tokens")
+      .update({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token, // NOVO refresh_token
+        expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", tokenData.id);
+
+    console.log(`[ML Sync] ✓ Token renovado com sucesso, expira em: ${expiresAt}`);
+
+    return { 
+      access_token: data.access_token, 
+      refresh_token: data.refresh_token,
+      expires_at: expiresAt,
+    };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Erro desconhecido" };
+  }
 }
 
 Deno.serve(async (req) => {
@@ -292,23 +469,32 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Verificar se token expirou e renovar se necessário
-    let accessToken = tokenData.access_token;
-    if (tokenData.expires_at && new Date(tokenData.expires_at) < new Date()) {
-      console.log("[ML Sync] Token expirado, renovando...");
-      const refreshResult = await refreshToken(supabase, tokenData);
-      if (refreshResult.error) {
-        return new Response(
-          JSON.stringify({ error: "Erro ao renovar token", details: refreshResult.error }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      accessToken = refreshResult.access_token;
+    // Criar estado inicial do token
+    let tokenState: TokenState = {
+      id: tokenData.id,
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      expires_at: tokenData.expires_at,
+      user_id_provider: tokenData.user_id_provider,
+    };
+
+    // Obter token válido antes de iniciar (com buffer de 5 min)
+    const initialTokenResult = await getValidAccessToken(supabase, tokenState);
+    
+    if ('error' in initialTokenResult) {
+      return new Response(
+        JSON.stringify({ error: "Erro ao obter token válido", details: initialTokenResult.error }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
+    
+    tokenState = initialTokenResult.tokenState;
 
     console.log(`[ML Sync] ========================================`);
     console.log(`[ML Sync] Iniciando sync OTIMIZADO para empresa ${empresa_id}`);
     console.log(`[ML Sync] Período: últimos ${days_back} dias`);
+    console.log(`[ML Sync] ✓ Token renovação automática com buffer 5min`);
+    console.log(`[ML Sync] ✓ Retry automático em 401`);
     console.log(`[ML Sync] ✓ Billing_info para taxas reais`);
     console.log(`[ML Sync] ✓ Shipping em batches com concorrência 5`);
     console.log(`[ML Sync] ========================================`);
@@ -334,12 +520,14 @@ Deno.serve(async (req) => {
       const dayLabel = dayStart.toISOString().split('T')[0];
       console.log(`[ML Sync] 📅 Buscando pedidos de ${dayLabel}...`);
       
-      const ordersOfDay = await fetchOrdersForDay(
-        accessToken, 
-        tokenData.user_id_provider, 
+      const { orders: ordersOfDay, tokenState: updatedState } = await fetchOrdersForDay(
+        supabase,
+        tokenState, 
+        tokenState.user_id_provider, 
         dayStart, 
         dayEnd
       );
+      tokenState = updatedState;
       
       allOrders = allOrders.concat(ordersOfDay);
       console.log(`[ML Sync] ✓ ${dayLabel}: ${ordersOfDay.length} pedidos`);
@@ -388,8 +576,14 @@ Deno.serve(async (req) => {
       
       const batch = ordersWithShipping.slice(i, i + BATCH_SIZE);
       
+      // Processar batch com concorrência
       const results = await mapLimit(batch, CONCURRENCY, async (order) => {
-        const shippingData = await fetchShippingDetails(accessToken, order.shipping.id);
+        const { data: shippingData, tokenState: updatedState } = await fetchShippingDetails(
+          supabase,
+          tokenState,
+          order.shipping.id
+        );
+        tokenState = updatedState;
         return { orderId: order.id, data: shippingData };
       });
       
@@ -422,7 +616,12 @@ Deno.serve(async (req) => {
       const batch = allOrders.slice(i, i + BATCH_SIZE);
       
       const results = await mapLimit(batch, CONCURRENCY, async (order) => {
-        const billingData = await fetchBillingInfo(accessToken, order.id);
+        const { data: billingData, tokenState: updatedState } = await fetchBillingInfo(
+          supabase,
+          tokenState,
+          order.id
+        );
+        tokenState = updatedState;
         return { orderId: order.id, data: billingData };
       });
       
@@ -617,6 +816,7 @@ Deno.serve(async (req) => {
         billing_falharam,
         timeout_reached,
         otimizado: true,
+        token_auto_refresh: true,
       },
     });
 
@@ -674,46 +874,3 @@ Deno.serve(async (req) => {
     );
   }
 });
-
-// Função para renovar token
-async function refreshToken(supabase: any, tokenData: any) {
-  const ML_APP_ID = Deno.env.get("ML_APP_ID");
-  const ML_CLIENT_SECRET = Deno.env.get("ML_CLIENT_SECRET");
-
-  if (!ML_APP_ID || !ML_CLIENT_SECRET) {
-    return { error: "Credenciais não configuradas" };
-  }
-
-  try {
-    const response = await fetch("https://api.mercadolibre.com/oauth/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        client_id: ML_APP_ID,
-        client_secret: ML_CLIENT_SECRET,
-        refresh_token: tokenData.refresh_token,
-      }),
-    });
-
-    if (!response.ok) {
-      return { error: await response.text() };
-    }
-
-    const data = await response.json();
-    const expiresAt = new Date(Date.now() + (data.expires_in * 1000)).toISOString();
-
-    await supabase
-      .from("integracao_tokens")
-      .update({
-        access_token: data.access_token,
-        refresh_token: data.refresh_token,
-        expires_at: expiresAt,
-      })
-      .eq("id", tokenData.id);
-
-    return { access_token: data.access_token };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "Erro desconhecido" };
-  }
-}
