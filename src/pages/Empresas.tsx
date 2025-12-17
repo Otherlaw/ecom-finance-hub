@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import { format } from "date-fns";
 import { MainLayout } from "@/components/MainLayout";
 import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
@@ -41,14 +43,24 @@ import {
 } from "@/components/ui/alert-dialog";
 import { EmpresaFormModal } from "@/components/empresas/EmpresaFormModal";
 import { useEmpresas } from "@/hooks/useEmpresas";
+import { useIntegracoes } from "@/hooks/useIntegracoes";
 import {
   REGIME_TRIBUTARIO_CONFIG,
   canUseICMSCredit,
   RegimeTributario,
 } from "@/lib/empresas-data";
 
+const MARKETPLACES_SUPORTADOS = [
+  { provider: "mercado_livre", name: "Mercado Livre", color: "hsl(48, 96%, 53%)" },
+  { provider: "shopee", name: "Shopee", color: "hsl(16, 100%, 50%)" },
+  { provider: "shein", name: "Shein", color: "hsl(0, 0%, 15%)" },
+  { provider: "tiktok", name: "TikTok Shop", color: "hsl(0, 0%, 0%)" },
+];
+
 export default function Empresas() {
+  const navigate = useNavigate();
   const { empresas, isLoading, deleteEmpresa } = useEmpresas();
+  const { tokens, isLoading: loadingIntegracoes } = useIntegracoes({});
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [editingEmpresa, setEditingEmpresa] = useState<any | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -236,41 +248,93 @@ export default function Empresas() {
 
       {/* Marketplaces Conectados */}
       <div className="mt-6">
-        <ModuleCard title="Marketplaces Conectados" description="Integrações ativas" icon={Store}>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {[
-              { name: "Mercado Livre", color: "hsl(48, 96%, 53%)", connected: true },
-              { name: "Shopee", color: "hsl(16, 100%, 50%)", connected: true },
-              { name: "Shein", color: "hsl(0, 0%, 15%)", connected: true },
-              { name: "TikTok Shop", color: "hsl(0, 0%, 0%)", connected: false },
-            ].map((mp) => (
-              <div
-                key={mp.name}
-                className={`p-4 rounded-xl border ${
-                  mp.connected ? "bg-card border-border" : "bg-secondary/30 border-dashed"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: mp.color + "20" }}>
-                    <Store className="h-5 w-5" style={{ color: mp.color }} />
+        <ModuleCard title="Marketplaces Conectados" description="Integrações por empresa" icon={Store}>
+          {loadingIntegracoes ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : !empresas || empresas.length === 0 ? (
+            <p className="text-muted-foreground text-center py-8">
+              Cadastre uma empresa para visualizar integrações
+            </p>
+          ) : (
+            <div className="space-y-6">
+              {empresas.map((empresa) => {
+                const integracoesEmpresa = tokens?.filter(t => t.empresa_id === empresa.id) || [];
+                
+                return (
+                  <div key={empresa.id} className="space-y-3">
+                    <h4 className="font-medium text-sm flex items-center gap-2">
+                      <Building2 className="h-4 w-4" />
+                      {empresa.nome_fantasia || empresa.razao_social}
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                      {MARKETPLACES_SUPORTADOS.map((mp) => {
+                        const token = integracoesEmpresa.find(t => t.provider === mp.provider);
+                        const isExpired = token?.expires_at && new Date(token.expires_at) <= new Date();
+                        const isConnected = token && !isExpired;
+                        
+                        return (
+                          <div
+                            key={mp.provider}
+                            className={`p-4 rounded-xl border ${
+                              isConnected 
+                                ? "bg-card border-success/30" 
+                                : isExpired 
+                                  ? "bg-amber-50/50 border-amber-300 dark:bg-amber-950/20"
+                                  : "bg-secondary/30 border-dashed"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <div 
+                                className="w-10 h-10 rounded-lg flex items-center justify-center" 
+                                style={{ backgroundColor: mp.color + "20" }}
+                              >
+                                <Store className="h-5 w-5" style={{ color: mp.color }} />
+                              </div>
+                              {isConnected ? (
+                                <Badge className="bg-success/10 text-success border-success/20">
+                                  Conectado
+                                </Badge>
+                              ) : isExpired ? (
+                                <Badge className="bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/50 dark:text-amber-400">
+                                  Expirado
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline">Não conectado</Badge>
+                              )}
+                            </div>
+                            <h4 className="font-medium">{mp.name}</h4>
+                            {isConnected && token?.expires_at ? (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Expira: {format(new Date(token.expires_at), "dd/MM/yyyy HH:mm")}
+                              </p>
+                            ) : isExpired ? (
+                              <Button 
+                                variant="link" 
+                                className="p-0 h-auto text-sm text-amber-600"
+                                onClick={() => navigate("/integracoes")}
+                              >
+                                Reconectar
+                              </Button>
+                            ) : (
+                              <Button 
+                                variant="link" 
+                                className="p-0 h-auto text-sm text-primary"
+                                onClick={() => navigate("/integracoes")}
+                              >
+                                Conectar agora
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  {mp.connected ? (
-                    <Badge className="bg-success/10 text-success border-success/20">Conectado</Badge>
-                  ) : (
-                    <Badge variant="outline">Não conectado</Badge>
-                  )}
-                </div>
-                <h4 className="font-medium">{mp.name}</h4>
-                {mp.connected ? (
-                  <p className="text-sm text-muted-foreground mt-1">Sincronizado</p>
-                ) : (
-                  <Button variant="link" className="p-0 h-auto text-sm text-primary">
-                    Conectar agora
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </ModuleCard>
       </div>
 
