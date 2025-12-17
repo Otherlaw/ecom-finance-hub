@@ -231,6 +231,7 @@ export function VendasTable({ vendas, aliquotaImposto = 6, onConciliar, onAbrirM
             <TableRow>
               <TableHead className="w-[80px]">Canal</TableHead>
               <TableHead className="w-[100px]">Conta</TableHead>
+              <TableHead className="w-[90px]">Nº Pedido</TableHead>
               <TableHead
                 className="w-[80px] cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("data_venda")}
@@ -304,6 +305,9 @@ export function VendasTable({ vendas, aliquotaImposto = 6, onConciliar, onAbrirM
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground truncate max-w-[100px]">
                     {v.conta_nome || "-"}
+                  </TableCell>
+                  <TableCell className="text-xs font-mono text-muted-foreground">
+                    {v.pedido_id || v.referencia_externa || "-"}
                   </TableCell>
                   <TableCell className="text-xs">
                     <div>
