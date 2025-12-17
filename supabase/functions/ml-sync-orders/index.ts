@@ -7,6 +7,9 @@ const corsHeaders = {
 
 const ML_API_URL = "https://api.mercadolibre.com";
 
+// Taxa média de parcelamento do ML (5-7% para parcelados)
+const FINANCING_FEE_RATE = 0.05;
+
 // Mapear logistic_type para tipo_envio amigável
 const logisticTypeMap: Record<string, string> = {
   "fulfillment": "full",
@@ -64,20 +67,29 @@ interface ShippingDetails {
   mode?: string;
 }
 
-interface PaymentFeeDetail {
-  type: string;
-  amount: number;
-  fee_payer: string;
-}
+// Utility: processar items em paralelo com limite de concorrência
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let currentIndex = 0;
 
-interface PaymentDetails {
-  id: number;
-  fee_details?: PaymentFeeDetail[];
-  marketplace_fee?: number;
-  financing_fee?: number;
-  shipping_cost?: number;
-  total_paid_amount?: number;
-  transaction_amount?: number;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (currentIndex < items.length) {
+      const index = currentIndex++;
+      try {
+        results[index] = await fn(items[index]);
+      } catch (err) {
+        console.error(`[mapLimit] Erro no item ${index}:`, err);
+        results[index] = null as R;
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
 }
 
 // Função para buscar pedidos de um dia específico com paginação interna
@@ -131,29 +143,6 @@ async function fetchOrdersForDay(
   return dayOrders;
 }
 
-// Função para buscar detalhes do pagamento
-async function fetchPaymentDetails(
-  accessToken: string,
-  paymentId: number
-): Promise<PaymentDetails | null> {
-  try {
-    const paymentUrl = `${ML_API_URL}/payments/${paymentId}`;
-    const paymentResponse = await fetch(paymentUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    if (!paymentResponse.ok) {
-      console.warn(`[ML Sync] ⚠ Falha ao buscar payment ${paymentId}: ${paymentResponse.status}`);
-      return null;
-    }
-
-    return await paymentResponse.json();
-  } catch (err) {
-    console.error(`[ML Sync] ❌ Erro ao buscar payment ${paymentId}:`, err);
-    return null;
-  }
-}
-
 // Função para buscar detalhes do envio
 async function fetchShippingDetails(
   accessToken: string,
@@ -166,7 +155,6 @@ async function fetchShippingDetails(
     });
 
     if (!shippingResponse.ok) {
-      console.warn(`[ML Sync] ⚠ Falha ao buscar shipping ${shippingId}: ${shippingResponse.status}`);
       return null;
     }
 
@@ -177,24 +165,47 @@ async function fetchShippingDetails(
   }
 }
 
+// Extrair taxas diretamente do pedido (SEM chamar API de payments)
+function extractFeesFromOrder(order: MLOrder): { taxas: number; tarifas: number } {
+  let totalMarketplaceFee = 0;
+  let totalFinancingFee = 0;
+
+  for (const payment of order.payments || []) {
+    // marketplace_fee já vem no pedido (comissão ML)
+    totalMarketplaceFee += payment.marketplace_fee || 0;
+    
+    // Estimar taxa de parcelamento baseado em installments
+    if (payment.installments && payment.installments > 1) {
+      // Taxa média de ~5% para parcelamento acima de 1x
+      totalFinancingFee += (payment.transaction_amount || 0) * FINANCING_FEE_RATE;
+    }
+  }
+
+  return {
+    taxas: totalMarketplaceFee,
+    tarifas: Math.round(totalFinancingFee * 100) / 100, // arredondar para 2 casas
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   const startTime = Date.now();
+  const TIMEOUT_MS = 50000; // 50 segundos (deixa margem de 10s antes do timeout do Supabase)
+  
   let registros_processados = 0;
   let registros_criados = 0;
   let registros_atualizados = 0;
   let registros_erro = 0;
   let itens_mapeados_automaticamente = 0;
   let shipping_extraidos = 0;
-  let payments_enriquecidos = 0;
-  let payments_falharam = 0;
   let shipping_falharam = 0;
+  let timeout_reached = false;
 
   try {
-    const { empresa_id, days_back = 7 } = await req.json();
+    const { empresa_id, days_back = 3 } = await req.json(); // Default reduzido para 3 dias
 
     if (!empresa_id) {
       return new Response(
@@ -238,14 +249,22 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[ML Sync] ========================================`);
-    console.log(`[ML Sync] Iniciando sync para empresa ${empresa_id}`);
-    console.log(`[ML Sync] Período: últimos ${days_back} dias (busca segmentada por dia)`);
+    console.log(`[ML Sync] Iniciando sync OTIMIZADO para empresa ${empresa_id}`);
+    console.log(`[ML Sync] Período: últimos ${days_back} dias`);
+    console.log(`[ML Sync] ✓ Fees extraídos do pedido (sem chamar /payments)`);
+    console.log(`[ML Sync] ✓ Shipping em batches com concorrência 5`);
     console.log(`[ML Sync] ========================================`);
 
     // ========== BUSCA SEGMENTADA POR DIA ==========
     let allOrders: MLOrder[] = [];
     
     for (let dayOffset = 0; dayOffset < days_back; dayOffset++) {
+      // Verificar timeout
+      if (Date.now() - startTime > TIMEOUT_MS * 0.5) {
+        console.warn(`[ML Sync] ⚠ Aproximando do timeout, parando busca de pedidos`);
+        break;
+      }
+      
       const dayStart = new Date();
       dayStart.setDate(dayStart.getDate() - dayOffset);
       dayStart.setHours(0, 0, 0, 0);
@@ -268,7 +287,7 @@ Deno.serve(async (req) => {
       
       // Pausa entre dias
       if (dayOffset < days_back - 1) {
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
 
@@ -291,113 +310,82 @@ Deno.serve(async (req) => {
 
     console.log(`[ML Sync] ${mapeamentoMap.size} mapeamentos de produtos ativos`);
 
-    // Processar cada pedido
+    // ========== BUSCAR SHIPPING EM LOTE COM CONCORRÊNCIA CONTROLADA ==========
+    const ordersWithShipping = allOrders.filter(o => o.shipping?.id);
+    console.log(`[ML Sync] Buscando shipping para ${ordersWithShipping.length} pedidos (concorrência: 5)...`);
+    
+    const shippingMap = new Map<number, ShippingDetails | null>();
+    
+    // Processar shipping em batches de 50 com concorrência 5
+    const BATCH_SIZE = 50;
+    const CONCURRENCY = 5;
+    
+    for (let i = 0; i < ordersWithShipping.length; i += BATCH_SIZE) {
+      // Verificar timeout
+      if (Date.now() - startTime > TIMEOUT_MS * 0.8) {
+        console.warn(`[ML Sync] ⚠ Aproximando do timeout, parando busca de shipping`);
+        timeout_reached = true;
+        break;
+      }
+      
+      const batch = ordersWithShipping.slice(i, i + BATCH_SIZE);
+      
+      const results = await mapLimit(batch, CONCURRENCY, async (order) => {
+        const shippingData = await fetchShippingDetails(accessToken, order.shipping.id);
+        return { orderId: order.id, shippingId: order.shipping.id, data: shippingData };
+      });
+      
+      for (const result of results) {
+        if (result?.data) {
+          shippingMap.set(result.orderId, result.data);
+          shipping_extraidos++;
+        } else {
+          shipping_falharam++;
+        }
+      }
+      
+      console.log(`[ML Sync] 📦 Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batch.length} shipping processados`);
+    }
+
+    console.log(`[ML Sync] Shipping completo: ${shipping_extraidos}✓ ${shipping_falharam}✗`);
+
+    // ========== PROCESSAR E SALVAR PEDIDOS ==========
     for (const order of allOrders) {
+      // Verificar timeout
+      if (Date.now() - startTime > TIMEOUT_MS) {
+        console.warn(`[ML Sync] ⚠ Timeout atingido, retornando resultados parciais`);
+        timeout_reached = true;
+        break;
+      }
+      
       registros_processados++;
 
       try {
         const valorBruto = order.total_amount;
         const buyerNickname = order.buyer?.nickname || null;
         
-        // ========== BUSCAR DETALHES DOS PAYMENTS ==========
-        let totalMarketplaceFee = 0;  // Comissão ML (taxas)
-        let totalFinancingFee = 0;     // Taxa de parcelamento (tarifas)
-        let totalShippingCost = 0;     // Custo de envio via payment
-        let paymentEnriched = false;
+        // ========== EXTRAIR TAXAS DO PEDIDO (SEM API /payments) ==========
+        const { taxas, tarifas } = extractFeesFromOrder(order);
 
-        for (const payment of order.payments || []) {
-          if (payment.id) {
-            const paymentDetails = await fetchPaymentDetails(accessToken, payment.id);
-            
-            if (paymentDetails) {
-              paymentEnriched = true;
-              
-              // Extrair fees do breakdown detalhado
-              if (paymentDetails.fee_details && paymentDetails.fee_details.length > 0) {
-                for (const fee of paymentDetails.fee_details) {
-                  // Fees do tipo mercadopago_fee, ml_fee, application_fee são taxas/comissões
-                  if (fee.type === 'mercadopago_fee' || fee.type === 'ml_fee' || fee.type === 'application_fee') {
-                    totalMarketplaceFee += fee.amount || 0;
-                  }
-                  // financing_fee é taxa de parcelamento
-                  if (fee.type === 'financing_fee') {
-                    totalFinancingFee += fee.amount || 0;
-                  }
-                  // shipping_fee
-                  if (fee.type === 'shipping_fee') {
-                    totalShippingCost += fee.amount || 0;
-                  }
-                }
-              } else {
-                // Fallback para campos diretos se fee_details não existir
-                totalMarketplaceFee += paymentDetails.marketplace_fee || payment.marketplace_fee || 0;
-                totalFinancingFee += paymentDetails.financing_fee || 0;
-              }
-              
-              // Custo de envio do payment
-              if (paymentDetails.shipping_cost) {
-                totalShippingCost += paymentDetails.shipping_cost;
-              }
-              
-              // Pequena pausa para não sobrecarregar API
-              await new Promise(resolve => setTimeout(resolve, 50));
-            } else {
-              // Fallback: usar dados do order.payments
-              totalMarketplaceFee += payment.marketplace_fee || 0;
-              payments_falharam++;
-            }
-          }
-        }
-        
-        if (paymentEnriched) {
-          payments_enriquecidos++;
-        }
-
-        // ========== BUSCAR DETALHES DO SHIPPING ==========
+        // ========== PROCESSAR SHIPPING ==========
         let tipoEnvio: string | null = null;
         let freteComprador = 0;
         let freteVendedor = 0;
 
-        if (order.shipping?.id) {
-          const shippingData = await fetchShippingDetails(accessToken, order.shipping.id);
-          
-          if (shippingData) {
-            const rawLogisticType = shippingData.logistic_type || "";
-            tipoEnvio = logisticTypeMap[rawLogisticType] || rawLogisticType || null;
-            freteComprador = shippingData.receiver_cost || 0;
-            freteVendedor = shippingData.sender_cost || shippingData.base_cost || order.shipping.cost || 0;
-            
-            if (tipoEnvio) {
-              shipping_extraidos++;
-            }
-            
-            console.log(`[ML Sync] 📦 Pedido ${order.id}: tipo_envio=${tipoEnvio}, frete_vendedor=${freteVendedor}, frete_comprador=${freteComprador}`);
-          } else {
-            shipping_falharam++;
-            // Fallback para dados do order
-            freteVendedor = order.shipping.cost || 0;
-          }
-          
-          // Pequena pausa
-          await new Promise(resolve => setTimeout(resolve, 50));
-        } else {
-          console.warn(`[ML Sync] ⚠ Pedido ${order.id} sem shipping.id`);
+        const shippingData = shippingMap.get(order.id);
+        if (shippingData) {
+          const rawLogisticType = shippingData.logistic_type || "";
+          tipoEnvio = logisticTypeMap[rawLogisticType] || rawLogisticType || null;
+          freteComprador = shippingData.receiver_cost || 0;
+          freteVendedor = shippingData.sender_cost || shippingData.base_cost || order.shipping?.cost || 0;
+        } else if (order.shipping?.cost) {
+          // Fallback para dados do order
+          freteVendedor = order.shipping.cost;
         }
 
         // ========== CALCULAR VALORES FINAIS ==========
-        // taxas = Comissão ML (marketplace_fee)
-        // tarifas = Taxa de parcelamento (financing_fee)
-        // outros_descontos = outros descontos eventuais (não usado por enquanto)
-        // frete_vendedor = custo de envio pago pelo vendedor
-        
-        const taxas = totalMarketplaceFee;
-        const tarifas = totalFinancingFee;
-        const outrosDescontos = 0; // Reservado para outros descontos
-        
-        // Valor líquido = bruto - taxas - tarifas - frete vendedor
+        const outrosDescontos = 0;
         const valorLiquido = valorBruto - taxas - tarifas - freteVendedor;
-
-        console.log(`[ML Sync] 💰 Pedido ${order.id}: bruto=${valorBruto}, taxas=${taxas}, tarifas=${tarifas}, frete_vendedor=${freteVendedor}, líquido=${valorLiquido}`);
 
         // Usar date_closed (com horário) como data da transação
         const dataTransacao = order.date_closed || order.date_created;
@@ -433,7 +421,7 @@ Deno.serve(async (req) => {
         };
 
         if (existing) {
-          // Atualizar registro existente com TODOS os campos
+          // Atualizar registro existente
           const { error: updateError } = await supabase
             .from("marketplace_transactions")
             .update(transactionData)
@@ -504,13 +492,13 @@ Deno.serve(async (req) => {
 
     const duracao_ms = Date.now() - startTime;
 
-    // Registrar log com métricas de enriquecimento
+    // Registrar log
     await supabase.from("integracao_logs").insert({
       empresa_id,
       provider: "mercado_livre",
       tipo: "sync",
-      status: registros_erro > 0 ? "partial" : "success",
-      mensagem: `Sync ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados | Payments: ${payments_enriquecidos}✓ ${payments_falharam}✗ | Shipping: ${shipping_extraidos}✓ ${shipping_falharam}✗`,
+      status: timeout_reached ? "partial" : (registros_erro > 0 ? "partial" : "success"),
+      mensagem: `Sync ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados | Shipping: ${shipping_extraidos}✓ ${shipping_falharam}✗${timeout_reached ? ' | ⚠ Timeout parcial' : ''}`,
       registros_processados,
       registros_criados,
       registros_atualizados,
@@ -522,15 +510,14 @@ Deno.serve(async (req) => {
         itens_mapeados_automaticamente,
         shipping_extraidos,
         shipping_falharam,
-        payments_enriquecidos,
-        payments_falharam,
+        timeout_reached,
+        otimizado: true,
       },
     });
 
     console.log(`[ML Sync] ========================================`);
-    console.log(`[ML Sync] ✅ Concluído em ${duracao_ms}ms`);
+    console.log(`[ML Sync] ✅ Concluído em ${duracao_ms}ms ${timeout_reached ? '(parcial)' : ''}`);
     console.log(`[ML Sync]    ${registros_criados} novos, ${registros_atualizados} atualizados`);
-    console.log(`[ML Sync]    Payments: ${payments_enriquecidos}✓ ${payments_falharam}✗`);
     console.log(`[ML Sync]    Shipping: ${shipping_extraidos}✓ ${shipping_falharam}✗`);
     console.log(`[ML Sync]    ${itens_mapeados_automaticamente} itens mapeados`);
     console.log(`[ML Sync] ========================================`);
@@ -538,6 +525,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
+        partial: timeout_reached,
         registros_processados,
         registros_criados,
         registros_atualizados,
@@ -545,8 +533,6 @@ Deno.serve(async (req) => {
         itens_mapeados_automaticamente,
         shipping_extraidos,
         shipping_falharam,
-        payments_enriquecidos,
-        payments_falharam,
         duracao_ms,
         days_back,
       }),
