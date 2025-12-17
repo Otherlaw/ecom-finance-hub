@@ -58,6 +58,7 @@ export default function Vendas() {
     aliquotaImposto,
     isLoading,
     conciliarTransacao,
+    dataUpdatedAt,
   } = useVendas(filtros);
 
   const { resumo: resumoPendentes, reprocessarMapeamentos } = useVendasPendentes({ empresaId });
@@ -182,8 +183,13 @@ export default function Vendas() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Vendas</h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground flex items-center gap-2">
                 Análise operacional de vendas e validação de dados da API
+                <span className="text-xs">•</span>
+                <span className="text-xs">
+                  Atualiza automaticamente
+                  {dataUpdatedAt && ` • Última: ${format(new Date(dataUpdatedAt), "HH:mm:ss")}`}
+                </span>
               </p>
             </div>
           </div>

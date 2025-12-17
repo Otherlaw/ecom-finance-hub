@@ -259,7 +259,7 @@ export function useVendas(filtros: VendasFiltros) {
 
   const aliquotaImposto = configFiscal?.aliquota_imposto_vendas || 6; // Default 6% (Simples)
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["vendas", filtros, empresaAtiva?.id],
     queryFn: async () => {
       if (!empresaAtiva?.id) return [];
@@ -447,6 +447,8 @@ export function useVendas(filtros: VendasFiltros) {
       return vendas;
     },
     enabled: !!empresaAtiva?.id,
+    refetchInterval: 60 * 1000, // Auto-refresh a cada 1 minuto
+    refetchIntervalInBackground: false, // Só atualiza quando a aba está ativa
   });
 
   const vendasFiltradas = useMemo(
@@ -508,5 +510,6 @@ export function useVendas(filtros: VendasFiltros) {
     error,
     refetch,
     conciliarTransacao,
+    dataUpdatedAt, // Timestamp da última atualização
   };
 }
