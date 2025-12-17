@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Send, Trash2, Sparkles, Loader2, Info, Bot, GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,8 @@ import { useTutorial } from '@/hooks/useTutorial';
 import { TutorialSelector } from './TutorialSelector';
 import { TutorialStepComponent } from './TutorialStep';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
+import { useEmpresas } from '@/hooks/useEmpresas';
 
 interface AssistantChatPanelProps {
   isOpen: boolean;
@@ -58,6 +60,8 @@ export function AssistantChatPanel({ isOpen, onClose, initialContext, initialMes
   const location = useLocation();
   const { messages, isLoading, error, sendMessage, clearMessages, setContext } = useAssistantChat();
   const { viewMode, setViewMode, showTutorialSelector, backToChat } = useAssistantChatContext();
+  const { profile } = useAuth();
+  const { empresas } = useEmpresas();
   const { 
     tutorialAtivo, 
     currentStep, 
@@ -69,6 +73,23 @@ export function AssistantChatPanel({ isOpen, onClose, initialContext, initialMes
     sairTutorial,
     isTutorialMode,
   } = useTutorial();
+
+  // Determinar empresa padrão automaticamente
+  const empresaPadrao = useMemo(() => {
+    if (initialContext?.empresa) return initialContext.empresa;
+    
+    const empresaId = profile?.empresa_padrao_id;
+    const empresa = empresas?.find(e => e.id === empresaId) || empresas?.[0];
+    
+    if (empresa) {
+      return {
+        id: empresa.id,
+        nome: empresa.nome_fantasia || empresa.razao_social,
+        regime: empresa.regime_tributario,
+      };
+    }
+    return undefined;
+  }, [profile, empresas, initialContext]);
   
   const [inputValue, setInputValue] = useState('');
   const [charCount, setCharCount] = useState(0);
@@ -80,12 +101,22 @@ export function AssistantChatPanel({ isOpen, onClose, initialContext, initialMes
   // Obter sugestões baseadas na rota atual
   const currentSuggestions = SUGGESTIONS_BY_ROUTE[location.pathname] || DEFAULT_SUGGESTIONS;
 
-  // Set initial context when panel opens
+  // Set initial context when panel opens (com empresa padrão automática)
   useEffect(() => {
-    if (isOpen && initialContext) {
-      setContext(initialContext);
+    if (isOpen) {
+      const contextToSet: Partial<ChatContext> = {
+        ...initialContext,
+        telaAtual: location.pathname,
+      };
+      
+      // Injetar empresa padrão se não vier no initialContext
+      if (empresaPadrao && !initialContext?.empresa) {
+        contextToSet.empresa = empresaPadrao;
+      }
+      
+      setContext(contextToSet);
     }
-  }, [isOpen, initialContext, setContext]);
+  }, [isOpen, initialContext, empresaPadrao, location.pathname, setContext]);
 
   // Send initial message if provided
   useEffect(() => {
@@ -190,8 +221,8 @@ export function AssistantChatPanel({ isOpen, onClose, initialContext, initialMes
               >
                 <GraduationCap className="w-4 h-4 text-zinc-400 group-hover:text-indigo-400" />
               </button>
-              <span className="px-2 py-1 text-xs font-medium bg-zinc-800/60 text-zinc-300 rounded-2xl">
-                GPT-4
+              <span className="px-2 py-1 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-2xl">
+                GPT-5
               </span>
               <span className="px-2 py-1 text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded-2xl">
                 Pro

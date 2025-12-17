@@ -708,7 +708,7 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model: "openai/gpt-5",
           messages: [
             { role: "system", content: systemMessageWithContext + "\n\nATENÇÃO: Nenhuma empresa selecionada. Peça ao usuário para selecionar uma empresa antes de consultar dados." },
             ...messages,
@@ -731,7 +731,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "openai/gpt-5",
         messages: [
           { role: "system", content: systemMessageWithContext },
           ...messages,
@@ -791,7 +791,7 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model: "openai/gpt-5",
           messages: [
             { role: "system", content: systemMessageWithContext },
             ...messages,
@@ -824,7 +824,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "openai/gpt-5",
         messages: [
           { role: "system", content: systemMessageWithContext },
           ...messages,
