@@ -1,6 +1,20 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
+// Helper para obter data no fuso horário do Brasil (UTC-3)
+function getDataBrasil(): string {
+  const now = new Date();
+  // Ajusta para UTC-3 (Brasília)
+  const brasilDate = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  return brasilDate.toISOString().split('T')[0];
+}
+
+function getDataBrasilFormatada(): string {
+  const hoje = getDataBrasil();
+  const [ano, mes, dia] = hoje.split('-');
+  return `${dia}/${mes}/${ano}`;
+}
+
 // Allowed origins for CORS - restrict to known domains
 const ALLOWED_ORIGINS = [
   'https://bwfbozwyqujlykgaueez.lovable.app',
@@ -159,6 +173,21 @@ const AVAILABLE_TOOLS = [
           data_fim: { type: "string", description: "Data fim (YYYY-MM-DD)" },
         },
         required: ["status"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "buscar_top_produtos",
+      description: "Busca os produtos mais vendidos. Use para perguntas sobre produto mais vendido, ranking de vendas, bestsellers, top produtos.",
+      parameters: {
+        type: "object",
+        properties: {
+          periodo: { type: "string", enum: ["hoje", "7dias", "30dias", "mes_atual"], description: "Período de análise" },
+          limite: { type: "integer", description: "Quantidade de produtos no ranking (default 10)" },
+        },
+        required: ["periodo"],
       },
     },
   },
@@ -441,30 +470,40 @@ async function executarFerramenta(
       }
       
       case "buscar_kpis": {
-        const hoje = new Date();
+        const hoje = getDataBrasil();
         let dataInicio: string;
-        let dataFim: string = hoje.toISOString().split('T')[0];
+        let dataFim: string = hoje;
         
         switch (args.periodo) {
           case "hoje":
-            dataInicio = dataFim;
+            dataInicio = hoje;
             break;
-          case "7dias":
-            dataInicio = new Date(hoje.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          case "7dias": {
+            const d = new Date(hoje);
+            d.setDate(d.getDate() - 7);
+            dataInicio = d.toISOString().split('T')[0];
             break;
-          case "30dias":
-            dataInicio = new Date(hoje.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          }
+          case "30dias": {
+            const d = new Date(hoje);
+            d.setDate(d.getDate() - 30);
+            dataInicio = d.toISOString().split('T')[0];
             break;
+          }
           case "mes_atual":
-            dataInicio = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-01`;
+            dataInicio = `${hoje.slice(0, 7)}-01`;
             break;
-          case "mes_anterior":
-            const mesAnterior = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
-            dataInicio = mesAnterior.toISOString().split('T')[0];
-            dataFim = new Date(hoje.getFullYear(), hoje.getMonth(), 0).toISOString().split('T')[0];
+          case "mes_anterior": {
+            const [ano, mes] = hoje.split('-').map(Number);
+            const mesAnt = mes === 1 ? 12 : mes - 1;
+            const anoAnt = mes === 1 ? ano - 1 : ano;
+            dataInicio = `${anoAnt}-${String(mesAnt).padStart(2, '0')}-01`;
+            const ultimoDia = new Date(ano, mes - 1, 0).getDate();
+            dataFim = `${anoAnt}-${String(mesAnt).padStart(2, '0')}-${ultimoDia}`;
             break;
+          }
           default:
-            dataInicio = dataFim;
+            dataInicio = hoje;
         }
         
         // Buscar vendas
@@ -580,6 +619,109 @@ async function executarFerramenta(
         });
       }
       
+      case "buscar_top_produtos": {
+        const hoje = getDataBrasil();
+        let dataInicio: string;
+        let dataFim: string = hoje;
+        
+        switch (args.periodo) {
+          case "hoje":
+            dataInicio = hoje;
+            break;
+          case "7dias": {
+            const d = new Date(hoje);
+            d.setDate(d.getDate() - 7);
+            dataInicio = d.toISOString().split('T')[0];
+            break;
+          }
+          case "30dias": {
+            const d = new Date(hoje);
+            d.setDate(d.getDate() - 30);
+            dataInicio = d.toISOString().split('T')[0];
+            break;
+          }
+          case "mes_atual":
+            dataInicio = `${hoje.slice(0, 7)}-01`;
+            break;
+          default:
+            dataInicio = hoje;
+        }
+        
+        // Buscar itens de transações de marketplace
+        const { data: items, error } = await supabase
+          .from("marketplace_transaction_items")
+          .select(`
+            quantidade,
+            preco_total,
+            sku_marketplace,
+            descricao_item,
+            produto_id,
+            produto:produtos(id, nome, sku, custo_medio, preco_venda, imagem_url),
+            transaction:marketplace_transactions!inner(id, canal, data_transacao, tipo_lancamento, empresa_id)
+          `)
+          .eq("transaction.empresa_id", empresaId)
+          .eq("transaction.tipo_lancamento", "credito")
+          .gte("transaction.data_transacao", dataInicio)
+          .lte("transaction.data_transacao", dataFim);
+        
+        if (error) {
+          console.error("[buscar_top_produtos] Error:", error);
+          throw error;
+        }
+        
+        // Agregar por produto
+        const porProduto = new Map<string, any>();
+        
+        items?.forEach((item: any) => {
+          const produtoId = item.produto?.id || item.produto_id || 'sem-produto';
+          const nome = item.produto?.nome || item.descricao_item || item.sku_marketplace || 'Produto não identificado';
+          
+          if (!porProduto.has(produtoId)) {
+            porProduto.set(produtoId, {
+              id: produtoId,
+              nome: nome,
+              sku: item.produto?.sku || item.sku_marketplace || '-',
+              custo_medio: Number(item.produto?.custo_medio || 0),
+              preco_venda: Number(item.produto?.preco_venda || 0),
+              qtd_vendida: 0,
+              faturamento: 0,
+              por_canal: {} as Record<string, number>,
+            });
+          }
+          
+          const p = porProduto.get(produtoId)!;
+          const qtd = Number(item.quantidade || 0);
+          const valor = Number(item.preco_total || 0);
+          
+          p.qtd_vendida += qtd;
+          p.faturamento += valor;
+          
+          const canal = item.transaction?.canal || 'outros';
+          p.por_canal[canal] = (p.por_canal[canal] || 0) + qtd;
+        });
+        
+        // Ordenar e limitar
+        const limite = args.limite || 10;
+        const ranking = [...porProduto.values()]
+          .map(p => ({
+            ...p,
+            lucro_estimado: p.faturamento - (p.custo_medio * p.qtd_vendida),
+            margem: p.faturamento > 0 
+              ? ((p.faturamento - (p.custo_medio * p.qtd_vendida)) / p.faturamento * 100) 
+              : 0,
+          }))
+          .sort((a, b) => b.faturamento - a.faturamento)
+          .slice(0, limite);
+        
+        return JSON.stringify({
+          periodo: args.periodo,
+          datas: { inicio: dataInicio, fim: dataFim },
+          total_produtos_distintos: porProduto.size,
+          ranking_produtos: ranking,
+          produto_mais_vendido: ranking[0] || null,
+        });
+      }
+      
       default:
         return JSON.stringify({ error: "Ferramenta não encontrada" });
     }
@@ -611,6 +753,7 @@ Você tem acesso a ferramentas para consultar dados reais do sistema:
 - buscar_kpis: métricas consolidadas
 - buscar_pendencias: transações não categorizadas
 - buscar_compras: pedidos de compra, NFs
+- buscar_top_produtos: ranking de produtos mais vendidos
 
 ## COMO USAR AS FERRAMENTAS:
 - Para "quanto vendi hoje": use buscar_faturamento com data de hoje
@@ -618,6 +761,8 @@ Você tem acesso a ferramentas para consultar dados reais do sistema:
 - Para "qual meu lucro do mês": use buscar_dre_resumo
 - Para "como está meu estoque": use buscar_estoque
 - Para "tenho pendências": use buscar_pendencias
+- Para "produto mais vendido" ou "top produtos": use buscar_top_produtos
+- Para "ranking de vendas": use buscar_top_produtos
 
 ## TELAS DISPONÍVEIS (use [LINK:/rota] para sugerir navegação):
 - [LINK:/dashboard] - Dashboard
@@ -695,7 +840,7 @@ serve(async (req) => {
     if (context?.telaAtual) {
       contextMessage += `- Tela atual: ${context.telaAtual}\n`;
     }
-    contextMessage += `- Data atual: ${new Date().toLocaleDateString('pt-BR')}\n`;
+    contextMessage += `- Data atual: ${getDataBrasilFormatada()}\n`;
 
     const systemMessageWithContext = SYSTEM_PROMPT + contextMessage;
 
