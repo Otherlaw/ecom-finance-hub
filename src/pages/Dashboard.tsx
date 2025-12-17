@@ -116,29 +116,42 @@ export default function Dashboard() {
 
   const isLoading = isDRELoading || isFluxoLoading || isMktLoading || isCPLoading || isCRLoading;
 
-  // KPIs calculados
+  // KPIs calculados - usando transações do período selecionado
   const kpis = useMemo(() => {
-    const receitaBruta = dreData?.receitaBruta || 0;
-    const lucroBruto = dreData?.lucroBruto || 0;
-    const lucroLiquido = dreData?.lucroLiquido || 0;
-    const totalDespesas = dreData?.totalDespesas || 0;
+    // Calcular receita bruta diretamente das transações de marketplace (respeita período)
+    const vendasCredito = marketplaceTransacoes.filter(t => t.tipo_lancamento === 'credito');
+    const receitaBruta = vendasCredito.reduce((sum, t) => sum + (t.valor_bruto || t.valor_liquido || 0), 0);
+    const receitaLiquida = vendasCredito.reduce((sum, t) => sum + (t.valor_liquido || 0), 0);
+    const totalTarifas = vendasCredito.reduce((sum, t) => sum + (t.tarifas || 0) + (t.taxas || 0) + (t.outros_descontos || 0), 0);
+    const totalAds = vendasCredito.reduce((sum, t) => sum + (t.custo_ads || 0), 0);
+    
+    // CMV estimado (baseado em dados se disponíveis)
     const custos = dreData?.custos?.valor || 0;
+    const lucroBruto = receitaLiquida - custos;
+    
+    // Despesas do DRE (já considera período mensal)
+    const totalDespesas = dreData?.totalDespesas || 0;
+    const lucroLiquido = lucroBruto - totalDespesas;
 
-    const margemBruta = stats?.margemBruta || 0;
-    const margemLiquida = stats?.margemLiquida || 0;
-    const custosPercentual = stats?.custosPercentual || 0;
-    const despesasPercentual = stats?.despesasPercentual || 0;
+    // Margens calculadas
+    const margemBruta = receitaBruta > 0 ? (lucroBruto / receitaBruta) * 100 : 0;
+    const margemLiquida = receitaBruta > 0 ? (lucroLiquido / receitaBruta) * 100 : 0;
+    const custosPercentual = receitaBruta > 0 ? (custos / receitaBruta) * 100 : 0;
+    const despesasPercentual = receitaBruta > 0 ? (totalDespesas / receitaBruta) * 100 : 0;
 
-    // Pedidos do marketplace
-    const pedidosUnicos = new Set(marketplaceTransacoes.filter(t => t.pedido_id).map(t => t.pedido_id)).size;
+    // Pedidos únicos
+    const pedidosUnicos = new Set(vendasCredito.filter(t => t.pedido_id).map(t => t.pedido_id)).size;
     const ticketMedio = pedidosUnicos > 0 ? receitaBruta / pedidosUnicos : 0;
 
     return {
       receitaBruta,
+      receitaLiquida,
       lucroBruto,
       lucroLiquido,
       totalDespesas,
       custos,
+      totalTarifas,
+      totalAds,
       margemBruta,
       margemLiquida,
       custosPercentual,
@@ -146,7 +159,7 @@ export default function Dashboard() {
       pedidos: pedidosUnicos,
       ticketMedio,
     };
-  }, [dreData, stats, marketplaceTransacoes]);
+  }, [dreData, marketplaceTransacoes]);
 
   // Dados para gráficos
   const cashFlowData = useMemo(() => {
@@ -188,7 +201,7 @@ export default function Dashboard() {
     }));
   }, [agregado]);
 
-  // Query para Top 10 produtos mais vendidos
+  // Query para Top 10 produtos mais vendidos (incluindo custo_ads)
   const { data: topProdutosRaw = [], isLoading: isTopProdutosLoading } = useQuery({
     queryKey: ["top-produtos-vendidos", periodoInicio, periodoFim],
     queryFn: async () => {
@@ -204,14 +217,14 @@ export default function Dashboard() {
             id,
             canal,
             data_transacao,
-            tipo_lancamento
+            tipo_lancamento,
+            custo_ads
           ),
           produto:produtos(
             id,
             nome,
             sku,
             custo_medio,
-            preco_venda,
             imagem_url
           )
         `)
@@ -228,18 +241,19 @@ export default function Dashboard() {
     enabled: !!periodoInicio && !!periodoFim,
   });
 
-  // Processar dados para Top 10 produtos
+  // Processar dados para Top 10 produtos com preço médio e ads
   const topProdutosProcessados = useMemo(() => {
     const porProduto = new Map<string, {
       id: string;
       nome: string;
       sku: string;
       custoUnitario: number;
-      precoVenda: number;
       imagemUrl: string | null;
       qtdTotal: number;
       totalFaturado: number;
+      totalAds: number;
       porCanal: Record<string, number>;
+      transactionIds: Set<string>;
     }>();
 
     topProdutosRaw.forEach((item: any) => {
@@ -248,6 +262,8 @@ export default function Dashboard() {
       const canal = item.transaction?.canal || "Outros";
       const quantidade = Number(item.quantidade) || 0;
       const precoTotal = Number(item.preco_total) || 0;
+      const transactionId = item.transaction?.id;
+      const custoAds = Number(item.transaction?.custo_ads) || 0;
 
       if (!porProduto.has(produtoId)) {
         porProduto.set(produtoId, {
@@ -255,11 +271,12 @@ export default function Dashboard() {
           nome: produto?.nome || item.descricao_item || item.sku_marketplace || "Produto não mapeado",
           sku: produto?.sku || item.sku_marketplace || "-",
           custoUnitario: Number(produto?.custo_medio) || 0,
-          precoVenda: Number(produto?.preco_venda) || 0,
           imagemUrl: produto?.imagem_url || null,
           qtdTotal: 0,
           totalFaturado: 0,
+          totalAds: 0,
           porCanal: {},
+          transactionIds: new Set(),
         });
       }
 
@@ -267,16 +284,31 @@ export default function Dashboard() {
       produtoAgregado.qtdTotal += quantidade;
       produtoAgregado.totalFaturado += precoTotal;
       produtoAgregado.porCanal[canal] = (produtoAgregado.porCanal[canal] || 0) + quantidade;
+      
+      // Somar ads apenas uma vez por transação
+      if (transactionId && !produtoAgregado.transactionIds.has(transactionId)) {
+        produtoAgregado.transactionIds.add(transactionId);
+        produtoAgregado.totalAds += custoAds;
+      }
     });
 
     const faturamentoTotal = [...porProduto.values()].reduce((sum, p) => sum + p.totalFaturado, 0);
 
     return [...porProduto.values()]
       .map(p => ({
-        ...p,
-        lucro: p.totalFaturado - (p.custoUnitario * p.qtdTotal),
+        id: p.id,
+        nome: p.nome,
+        sku: p.sku,
+        custoUnitario: p.custoUnitario,
+        imagemUrl: p.imagemUrl,
+        qtdTotal: p.qtdTotal,
+        totalFaturado: p.totalFaturado,
+        totalAds: p.totalAds,
+        porCanal: p.porCanal,
+        precoMedio: p.qtdTotal > 0 ? p.totalFaturado / p.qtdTotal : 0,
+        lucro: p.totalFaturado - (p.custoUnitario * p.qtdTotal) - p.totalAds,
         margem: p.totalFaturado > 0 
-          ? ((p.totalFaturado - (p.custoUnitario * p.qtdTotal)) / p.totalFaturado * 100)
+          ? ((p.totalFaturado - (p.custoUnitario * p.qtdTotal) - p.totalAds) / p.totalFaturado * 100)
           : 0,
         representatividade: faturamentoTotal > 0 
           ? (p.totalFaturado / faturamentoTotal * 100)
@@ -595,18 +627,17 @@ export default function Dashboard() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-[300px]">Produto</TableHead>
-                        <TableHead className="text-right">Preço</TableHead>
-                        <TableHead className="text-right">Custo Unit.</TableHead>
-                        <TableHead className="text-right">Qtd. Vendida</TableHead>
-                        <TableHead className="text-right">Total Faturado</TableHead>
-                        <TableHead className="text-right">Repres.</TableHead>
+                        <TableHead className="min-w-[280px]">Produto</TableHead>
+                        <TableHead className="text-right">Preço Médio</TableHead>
+                        <TableHead className="text-center min-w-[180px]">Qtd. Vendida</TableHead>
+                        <TableHead className="text-right">Ads</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
                         <TableHead className="text-right">Lucro</TableHead>
                         <TableHead className="text-right">Margem</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {topProdutosProcessados.map((produto, index) => (
+                      {topProdutosProcessados.map((produto) => (
                         <TableRow key={produto.id}>
                           {/* Coluna Produto */}
                           <TableCell>
@@ -622,55 +653,57 @@ export default function Dashboard() {
                                   <ImageIcon className="h-5 w-5 text-muted-foreground" />
                                 )}
                               </div>
-                              <div className="min-w-0">
-                                <p className="font-medium truncate max-w-[200px]" title={produto.nome}>
-                                  {produto.nome}
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium text-sm leading-tight" title={produto.nome}>
+                                  {produto.nome.length > 45 ? produto.nome.substring(0, 45) + "..." : produto.nome}
                                 </p>
                                 <p className="text-xs text-muted-foreground">{produto.sku}</p>
                               </div>
                             </div>
                           </TableCell>
                           
-                          {/* Preço */}
+                          {/* Preço Médio */}
                           <TableCell className="text-right">
-                            {formatCurrency(produto.precoVenda)}
+                            {formatCurrency(produto.precoMedio)}
                           </TableCell>
                           
-                          {/* Custo Unitário */}
-                          <TableCell className="text-right">
-                            {formatCurrency(produto.custoUnitario)}
+                          {/* Qtd Vendida com canais visíveis */}
+                          <TableCell>
+                            <div className="flex flex-col items-center gap-1">
+                              <span className="font-semibold text-lg">{formatNumber(produto.qtdTotal)}</span>
+                              <div className="flex flex-wrap justify-center gap-1">
+                                {Object.entries(produto.porCanal).map(([canal, qtd]) => {
+                                  const canalAbrev = canal === "Mercado Livre" ? "ML" : 
+                                                     canal === "Shopee" ? "SH" :
+                                                     canal === "Shein" ? "SN" :
+                                                     canal === "TikTok" ? "TT" : canal.substring(0, 3);
+                                  return (
+                                    <Badge 
+                                      key={canal} 
+                                      variant="outline" 
+                                      className="text-[10px] px-1.5 py-0 h-5 font-normal"
+                                      title={canal}
+                                    >
+                                      {canalAbrev}: {qtd}
+                                    </Badge>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </TableCell>
                           
-                          {/* Qtd Vendida com Tooltip por Canal */}
+                          {/* Ads */}
                           <TableCell className="text-right">
-                            <TooltipProvider>
-                              <TooltipUI>
-                                <TooltipTrigger className="flex items-center justify-end gap-1 cursor-help">
-                                  <span className="text-muted-foreground">⊙</span>
-                                  <span>{formatNumber(produto.qtdTotal)}</span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <div className="text-xs space-y-1">
-                                    <p className="font-semibold mb-1">Por Canal:</p>
-                                    {Object.entries(produto.porCanal).map(([canal, qtd]) => (
-                                      <p key={canal}>
-                                        {canal}: {formatNumber(qtd as number)}
-                                      </p>
-                                    ))}
-                                  </div>
-                                </TooltipContent>
-                              </TooltipUI>
-                            </TooltipProvider>
+                            {produto.totalAds > 0 ? (
+                              <span className="text-warning">{formatCurrency(produto.totalAds)}</span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
                           </TableCell>
                           
                           {/* Total Faturado */}
                           <TableCell className="text-right font-medium">
                             {formatCurrency(produto.totalFaturado)}
-                          </TableCell>
-                          
-                          {/* Representatividade */}
-                          <TableCell className="text-right text-muted-foreground">
-                            {produto.representatividade.toFixed(1)}%
                           </TableCell>
                           
                           {/* Lucro */}

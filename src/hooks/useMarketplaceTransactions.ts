@@ -57,6 +57,11 @@ export interface MarketplaceTransaction {
   hash_duplicidade: string | null;
   criado_em: string;
   atualizado_em: string;
+  // Campos adicionais de vendas
+  tipo_envio: string | null;
+  frete_comprador: number | null;
+  frete_vendedor: number | null;
+  custo_ads: number | null;
   categoria?: {
     id: string;
     nome: string;
