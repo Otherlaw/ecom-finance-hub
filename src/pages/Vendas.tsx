@@ -14,8 +14,9 @@ import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw } from "lucide-react";
+import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Vendas() {
   // Estados do filtro de período
@@ -113,6 +114,34 @@ export default function Vendas() {
     await reprocessarMapeamentos.mutateAsync(empresaId);
   };
 
+  // Estado e handler para reprocessar vendas incompletas (taxas/frete zerados)
+  const [reprocessando, setReprocessando] = useState(false);
+  
+  const handleReprocessarIncompletas = async () => {
+    if (!empresaId) {
+      toast.error("Nenhuma empresa selecionada");
+      return;
+    }
+    
+    setReprocessando(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("ml-sync-orders", {
+        body: { empresa_id: empresaId, days_back: 7 },
+      });
+      
+      if (error) throw error;
+      
+      toast.success(
+        `Sincronização concluída: ${data.registros_criados} novos, ${data.registros_atualizados} atualizados${data.partial ? " (parcial)" : ""}`
+      );
+    } catch (err) {
+      console.error("Erro ao reprocessar:", err);
+      toast.error("Erro ao reprocessar vendas");
+    } finally {
+      setReprocessando(false);
+    }
+  };
+
   const handleAbrirMapeamentoLinha = (venda: any) => {
     setSkuParaMapear(venda.sku_marketplace || venda.sku_interno || null);
     setShowMappingModal(true);
@@ -159,22 +188,39 @@ export default function Vendas() {
             </div>
           </div>
 
-          {/* Botão de reprocessar mapeamentos */}
-          {empresaId && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleReprocessarMapeamentos}
-              disabled={reprocessarMapeamentos.isPending}
-            >
-              {reprocessarMapeamentos.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Reprocessar Mapeamentos
-            </Button>
-          )}
+          {/* Botões de ação */}
+          <div className="flex items-center gap-2">
+            {empresaId && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReprocessarIncompletas}
+                  disabled={reprocessando}
+                >
+                  {reprocessando ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                  )}
+                  Ressincronizar ML
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReprocessarMapeamentos}
+                  disabled={reprocessarMapeamentos.isPending}
+                >
+                  {reprocessarMapeamentos.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Reprocessar Mapeamentos
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Alerta de SKUs pendentes */}
