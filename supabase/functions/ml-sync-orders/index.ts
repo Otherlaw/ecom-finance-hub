@@ -70,15 +70,11 @@ interface ShippingDetails {
   mode?: string;
 }
 
-interface BillingDetail {
-  code: string;
-  amount: number;
-}
-
-interface BillingInfo {
-  billing_info?: {
-    details?: BillingDetail[];
-  };
+// Estrutura para taxas extraídas da API de Conciliações
+interface OrderFees {
+  taxas: number;      // CV - Custo de Venda (comissão ML)
+  tarifas: number;    // Taxa de parcelamento/financiamento
+  freteVendedor: number; // CXE - Custo de Envio Vendedor
 }
 
 interface TokenState {
@@ -296,57 +292,122 @@ async function fetchShippingDetails(
   }
 }
 
-// Função para buscar billing_info de um pedido (taxas detalhadas)
-async function fetchBillingInfo(
+/**
+ * Buscar taxas detalhadas da API de Conciliações do ML
+ * Endpoint: /billing/integration/details/v2/MERCADO_LIBRE
+ * Retorna: CV (comissão), CXE (frete vendedor), taxas de parcelamento, etc
+ */
+async function fetchBillingDetailsFromConciliation(
   supabase: any,
   tokenState: TokenState,
-  orderId: number
-): Promise<{ data: BillingInfo | null; tokenState: TokenState }> {
-  try {
-    const billingUrl = `${ML_API_URL}/orders/${orderId}/billing_info`;
-    const { response, tokenState: updatedState } = await mlFetch(
-      billingUrl,
-      supabase,
-      tokenState
-    );
-
-    if (!response.ok) {
-      return { data: null, tokenState: updatedState };
+  dateFrom: Date,
+  dateTo: Date
+): Promise<{ feesMap: Map<string, OrderFees>; tokenState: TokenState }> {
+  const feesMap = new Map<string, OrderFees>();
+  let currentTokenState = tokenState;
+  
+  // Formatar datas para a API (YYYY-MM-DD)
+  const fromStr = dateFrom.toISOString().split('T')[0];
+  const toStr = dateTo.toISOString().split('T')[0];
+  
+  const limit = 1000;
+  let offset = 0;
+  let hasMore = true;
+  
+  console.log(`[ML Sync] 💰 Buscando API Conciliações: ${fromStr} a ${toStr}`);
+  
+  while (hasMore) {
+    try {
+      const url = `${ML_API_URL}/billing/integration/details/v2/MERCADO_LIBRE?from_date=${fromStr}&to_date=${toStr}&sort_by=DATE&order_by=ASC&limit=${limit}&offset=${offset}`;
+      
+      const { response, tokenState: updatedState } = await mlFetch(url, supabase, currentTokenState);
+      currentTokenState = updatedState;
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[ML Sync] ❌ Erro API Conciliações: ${response.status} - ${errorText}`);
+        break;
+      }
+      
+      const data = await response.json();
+      const results = data.results || [];
+      
+      console.log(`[ML Sync] 💰 Conciliações batch: ${results.length} registros (offset ${offset})`);
+      
+      // Processar cada registro de conciliação
+      for (const item of results) {
+        // source_id pode ser order_id ou payment_id dependendo do tipo
+        const sourceId = String(item.source_id || item.order_id || '');
+        if (!sourceId) continue;
+        
+        // Obter ou criar entrada no mapa
+        if (!feesMap.has(sourceId)) {
+          feesMap.set(sourceId, { taxas: 0, tarifas: 0, freteVendedor: 0 });
+        }
+        const fees = feesMap.get(sourceId)!;
+        
+        const detailType = item.detail_type || item.fee_type || '';
+        const amount = Math.abs(item.total || item.amount || 0);
+        
+        // Mapear tipos de taxa do ML para nossos campos
+        // CV = Custo de Venda (comissão ML)
+        // CXE = Custo de Envio por conta do vendedor
+        // ML_FEE, SALE_FEE = comissão
+        // FINANCING_FEE, INSTALLMENT_FEE = parcelamento
+        switch (detailType.toUpperCase()) {
+          case 'CV':
+          case 'ML_FEE':
+          case 'SALE_FEE':
+          case 'MARKETPLACE_FEE':
+          case 'FVF': // Fixed Variable Fee (comissão fixa + variável)
+            fees.taxas += amount;
+            break;
+            
+          case 'CXE':
+          case 'SHIPPING_FEE':
+          case 'SHIPPING':
+          case 'ENVIO':
+            fees.freteVendedor += amount;
+            break;
+            
+          case 'FINANCING_FEE':
+          case 'INSTALLMENT_FEE':
+          case 'FINANCING':
+          case 'INTEREST':
+            fees.tarifas += amount;
+            break;
+            
+          // Outros tipos que podem ser comissão
+          case 'APPLICATION_FEE':
+          case 'MERCADOPAGO_FEE':
+            fees.taxas += amount;
+            break;
+        }
+      }
+      
+      // Verificar se há mais páginas
+      const paging = data.paging || {};
+      hasMore = results.length === limit && (offset + limit) < (paging.total || 100000);
+      offset += limit;
+      
+      // Pausa entre requests
+      if (hasMore) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+    } catch (err) {
+      console.error(`[ML Sync] ❌ Erro ao buscar conciliações:`, err);
+      break;
     }
-
-    const data = await response.json();
-    return { data, tokenState: updatedState };
-  } catch (err) {
-    console.error(`[ML Sync] ❌ Erro ao buscar billing_info ${orderId}:`, err);
-    return { data: null, tokenState };
   }
+  
+  console.log(`[ML Sync] 💰 Conciliações: ${feesMap.size} pedidos com taxas mapeadas`);
+  
+  return { feesMap, tokenState: currentTokenState };
 }
 
-// Extrair taxas do billing_info (mais preciso que marketplace_fee do order)
-function extractFeesFromBillingInfo(billingInfo: BillingInfo | null): { taxas: number; tarifas: number } {
-  if (!billingInfo?.billing_info?.details) {
-    return { taxas: 0, tarifas: 0 };
-  }
-
-  let taxas = 0; // Comissão ML (SALE_FEE)
-  let tarifas = 0; // Taxa de parcelamento (FINANCING_FEE)
-
-  for (const detail of billingInfo.billing_info.details) {
-    const code = detail.code?.toUpperCase() || "";
-    const amount = Math.abs(detail.amount || 0);
-
-    if (code.includes("SALE_FEE") || code.includes("COMMISSION") || code.includes("MLF")) {
-      taxas += amount;
-    } else if (code.includes("FINANCING") || code.includes("INSTALLMENT")) {
-      tarifas += amount;
-    }
-  }
-
-  return { taxas, tarifas };
-}
-
-// Fallback: Extrair taxas diretamente do pedido quando billing_info falha
-function extractFeesFromOrder(order: MLOrder): { taxas: number; tarifas: number } {
+// Fallback: Extrair taxas diretamente do pedido quando API de Conciliações falha
+function extractFeesFromOrder(order: MLOrder): OrderFees {
   let totalMarketplaceFee = 0;
   let totalFinancingFee = 0;
 
@@ -364,6 +425,7 @@ function extractFeesFromOrder(order: MLOrder): { taxas: number; tarifas: number 
   return {
     taxas: totalMarketplaceFee,
     tarifas: Math.round(totalFinancingFee * 100) / 100, // arredondar para 2 casas
+    freteVendedor: 0, // Não disponível no order, vem do shipping
   };
 }
 
@@ -436,7 +498,6 @@ Deno.serve(async (req) => {
   let shipping_extraidos = 0;
   let shipping_falharam = 0;
   let billing_extraidos = 0;
-  let billing_falharam = 0;
   let timeout_reached = false;
 
   try {
@@ -495,16 +556,24 @@ Deno.serve(async (req) => {
     console.log(`[ML Sync] Período: últimos ${days_back} dias`);
     console.log(`[ML Sync] ✓ Token renovação automática com buffer 5min`);
     console.log(`[ML Sync] ✓ Retry automático em 401`);
-    console.log(`[ML Sync] ✓ Billing_info para taxas reais`);
+    console.log(`[ML Sync] ✓ API Conciliações para taxas REAIS`);
     console.log(`[ML Sync] ✓ Shipping em batches com concorrência 5`);
     console.log(`[ML Sync] ========================================`);
 
     // ========== BUSCA SEGMENTADA POR DIA ==========
     let allOrders: MLOrder[] = [];
     
+    // Calcular período total para API de Conciliações
+    const dateFrom = new Date();
+    dateFrom.setDate(dateFrom.getDate() - days_back);
+    dateFrom.setHours(0, 0, 0, 0);
+    
+    const dateTo = new Date();
+    dateTo.setHours(23, 59, 59, 999);
+    
     for (let dayOffset = 0; dayOffset < days_back; dayOffset++) {
       // Verificar timeout
-      if (Date.now() - startTime > TIMEOUT_MS * 0.4) {
+      if (Date.now() - startTime > TIMEOUT_MS * 0.3) {
         console.warn(`[ML Sync] ⚠ Aproximando do timeout, parando busca de pedidos`);
         timeout_reached = true;
         break;
@@ -557,13 +626,24 @@ Deno.serve(async (req) => {
 
     console.log(`[ML Sync] ${mapeamentoMap.size} mapeamentos de produtos ativos`);
 
-    // ========== BUSCAR SHIPPING E BILLING EM LOTE COM CONCORRÊNCIA CONTROLADA ==========
+    // ========== BUSCAR TAXAS DA API DE CONCILIAÇÕES ==========
+    console.log(`[ML Sync] 💰 Buscando taxas reais da API de Conciliações...`);
+    
+    const { feesMap, tokenState: tokenAfterBilling } = await fetchBillingDetailsFromConciliation(
+      supabase,
+      tokenState,
+      dateFrom,
+      dateTo
+    );
+    tokenState = tokenAfterBilling;
+    billing_extraidos = feesMap.size;
+
+    // ========== BUSCAR SHIPPING EM LOTE COM CONCORRÊNCIA CONTROLADA ==========
     const BATCH_SIZE = 50;
     const CONCURRENCY = 5;
     
-    // === SHIPPING ===
     const ordersWithShipping = allOrders.filter(o => o.shipping?.id);
-    console.log(`[ML Sync] Buscando shipping para ${ordersWithShipping.length} pedidos...`);
+    console.log(`[ML Sync] 📦 Buscando shipping para ${ordersWithShipping.length} pedidos...`);
     
     const shippingMap = new Map<number, ShippingDetails | null>();
     
@@ -601,44 +681,6 @@ Deno.serve(async (req) => {
 
     console.log(`[ML Sync] Shipping: ${shipping_extraidos}✓ ${shipping_falharam}✗`);
 
-    // === BILLING INFO (para taxas reais) ===
-    console.log(`[ML Sync] Buscando billing_info para ${allOrders.length} pedidos...`);
-    
-    const billingMap = new Map<number, BillingInfo | null>();
-    
-    for (let i = 0; i < allOrders.length; i += BATCH_SIZE) {
-      if (Date.now() - startTime > TIMEOUT_MS * 0.8) {
-        console.warn(`[ML Sync] ⚠ Aproximando do timeout, parando busca de billing_info`);
-        timeout_reached = true;
-        break;
-      }
-      
-      const batch = allOrders.slice(i, i + BATCH_SIZE);
-      
-      const results = await mapLimit(batch, CONCURRENCY, async (order) => {
-        const { data: billingData, tokenState: updatedState } = await fetchBillingInfo(
-          supabase,
-          tokenState,
-          order.id
-        );
-        tokenState = updatedState;
-        return { orderId: order.id, data: billingData };
-      });
-      
-      for (const result of results) {
-        if (result?.data?.billing_info?.details) {
-          billingMap.set(result.orderId, result.data);
-          billing_extraidos++;
-        } else {
-          billing_falharam++;
-        }
-      }
-      
-      console.log(`[ML Sync] 💰 Billing batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batch.length} processados`);
-    }
-
-    console.log(`[ML Sync] Billing: ${billing_extraidos}✓ ${billing_falharam}✗`);
-
     // ========== PROCESSAR E SALVAR PEDIDOS ==========
     for (const order of allOrders) {
       // Verificar timeout
@@ -654,16 +696,18 @@ Deno.serve(async (req) => {
         const valorBruto = order.total_amount;
         const buyerNickname = order.buyer?.nickname || null;
         
-        // ========== EXTRAIR TAXAS - PRIORIZAR BILLING_INFO ==========
-        const billingInfo = billingMap.get(order.id);
+        // ========== EXTRAIR TAXAS - PRIORIZAR API DE CONCILIAÇÕES ==========
+        const orderId = String(order.id);
         let taxas = 0;
         let tarifas = 0;
+        let freteVendedorFromBilling = 0;
         
-        if (billingInfo?.billing_info?.details) {
-          // Usar billing_info (mais preciso)
-          const fees = extractFeesFromBillingInfo(billingInfo);
-          taxas = fees.taxas;
-          tarifas = fees.tarifas;
+        // Tentar obter do mapa de conciliações
+        const billingFees = feesMap.get(orderId);
+        if (billingFees && (billingFees.taxas > 0 || billingFees.tarifas > 0 || billingFees.freteVendedor > 0)) {
+          taxas = billingFees.taxas;
+          tarifas = billingFees.tarifas;
+          freteVendedorFromBilling = billingFees.freteVendedor;
         } else {
           // Fallback: usar marketplace_fee do order + estimar parcelamento
           const fees = extractFeesFromOrder(order);
@@ -674,15 +718,18 @@ Deno.serve(async (req) => {
         // ========== PROCESSAR SHIPPING ==========
         let tipoEnvio: string | null = null;
         let freteComprador = 0;
-        let freteVendedor = 0;
+        let freteVendedor = freteVendedorFromBilling; // Pode vir da API de Conciliações
 
         const shippingData = shippingMap.get(order.id);
         if (shippingData) {
           const rawLogisticType = shippingData.logistic_type || "";
           tipoEnvio = logisticTypeMap[rawLogisticType] || rawLogisticType || null;
           freteComprador = shippingData.receiver_cost || 0;
-          // CORRIGIDO: usar APENAS sender_cost, sem fallback para base_cost
-          freteVendedor = shippingData.sender_cost ?? 0;
+          
+          // Se não veio da API de Conciliações, usar sender_cost do shipping
+          if (freteVendedor === 0) {
+            freteVendedor = shippingData.sender_cost ?? 0;
+          }
         }
 
         // ========== CALCULAR VALORES FINAIS ==========
@@ -800,7 +847,7 @@ Deno.serve(async (req) => {
       provider: "mercado_livre",
       tipo: "sync",
       status: timeout_reached ? "partial" : (registros_erro > 0 ? "partial" : "success"),
-      mensagem: `Sync ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados | Ship: ${shipping_extraidos}✓ | Bill: ${billing_extraidos}✓${timeout_reached ? ' | ⚠ Timeout' : ''}`,
+      mensagem: `Sync ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados | Ship: ${shipping_extraidos}✓ | Billing: ${billing_extraidos} pedidos${timeout_reached ? ' | ⚠ Timeout' : ''}`,
       registros_processados,
       registros_criados,
       registros_atualizados,
@@ -813,10 +860,10 @@ Deno.serve(async (req) => {
         shipping_extraidos,
         shipping_falharam,
         billing_extraidos,
-        billing_falharam,
         timeout_reached,
         otimizado: true,
         token_auto_refresh: true,
+        api_conciliacoes: true,
       },
     });
 
@@ -824,7 +871,7 @@ Deno.serve(async (req) => {
     console.log(`[ML Sync] ✅ Concluído em ${duracao_ms}ms ${timeout_reached ? '(parcial)' : ''}`);
     console.log(`[ML Sync]    ${registros_criados} novos, ${registros_atualizados} atualizados`);
     console.log(`[ML Sync]    Shipping: ${shipping_extraidos}✓ ${shipping_falharam}✗`);
-    console.log(`[ML Sync]    Billing: ${billing_extraidos}✓ ${billing_falharam}✗`);
+    console.log(`[ML Sync]    Billing (Conciliações): ${billing_extraidos} pedidos com taxas`);
     console.log(`[ML Sync]    ${itens_mapeados_automaticamente} itens mapeados`);
     console.log(`[ML Sync] ========================================`);
 
@@ -840,7 +887,6 @@ Deno.serve(async (req) => {
         shipping_extraidos,
         shipping_falharam,
         billing_extraidos,
-        billing_falharam,
         duracao_ms,
         days_back,
       }),
