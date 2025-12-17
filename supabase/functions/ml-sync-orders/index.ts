@@ -501,18 +501,106 @@ Deno.serve(async (req) => {
   let timeout_reached = false;
 
   try {
-    const { empresa_id, days_back = 7 } = await req.json(); // Default para 7 dias
-
-    if (!empresa_id) {
-      return new Response(
-        JSON.stringify({ error: "empresa_id é obrigatório" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const body = await req.json();
+    const { empresa_id, days_back = 7, auto_sync = false } = body;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // ============= MODO AUTO_SYNC: Sincroniza TODAS as empresas com tokens válidos =============
+    if (auto_sync) {
+      console.log(`[ML Sync] ========================================`);
+      console.log(`[ML Sync] 🔄 MODO AUTO_SYNC: Sincronizando todas as empresas...`);
+      console.log(`[ML Sync] ========================================`);
+
+      // Buscar todas as empresas com tokens ML válidos
+      const { data: allTokens, error: tokensError } = await supabase
+        .from("integracao_tokens")
+        .select("empresa_id")
+        .eq("provider", "mercado_livre");
+
+      if (tokensError || !allTokens || allTokens.length === 0) {
+        console.log(`[ML Sync] Nenhuma empresa com token ML encontrada`);
+        return new Response(
+          JSON.stringify({ success: true, message: "Nenhuma empresa com integração ML ativa", empresas_sync: 0 }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const empresaIds = [...new Set(allTokens.map(t => t.empresa_id))];
+      console.log(`[ML Sync] ${empresaIds.length} empresa(s) encontrada(s) com integração ML`);
+
+      const resultados: Array<{ empresa_id: string; success: boolean; criados: number; atualizados: number; error?: string }> = [];
+
+      for (const empId of empresaIds) {
+        try {
+          console.log(`[ML Sync] 📦 Iniciando sync para empresa ${empId}...`);
+          
+          // Fazer chamada recursiva para cada empresa (sem auto_sync para evitar loop infinito)
+          const response = await fetch(`${supabaseUrl}/functions/v1/ml-sync-orders`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify({ empresa_id: empId, days_back: days_back || 1 }),
+          });
+
+          const result = await response.json();
+          resultados.push({
+            empresa_id: empId,
+            success: result.success ?? false,
+            criados: result.registros_criados ?? 0,
+            atualizados: result.registros_atualizados ?? 0,
+            error: result.error,
+          });
+          
+          console.log(`[ML Sync] ✓ Empresa ${empId}: ${result.registros_criados ?? 0} novos, ${result.registros_atualizados ?? 0} atualizados`);
+        } catch (err) {
+          console.error(`[ML Sync] ✗ Erro na empresa ${empId}:`, err);
+          resultados.push({
+            empresa_id: empId,
+            success: false,
+            criados: 0,
+            atualizados: 0,
+            error: err instanceof Error ? err.message : "Erro desconhecido",
+          });
+        }
+      }
+
+      const totalCriados = resultados.reduce((sum, r) => sum + r.criados, 0);
+      const totalAtualizados = resultados.reduce((sum, r) => sum + r.atualizados, 0);
+      const empresasSucesso = resultados.filter(r => r.success).length;
+
+      console.log(`[ML Sync] ========================================`);
+      console.log(`[ML Sync] ✅ AUTO_SYNC concluído: ${empresasSucesso}/${empresaIds.length} empresas`);
+      console.log(`[ML Sync]    Total: ${totalCriados} novos, ${totalAtualizados} atualizados`);
+      console.log(`[ML Sync] ========================================`);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          auto_sync: true,
+          empresas_sync: empresaIds.length,
+          empresas_sucesso: empresasSucesso,
+          total_criados: totalCriados,
+          total_atualizados: totalAtualizados,
+          resultados,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ============= MODO NORMAL: Sincroniza uma empresa específica =============
+    if (!empresa_id) {
+      return new Response(
+        JSON.stringify({ error: "empresa_id é obrigatório" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+    }
+
+    // Reutiliza supabase já criado acima
 
     // Buscar token
     const { data: tokenData, error: tokenError } = await supabase
@@ -896,15 +984,15 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error("[ML Sync] Erro:", error);
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const errorSupabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const errorSupabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const errorSupabase = createClient(errorSupabaseUrl, errorSupabaseKey);
 
     try {
-      const body = await req.clone().json();
-      if (body.empresa_id) {
-        await supabase.from("integracao_logs").insert({
-          empresa_id: body.empresa_id,
+      const errBody = await req.clone().json();
+      if (errBody.empresa_id) {
+        await errorSupabase.from("integracao_logs").insert({
+          empresa_id: errBody.empresa_id,
           provider: "mercado_livre",
           tipo: "sync",
           status: "error",
