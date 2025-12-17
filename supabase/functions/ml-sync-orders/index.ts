@@ -64,6 +64,22 @@ interface ShippingDetails {
   mode?: string;
 }
 
+interface PaymentFeeDetail {
+  type: string;
+  amount: number;
+  fee_payer: string;
+}
+
+interface PaymentDetails {
+  id: number;
+  fee_details?: PaymentFeeDetail[];
+  marketplace_fee?: number;
+  financing_fee?: number;
+  shipping_cost?: number;
+  total_paid_amount?: number;
+  transaction_amount?: number;
+}
+
 // Função para buscar pedidos de um dia específico com paginação interna
 async function fetchOrdersForDay(
   accessToken: string,
@@ -115,6 +131,52 @@ async function fetchOrdersForDay(
   return dayOrders;
 }
 
+// Função para buscar detalhes do pagamento
+async function fetchPaymentDetails(
+  accessToken: string,
+  paymentId: number
+): Promise<PaymentDetails | null> {
+  try {
+    const paymentUrl = `${ML_API_URL}/payments/${paymentId}`;
+    const paymentResponse = await fetch(paymentUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!paymentResponse.ok) {
+      console.warn(`[ML Sync] ⚠ Falha ao buscar payment ${paymentId}: ${paymentResponse.status}`);
+      return null;
+    }
+
+    return await paymentResponse.json();
+  } catch (err) {
+    console.error(`[ML Sync] ❌ Erro ao buscar payment ${paymentId}:`, err);
+    return null;
+  }
+}
+
+// Função para buscar detalhes do envio
+async function fetchShippingDetails(
+  accessToken: string,
+  shippingId: number
+): Promise<ShippingDetails | null> {
+  try {
+    const shippingUrl = `${ML_API_URL}/shipments/${shippingId}`;
+    const shippingResponse = await fetch(shippingUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!shippingResponse.ok) {
+      console.warn(`[ML Sync] ⚠ Falha ao buscar shipping ${shippingId}: ${shippingResponse.status}`);
+      return null;
+    }
+
+    return await shippingResponse.json();
+  } catch (err) {
+    console.error(`[ML Sync] ❌ Erro ao buscar shipping ${shippingId}:`, err);
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -127,6 +189,9 @@ Deno.serve(async (req) => {
   let registros_erro = 0;
   let itens_mapeados_automaticamente = 0;
   let shipping_extraidos = 0;
+  let payments_enriquecidos = 0;
+  let payments_falharam = 0;
+  let shipping_falharam = 0;
 
   try {
     const { empresa_id, days_back = 7 } = await req.json();
@@ -178,7 +243,6 @@ Deno.serve(async (req) => {
     console.log(`[ML Sync] ========================================`);
 
     // ========== BUSCA SEGMENTADA POR DIA ==========
-    // Estratégia: buscar dia a dia para evitar limite de 10.000 offset
     let allOrders: MLOrder[] = [];
     
     for (let dayOffset = 0; dayOffset < days_back; dayOffset++) {
@@ -232,55 +296,108 @@ Deno.serve(async (req) => {
       registros_processados++;
 
       try {
-        // Calcular valores
         const valorBruto = order.total_amount;
-        const taxas = order.payments?.reduce((sum, p) => sum + (p.marketplace_fee || 0), 0) || 0;
-        
-        // Informações adicionais dos pagamentos
-        const paymentMethodId = order.payments?.[0]?.payment_method_id || null;
-        const installments = order.payments?.[0]?.installments || 1;
-        
-        // Tags do pedido (fulfilled, delivered, etc.)
-        const orderTags = order.tags?.join(',') || null;
-        
-        // Buyer info
         const buyerNickname = order.buyer?.nickname || null;
         
+        // ========== BUSCAR DETALHES DOS PAYMENTS ==========
+        let totalMarketplaceFee = 0;  // Comissão ML (taxas)
+        let totalFinancingFee = 0;     // Taxa de parcelamento (tarifas)
+        let totalShippingCost = 0;     // Custo de envio via payment
+        let paymentEnriched = false;
+
+        for (const payment of order.payments || []) {
+          if (payment.id) {
+            const paymentDetails = await fetchPaymentDetails(accessToken, payment.id);
+            
+            if (paymentDetails) {
+              paymentEnriched = true;
+              
+              // Extrair fees do breakdown detalhado
+              if (paymentDetails.fee_details && paymentDetails.fee_details.length > 0) {
+                for (const fee of paymentDetails.fee_details) {
+                  // Fees do tipo mercadopago_fee, ml_fee, application_fee são taxas/comissões
+                  if (fee.type === 'mercadopago_fee' || fee.type === 'ml_fee' || fee.type === 'application_fee') {
+                    totalMarketplaceFee += fee.amount || 0;
+                  }
+                  // financing_fee é taxa de parcelamento
+                  if (fee.type === 'financing_fee') {
+                    totalFinancingFee += fee.amount || 0;
+                  }
+                  // shipping_fee
+                  if (fee.type === 'shipping_fee') {
+                    totalShippingCost += fee.amount || 0;
+                  }
+                }
+              } else {
+                // Fallback para campos diretos se fee_details não existir
+                totalMarketplaceFee += paymentDetails.marketplace_fee || payment.marketplace_fee || 0;
+                totalFinancingFee += paymentDetails.financing_fee || 0;
+              }
+              
+              // Custo de envio do payment
+              if (paymentDetails.shipping_cost) {
+                totalShippingCost += paymentDetails.shipping_cost;
+              }
+              
+              // Pequena pausa para não sobrecarregar API
+              await new Promise(resolve => setTimeout(resolve, 50));
+            } else {
+              // Fallback: usar dados do order.payments
+              totalMarketplaceFee += payment.marketplace_fee || 0;
+              payments_falharam++;
+            }
+          }
+        }
+        
+        if (paymentEnriched) {
+          payments_enriquecidos++;
+        }
+
         // ========== BUSCAR DETALHES DO SHIPPING ==========
         let tipoEnvio: string | null = null;
         let freteComprador = 0;
         let freteVendedor = 0;
-        let shippingStatus: string | null = null;
-        let shippingMode: string | null = null;
 
         if (order.shipping?.id) {
-          try {
-            const shippingUrl = `${ML_API_URL}/shipments/${order.shipping.id}`;
-            const shippingResponse = await fetch(shippingUrl, {
-              headers: { Authorization: `Bearer ${accessToken}` },
-            });
-
-            if (shippingResponse.ok) {
-              const shippingData: ShippingDetails = await shippingResponse.json();
-              
-              const rawLogisticType = shippingData.logistic_type || "";
-              tipoEnvio = logisticTypeMap[rawLogisticType] || rawLogisticType || null;
-              freteComprador = shippingData.receiver_cost || 0;
-              freteVendedor = shippingData.sender_cost || shippingData.base_cost || order.shipping.cost || 0;
-              shippingStatus = shippingData.status || null;
-              shippingMode = shippingData.mode || null;
-              
-              if (tipoEnvio) {
-                shipping_extraidos++;
-              }
+          const shippingData = await fetchShippingDetails(accessToken, order.shipping.id);
+          
+          if (shippingData) {
+            const rawLogisticType = shippingData.logistic_type || "";
+            tipoEnvio = logisticTypeMap[rawLogisticType] || rawLogisticType || null;
+            freteComprador = shippingData.receiver_cost || 0;
+            freteVendedor = shippingData.sender_cost || shippingData.base_cost || order.shipping.cost || 0;
+            
+            if (tipoEnvio) {
+              shipping_extraidos++;
             }
-          } catch (shippingError) {
-            console.error(`[ML Sync] Erro ao buscar shipping ${order.shipping.id}:`, shippingError);
+            
+            console.log(`[ML Sync] 📦 Pedido ${order.id}: tipo_envio=${tipoEnvio}, frete_vendedor=${freteVendedor}, frete_comprador=${freteComprador}`);
+          } else {
+            shipping_falharam++;
+            // Fallback para dados do order
+            freteVendedor = order.shipping.cost || 0;
           }
+          
+          // Pequena pausa
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } else {
+          console.warn(`[ML Sync] ⚠ Pedido ${order.id} sem shipping.id`);
         }
 
-        const frete = freteVendedor;
-        const valorLiquido = valorBruto - taxas - frete;
+        // ========== CALCULAR VALORES FINAIS ==========
+        // taxas = Comissão ML (marketplace_fee)
+        // tarifas = Taxa de parcelamento (financing_fee)
+        // outros_descontos = outros descontos eventuais (não usado por enquanto)
+        // frete_vendedor = custo de envio pago pelo vendedor
+        
+        const taxas = totalMarketplaceFee;
+        const tarifas = totalFinancingFee;
+        const outrosDescontos = 0; // Reservado para outros descontos
+        
+        // Valor líquido = bruto - taxas - tarifas - frete vendedor
+        const valorLiquido = valorBruto - taxas - tarifas - freteVendedor;
+
+        console.log(`[ML Sync] 💰 Pedido ${order.id}: bruto=${valorBruto}, taxas=${taxas}, tarifas=${tarifas}, frete_vendedor=${freteVendedor}, líquido=${valorLiquido}`);
 
         // Usar date_closed (com horário) como data da transação
         const dataTransacao = order.date_closed || order.date_created;
@@ -304,8 +421,8 @@ Deno.serve(async (req) => {
           valor_bruto: valorBruto,
           valor_liquido: valorLiquido,
           taxas: taxas,
-          tarifas: 0,
-          outros_descontos: frete,
+          tarifas: tarifas,
+          outros_descontos: outrosDescontos,
           referencia_externa: String(order.id),
           pedido_id: String(order.id),
           origem_extrato: "api_mercado_livre",
@@ -387,13 +504,13 @@ Deno.serve(async (req) => {
 
     const duracao_ms = Date.now() - startTime;
 
-    // Registrar log
+    // Registrar log com métricas de enriquecimento
     await supabase.from("integracao_logs").insert({
       empresa_id,
       provider: "mercado_livre",
       tipo: "sync",
       status: registros_erro > 0 ? "partial" : "success",
-      mensagem: `Sync ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados, ${shipping_extraidos} com tipo_envio`,
+      mensagem: `Sync ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados | Payments: ${payments_enriquecidos}✓ ${payments_falharam}✗ | Shipping: ${shipping_extraidos}✓ ${shipping_falharam}✗`,
       registros_processados,
       registros_criados,
       registros_atualizados,
@@ -404,13 +521,18 @@ Deno.serve(async (req) => {
         total_orders: allOrders.length,
         itens_mapeados_automaticamente,
         shipping_extraidos,
+        shipping_falharam,
+        payments_enriquecidos,
+        payments_falharam,
       },
     });
 
     console.log(`[ML Sync] ========================================`);
     console.log(`[ML Sync] ✅ Concluído em ${duracao_ms}ms`);
     console.log(`[ML Sync]    ${registros_criados} novos, ${registros_atualizados} atualizados`);
-    console.log(`[ML Sync]    ${shipping_extraidos} com tipo_envio, ${itens_mapeados_automaticamente} itens mapeados`);
+    console.log(`[ML Sync]    Payments: ${payments_enriquecidos}✓ ${payments_falharam}✗`);
+    console.log(`[ML Sync]    Shipping: ${shipping_extraidos}✓ ${shipping_falharam}✗`);
+    console.log(`[ML Sync]    ${itens_mapeados_automaticamente} itens mapeados`);
     console.log(`[ML Sync] ========================================`);
 
     return new Response(
@@ -422,6 +544,9 @@ Deno.serve(async (req) => {
         registros_erro,
         itens_mapeados_automaticamente,
         shipping_extraidos,
+        shipping_falharam,
+        payments_enriquecidos,
+        payments_falharam,
         duracao_ms,
         days_back,
       }),
