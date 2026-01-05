@@ -4,6 +4,7 @@ import { MainLayout } from "@/components/MainLayout";
 import { useVendas, VendasFiltros } from "@/hooks/useVendas";
 import { useVendasPendentes } from "@/hooks/useVendasPendentes";
 import { useEmpresas } from "@/hooks/useEmpresas";
+import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { VendasDashboard } from "@/components/vendas/VendasDashboard";
 import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
 import { VendasFiltrosPanel } from "@/components/vendas/VendasFiltrosPanel";
@@ -14,7 +15,7 @@ import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw } from "lucide-react";
+import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -62,6 +63,23 @@ export default function Vendas() {
   } = useVendas(filtros);
 
   const { resumo: resumoPendentes, reprocessarMapeamentos } = useVendasPendentes({ empresaId });
+
+  // Hook de categorização automática
+  const { reprocessarAntigas, isProcessing: isAutoCategorizando } = useMarketplaceAutoCategorizacao();
+
+  // Handler para categorização automática
+  const handleCategorizarAutomatico = async () => {
+    if (!empresaId) {
+      toast.error("Nenhuma empresa selecionada");
+      return;
+    }
+    
+    try {
+      await reprocessarAntigas.mutateAsync({ empresaId });
+    } catch (error) {
+      console.error("Erro na categorização automática:", error);
+    }
+  };
 
   // Handler para mudança de período
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
@@ -223,6 +241,20 @@ export default function Vendas() {
                     <RefreshCw className="h-4 w-4 mr-2" />
                   )}
                   Reprocessar Mapeamentos
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCategorizarAutomatico}
+                  disabled={isAutoCategorizando || consistencia.totalNaoConciliadas === 0}
+                  className="gap-2 border-primary text-primary hover:bg-primary/10"
+                >
+                  {isAutoCategorizando ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4" />
+                  )}
+                  {isAutoCategorizando ? "Categorizando..." : "Categorizar Automaticamente"}
                 </Button>
               </>
             )}
