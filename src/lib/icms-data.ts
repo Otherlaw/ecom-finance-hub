@@ -54,6 +54,12 @@ export interface NotaFiscalItem {
   valorIPI?: number;
   pis?: number;
   cofins?: number;
+  // Campos adicionais para ST detalhado
+  grupoICMS?: string;           // Nome do grupo (ICMS00, ICMS10, ICMS60, etc.)
+  cstNumero?: string;           // Apenas número CST (ex: "10")
+  isSubstituicaoTributaria?: boolean; // Flag para identificar item ST
+  pMVAST?: number;              // % MVA da ST (quando houver)
+  pICMSST?: number;             // Alíquota ICMS-ST
 }
 
 export interface CreditoICMS {
@@ -265,28 +271,58 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
       const prod = det.querySelector("prod");
       const imposto = det.querySelector("imposto");
       const icms = imposto?.querySelector("ICMS");
-      const icmsGroup = icms?.querySelector("[class^='ICMS']") || icms?.firstElementChild;
+      
+      // Detectar qual grupo ICMS está sendo usado
+      const gruposICMS = ['ICMS00', 'ICMS10', 'ICMS20', 'ICMS30', 'ICMS40', 'ICMS41', 'ICMS50',
+                          'ICMS51', 'ICMS60', 'ICMS70', 'ICMS90', 'ICMSSN101', 
+                          'ICMSSN102', 'ICMSSN201', 'ICMSSN202', 'ICMSSN500', 'ICMSSN900'];
+      let grupoICMS = '';
+      let icmsGroup: Element | null = null;
+
+      for (const grupo of gruposICMS) {
+        const found = icms?.querySelector(grupo);
+        if (found) {
+          grupoICMS = grupo;
+          icmsGroup = found;
+          break;
+        }
+      }
+      
+      // Fallback para primeiro elemento filho se não encontrou grupo específico
+      if (!icmsGroup) {
+        icmsGroup = icms?.firstElementChild || null;
+      }
       
       // Extract IPI data
       const ipi = imposto?.querySelector("IPI");
       const ipiTrib = ipi?.querySelector("IPITrib");
-      const ipiNT = ipi?.querySelector("IPINT");
       
       // IPI values - IPITrib contains taxable IPI, IPINT is non-taxable
       const aliquotaIPI = parseFloat(ipiTrib?.querySelector("pIPI")?.textContent || "0");
       const valorIPI = parseFloat(ipiTrib?.querySelector("vIPI")?.textContent || "0");
       
-      // ICMS ST values
+      // ICMS ST values - IMPORTANTE: vICMSST é o imposto, vBCST é apenas base de cálculo
       const baseCalculoST = parseFloat(icmsGroup?.querySelector("vBCST")?.textContent || "0");
       const icmsST = parseFloat(icmsGroup?.querySelector("vICMSST")?.textContent || "0");
+      const pMVAST = parseFloat(icmsGroup?.querySelector("pMVAST")?.textContent || "0");
+      const pICMSST = parseFloat(icmsGroup?.querySelector("pICMSST")?.textContent || "0");
+      
+      // CST vem do grupo encontrado
+      const cstCompleto = icmsGroup?.querySelector("CST")?.textContent || 
+                          icmsGroup?.querySelector("CSOSN")?.textContent || "";
+      const cstNumero = cstCompleto.slice(-2); // Pega últimos 2 dígitos
+      
+      // Grupos com ST: ICMS10 (tributado + ST), ICMS30 (isento + ST), 
+      // ICMS60 (cobrado anteriormente por ST), ICMS70 (reduzido + ST)
+      const gruposComST = ['ICMS10', 'ICMS30', 'ICMS60', 'ICMS70', 'ICMSSN201', 'ICMSSN202', 'ICMSSN500'];
+      const isSubstituicaoTributaria = gruposComST.includes(grupoICMS) || icmsST > 0;
 
       const item: NotaFiscalItem = {
         codigo: prod?.querySelector("cProd")?.textContent || "",
         descricao: prod?.querySelector("xProd")?.textContent || "",
         ncm: prod?.querySelector("NCM")?.textContent || "",
         cfop: prod?.querySelector("CFOP")?.textContent || "",
-        cstCsosn: icmsGroup?.querySelector("CST")?.textContent || 
-                  icmsGroup?.querySelector("CSOSN")?.textContent || "",
+        cstCsosn: cstCompleto,
         quantidade: parseFloat(prod?.querySelector("qCom")?.textContent || "0"),
         valorUnitario: parseFloat(prod?.querySelector("vUnCom")?.textContent || "0"),
         valorTotal: parseFloat(prod?.querySelector("vProd")?.textContent || "0"),
@@ -299,6 +335,12 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
         valorIPI: valorIPI,
         pis: parseFloat(imposto?.querySelector("PIS")?.querySelector("vPIS")?.textContent || "0"),
         cofins: parseFloat(imposto?.querySelector("COFINS")?.querySelector("vCOFINS")?.textContent || "0"),
+        // Campos adicionais para ST
+        grupoICMS,
+        cstNumero,
+        isSubstituicaoTributaria,
+        pMVAST,
+        pICMSST,
       };
 
       itens.push(item);
