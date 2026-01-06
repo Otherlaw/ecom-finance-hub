@@ -79,23 +79,6 @@ export interface NotaBaixaConfig {
   percentualPersonalizado: number; // valor entre 0 e 100
 }
 
-// Memória de cálculo auditável para custo efetivo
-export interface MemoriaCalculoCusto {
-  vProd_item: number;          // Valor do produto no item
-  vIPI_item: number;           // IPI do item
-  vICMSST_item: number;        // ICMS-ST do item
-  vICMS_item: number;          // ICMS próprio destacado no item
-  freteRateado_item: number;   // Frete rateado para o item
-  despesasRateadas_item: number;
-  descontosRateados_item: number;
-  creditoICMS_item: number;    // Crédito de ICMS (se habilitado)
-  custoTotal_item: number;     // vProd + IPI + ST + frete + desp - desc - creditoICMS
-  quantidade: number;
-  custoUnitario_NF: number;    // custoTotal / quantidade
-  fatorReal: number;           // Multiplicador nota baixa
-  custoUnitario_Real: number;  // custoUnitario_NF * fatorReal
-}
-
 export interface DadosCustoNF {
   nfNumero: string;
   nfChave?: string;
@@ -131,11 +114,6 @@ export interface DadosCustoNF {
   custoEfetivoPorUnidadeReal?: number;
   stReal?: number;
   ipiReal?: number;
-  // NOVA: Memória de cálculo auditável
-  memoriaCalculo?: MemoriaCalculoCusto;
-  // NOVA: Configuração de crédito ICMS
-  aproveitarCreditoICMS?: boolean;
-  creditoICMSCalculado?: number;  // vICMS do item (crédito potencial)
 }
 
 // Configuração de Falso Desconto (Shopee)
@@ -361,152 +339,7 @@ export const formatPercent = (value: number): string => {
   return `${value.toFixed(2)}%`;
 };
 
-// Configuração para cálculo de custo efetivo v2
-export interface ConfigCustoEfetivoNF {
-  aproveitarCreditoICMS: boolean;  // Se true, abate vICMS do custo
-  regimeTributario: RegimeTributario;
-  notaBaixa: NotaBaixaConfig;
-}
-
-// Calcular custo efetivo v2 com memória de cálculo auditável
-export const calcularCustoEfetivoNFv2 = (
-  item: {
-    valorTotal: number;
-    quantidade: number;
-    valorIcms?: number;
-    icmsST?: number;
-    valorIPI?: number;
-    aliquotaIcms?: number;
-    aliquotaIPI?: number;
-  },
-  nfTotais: {
-    valorProdutos: number;  // Soma vProd de todos itens
-    freteNF: number;
-    despesasAcessorias: number;
-    descontos: number;
-  },
-  config: ConfigCustoEfetivoNF
-): { custoEfetivo: DadosCustoNF; memoriaCalculo: MemoriaCalculoCusto } => {
-  // 1. Validação
-  if (item.quantidade <= 0) {
-    throw new Error(`Quantidade inválida: ${item.quantidade}`);
-  }
-  
-  // 2. Valores do item extraídos do XML
-  const vProd_item = item.valorTotal;
-  const vIPI_item = item.valorIPI || 0;
-  const vICMSST_item = item.icmsST || 0;
-  const vICMS_item = item.valorIcms || 0;
-  
-  // 3. Rateio proporcional (baseado em vProd do item / vProd total)
-  const proporcaoItem = nfTotais.valorProdutos > 0 
-    ? vProd_item / nfTotais.valorProdutos 
-    : 1;
-  
-  const freteRateado = nfTotais.freteNF * proporcaoItem;
-  const despesasRateadas = nfTotais.despesasAcessorias * proporcaoItem;
-  const descontosRateados = nfTotais.descontos * proporcaoItem;
-  
-  // 4. Crédito de ICMS (apenas se habilitado e empresa é contribuinte)
-  // IMPORTANTE: ICMS próprio destacado NÃO entra como custo se tiver crédito
-  // ICMS-ST (vICMSST) sempre entra como custo (não gera crédito para o comprador)
-  let creditoICMS = 0;
-  if (config.aproveitarCreditoICMS && vICMS_item > 0) {
-    // Lucro Presumido/Real podem aproveitar crédito de ICMS
-    // Simples Nacional não tem crédito de ICMS (via esse mecanismo)
-    if (config.regimeTributario !== 'simples_nacional') {
-      creditoICMS = vICMS_item;
-    }
-  }
-  
-  // 5. Custo total do item (NF)
-  // Fórmula: vProd + IPI + ST + frete + despesas - descontos - crédito ICMS
-  // IMPORTANTE: vICMS próprio NÃO entra como custo adicional (já está embutido no vProd)
-  // vICMSST sempre entra como custo (imposto da cadeia, não gera crédito)
-  const custoTotal_item = Math.round((
-    vProd_item 
-    + vIPI_item 
-    + vICMSST_item 
-    + freteRateado 
-    + despesasRateadas 
-    - descontosRateados 
-    - creditoICMS
-  ) * 100) / 100;
-  
-  // 6. Custo unitário (NF)
-  const custoUnitario_NF = Math.round((custoTotal_item / item.quantidade) * 100) / 100;
-  
-  // 7. Fator de nota baixa (ex: NF representa 50% → fator = 2)
-  const fatorReal = getFatorNotaBaixa(config.notaBaixa);
-  
-  // 8. Custo unitário REAL (ajustado pela nota baixa)
-  const custoUnitario_Real = Math.round((custoUnitario_NF * fatorReal) * 100) / 100;
-  
-  // Memória de cálculo auditável
-  const memoriaCalculo: MemoriaCalculoCusto = {
-    vProd_item,
-    vIPI_item,
-    vICMSST_item,
-    vICMS_item,
-    freteRateado_item: Math.round(freteRateado * 100) / 100,
-    despesasRateadas_item: Math.round(despesasRateadas * 100) / 100,
-    descontosRateados_item: Math.round(descontosRateados * 100) / 100,
-    creditoICMS_item: creditoICMS,
-    custoTotal_item,
-    quantidade: item.quantidade,
-    custoUnitario_NF,
-    fatorReal,
-    custoUnitario_Real,
-  };
-  
-  // Valores ajustados para o valor real (quando nota baixa)
-  const custoEfetivoReal = custoTotal_item * fatorReal;
-  const custoEfetivoPorUnidadeReal = custoUnitario_Real;
-  const stReal = vICMSST_item * fatorReal;
-  const ipiReal = vIPI_item * fatorReal;
-  
-  const custoEfetivo: DadosCustoNF = {
-    nfNumero: '',
-    fornecedor: '',
-    dataEmissao: '',
-    itemDescricao: '',
-    quantidade: item.quantidade,
-    valorUnitario: vProd_item / item.quantidade,
-    valorTotalItem: vProd_item,
-    freteNF: nfTotais.freteNF,
-    freteRateado: Math.round(freteRateado * 100) / 100,
-    despesasAcessorias: nfTotais.despesasAcessorias,
-    despesasRateadas: Math.round(despesasRateadas * 100) / 100,
-    descontosNF: nfTotais.descontos,
-    descontosRateados: Math.round(descontosRateados * 100) / 100,
-    valorTotalNF: 0,
-    proporcaoItem: Math.round(proporcaoItem * 10000) / 100,
-    custoEfetivo: custoTotal_item,
-    custoEfetivoPorUnidade: custoUnitario_NF,
-    icmsDestacado: vICMS_item,
-    icmsAliquota: item.aliquotaIcms || 0,
-    stDestacado: vICMSST_item,
-    stRateado: vICMSST_item,
-    ipiDestacado: vIPI_item,
-    ipiRateado: vIPI_item,
-    ipiAliquota: item.aliquotaIPI || 0,
-    // Nota baixa
-    notaBaixa: config.notaBaixa,
-    fatorMultiplicador: fatorReal,
-    custoEfetivoReal: Math.round(custoEfetivoReal * 100) / 100,
-    custoEfetivoPorUnidadeReal: custoEfetivoPorUnidadeReal,
-    stReal: Math.round(stReal * 100) / 100,
-    ipiReal: Math.round(ipiReal * 100) / 100,
-    // Memória de cálculo
-    memoriaCalculo,
-    aproveitarCreditoICMS: config.aproveitarCreditoICMS,
-    creditoICMSCalculado: vICMS_item,
-  };
-  
-  return { custoEfetivo, memoriaCalculo };
-};
-
-// Calcular custo efetivo por unidade a partir de dados da NF (versão legacy - mantida para compatibilidade)
+// Calcular custo efetivo por unidade a partir de dados da NF
 export const calcularCustoEfetivoNF = (dados: {
   valorTotalItem: number;
   quantidade: number;
@@ -516,11 +349,8 @@ export const calcularCustoEfetivoNF = (dados: {
   valorTotalNF: number;
   stItem?: number;
   ipiItem?: number;
-  icmsItem?: number;
-  aliquotaIcms?: number;
-  aliquotaIpi?: number;
-}, notaBaixa?: NotaBaixaConfig, aproveitarCreditoICMS?: boolean, regimeTributario?: RegimeTributario): DadosCustoNF => {
-  const { valorTotalItem, quantidade, freteNF, despesasAcessorias, descontos, valorTotalNF, stItem = 0, ipiItem = 0, icmsItem = 0, aliquotaIcms = 0, aliquotaIpi = 0 } = dados;
+}, notaBaixa?: NotaBaixaConfig): DadosCustoNF => {
+  const { valorTotalItem, quantidade, freteNF, despesasAcessorias, descontos, valorTotalNF, stItem = 0, ipiItem = 0 } = dados;
   
   // Proporção do item no total da NF
   const proporcaoItem = valorTotalNF > 0 ? valorTotalItem / valorTotalNF : 1;
@@ -534,14 +364,8 @@ export const calcularCustoEfetivoNF = (dados: {
   const stRateado = stItem > 0 ? stItem : 0;
   const ipiRateado = ipiItem > 0 ? ipiItem : 0;
   
-  // Crédito de ICMS (se habilitado e regime permite)
-  let creditoICMS = 0;
-  if (aproveitarCreditoICMS && icmsItem > 0 && regimeTributario && regimeTributario !== 'simples_nacional') {
-    creditoICMS = icmsItem;
-  }
-  
-  // Custo total do item (incluindo ST e IPI que compõem custo de aquisição, menos crédito ICMS)
-  const custoEfetivo = valorTotalItem + freteRateado + despesasRateadas - descontosRateados + stRateado + ipiRateado - creditoICMS;
+  // Custo total do item (incluindo ST e IPI que compõem custo de aquisição)
+  const custoEfetivo = valorTotalItem + freteRateado + despesasRateadas - descontosRateados + stRateado + ipiRateado;
   
   // Custo por unidade
   const custoEfetivoPorUnidade = quantidade > 0 ? custoEfetivo / quantidade : 0;
@@ -554,23 +378,6 @@ export const calcularCustoEfetivoNF = (dados: {
   const custoEfetivoPorUnidadeReal = custoEfetivoPorUnidade * fatorMultiplicador;
   const stReal = stRateado * fatorMultiplicador;
   const ipiReal = ipiRateado * fatorMultiplicador;
-  
-  // Memória de cálculo
-  const memoriaCalculo: MemoriaCalculoCusto = {
-    vProd_item: valorTotalItem,
-    vIPI_item: ipiRateado,
-    vICMSST_item: stRateado,
-    vICMS_item: icmsItem,
-    freteRateado_item: Math.round(freteRateado * 100) / 100,
-    despesasRateadas_item: Math.round(despesasRateadas * 100) / 100,
-    descontosRateados_item: Math.round(descontosRateados * 100) / 100,
-    creditoICMS_item: creditoICMS,
-    custoTotal_item: Math.round(custoEfetivo * 100) / 100,
-    quantidade,
-    custoUnitario_NF: Math.round(custoEfetivoPorUnidade * 100) / 100,
-    fatorReal: fatorMultiplicador,
-    custoUnitario_Real: Math.round(custoEfetivoPorUnidadeReal * 100) / 100,
-  };
   
   return {
     nfNumero: '',
@@ -590,13 +397,13 @@ export const calcularCustoEfetivoNF = (dados: {
     proporcaoItem: Math.round(proporcaoItem * 10000) / 100,
     custoEfetivo: Math.round(custoEfetivo * 100) / 100,
     custoEfetivoPorUnidade: Math.round(custoEfetivoPorUnidade * 100) / 100,
-    icmsDestacado: icmsItem,
-    icmsAliquota: aliquotaIcms,
-    stDestacado: stRateado,
+    icmsDestacado: 0,
+    icmsAliquota: 0,
+    stDestacado: 0,
     stRateado: Math.round(stRateado * 100) / 100,
-    ipiDestacado: ipiRateado,
+    ipiDestacado: 0,
     ipiRateado: Math.round(ipiRateado * 100) / 100,
-    ipiAliquota: aliquotaIpi,
+    ipiAliquota: 0,
     // Nota baixa
     notaBaixa,
     fatorMultiplicador,
@@ -604,10 +411,6 @@ export const calcularCustoEfetivoNF = (dados: {
     custoEfetivoPorUnidadeReal: Math.round(custoEfetivoPorUnidadeReal * 100) / 100,
     stReal: Math.round(stReal * 100) / 100,
     ipiReal: Math.round(ipiReal * 100) / 100,
-    // Memória de cálculo
-    memoriaCalculo,
-    aproveitarCreditoICMS,
-    creditoICMSCalculado: icmsItem,
   };
 };
 

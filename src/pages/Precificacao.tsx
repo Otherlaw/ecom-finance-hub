@@ -17,7 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { AskAssistantButton } from '@/components/assistant/AskAssistantButton';
 import { useAssistantChatContext } from '@/contexts/AssistantChatContext';
 import { Calculator, FileText, Upload, Building2, Package, Store, Truck, Receipt, PlusCircle, Trash2, Info, TrendingUp, AlertTriangle, CheckCircle, DollarSign, Percent, Target, Lightbulb, ChevronRight, Search, ChevronDown, Eye, FileCode, AlertCircle } from 'lucide-react';
-import { SimulacaoPrecificacao, ResultadoPrecificacao, GastoExtra, DadosCustoNF, NotaBaixaConfig, NotaBaixaVendaConfig, MARKETPLACE_CONFIG, MARKETPLACES_LIST, GASTOS_EXTRAS_SUGESTOES, NOTA_BAIXA_OPCOES, formatCurrency, formatPercent, calcularResultadoPrecificacao, criarSimulacaoInicial, isFreteGratisML, deveHabilitarFreteML, MarketplaceId, TipoGastoExtra, BaseCalculo, calcularCustoEfetivoNF, NotaBaixaOpcao, getFatorNotaBaixa, FalsoDescontoConfig, calcularTaxaFixaML, getDescricaoTaxaFixaML, FAIXAS_TAXA_FIXA_ML, MemoriaCalculoCusto } from '@/lib/precificacao-data';
+import { SimulacaoPrecificacao, ResultadoPrecificacao, GastoExtra, DadosCustoNF, NotaBaixaConfig, NotaBaixaVendaConfig, MARKETPLACE_CONFIG, MARKETPLACES_LIST, GASTOS_EXTRAS_SUGESTOES, NOTA_BAIXA_OPCOES, formatCurrency, formatPercent, calcularResultadoPrecificacao, criarSimulacaoInicial, isFreteGratisML, deveHabilitarFreteML, MarketplaceId, TipoGastoExtra, BaseCalculo, calcularCustoEfetivoNF, NotaBaixaOpcao, getFatorNotaBaixa, FalsoDescontoConfig, calcularTaxaFixaML, getDescricaoTaxaFixaML, FAIXAS_TAXA_FIXA_ML } from '@/lib/precificacao-data';
 import { REGIME_TRIBUTARIO_CONFIG } from '@/lib/empresas-data';
 import { useEmpresas } from '@/hooks/useEmpresas';
 import { useProdutos, Produto } from '@/hooks/useProdutos';
@@ -110,7 +110,6 @@ export default function Precificacao() {
   const [xmlUploadModalOpen, setXmlUploadModalOpen] = useState(false);
   const [xmlParsed, setXmlParsed] = useState<NotaFiscalXML | null>(null);
   const [selectedXmlItemIndex, setSelectedXmlItemIndex] = useState<number | null>(null);
-  const [aproveitarCreditoICMS, setAproveitarCreditoICMS] = useState(false);
 
   // Modal de gastos extras
   const [gastoExtraModalOpen, setGastoExtraModalOpen] = useState(false);
@@ -443,24 +442,9 @@ export default function Precificacao() {
     if (!xmlParsed || selectedXmlItemIndex === null) return;
     const item = xmlParsed.itens[selectedXmlItemIndex];
 
-    // Validação de quantidade
-    if (item.quantidade <= 0) {
-      toast({
-        title: 'Erro',
-        description: `Quantidade inválida para o item "${item.descricao}": ${item.quantidade}`,
-        variant: 'destructive'
-      });
-      return;
-    }
-
     // IPI do item extraído do XML
     const ipiDoItem = item.valorIPI || 0;
     const ipiAliquotaItem = item.aliquotaIPI || 0;
-    
-    // Calcular soma de vProd de todos itens (base para rateio proporcional)
-    const somaProdutosNF = xmlParsed.itens.reduce((sum, i) => sum + i.valorTotal, 0);
-    
-    // Calcular custo efetivo com memória de cálculo
     const custoCalculado = calcularCustoEfetivoNF({
       valorTotalItem: item.valorTotal,
       quantidade: item.quantidade,
@@ -469,12 +453,8 @@ export default function Precificacao() {
       descontos: xmlParsed.descontoTotal || 0,
       valorTotalNF: xmlParsed.valorTotal,
       stItem: item.icmsST || 0,
-      ipiItem: ipiDoItem,
-      icmsItem: item.valorIcms || 0,
-      aliquotaIcms: item.aliquotaIcms || 0,
-      aliquotaIpi: ipiAliquotaItem,
-    }, simulacao?.notaBaixa, aproveitarCreditoICMS, empresaSelecionada?.regimeTributario);
-    
+      ipiItem: ipiDoItem
+    }, simulacao?.notaBaixa);
     const dadosCusto: DadosCustoNF = {
       ...custoCalculado,
       nfNumero: xmlParsed.numero,
@@ -498,15 +478,9 @@ export default function Precificacao() {
       ipiAliquota: ipiAliquotaItem
     };
     const fator = simulacao?.notaBaixa ? getFatorNotaBaixa(simulacao.notaBaixa) : 1;
-    const custoBaseReal = dadosCusto.custoEfetivoPorUnidadeReal || (dadosCusto.custoEfetivoPorUnidade * fator);
+    const custoBaseReal = dadosCusto.custoEfetivoPorUnidade * fator;
     const stReal = (dadosCusto.stRateado || 0) * fator;
     const ipiReal = (dadosCusto.ipiRateado || 0) * fator;
-    
-    // Calcular crédito ICMS real (ajustado pelo fator nota baixa)
-    const creditoICMSReal = aproveitarCreditoICMS && empresaSelecionada?.regimeTributario !== 'simples_nacional' 
-      ? (item.valorIcms || 0) * fator 
-      : 0;
-    
     setSimulacao(prev => {
       if (!prev) return null;
       return {
@@ -518,12 +492,12 @@ export default function Precificacao() {
           custoEfetivoReal: dadosCusto.custoEfetivo * fator,
           fatorMultiplicador: fator,
           stReal,
-          ipiReal,
+          ipiReal
         },
         tributacao: {
           ...prev.tributacao,
           icmsAliquota: dadosCusto.icmsAliquota || prev.tributacao.icmsAliquota,
-          icmsCredito: creditoICMSReal,
+          icmsCredito: dadosCusto.icmsDestacado * fator,
           stValor: stReal,
           ipiValor: ipiReal,
           ipiAliquota: ipiAliquotaItem || prev.tributacao.ipiAliquota
@@ -533,11 +507,10 @@ export default function Precificacao() {
     setXmlUploadModalOpen(false);
     setXmlParsed(null);
     setSelectedXmlItemIndex(null);
-    setAproveitarCreditoICMS(false);
     setCustoDetalhesOpen(true);
     toast({
       title: 'Custo calculado via XML',
-      description: `Custo efetivo: ${formatCurrency(custoBaseReal)}/un${aproveitarCreditoICMS ? ' (com crédito ICMS)' : ''}`
+      description: `Custo efetivo: ${formatCurrency(custoBaseReal)}/un`
     });
   };
 
@@ -793,7 +766,7 @@ export default function Precificacao() {
                                     <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.despesasRateadas)}</span>
                                   </div>}
                                 {(simulacao.custoNF.stRateado || 0) > 0 && <div className="flex justify-between">
-                                    <span>+ ICMS-ST (compõe custo):</span>
+                                    <span>+ ICMS ST (compõe custo):</span>
                                     <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.stRateado || 0)}</span>
                                   </div>}
                                 {(simulacao.custoNF.ipiRateado || 0) > 0 && <div className="flex justify-between">
@@ -804,29 +777,25 @@ export default function Precificacao() {
                                     <span>- Descontos rateados:</span>
                                     <span className="font-medium text-emerald-600">-{formatCurrency(simulacao.custoNF.descontosRateados)}</span>
                                   </div>}
-                                {simulacao.custoNF.memoriaCalculo?.creditoICMS_item && simulacao.custoNF.memoriaCalculo.creditoICMS_item > 0 && <div className="flex justify-between">
-                                    <span>- Crédito ICMS aproveitado:</span>
-                                    <span className="font-medium text-emerald-600">-{formatCurrency(simulacao.custoNF.memoriaCalculo.creditoICMS_item)}</span>
-                                  </div>}
                               </div>
                               <Separator />
                               <div className="flex justify-between text-base font-semibold">
-                                <span>= Custo Total Atribuído (NF):</span>
+                                <span>Custo Total Atribuído (NF):</span>
                                 <span>{formatCurrency(simulacao.custoNF.custoEfetivo)}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span>÷ Quantidade ({simulacao.custoNF.quantidade} un):</span>
-                                <span className="font-medium">{formatCurrency(simulacao.custoNF.custoEfetivoPorUnidade)}/un</span>
+                                <span>Custo por Unidade (NF):</span>
+                                <span>{formatCurrency(simulacao.custoNF.custoEfetivoPorUnidade)}</span>
                               </div>
                               
                               {simulacao.notaBaixa.ativa && simulacao.custoNF.fatorMultiplicador && simulacao.custoNF.fatorMultiplicador > 1 && <>
                                   <Separator />
                                   <div className="p-2 rounded bg-amber-100 border border-amber-200">
                                     <p className="text-amber-800 font-semibold mb-2">
-                                      × Fator nota baixa ({simulacao.custoNF.fatorMultiplicador.toFixed(2)}x)
+                                      Ajuste para Valor Real (×{simulacao.custoNF.fatorMultiplicador.toFixed(2)})
                                     </p>
                                     <div className="flex justify-between">
-                                      <span>= Custo Efetivo Real por Unidade:</span>
+                                      <span>Custo Efetivo Real por Unidade:</span>
                                       <span className="font-bold text-amber-900">
                                         {formatCurrency(simulacao.custoNF.custoEfetivoPorUnidadeReal || 0)}
                                       </span>
@@ -844,22 +813,13 @@ export default function Precificacao() {
                               
                               {simulacao.custoNF.icmsDestacado > 0 && <>
                                   <Separator />
-                                  <div className="text-muted-foreground space-y-1">
+                                  <div className="text-muted-foreground">
                                     <div className="flex justify-between">
-                                      <span>ICMS próprio destacado na NF:</span>
+                                      <span>ICMS destacado na NF:</span>
                                       <span>{formatCurrency(simulacao.custoNF.icmsDestacado)} ({simulacao.custoNF.icmsAliquota}%)</span>
                                     </div>
-                                    {simulacao.custoNF.aproveitarCreditoICMS ? (
-                                      <div className="text-xs text-emerald-600">
-                                        ✓ Crédito ICMS aplicado (abatido do custo)
-                                      </div>
-                                    ) : (
-                                      <div className="text-xs text-muted-foreground">
-                                        Crédito ICMS não aplicado
-                                      </div>
-                                    )}
                                     {simulacao.custoNF.stDestacado > 0 && <div className="flex justify-between">
-                                        <span>ICMS-ST destacado (compõe custo):</span>
+                                        <span>ICMS ST destacado:</span>
                                         <span>{formatCurrency(simulacao.custoNF.stDestacado)}</span>
                                       </div>}
                                   </div>
@@ -899,16 +859,9 @@ export default function Precificacao() {
                             {formatCurrency(simulacao.notaBaixa.ativa && simulacao.custoNF.custoEfetivoPorUnidadeReal ? simulacao.custoNF.custoEfetivoPorUnidadeReal : simulacao.custoNF.custoEfetivoPorUnidade)}
                             <span className="text-lg font-normal text-emerald-600 ml-1">/ unidade</span>
                           </p>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {simulacao.notaBaixa.ativa && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
-                                Nota baixa (×{simulacao.custoNF.fatorMultiplicador?.toFixed(2)})
-                              </Badge>}
-                            {simulacao.custoNF.aproveitarCreditoICMS && simulacao.custoNF.memoriaCalculo?.creditoICMS_item && simulacao.custoNF.memoriaCalculo.creditoICMS_item > 0 && (
-                              <Badge variant="outline" className="border-emerald-400 bg-emerald-100 text-emerald-800">
-                                Crédito ICMS aplicado
-                              </Badge>
-                            )}
-                          </div>
+                          {simulacao.notaBaixa.ativa && <Badge variant="outline" className="mt-1 border-amber-300 bg-amber-50 text-amber-700">
+                              Ajustado para valor real (×{simulacao.custoNF.fatorMultiplicador?.toFixed(2)})
+                            </Badge>}
                         </div>
                         <Button variant="outline" size="sm" onClick={() => setCustoDetalhesOpen(!custoDetalhesOpen)}>
                           <Eye className="h-4 w-4 mr-1" />
@@ -1673,29 +1626,29 @@ export default function Precificacao() {
                 </div>
                 
                 <Label>Selecione o item do produto:</Label>
-                <ScrollArea className="h-[250px] border rounded-lg">
+                <ScrollArea className="h-[300px] border rounded-lg">
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Descrição</TableHead>
                         <TableHead>NCM</TableHead>
                         <TableHead className="text-right">Qtd</TableHead>
-                        <TableHead className="text-right">Valor</TableHead>
-                        <TableHead className="text-right">ICMS</TableHead>
+                        <TableHead className="text-right">Valor Unit.</TableHead>
                         <TableHead className="text-right">ST</TableHead>
                         <TableHead className="text-right">IPI</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
                         <TableHead></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {xmlParsed.itens.map((item, idx) => <TableRow key={idx} className={selectedXmlItemIndex === idx ? 'bg-primary/10' : ''}>
-                          <TableCell className="max-w-[150px] truncate">{item.descricao}</TableCell>
+                          <TableCell className="max-w-[180px] truncate">{item.descricao}</TableCell>
                           <TableCell className="font-mono text-xs">{item.ncm}</TableCell>
                           <TableCell className="text-right">{item.quantidade}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(item.valorTotal)}</TableCell>
-                          <TableCell className="text-right text-xs">{formatCurrency(item.valorIcms)} ({item.aliquotaIcms}%)</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.icmsST || 0)}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.valorIPI || 0)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.valorTotal)}</TableCell>
                           <TableCell>
                             <Button variant={selectedXmlItemIndex === idx ? 'default' : 'outline'} size="sm" onClick={() => setSelectedXmlItemIndex(idx)}>
                               Selecionar
@@ -1705,39 +1658,6 @@ export default function Precificacao() {
                     </TableBody>
                   </Table>
                 </ScrollArea>
-                
-                {/* Switch Crédito ICMS */}
-                {selectedXmlItemIndex !== null && xmlParsed.itens[selectedXmlItemIndex]?.valorIcms > 0 && (
-                  <div className="p-3 rounded-lg border bg-emerald-50 border-emerald-200 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label className="font-semibold text-emerald-800">Aproveitar Crédito de ICMS?</Label>
-                        <p className="text-xs text-emerald-700">
-                          Abate o ICMS próprio destacado ({formatCurrency(xmlParsed.itens[selectedXmlItemIndex].valorIcms)}) do custo de aquisição
-                        </p>
-                      </div>
-                      <Switch 
-                        checked={aproveitarCreditoICMS}
-                        onCheckedChange={setAproveitarCreditoICMS}
-                        disabled={empresaSelecionada?.regimeTributario === 'simples_nacional'}
-                      />
-                    </div>
-                    {empresaSelecionada?.regimeTributario === 'simples_nacional' && (
-                      <p className="text-xs text-amber-600">
-                        Empresas do Simples Nacional não podem aproveitar crédito de ICMS desta forma.
-                      </p>
-                    )}
-                    {aproveitarCreditoICMS && empresaSelecionada?.regimeTributario !== 'simples_nacional' && (
-                      <Alert className="bg-emerald-100 border-emerald-300">
-                        <Info className="h-4 w-4 text-emerald-700" />
-                        <AlertDescription className="text-emerald-800 text-xs">
-                          <strong>Importante:</strong> O ICMS próprio destacado ({xmlParsed.itens[selectedXmlItemIndex].aliquotaIcms}%) será deduzido do custo.
-                          ICMS-ST ({formatCurrency(xmlParsed.itens[selectedXmlItemIndex].icmsST || 0)}) permanece como custo (não gera crédito).
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                )}
               </div>}
           </div>
           <DialogFooter>
@@ -1745,7 +1665,6 @@ export default function Precificacao() {
             setXmlUploadModalOpen(false);
             setXmlParsed(null);
             setSelectedXmlItemIndex(null);
-            setAproveitarCreditoICMS(false);
           }}>
               Cancelar
             </Button>

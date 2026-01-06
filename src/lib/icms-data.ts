@@ -50,14 +50,10 @@ export interface NotaFiscalItem {
   valorIcms: number;
   icmsST?: number;
   baseCalculoST?: number;
-  aliquotaST?: number;
-  pMVAST?: number;        // MVA do ICMS-ST (para ICMS10)
   aliquotaIPI?: number;
   valorIPI?: number;
   pis?: number;
   cofins?: number;
-  // Grupo ICMS identificado (ICMS00, ICMS10, etc.)
-  grupoICMS?: string;
 }
 
 export interface CreditoICMS {
@@ -269,23 +265,7 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
       const prod = det.querySelector("prod");
       const imposto = det.querySelector("imposto");
       const icms = imposto?.querySelector("ICMS");
-      
-      // Leitura robusta do grupo ICMS correto (ICMS00, ICMS10, ICMS20, etc.)
-      const icmsGroups = ['ICMS00', 'ICMS10', 'ICMS20', 'ICMS30', 'ICMS40', 'ICMS41', 'ICMS50', 'ICMS51', 'ICMS60', 'ICMS70', 'ICMS90'];
-      let icmsGroup: Element | null = null;
-      let grupoICMSNome = '';
-      for (const groupName of icmsGroups) {
-        icmsGroup = icms?.querySelector(groupName) || null;
-        if (icmsGroup) {
-          grupoICMSNome = groupName;
-          break;
-        }
-      }
-      // Fallback para primeiro elemento se não encontrou grupo específico
-      if (!icmsGroup && icms?.firstElementChild) {
-        icmsGroup = icms.firstElementChild;
-        grupoICMSNome = icmsGroup.tagName || '';
-      }
+      const icmsGroup = icms?.querySelector("[class^='ICMS']") || icms?.firstElementChild;
       
       // Extract IPI data
       const ipi = imposto?.querySelector("IPI");
@@ -296,12 +276,9 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
       const aliquotaIPI = parseFloat(ipiTrib?.querySelector("pIPI")?.textContent || "0");
       const valorIPI = parseFloat(ipiTrib?.querySelector("vIPI")?.textContent || "0");
       
-      // ICMS ST values (presente em ICMS10, ICMS30, ICMS70, ICMS90)
+      // ICMS ST values
       const baseCalculoST = parseFloat(icmsGroup?.querySelector("vBCST")?.textContent || "0");
       const icmsST = parseFloat(icmsGroup?.querySelector("vICMSST")?.textContent || "0");
-      const aliquotaST = parseFloat(icmsGroup?.querySelector("pICMSST")?.textContent || "0");
-      // MVA da ST (presente em ICMS10)
-      const pMVAST = parseFloat(icmsGroup?.querySelector("pMVAST")?.textContent || "0");
 
       const item: NotaFiscalItem = {
         codigo: prod?.querySelector("cProd")?.textContent || "",
@@ -318,13 +295,10 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
         valorIcms: parseFloat(icmsGroup?.querySelector("vICMS")?.textContent || "0"),
         icmsST: icmsST,
         baseCalculoST: baseCalculoST,
-        aliquotaST: aliquotaST,
-        pMVAST: pMVAST,
         aliquotaIPI: aliquotaIPI,
         valorIPI: valorIPI,
         pis: parseFloat(imposto?.querySelector("PIS")?.querySelector("vPIS")?.textContent || "0"),
         cofins: parseFloat(imposto?.querySelector("COFINS")?.querySelector("vCOFINS")?.textContent || "0"),
-        grupoICMS: grupoICMSNome,
       };
 
       itens.push(item);
