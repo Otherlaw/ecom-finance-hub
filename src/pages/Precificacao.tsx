@@ -17,7 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { AskAssistantButton } from '@/components/assistant/AskAssistantButton';
 import { useAssistantChatContext } from '@/contexts/AssistantChatContext';
 import { Calculator, FileText, Upload, Building2, Package, Store, Truck, Receipt, PlusCircle, Trash2, Info, TrendingUp, AlertTriangle, CheckCircle, DollarSign, Percent, Target, Lightbulb, ChevronRight, Search, ChevronDown, Eye, FileCode, AlertCircle } from 'lucide-react';
-import { SimulacaoPrecificacao, ResultadoPrecificacao, GastoExtra, DadosCustoNF, NotaBaixaConfig, NotaBaixaVendaConfig, MARKETPLACE_CONFIG, MARKETPLACES_LIST, GASTOS_EXTRAS_SUGESTOES, NOTA_BAIXA_OPCOES, formatCurrency, formatPercent, calcularResultadoPrecificacao, criarSimulacaoInicial, isFreteGratisML, deveHabilitarFreteML, MarketplaceId, TipoGastoExtra, BaseCalculo, calcularCustoEfetivoNF, NotaBaixaOpcao, getFatorNotaBaixa, FalsoDescontoConfig, calcularTaxaFixaML, getDescricaoTaxaFixaML, FAIXAS_TAXA_FIXA_ML } from '@/lib/precificacao-data';
+import { SimulacaoPrecificacao, ResultadoPrecificacao, GastoExtra, DadosCustoNF, NotaBaixaConfig, NotaBaixaVendaConfig, MARKETPLACE_CONFIG, MARKETPLACES_LIST, GASTOS_EXTRAS_SUGESTOES, NOTA_BAIXA_OPCOES, formatCurrency, formatPercent, calcularResultadoPrecificacao, criarSimulacaoInicial, isFreteGratisML, deveHabilitarFreteML, MarketplaceId, TipoGastoExtra, BaseCalculo, calcularCustoEfetivoNF, NotaBaixaOpcao, getFatorNotaBaixa, FalsoDescontoConfig, calcularTaxaFixaML, getDescricaoTaxaFixaML, FAIXAS_TAXA_FIXA_ML, MemoriaCalculoCusto } from '@/lib/precificacao-data';
 import { REGIME_TRIBUTARIO_CONFIG } from '@/lib/empresas-data';
 import { useEmpresas } from '@/hooks/useEmpresas';
 import { useProdutos, Produto } from '@/hooks/useProdutos';
@@ -445,6 +445,14 @@ export default function Precificacao() {
     // IPI do item extraído do XML
     const ipiDoItem = item.valorIPI || 0;
     const ipiAliquotaItem = item.aliquotaIPI || 0;
+    
+    // Verificar se é item com ST
+    const isSTItem = item.isSubstituicaoTributaria || (item.icmsST && item.icmsST > 0);
+    
+    // Determinar se pode aproveitar crédito ICMS (não Simples)
+    const podeAproveitar = empresaSelecionada?.regimeTributario !== 'simples_nacional' &&
+                          simulacao?.tributacao.aproveitarCreditoICMSProprio;
+    
     const custoCalculado = calcularCustoEfetivoNF({
       valorTotalItem: item.valorTotal,
       quantidade: item.quantidade,
@@ -452,8 +460,14 @@ export default function Precificacao() {
       despesasAcessorias: xmlParsed.outrasDepesas || 0,
       descontos: xmlParsed.descontoTotal || 0,
       valorTotalNF: xmlParsed.valorTotal,
-      stItem: item.icmsST || 0,
-      ipiItem: ipiDoItem
+      stItem: item.icmsST || 0,  // IMPORTANTE: usa vICMSST, não vBCST
+      ipiItem: ipiDoItem,
+      icmsProprio: item.valorIcms || 0,  // vICMS próprio
+      aproveitarCreditoICMS: podeAproveitar,
+      regimeTributario: empresaSelecionada?.regimeTributario,
+      isSubstituicaoTributaria: isSTItem,
+      grupoICMS: item.grupoICMS,
+      cstNumero: item.cstNumero,
     }, simulacao?.notaBaixa);
     const dadosCusto: DadosCustoNF = {
       ...custoCalculado,
@@ -754,40 +768,43 @@ export default function Precificacao() {
                               <Separator />
                               <div className="space-y-1">
                                 <div className="flex justify-between">
-                                  <span>Valor do item na NF:</span>
-                                  <span className="font-medium">{formatCurrency(simulacao.custoNF.valorTotalItem)}</span>
+                                  <span>Valor do item (vProd):</span>
+                                  <span className="font-medium">{formatCurrency(simulacao.custoNF.memoriaCalculo?.vProd || simulacao.custoNF.valorTotalItem)}</span>
                                 </div>
-                                {simulacao.custoNF.freteRateado > 0 && <div className="flex justify-between">
+                                {(simulacao.custoNF.memoriaCalculo?.vIPI || simulacao.custoNF.ipiRateado || 0) > 0 && <div className="flex justify-between">
+                                    <span>+ IPI (vIPI):</span>
+                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.memoriaCalculo?.vIPI || simulacao.custoNF.ipiRateado || 0)}</span>
+                                  </div>}
+                                {(simulacao.custoNF.memoriaCalculo?.vICMSST || simulacao.custoNF.stRateado || 0) > 0 && <div className="flex justify-between">
+                                    <span>+ ICMS-ST (vICMSST):</span>
+                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.memoriaCalculo?.vICMSST || simulacao.custoNF.stRateado || 0)}</span>
+                                  </div>}
+                                {(simulacao.custoNF.memoriaCalculo?.freteRateado || simulacao.custoNF.freteRateado) > 0 && <div className="flex justify-between">
                                     <span>+ Frete rateado ({simulacao.custoNF.proporcaoItem}%):</span>
-                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.freteRateado)}</span>
+                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.memoriaCalculo?.freteRateado || simulacao.custoNF.freteRateado)}</span>
                                   </div>}
-                                {simulacao.custoNF.despesasRateadas > 0 && <div className="flex justify-between">
+                                {(simulacao.custoNF.memoriaCalculo?.despesasRateadas || simulacao.custoNF.despesasRateadas) > 0 && <div className="flex justify-between">
                                     <span>+ Despesas acessórias rateadas:</span>
-                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.despesasRateadas)}</span>
+                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.memoriaCalculo?.despesasRateadas || simulacao.custoNF.despesasRateadas)}</span>
                                   </div>}
-                                {(simulacao.custoNF.stRateado || 0) > 0 && <div className="flex justify-between">
-                                    <span>+ ICMS ST (compõe custo):</span>
-                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.stRateado || 0)}</span>
-                                  </div>}
-                                {(simulacao.custoNF.ipiRateado || 0) > 0 && <div className="flex justify-between">
-                                    <span>+ IPI (compõe custo):</span>
-                                    <span className="font-medium text-orange-600">+{formatCurrency(simulacao.custoNF.ipiRateado || 0)}</span>
-                                  </div>}
-                                {simulacao.custoNF.descontosRateados > 0 && <div className="flex justify-between">
+                                {(simulacao.custoNF.memoriaCalculo?.descontosRateados || simulacao.custoNF.descontosRateados) > 0 && <div className="flex justify-between">
                                     <span>- Descontos rateados:</span>
-                                    <span className="font-medium text-emerald-600">-{formatCurrency(simulacao.custoNF.descontosRateados)}</span>
+                                    <span className="font-medium text-emerald-600">-{formatCurrency(simulacao.custoNF.memoriaCalculo?.descontosRateados || simulacao.custoNF.descontosRateados)}</span>
+                                  </div>}
+                                {(simulacao.custoNF.memoriaCalculo?.creditoICMSAbatido || simulacao.custoNF.creditoICMSAbatido || 0) > 0 && <div className="flex justify-between">
+                                    <span>- Crédito ICMS próprio (vICMS):</span>
+                                    <span className="font-medium text-emerald-600">-{formatCurrency(simulacao.custoNF.memoriaCalculo?.creditoICMSAbatido || simulacao.custoNF.creditoICMSAbatido || 0)}</span>
                                   </div>}
                               </div>
                               <Separator />
                               <div className="flex justify-between text-base font-semibold">
-                                <span>Custo Total Atribuído (NF):</span>
-                                <span>{formatCurrency(simulacao.custoNF.custoEfetivo)}</span>
+                                <span>= Custo Total Atribuído (NF):</span>
+                                <span>{formatCurrency(simulacao.custoNF.memoriaCalculo?.custoTotal || simulacao.custoNF.custoEfetivo)}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span>Custo por Unidade (NF):</span>
-                                <span>{formatCurrency(simulacao.custoNF.custoEfetivoPorUnidade)}</span>
+                                <span>÷ Quantidade ({simulacao.custoNF.quantidade} un):</span>
+                                <span className="font-medium">{formatCurrency(simulacao.custoNF.memoriaCalculo?.custoUnitario || simulacao.custoNF.custoEfetivoPorUnidade)}/un</span>
                               </div>
-                              
                               {simulacao.notaBaixa.ativa && simulacao.custoNF.fatorMultiplicador && simulacao.custoNF.fatorMultiplicador > 1 && <>
                                   <Separator />
                                   <div className="p-2 rounded bg-amber-100 border border-amber-200">
