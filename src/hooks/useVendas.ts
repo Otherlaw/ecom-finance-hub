@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useEmpresas } from "@/hooks/useEmpresas";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 
 export type StatusVenda = "todos" | "conciliado" | "pendente" | "importado" | "ignorado";
 
@@ -238,8 +238,7 @@ function calcularConsistencia(vendas: VendaDetalhada[]): ConsistenciaVendas {
 }
 
 export function useVendas(filtros: VendasFiltros) {
-  const { empresas } = useEmpresas();
-  const empresaAtiva = empresas?.[0]; // Primeira empresa como padrão
+  const { empresaAtiva } = useEmpresaAtiva();
 
   // Buscar config fiscal da empresa
   const { data: configFiscal } = useQuery({

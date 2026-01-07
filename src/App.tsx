@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { EmpresaProvider } from "./contexts/EmpresaContext";
 import Dashboard from "./pages/Dashboard";
 import Fechamento from "./pages/Fechamento";
 import FluxoCaixa from "./pages/FluxoCaixa";
@@ -51,8 +52,9 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <AssistantChatProvider>
-          <Routes>
+        <EmpresaProvider>
+          <AssistantChatProvider>
+            <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/vendas" element={<Vendas />} />
             <Route path="/auth" element={<Auth />} />
@@ -91,9 +93,10 @@ const App = () => (
             <Route path="/configuracoes" element={<Configuracoes />} />
             <Route path="/integracoes" element={<Integracoes />} />
             <Route path="*" element={<NotFound />} />
-          </Routes>
-          <AssistantWidget />
-        </AssistantChatProvider>
+            </Routes>
+            <AssistantWidget />
+          </AssistantChatProvider>
+        </EmpresaProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
