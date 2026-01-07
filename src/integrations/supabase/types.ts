@@ -3149,6 +3149,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      mapear_sku_para_produto: {
+        Args: {
+          p_canal: string
+          p_empresa_id: string
+          p_produto_id: string
+          p_sku_marketplace: string
+        }
+        Returns: number
+      }
       registrar_movimento_financeiro: {
         Args: {
           p_categoria_id?: string
