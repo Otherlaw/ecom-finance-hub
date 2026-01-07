@@ -498,13 +498,10 @@ export function parseOFX(content: string): OFXParseResult {
   
   console.log("Extracted transactions:", transactions.length);
   
-  // Se não encontrou CNPJ nas tags padrão, tenta extrair dos MEMOs das transações
-  if (!account.holderCpfCnpj && transactions.length > 0) {
-    const cnpjFromMemo = extractCnpjFromTransactions(transactions);
-    if (cnpjFromMemo) {
-      account.holderCpfCnpj = cnpjFromMemo;
-    }
-  }
+  // NOTA: Não usamos mais fallback de CNPJ do MEMO das transações
+  // O MEMO contém CNPJs de contrapartes (clientes/fornecedores), não do titular da conta
+  // Se o OFX não trouxer CNPJ do titular nas tags do cabeçalho, retornamos null
+  // e a UI solicita seleção manual da empresa
   
   // Sort transactions by date (newest first)
   transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
