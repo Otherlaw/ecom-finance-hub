@@ -3,7 +3,7 @@ import { format } from "date-fns";
 import { MainLayout } from "@/components/MainLayout";
 import { useVendas, VendasFiltros } from "@/hooks/useVendas";
 import { useVendasPendentes } from "@/hooks/useVendasPendentes";
-import { useEmpresas } from "@/hooks/useEmpresas";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { VendasDashboard } from "@/components/vendas/VendasDashboard";
 import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
@@ -47,8 +47,8 @@ export default function Vendas() {
   const [showCategorizacaoModal, setShowCategorizacaoModal] = useState(false);
   const [vendaParaCategorizar, setVendaParaCategorizar] = useState<any>(null);
 
-  const { empresas } = useEmpresas();
-  const empresaId = empresas?.[0]?.id;
+  const { empresaAtiva } = useEmpresaAtiva();
+  const empresaId = empresaAtiva?.id;
 
   const { 
     vendas, 
