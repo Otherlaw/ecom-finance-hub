@@ -1771,8 +1771,8 @@ export default function Precificacao() {
             </DialogTitle>
             <DialogDescription>Envie um arquivo XML de NF-e para calcular o custo efetivo</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 min-h-0 max-h-[calc(90vh-180px)]">
-          <div className="space-y-4 px-6 py-4">
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+          <div className="space-y-4">
             {!xmlParsed ? <div className="border-2 border-dashed rounded-xl p-8 text-center">
                 <input type="file" accept=".xml" onChange={handleXmlUpload} className="hidden" id="xml-upload" />
                 <label htmlFor="xml-upload" className="cursor-pointer">
@@ -2030,7 +2030,7 @@ export default function Precificacao() {
                 </ScrollArea>
               </div>}
           </div>
-          </ScrollArea>
+          </div>
           <DialogFooter className="flex-shrink-0 border-t px-6 py-4 bg-background">
             <Button variant="outline" onClick={() => {
             setXmlUploadModalOpen(false);
