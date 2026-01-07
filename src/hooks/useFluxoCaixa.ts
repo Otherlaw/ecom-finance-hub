@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMemo } from "react";
+import { fluxoCaixaKey } from "@/lib/queryKeys";
 
 // Tipos para o Fluxo de Caixa
 export interface MovimentoCaixa {
@@ -50,7 +51,7 @@ interface UseFluxoCaixaParams {
  */
 export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxoCaixaParams = {}) => {
   const { data: movimentosRaw, isLoading } = useQuery({
-    queryKey: ["fluxo-caixa-meu", periodoInicio, periodoFim, empresaId],
+    queryKey: fluxoCaixaKey(periodoInicio, periodoFim, empresaId),
     queryFn: async () => {
       let query = supabase
         .from("movimentos_financeiros")

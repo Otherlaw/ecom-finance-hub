@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { registrarMovimentoFinanceiro, removerMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
 import { processarCMVTransacao, removerCMVTransacao, processarCMVEmLote } from "@/lib/calcular-cmv-venda";
+import { FLUXO_CAIXA_KEY_PREFIX } from "@/lib/queryKeys";
 
 // ============= HELPER DE MENSAGEM DE ERRO =============
 function construirMensagemDeErro(validacao: {
@@ -432,7 +433,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["marketplace_transaction_items"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
 
       if (result?.importadas && result?.duplicadas) {
         toast.success(
@@ -579,7 +580,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       queryClient.invalidateQueries({ queryKey: ["produtos"] });
       queryClient.invalidateQueries({ queryKey: ["produto_skus"] });
       queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });
@@ -649,7 +650,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       queryClient.invalidateQueries({ queryKey: ["produtos"] });
       queryClient.invalidateQueries({ queryKey: ["produto_skus"] });
       queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });

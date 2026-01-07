@@ -13,6 +13,7 @@ import {
   excluirMovimentoManual, 
   MovimentoManualPayload 
 } from "@/lib/movimentos-manuais";
+import { FLUXO_CAIXA_KEY_PREFIX } from "@/lib/queryKeys";
 
 export interface MovimentoManual {
   id: string;
@@ -142,7 +143,7 @@ export function useMovimentosManuais(params: UseMovimentosManuaisParams = {}) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["movimentos_manuais"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       toast.success("Movimentação criada com sucesso!");
     },
     onError: (error: any) => {
@@ -161,7 +162,7 @@ export function useMovimentosManuais(params: UseMovimentosManuaisParams = {}) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["movimentos_manuais"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       toast.success("Movimentação atualizada com sucesso!");
     },
     onError: (error: any) => {
@@ -177,7 +178,7 @@ export function useMovimentosManuais(params: UseMovimentosManuaisParams = {}) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["movimentos_manuais"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       toast.success("Movimentação excluída com sucesso!");
     },
     onError: (error: any) => {

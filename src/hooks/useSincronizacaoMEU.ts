@@ -9,6 +9,7 @@ import {
   contarPendentesSincronizacao,
   SincronizacaoResultado 
 } from "@/lib/sincronizar-movimentos";
+import { FLUXO_CAIXA_KEY_PREFIX } from "@/lib/queryKeys";
 
 export function useSincronizacaoMEU() {
   const queryClient = useQueryClient();
@@ -41,7 +42,7 @@ export function useSincronizacaoMEU() {
       // Invalidar queries relacionadas
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["dre-movimentos-meu"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo-caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       queryClient.invalidateQueries({ queryKey: ["sincronizacao-meu-pendentes"] });
     },
     onError: (error: Error) => {
