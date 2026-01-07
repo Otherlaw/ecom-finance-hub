@@ -1716,15 +1716,16 @@ export default function Precificacao() {
 
       {/* Modal Upload XML */}
       <Dialog open={xmlUploadModalOpen} onOpenChange={setXmlUploadModalOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <FileCode className="h-5 w-5" />
               Upload de XML de NF-e
             </DialogTitle>
             <DialogDescription>Envie um arquivo XML de NF-e para calcular o custo efetivo</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <ScrollArea className="flex-1 min-h-0">
+          <div className="space-y-4 pr-4">
             {!xmlParsed ? <div className="border-2 border-dashed rounded-xl p-8 text-center">
                 <input type="file" accept=".xml" onChange={handleXmlUpload} className="hidden" id="xml-upload" />
                 <label htmlFor="xml-upload" className="cursor-pointer">
@@ -1823,9 +1824,6 @@ export default function Precificacao() {
                     grupoICMS: itemPreview.grupoICMS,
                     cstNumero: itemPreview.cstNumero,
                   }, simulacao?.notaBaixa);
-                  
-                  const fator = simulacao?.notaBaixa ? getFatorNotaBaixa(simulacao.notaBaixa) : 1;
-                  const custoUnitarioReal = custoPreview.custoEfetivoPorUnidade * fator;
 
                   return (
                     <div className="p-4 rounded-lg border-2 border-primary/30 bg-primary/5 space-y-3">
@@ -1892,11 +1890,11 @@ export default function Precificacao() {
                         <span className="text-xl font-bold text-primary">{formatCurrency(custoPreview.custoEfetivoPorUnidade)}/un</span>
                       </div>
                       
-                      {fator > 1 && (
+                      {custoPreview.fatorMultiplicador > 1 && (
                         <div className="p-2 rounded bg-amber-100 border border-amber-200">
                           <div className="flex justify-between items-center">
-                            <span className="text-amber-800 font-semibold">Custo Real (×{fator.toFixed(2)}):</span>
-                            <span className="text-xl font-bold text-amber-900">{formatCurrency(custoUnitarioReal)}/un</span>
+                            <span className="text-amber-800 font-semibold">Custo Real (×{custoPreview.fatorMultiplicador.toFixed(2)}):</span>
+                            <span className="text-xl font-bold text-amber-900">{formatCurrency(custoPreview.custoEfetivoPorUnidadeReal)}/un</span>
                           </div>
                         </div>
                       )}
@@ -1985,7 +1983,8 @@ export default function Precificacao() {
                 </ScrollArea>
               </div>}
           </div>
-          <DialogFooter>
+          </ScrollArea>
+          <DialogFooter className="flex-shrink-0 border-t pt-4 mt-2">
             <Button variant="outline" onClick={() => {
             setXmlUploadModalOpen(false);
             setXmlParsed(null);

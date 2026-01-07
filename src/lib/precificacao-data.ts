@@ -415,8 +415,34 @@ export const calcularCustoEfetivoNF = (dados: {
                          regimeTributario !== 'simples_nacional';
   const creditoICMSAbatido = podeAproveitar ? icmsProprio : 0;
   
-  // FÓRMULA DO CUSTO EFETIVO:
-  // = vProd + vIPI + vICMSST + frete rateado + despesas - descontos - crédito ICMS próprio
+  // Calcular fator de nota baixa ANTES de calcular o custo efetivo
+  const fatorMultiplicador = notaBaixa ? getFatorNotaBaixa(notaBaixa) : 1;
+  
+  // REGRA NOTA BAIXA: Apenas vProd escala, IPI e ICMS-ST são valores absolutos da NF
+  // Frete/despesas/descontos também escalam proporcionalmente com o vProd real
+  const vProdReal = valorTotalItem * fatorMultiplicador;
+  const freteRateadoReal = freteRateado * fatorMultiplicador;
+  const despesasRateadasReal = despesasRateadas * fatorMultiplicador;
+  const descontosRateadosReal = descontosRateados * fatorMultiplicador;
+  
+  // IPI e ICMS-ST NÃO escalam - são valores absolutos pagos na NF
+  const ipiReal = ipiRateado;      // Não multiplica
+  const stReal = stRateado;        // Não multiplica
+  
+  // Crédito de ICMS também escala proporcionalmente ao vProd real
+  const creditoICMSAbatidoReal = creditoICMSAbatido * fatorMultiplicador;
+  
+  // FÓRMULA DO CUSTO EFETIVO REAL:
+  // = vProd×fator + vIPI + vICMSST + (frete+despesas-descontos)×fator - crédito×fator
+  const custoEfetivoReal = vProdReal 
+                     + ipiReal 
+                     + stReal 
+                     + freteRateadoReal 
+                     + despesasRateadasReal 
+                     - descontosRateadosReal 
+                     - creditoICMSAbatidoReal;
+  
+  // Custo NF (sem fator, para referência)
   const custoEfetivo = valorTotalItem 
                      + ipiRateado 
                      + stRateado 
@@ -425,17 +451,9 @@ export const calcularCustoEfetivoNF = (dados: {
                      - descontosRateados 
                      - creditoICMSAbatido;
   
-  // Custo por unidade
+  // Custo por unidade (NF e Real)
   const custoEfetivoPorUnidade = quantidade > 0 ? custoEfetivo / quantidade : 0;
-  
-  // Calcular fator de nota baixa
-  const fatorMultiplicador = notaBaixa ? getFatorNotaBaixa(notaBaixa) : 1;
-  
-  // Valores ajustados para o valor real (quando nota baixa)
-  const custoEfetivoReal = custoEfetivo * fatorMultiplicador;
-  const custoEfetivoPorUnidadeReal = custoEfetivoPorUnidade * fatorMultiplicador;
-  const stReal = stRateado * fatorMultiplicador;
-  const ipiReal = ipiRateado * fatorMultiplicador;
+  const custoEfetivoPorUnidadeReal = quantidade > 0 ? custoEfetivoReal / quantidade : 0;
   
   // Memória de cálculo detalhada para auditoria
   const memoriaCalculo: MemoriaCalculoCusto = {
