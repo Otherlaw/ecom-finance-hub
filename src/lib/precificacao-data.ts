@@ -610,9 +610,10 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   // Calcular alíquota da reforma (CBS + IBS)
   tributosPercentReforma = tributacao.cbsAliquota + tributacao.ibsAliquota;
   
-  // DECISÃO: Se simularReformaTributaria está ativo, CBS/IBS são o imposto REAL da precificação
+  // FASE DE TRANSIÇÃO (2025-2033): CBS/IBS coexistem com PIS/COFINS
+  // O toggle "simularReformaTributaria" ADICIONA CBS/IBS ao regime atual, não substitui
   if (usandoReforma) {
-    tributosPercent = tributosPercentReforma;
+    tributosPercent = tributosPercentRegimeAtual + tributosPercentReforma;
   } else {
     tributosPercent = tributosPercentRegimeAtual;
   }
