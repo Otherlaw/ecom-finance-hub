@@ -259,7 +259,15 @@ export function useVendas(filtros: VendasFiltros) {
   const aliquotaImposto = configFiscal?.aliquota_imposto_vendas || 6; // Default 6% (Simples)
 
   const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
-    queryKey: ["vendas", filtros, empresaAtiva?.id],
+    queryKey: [
+      "vendas",
+      filtros.dataInicio,
+      filtros.dataFim,
+      filtros.canal,
+      filtros.conta,
+      filtros.statusVenda,
+      empresaAtiva?.id
+    ],
     queryFn: async () => {
       if (!empresaAtiva?.id) return [];
 
