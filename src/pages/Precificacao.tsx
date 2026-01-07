@@ -249,8 +249,9 @@ export default function Precificacao() {
           cstNumero: prev.custoNF.cstNumero,
         }, prev.notaBaixa);
         
-        const fator = getFatorNotaBaixa(prev.notaBaixa);
-        const custoBaseReal = custoRecalculado.custoEfetivoPorUnidade * fator;
+        // Usar valores JÁ calculados pela função (não reaplicar fator)
+        const fator = custoRecalculado.memoriaCalculo?.fatorNotaBaixa || 1;
+        const custoBaseReal = custoRecalculado.custoEfetivoPorUnidadeReal;
         
         return {
           ...prev,
@@ -259,7 +260,7 @@ export default function Precificacao() {
             ...prev.custoNF,
             ...custoRecalculado,
             custoEfetivoPorUnidadeReal: custoBaseReal,
-            custoEfetivoReal: custoRecalculado.custoEfetivo * fator,
+            custoEfetivoReal: custoRecalculado.custoEfetivoReal,
             fatorMultiplicador: fator,
           },
           tributacao: novaTributacao,
@@ -280,21 +281,45 @@ export default function Precificacao() {
         [field]: value
       };
 
-      // Recalcular custo se houver NF
+      // Recalcular custo se houver NF - usar calcularCustoEfetivoNF para consistência
       if (prev.custoNF) {
-        const fator = getFatorNotaBaixa(novaNotaBaixa);
-        const custoBaseReal = prev.custoNF.custoEfetivoPorUnidade * fator;
-        const stReal = (prev.custoNF.stRateado || 0) * fator;
-        const ipiReal = (prev.custoNF.ipiRateado || 0) * fator;
+        const podeAproveitar = prev.tributacao.aproveitarCreditoICMSProprio && 
+                               empresaSelecionada?.regimeTributario !== 'simples_nacional';
+        
+        const custoRecalculado = calcularCustoEfetivoNF({
+          valorTotalItem: prev.custoNF.valorTotalItem,
+          quantidade: prev.custoNF.quantidade,
+          freteNF: prev.custoNF.freteNF || 0,
+          despesasAcessorias: prev.custoNF.despesasAcessorias || 0,
+          descontos: prev.custoNF.descontosNF || 0,
+          valorTotalNF: prev.custoNF.valorTotalNF,
+          stItem: prev.custoNF.stDestacado || 0,
+          ipiItem: prev.custoNF.ipiDestacado || 0,
+          icmsProprio: prev.custoNF.icmsDestacado || 0,
+          aproveitarCreditoICMS: podeAproveitar,
+          regimeTributario: empresaSelecionada?.regimeTributario,
+          isSubstituicaoTributaria: prev.custoNF.isSubstituicaoTributaria,
+          grupoICMS: prev.custoNF.grupoICMS,
+          cstNumero: prev.custoNF.cstNumero,
+        }, novaNotaBaixa);
+        
+        // Usar valores JÁ calculados pela função (não reaplicar fator)
+        const fator = custoRecalculado.memoriaCalculo?.fatorNotaBaixa || 1;
+        const custoBaseReal = custoRecalculado.custoEfetivoPorUnidadeReal;
+        // ST e IPI NÃO escalam - valores absolutos da NF
+        const stReal = custoRecalculado.stRateado || 0;
+        const ipiReal = custoRecalculado.ipiRateado || 0;
+        
         return {
           ...prev,
           notaBaixa: novaNotaBaixa,
           custoBase: custoBaseReal,
           custoNF: {
             ...prev.custoNF,
+            ...custoRecalculado,
             notaBaixa: novaNotaBaixa,
             fatorMultiplicador: fator,
-            custoEfetivoReal: prev.custoNF.custoEfetivo * fator,
+            custoEfetivoReal: custoRecalculado.custoEfetivoReal,
             custoEfetivoPorUnidadeReal: custoBaseReal,
             stReal,
             ipiReal
@@ -405,6 +430,11 @@ export default function Precificacao() {
       stItem: item.valor_icms || 0,
       ipiItem: item.valor_ipi || 0
     }, simulacao?.notaBaixa);
+    
+    // Usar valores JÁ calculados pela função (não reaplicar fator)
+    const fator = custoCalculado.memoriaCalculo?.fatorNotaBaixa || 1;
+    const custoBaseReal = custoCalculado.custoEfetivoPorUnidadeReal;
+    
     const dadosCusto: DadosCustoNF = {
       ...custoCalculado,
       nfNumero: compra.numero_nf || '',
@@ -419,8 +449,7 @@ export default function Precificacao() {
       icmsDestacado: item.valor_icms || 0,
       icmsAliquota: item.aliquota_icms || 0
     };
-    const fator = simulacao?.notaBaixa ? getFatorNotaBaixa(simulacao.notaBaixa) : 1;
-    const custoBaseReal = dadosCusto.custoEfetivoPorUnidade * fator;
+    
     setSimulacao(prev => {
       if (!prev) return null;
       return {
@@ -429,13 +458,13 @@ export default function Precificacao() {
         custoNF: {
           ...dadosCusto,
           custoEfetivoPorUnidadeReal: custoBaseReal,
-          custoEfetivoReal: dadosCusto.custoEfetivo * fator,
+          custoEfetivoReal: custoCalculado.custoEfetivoReal,
           fatorMultiplicador: fator
         },
         tributacao: {
           ...prev.tributacao,
           icmsAliquota: dadosCusto.icmsAliquota || prev.tributacao.icmsAliquota,
-          icmsCredito: dadosCusto.icmsDestacado * fator
+          icmsCredito: dadosCusto.icmsDestacado  // Valor original (crédito fiscal)
         }
       };
     });
