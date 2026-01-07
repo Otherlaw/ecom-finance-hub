@@ -28,15 +28,14 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Buscar empresa pelo user_id do ML
-    const { data: tokenData, error: tokenError } = await supabase
+    // Buscar empresas pelo user_id do ML (pode haver múltiplas empresas com mesmo user_id)
+    const { data: tokenDataList, error: tokenError } = await supabase
       .from("integracao_tokens")
       .select("empresa_id, access_token")
       .eq("provider", "mercado_livre")
-      .eq("user_id_provider", String(user_id))
-      .single();
+      .eq("user_id_provider", String(user_id));
 
-    if (tokenError || !tokenData) {
+    if (tokenError || !tokenDataList || tokenDataList.length === 0) {
       console.warn("[ML Webhook] Token não encontrado para user_id:", user_id);
       // Retornar 200 para não bloquear o ML
       return new Response(
@@ -45,46 +44,49 @@ Deno.serve(async (req) => {
       );
     }
 
-    const empresa_id = tokenData.empresa_id;
+    // Processar para todas as empresas vinculadas ao mesmo user_id
+    for (const tokenData of tokenDataList) {
+      const empresa_id = tokenData.empresa_id;
 
-    // Registrar log do webhook
-    await supabase.from("integracao_logs").insert({
-      empresa_id,
-      provider: "mercado_livre",
-      tipo: "webhook",
-      status: "pending",
-      mensagem: `Webhook ${topic}: ${resource}`,
-      detalhes: { resource, topic, user_id, application_id },
-    });
+      // Registrar log do webhook
+      await supabase.from("integracao_logs").insert({
+        empresa_id,
+        provider: "mercado_livre",
+        tipo: "webhook",
+        status: "pending",
+        mensagem: `Webhook ${topic}: ${resource}`,
+        detalhes: { resource, topic, user_id, application_id },
+      });
 
-    // Processar por tipo de tópico
-    switch (topic) {
-      case "orders_v2":
-        // Novo pedido ou atualização - buscar detalhes e salvar
-        await processOrder(supabase, tokenData, resource, empresa_id);
-        break;
+      // Processar por tipo de tópico
+      switch (topic) {
+        case "orders_v2":
+          // Novo pedido ou atualização - buscar detalhes e salvar
+          await processOrder(supabase, tokenData, resource, empresa_id);
+          break;
 
-      case "payments":
-        // Atualização de pagamento
-        await processPayment(supabase, tokenData, resource, empresa_id);
-        break;
+        case "payments":
+          // Atualização de pagamento
+          await processPayment(supabase, tokenData, resource, empresa_id);
+          break;
 
-      case "shipments":
-        // Atualização de envio
-        console.log("[ML Webhook] Shipment update:", resource);
-        break;
+        case "shipments":
+          // Atualização de envio
+          console.log("[ML Webhook] Shipment update:", resource, "empresa:", empresa_id);
+          break;
 
-      case "claims":
-        // Reclamação/mediação
-        console.log("[ML Webhook] Claim:", resource);
-        break;
+        case "claims":
+          // Reclamação/mediação
+          console.log("[ML Webhook] Claim:", resource, "empresa:", empresa_id);
+          break;
 
-      default:
-        console.log("[ML Webhook] Tópico não tratado:", topic);
+        default:
+          console.log("[ML Webhook] Tópico não tratado:", topic);
+      }
     }
 
     return new Response(
-      JSON.stringify({ message: "Webhook processado" }),
+      JSON.stringify({ message: "Webhook processado", empresas: tokenDataList.length }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
