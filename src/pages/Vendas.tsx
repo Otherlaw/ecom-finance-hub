@@ -150,6 +150,18 @@ export default function Vendas() {
       
       if (error) throw error;
       
+      // Verificar se a resposta contém erro (ex: sem integração)
+      if (data?.error) {
+        toast.error(data.error, {
+          duration: 8000,
+          action: {
+            label: "Ir para Integrações",
+            onClick: () => window.location.href = "/integracoes"
+          }
+        });
+        return;
+      }
+      
       toast.success(
         `Sincronização concluída: ${data.registros_criados} novos, ${data.registros_atualizados} atualizados${data.partial ? " (parcial)" : ""}`
       );
