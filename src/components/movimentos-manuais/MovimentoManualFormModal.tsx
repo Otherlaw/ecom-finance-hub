@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useEmpresas } from "@/hooks/useEmpresas";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useCategoriasFinanceiras } from "@/hooks/useCategoriasFinanceiras";
 import { useCentrosCusto } from "@/hooks/useCentrosCusto";
 import { useResponsaveis } from "@/hooks/useResponsaveis";
@@ -77,6 +78,7 @@ export function MovimentoManualFormModal({
   onSuccess,
 }: MovimentacaoManualModalProps) {
   const { empresas } = useEmpresas();
+  const { empresaAtiva } = useEmpresaAtiva();
   const { categorias } = useCategoriasFinanceiras();
   const { centrosFlat } = useCentrosCusto();
   const { responsaveis } = useResponsaveis();
@@ -132,7 +134,7 @@ export function MovimentoManualFormModal({
         tipo: "saida",
         valor: 0,
         descricao: "",
-        empresaId: empresas?.[0]?.id || "",
+        empresaId: empresaAtiva?.id || "",
         categoriaId: "",
         centroCustoId: "",
         responsavelId: "",
@@ -140,7 +142,7 @@ export function MovimentoManualFormModal({
         observacoes: "",
       });
     }
-  }, [movimentacao, open, reset, empresas]);
+  }, [movimentacao, open, reset, empresaAtiva]);
 
   // Filtrar categorias por tipo (receitas para entrada, despesas para saída)
   const categoriasDisponiveis = categorias?.filter((cat) => {

@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { useEmpresas } from '@/hooks/useEmpresas';
+import { useEmpresaAtiva } from '@/contexts/EmpresaContext';
 import { useCategoriasFinanceiras } from '@/hooks/useCategoriasFinanceiras';
 import { useCentrosCusto } from '@/hooks/useCentrosCusto';
 import { ContaPagar } from '@/hooks/useContasPagar';
@@ -42,6 +43,7 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
   
   // Dados reais do Supabase
   const { empresas } = useEmpresas();
+  const { empresaAtiva } = useEmpresaAtiva();
   const { categorias, categoriasPorTipo } = useCategoriasFinanceiras();
   const { centrosFlat } = useCentrosCusto();
   
@@ -80,7 +82,7 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
       });
     } else {
       setFormData({
-        empresa_id: empresas?.[0]?.id || '',
+        empresa_id: empresaAtiva?.id || '',
         fornecedor_nome: '',
         descricao: '',
         documento: '',
@@ -96,7 +98,7 @@ export function ContaPagarFormModal({ open, onOpenChange, conta, onSave }: Conta
       });
     }
     setErrors({});
-  }, [conta, open, empresas]);
+  }, [conta, open, empresaAtiva]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};

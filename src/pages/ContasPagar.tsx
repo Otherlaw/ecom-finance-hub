@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { toast } from 'sonner';
 import { useContasPagar, STATUS_LABELS, ContaPagar } from '@/hooks/useContasPagar';
 import { useEmpresas } from '@/hooks/useEmpresas';
+import { useEmpresaAtiva } from '@/contexts/EmpresaContext';
 import { useCategoriasFinanceiras } from '@/hooks/useCategoriasFinanceiras';
 import { ContaPagarFormModal } from '@/components/contas-pagar/ContaPagarFormModal';
 import { PagamentoModal } from '@/components/contas-pagar/PagamentoModal';
@@ -214,9 +215,11 @@ export default function ContasPagar() {
     }
   };
 
+  const { empresaAtiva } = useEmpresaAtiva();
+
 const handleImport = (data: any[]) => {
     // Process imported data
-    const defaultEmpresa = empresas?.[0];
+    const defaultEmpresa = empresaAtiva;
     
     data.forEach(async (row) => {
       try {

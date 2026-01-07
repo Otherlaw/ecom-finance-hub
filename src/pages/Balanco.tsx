@@ -4,7 +4,7 @@ import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useBalancoPatrimonial } from "@/hooks/useBalancoPatrimonial";
-import { useEmpresas } from "@/hooks/useEmpresas";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { formatCurrency } from "@/lib/mock-data";
 import { Scale, Download, Building, Wallet, Landmark, TrendingUp, Loader2, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,8 +16,8 @@ export default function Balanco() {
   const [mes, setMes] = useState(hoje.getMonth() + 1);
   const [ano, setAno] = useState(hoje.getFullYear());
   
-  const { empresas } = useEmpresas();
-  const empresaId = empresas?.[0]?.id;
+  const { empresaAtiva } = useEmpresaAtiva();
+  const empresaId = empresaAtiva?.id;
   
   const { data: balanco, isLoading, error } = useBalancoPatrimonial(empresaId, mes, ano);
 

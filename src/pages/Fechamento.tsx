@@ -8,7 +8,7 @@ import { useFluxoCaixa } from "@/hooks/useFluxoCaixa";
 import { useMarketplaceTransactions } from "@/hooks/useMarketplaceTransactions";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
-import { useEmpresas } from "@/hooks/useEmpresas";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
 import { 
   useChecklistsCanal, 
@@ -90,10 +90,10 @@ export default function Fechamento() {
   const contasPagar = contasPagarData || [];
   const contasReceber = contasReceberData || [];
   const marketplaceTransacoesArr = marketplaceTransacoes || [];
-  const { empresas } = useEmpresas();
+  const { empresaAtiva, empresasDisponiveis } = useEmpresaAtiva();
   
-  // Primeira empresa para buscar checklists (pode ser expandido para múltiplas)
-  const empresaPrincipal = empresas?.[0];
+  // Empresa ativa para buscar checklists
+  const empresaPrincipal = empresaAtiva;
   
   // Buscar checklists do período
   const { checklists, isLoading: isChecklistLoading } = useChecklistsCanal({
@@ -184,7 +184,7 @@ export default function Fechamento() {
     // Receitas de marketplace
     marketplaceTransacoesArr.forEach(t => {
       const empresaId = t.empresa_id;
-      const empresa = empresas?.find(e => e.id === empresaId);
+      const empresa = empresasDisponiveis?.find(e => e.id === empresaId);
       const nome = empresa?.nome_fantasia || empresa?.razao_social || "Empresa não identificada";
       
       if (!porEmpresa[empresaId]) {
@@ -201,7 +201,7 @@ export default function Fechamento() {
     // Adicionar contas a pagar como despesas
     contasPagar?.forEach(c => {
       const empresaId = c.empresa_id;
-      const empresa = empresas?.find(e => e.id === empresaId);
+      const empresa = empresasDisponiveis?.find(e => e.id === empresaId);
       const nome = empresa?.nome_fantasia || empresa?.razao_social || "Empresa não identificada";
       
       if (!porEmpresa[empresaId]) {
@@ -216,7 +216,7 @@ export default function Fechamento() {
     // Adicionar contas a receber como receitas
     contasReceber?.forEach(c => {
       const empresaId = c.empresa_id;
-      const empresa = empresas?.find(e => e.id === empresaId);
+      const empresa = empresasDisponiveis?.find(e => e.id === empresaId);
       const nome = empresa?.nome_fantasia || empresa?.razao_social || "Empresa não identificada";
       
       if (!porEmpresa[empresaId]) {
@@ -234,7 +234,7 @@ export default function Fechamento() {
     });
 
     return Object.values(porEmpresa).sort((a, b) => b.receita - a.receita);
-  }, [marketplaceTransacoesArr, contasPagar, contasReceber, empresas]);
+  }, [marketplaceTransacoesArr, contasPagar, contasReceber, empresasDisponiveis]);
 
   // Calcular status do checklist por canal
   const checklistCanalStatus = useMemo(() => {
