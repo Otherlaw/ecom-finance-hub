@@ -292,11 +292,10 @@ export function ImportarExtratoBancarioModal({
         },
         onError: (error: any) => {
           setProgressoImportacao(null);
-          // Mensagem específica para erro de permissão
           const msg = error?.message || "Erro ao importar transações";
-          if (msg.includes("permissão") || msg.includes("permission")) {
-            toast.error(msg, { duration: 8000 });
-          }
+          // Sempre mostrar erro, com duração maior para erros de permissão
+          const isPermissionError = msg.includes("permissão") || msg.includes("permission");
+          toast.error(msg, { duration: isPermissionError ? 8000 : 5000 });
         },
       }
     );
@@ -405,7 +404,7 @@ export function ImportarExtratoBancarioModal({
                   <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 mb-2">
                     <AlertCircle className="h-4 w-4 text-amber-600" />
                     <span className="text-sm text-amber-700">
-                      Não foi possível identificar a empresa automaticamente. Selecione manualmente:
+                      O arquivo OFX não contém o CNPJ do titular. Selecione a empresa manualmente:
                     </span>
                   </div>
                 )}
