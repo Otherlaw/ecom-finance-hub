@@ -290,8 +290,13 @@ export function ImportarExtratoBancarioModal({
           onOpenChange(false);
           onSuccess?.();
         },
-        onError: () => {
+        onError: (error: any) => {
           setProgressoImportacao(null);
+          // Mensagem específica para erro de permissão
+          const msg = error?.message || "Erro ao importar transações";
+          if (msg.includes("permissão") || msg.includes("permission")) {
+            toast.error(msg, { duration: 8000 });
+          }
         },
       }
     );
