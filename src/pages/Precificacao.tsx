@@ -420,15 +420,26 @@ export default function Precificacao() {
     if (!selectedNFItem) return;
     const { compra, itemIndex } = selectedNFItem;
     const item = compra.itens![itemIndex];
+    
+    // Separar ICMS próprio (crédito) e ICMS-ST (custo)
+    const icmsProprio = item.valor_icms || 0;
+    const icmsSTItem = (item as any).valor_icms_st || 0;
+    
+    // Fallback: se item não tem ST, ratear proporcionalmente do cabeçalho
+    const stDoItem = icmsSTItem > 0 
+      ? icmsSTItem 
+      : ((compra as any).valor_icms_st || 0) * (item.valor_total / (compra.valor_produtos || compra.valor_total));
+    
     const custoCalculado = calcularCustoEfetivoNF({
       valorTotalItem: item.valor_total,
       quantidade: item.quantidade,
       freteNF: compra.valor_frete || 0,
-      despesasAcessorias: 0,
+      despesasAcessorias: (compra as any).outras_despesas || 0,
       descontos: compra.valor_desconto || 0,
       valorTotalNF: compra.valor_total,
-      stItem: item.valor_icms || 0,
-      ipiItem: item.valor_ipi || 0
+      stItem: stDoItem,              // ICMS-ST (custo)
+      ipiItem: item.valor_ipi || 0,
+      icmsProprio: icmsProprio       // ICMS próprio (crédito)
     }, simulacao?.notaBaixa);
     
     // Usar valores JÁ calculados pela função (não reaplicar fator)
@@ -446,8 +457,10 @@ export default function Precificacao() {
       valorUnitario: item.valor_unitario,
       valorTotalItem: item.valor_total,
       valorTotalNF: compra.valor_total,
-      icmsDestacado: item.valor_icms || 0,
-      icmsAliquota: item.aliquota_icms || 0
+      icmsDestacado: icmsProprio,         // ICMS próprio (para crédito)
+      icmsAliquota: item.aliquota_icms || 0,
+      stRateado: stDoItem,                // ICMS-ST (para custo)
+      ipiRateado: item.valor_ipi || 0
     };
     
     setSimulacao(prev => {
