@@ -6,6 +6,7 @@ import { LayoutDashboard, CalendarCheck, Wallet, CreditCard as CreditCardIcon, F
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { EmpresaSelector } from "@/components/EmpresaSelector";
 import logo from "@/assets/logo-ecom-finance.png";
 interface NavItem {
   title: string;
@@ -184,6 +185,13 @@ export function AppSidebar() {
         <Button variant="ghost" size="icon" onClick={() => setCollapsed(!collapsed)} className={cn("h-8 w-8 text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent", collapsed && "absolute right-2")}>
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </Button>
+      </div>
+
+      <Separator className="bg-sidebar-border" />
+
+      {/* Seletor de Empresa */}
+      <div className="px-3 py-2">
+        <EmpresaSelector collapsed={collapsed} />
       </div>
 
       <Separator className="bg-sidebar-border" />
