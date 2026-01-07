@@ -220,13 +220,57 @@ export default function Precificacao() {
     } : null);
   };
   const handleTributacaoChange = (field: string, value: number | boolean) => {
-    setSimulacao(prev => prev ? {
-      ...prev,
-      tributacao: {
+    setSimulacao(prev => {
+      if (!prev) return null;
+      
+      const novaTributacao = {
         ...prev.tributacao,
         [field]: value
+      };
+      
+      // Se mudou aproveitarCreditoICMSProprio e tem custoNF, recalcular custo
+      if (field === 'aproveitarCreditoICMSProprio' && prev.custoNF) {
+        const podeAproveitar = value as boolean && empresaSelecionada?.regimeTributario !== 'simples_nacional';
+        
+        const custoRecalculado = calcularCustoEfetivoNF({
+          valorTotalItem: prev.custoNF.valorTotalItem,
+          quantidade: prev.custoNF.quantidade,
+          freteNF: prev.custoNF.freteNF || 0,
+          despesasAcessorias: prev.custoNF.despesasAcessorias || 0,
+          descontos: prev.custoNF.descontosNF || 0,
+          valorTotalNF: prev.custoNF.valorTotalNF,
+          stItem: prev.custoNF.stDestacado || 0,
+          ipiItem: prev.custoNF.ipiDestacado || 0,
+          icmsProprio: prev.custoNF.icmsDestacado || 0,
+          aproveitarCreditoICMS: podeAproveitar,
+          regimeTributario: empresaSelecionada?.regimeTributario,
+          isSubstituicaoTributaria: prev.custoNF.isSubstituicaoTributaria,
+          grupoICMS: prev.custoNF.grupoICMS,
+          cstNumero: prev.custoNF.cstNumero,
+        }, prev.notaBaixa);
+        
+        const fator = getFatorNotaBaixa(prev.notaBaixa);
+        const custoBaseReal = custoRecalculado.custoEfetivoPorUnidade * fator;
+        
+        return {
+          ...prev,
+          custoBase: custoBaseReal,
+          custoNF: {
+            ...prev.custoNF,
+            ...custoRecalculado,
+            custoEfetivoPorUnidadeReal: custoBaseReal,
+            custoEfetivoReal: custoRecalculado.custoEfetivo * fator,
+            fatorMultiplicador: fator,
+          },
+          tributacao: novaTributacao,
+        };
       }
-    } : null);
+      
+      return {
+        ...prev,
+        tributacao: novaTributacao
+      };
+    });
   };
   const handleNotaBaixaChange = (field: keyof NotaBaixaConfig, value: any) => {
     setSimulacao(prev => {
@@ -764,6 +808,16 @@ export default function Precificacao() {
                                 <div className="font-medium">{simulacao.custoNF.itemDescricao}</div>
                                 <div className="text-muted-foreground">Quantidade:</div>
                                 <div className="font-medium">{simulacao.custoNF.quantidade} un</div>
+                                {simulacao.custoNF.isSubstituicaoTributaria && (
+                                  <>
+                                    <div className="text-muted-foreground">Grupo ICMS:</div>
+                                    <div>
+                                      <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                                        {simulacao.custoNF.grupoICMS} (CST {simulacao.custoNF.cstNumero}) - ST
+                                      </Badge>
+                                    </div>
+                                  </>
+                                )}
                               </div>
                               <Separator />
                               <div className="space-y-1">
@@ -1056,6 +1110,60 @@ export default function Precificacao() {
                             <Input type="number" step="0.01" value={simulacao?.tributacao.ipiValor || ''} onChange={e => handleTributacaoChange('ipiValor', parseFloat(e.target.value) || 0)} />
                           </div>
                         </div>
+                        
+                        {/* Switch: Aproveitar crédito de ICMS próprio */}
+                        <div className="p-3 rounded-lg border border-blue-200 bg-blue-50/50 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Receipt className="h-4 w-4 text-blue-600" />
+                              <Label className="font-semibold text-blue-800">Aproveitar crédito de ICMS próprio</Label>
+                            </div>
+                            <Switch 
+                              checked={simulacao?.tributacao.aproveitarCreditoICMSProprio || false}
+                              onCheckedChange={(checked) => handleTributacaoChange('aproveitarCreditoICMSProprio', checked)}
+                            />
+                          </div>
+                          <p className="text-xs text-blue-700">
+                            Quando ativo, o ICMS próprio destacado na NF (vICMS) será abatido do custo efetivo do produto.
+                            {simulacao?.custoNF?.icmsDestacado && simulacao?.custoNF?.icmsDestacado > 0 && (
+                              <span className="font-medium"> Crédito disponível: {formatCurrency(simulacao.custoNF.icmsDestacado)}</span>
+                            )}
+                          </p>
+                          {simulacao?.tributacao.aproveitarCreditoICMSProprio && simulacao?.custoNF?.creditoICMSAbatido && simulacao.custoNF.creditoICMSAbatido > 0 && (
+                            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Crédito abatido: {formatCurrency(simulacao.custoNF.creditoICMSAbatido)}
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Switch: Item ST - Não aplicar ICMS de saída */}
+                        {simulacao?.custoNF?.isSubstituicaoTributaria && (
+                          <div className="p-3 rounded-lg border border-orange-200 bg-orange-50/50 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                                <Label className="font-semibold text-orange-800">
+                                  Item com Substituição Tributária ({simulacao.custoNF.grupoICMS || 'ST'} - CST {simulacao.custoNF.cstNumero || 'ST'})
+                                </Label>
+                              </div>
+                              <Switch 
+                                checked={simulacao?.tributacao.icmsSaidaZerado || false}
+                                onCheckedChange={(checked) => handleTributacaoChange('icmsSaidaZerado', checked)}
+                              />
+                            </div>
+                            <p className="text-xs text-orange-700">
+                              Se a venda for dentro de SP e o ICMS-ST já foi recolhido na compra, 
+                              <strong> não deve haver ICMS de saída (18%)</strong> para evitar dupla tributação.
+                            </p>
+                            {simulacao?.tributacao.icmsSaidaZerado && (
+                              <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300">
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                ICMS de saída zerado - ST já recolhido na compra
+                              </Badge>
+                            )}
+                          </div>
+                        )}
                         
                         {/* DIFAL */}
                         <div className="p-3 rounded-lg border bg-secondary/20 space-y-3">
