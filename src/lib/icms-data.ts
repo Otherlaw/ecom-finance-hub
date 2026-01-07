@@ -229,6 +229,27 @@ export const CFOPS_CREDITO_PADRAO = [
   '2102', '2403', '2556', '2949', // Entradas interestaduais
 ];
 
+// Marcador especial para erro de NFSe
+export const NFSE_ERROR_MARKER = "__NFSE_NOT_SUPPORTED__";
+
+// Função auxiliar para detectar se XML é NFSe
+export const isNFSeXML = (xmlContent: string): boolean => {
+  const xmlLower = xmlContent.toLowerCase();
+  return (
+    xmlLower.includes("<nfse") ||
+    xmlLower.includes("<compnfse") ||
+    xmlLower.includes("<consultarnfse") ||
+    xmlLower.includes("<infnfse") ||
+    xmlLower.includes("nfse.xsd") ||
+    xmlLower.includes("<servico>") ||
+    xmlLower.includes("<tomador>") ||
+    xmlLower.includes("<prestador>") ||
+    xmlLower.includes("<listnfse") ||
+    // Verifica ausência total de tags de NF-e junto com tags de serviço
+    (!xmlLower.includes("<infnfe") && xmlLower.includes("<iss"))
+  );
+};
+
 // ============= XML Parser for NF-e =============
 export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
   try {
@@ -243,6 +264,12 @@ export const parseNFeXML = (xmlContent: string): NotaFiscalXML | null => {
 
     const infNFe = xmlDoc.querySelector("infNFe") || xmlDoc.querySelector("*|infNFe");
     if (!infNFe) {
+      // Detectar se é NFSe antes de retornar null genérico
+      if (isNFSeXML(xmlContent)) {
+        console.error("XML is NFSe (service invoice), not NF-e");
+        // Retornar objeto com marcador de erro para que o chamador possa identificar
+        return { error: NFSE_ERROR_MARKER } as any;
+      }
       console.error("Invalid NF-e XML: infNFe not found");
       return null;
     }

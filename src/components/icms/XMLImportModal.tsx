@@ -39,6 +39,7 @@ import {
   TipoCreditoICMS,
   OrigemCredito,
   ORIGEM_CREDITO_CONFIG,
+  NFSE_ERROR_MARKER,
 } from "@/lib/icms-data";
 import { REGIME_TRIBUTARIO_CONFIG, canUseICMSCredit } from "@/lib/empresas-data";
 import { useEmpresas } from "@/hooks/useEmpresas";
@@ -197,11 +198,21 @@ export function XMLImportModal({
           const content = await file.text();
           const nfe = parseNFeXML(content);
 
+          // Verificar se é erro de NFSe
+          if (nfe && (nfe as any).error === NFSE_ERROR_MARKER) {
+            results.push({
+              fileName: file.name,
+              nfe: null,
+              error: "Este XML parece ser de NFSe (nota fiscal de serviço), não de NF-e. O módulo de Crédito de ICMS aceita apenas NF-e (modelos 55/65).",
+            });
+            continue;
+          }
+
           if (!nfe) {
             results.push({
               fileName: file.name,
               nfe: null,
-              error: "Não foi possível ler o XML. Verifique se é um arquivo NF-e válido.",
+              error: "Não foi possível ler o XML. Verifique se é um arquivo NF-e válido (modelo 55 ou 65).",
             });
             continue;
           }

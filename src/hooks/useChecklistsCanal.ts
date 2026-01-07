@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { templatesChecklist, canaisMarketplace } from "@/lib/checklist-data";
+import { getFriendlyErrorMessage } from "@/lib/supabase-error";
 
 // ============= TIPOS =============
 export interface ChecklistCanal {
@@ -212,7 +213,7 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
       toast.success(`Checklist de ${data.canal_nome} criado com sucesso`);
     },
     onError: (error: Error) => {
-      toast.error(error.message || "Erro ao criar checklist");
+      toast.error(getFriendlyErrorMessage(error, "criar checklist"));
     },
   });
 
@@ -292,7 +293,7 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
       toast.success("Etapa criada com sucesso");
     },
     onError: (error: Error) => {
-      toast.error("Erro ao criar etapa: " + error.message);
+      toast.error(getFriendlyErrorMessage(error, "criar etapa"));
     },
   });
 
@@ -352,7 +353,7 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
       toast.success("Etapa atualizada com sucesso");
     },
     onError: (error: Error) => {
-      toast.error("Erro ao atualizar etapa: " + error.message);
+      toast.error(getFriendlyErrorMessage(error, "atualizar etapa"));
     },
   });
 
@@ -371,7 +372,7 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
       toast.success("Etapa excluída com sucesso");
     },
     onError: (error: Error) => {
-      toast.error("Erro ao excluir etapa: " + error.message);
+      toast.error(getFriendlyErrorMessage(error, "excluir etapa"));
     },
   });
 
