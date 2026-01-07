@@ -1763,16 +1763,16 @@ export default function Precificacao() {
 
       {/* Modal Upload XML */}
       <Dialog open={xmlUploadModalOpen} onOpenChange={setXmlUploadModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
-          <DialogHeader className="flex-shrink-0">
+        <DialogContent className="max-w-4xl max-h-[90vh] !flex !flex-col overflow-hidden p-0">
+          <DialogHeader className="flex-shrink-0 px-6 pt-6">
             <DialogTitle className="flex items-center gap-2">
               <FileCode className="h-5 w-5" />
               Upload de XML de NF-e
             </DialogTitle>
             <DialogDescription>Envie um arquivo XML de NF-e para calcular o custo efetivo</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 min-h-0">
-          <div className="space-y-4 pr-4">
+          <ScrollArea className="flex-1 min-h-0 max-h-[calc(90vh-180px)]">
+          <div className="space-y-4 px-6 py-4">
             {!xmlParsed ? <div className="border-2 border-dashed rounded-xl p-8 text-center">
                 <input type="file" accept=".xml" onChange={handleXmlUpload} className="hidden" id="xml-upload" />
                 <label htmlFor="xml-upload" className="cursor-pointer">
@@ -2031,7 +2031,7 @@ export default function Precificacao() {
               </div>}
           </div>
           </ScrollArea>
-          <DialogFooter className="flex-shrink-0 border-t pt-4 mt-2">
+          <DialogFooter className="flex-shrink-0 border-t px-6 py-4 bg-background">
             <Button variant="outline" onClick={() => {
             setXmlUploadModalOpen(false);
             setXmlParsed(null);
