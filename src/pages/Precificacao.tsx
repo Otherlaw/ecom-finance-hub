@@ -1749,9 +1749,195 @@ export default function Precificacao() {
                   <span><strong>IPI Total:</strong> {formatCurrency(xmlParsed.ipiTotal || 0)}</span>
                   <span><strong>Valor NF:</strong> {formatCurrency(xmlParsed.valorTotal || 0)}</span>
                 </div>
+
+                {/* Nota Baixa da Compra - dentro do modal */}
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 text-amber-600" />
+                      <Label className="font-semibold text-amber-800">Nota Baixa / Valor Parcial</Label>
+                    </div>
+                    <Switch 
+                      checked={simulacao?.notaBaixa.ativa || false} 
+                      onCheckedChange={checked => handleNotaBaixaChange('ativa', checked)} 
+                    />
+                  </div>
+                  
+                  {simulacao?.notaBaixa.ativa && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-sm">A NF representa:</Label>
+                        <Select value={simulacao.notaBaixa.opcao} onValueChange={v => handleNotaBaixaChange('opcao', v as NotaBaixaOpcao)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {NOTA_BAIXA_OPCOES.map(op => <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {simulacao.notaBaixa.opcao === 'personalizado' && (
+                        <div>
+                          <Label className="text-sm">% do valor real:</Label>
+                          <Input 
+                            type="number" 
+                            step="1" 
+                            min="1" 
+                            max="100" 
+                            value={simulacao.notaBaixa.percentualPersonalizado} 
+                            onChange={e => handleNotaBaixaChange('percentualPersonalizado', parseFloat(e.target.value) || 50)} 
+                            placeholder="50" 
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {simulacao?.notaBaixa.ativa && (
+                    <p className="text-xs text-amber-700">
+                      Fator multiplicador: <strong>×{getFatorNotaBaixa(simulacao.notaBaixa).toFixed(2)}</strong> — O custo será ajustado para o valor real da operação.
+                    </p>
+                  )}
+                </div>
+
+                {/* Preview do item selecionado */}
+                {selectedXmlItemIndex !== null && xmlParsed.itens[selectedXmlItemIndex] && (() => {
+                  const itemPreview = xmlParsed.itens[selectedXmlItemIndex];
+                  const isSTItem = itemPreview.isSubstituicaoTributaria || (itemPreview.icmsST && itemPreview.icmsST > 0);
+                  const podeAproveitar = empresaSelecionada?.regimeTributario !== 'simples_nacional' && 
+                                        simulacao?.tributacao.aproveitarCreditoICMSProprio;
+                  
+                  const custoPreview = calcularCustoEfetivoNF({
+                    valorTotalItem: itemPreview.valorTotal,
+                    quantidade: itemPreview.quantidade,
+                    freteNF: xmlParsed.freteTotal || 0,
+                    despesasAcessorias: xmlParsed.outrasDepesas || 0,
+                    descontos: xmlParsed.descontoTotal || 0,
+                    valorTotalNF: xmlParsed.valorTotal,
+                    stItem: itemPreview.icmsST || 0,
+                    ipiItem: itemPreview.valorIPI || 0,
+                    icmsProprio: itemPreview.valorIcms || 0,
+                    aproveitarCreditoICMS: podeAproveitar,
+                    regimeTributario: empresaSelecionada?.regimeTributario,
+                    isSubstituicaoTributaria: isSTItem,
+                    grupoICMS: itemPreview.grupoICMS,
+                    cstNumero: itemPreview.cstNumero,
+                  }, simulacao?.notaBaixa);
+                  
+                  const fator = simulacao?.notaBaixa ? getFatorNotaBaixa(simulacao.notaBaixa) : 1;
+                  const custoUnitarioReal = custoPreview.custoEfetivoPorUnidade * fator;
+
+                  return (
+                    <div className="p-4 rounded-lg border-2 border-primary/30 bg-primary/5 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold text-primary flex items-center gap-2">
+                          <Package className="h-4 w-4" />
+                          Preview do Custo - Item Selecionado
+                        </h4>
+                        {isSTItem && (
+                          <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                            {itemPreview.grupoICMS} (CST {itemPreview.cstNumero}) - ST
+                          </Badge>
+                        )}
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Descrição:</span>
+                          <p className="font-medium truncate">{itemPreview.descricao}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Quantidade:</span>
+                          <p className="font-medium">{itemPreview.quantidade} un</p>
+                        </div>
+                      </div>
+
+                      <Separator />
+                      
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span>Valor do item (vProd):</span>
+                          <span className="font-medium">{formatCurrency(itemPreview.valorTotal)}</span>
+                        </div>
+                        {(itemPreview.valorIPI || 0) > 0 && (
+                          <div className="flex justify-between">
+                            <span>+ IPI (vIPI):</span>
+                            <span className="text-orange-600">+{formatCurrency(itemPreview.valorIPI || 0)}</span>
+                          </div>
+                        )}
+                        {(itemPreview.icmsST || 0) > 0 && (
+                          <div className="flex justify-between">
+                            <span>+ ICMS-ST (vICMSST):</span>
+                            <span className="text-orange-600">+{formatCurrency(itemPreview.icmsST || 0)}</span>
+                          </div>
+                        )}
+                        {(custoPreview.freteRateado || 0) > 0 && (
+                          <div className="flex justify-between">
+                            <span>+ Frete rateado:</span>
+                            <span className="text-orange-600">+{formatCurrency(custoPreview.freteRateado)}</span>
+                          </div>
+                        )}
+                        {podeAproveitar && (itemPreview.valorIcms || 0) > 0 && (
+                          <div className="flex justify-between">
+                            <span>- Crédito ICMS próprio:</span>
+                            <span className="text-emerald-600">-{formatCurrency(itemPreview.valorIcms || 0)}</span>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <Separator />
+                      
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold">Custo Unitário:</span>
+                        <span className="text-xl font-bold text-primary">{formatCurrency(custoPreview.custoEfetivoPorUnidade)}/un</span>
+                      </div>
+                      
+                      {fator > 1 && (
+                        <div className="p-2 rounded bg-amber-100 border border-amber-200">
+                          <div className="flex justify-between items-center">
+                            <span className="text-amber-800 font-semibold">Custo Real (×{fator.toFixed(2)}):</span>
+                            <span className="text-xl font-bold text-amber-900">{formatCurrency(custoUnitarioReal)}/un</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Switch para aproveitar crédito ICMS próprio */}
+                      {empresaSelecionada?.regimeTributario !== 'simples_nacional' && (itemPreview.valorIcms || 0) > 0 && (
+                        <div className="p-2 rounded bg-blue-50 border border-blue-200">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <Label className="text-sm text-blue-800">Aproveitar crédito ICMS próprio</Label>
+                              <p className="text-xs text-blue-600">vICMS: {formatCurrency(itemPreview.valorIcms || 0)}</p>
+                            </div>
+                            <Switch 
+                              checked={simulacao?.tributacao.aproveitarCreditoICMSProprio || false}
+                              onCheckedChange={(checked) => handleTributacaoChange('aproveitarCreditoICMSProprio', checked)}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Switch para zerar ICMS de saída (item ST) */}
+                      {isSTItem && empresaSelecionada?.regimeTributario !== 'simples_nacional' && (
+                        <div className="p-2 rounded bg-orange-50 border border-orange-200">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <Label className="text-sm text-orange-800">Item ST - Não aplicar ICMS de saída</Label>
+                              <p className="text-xs text-orange-600">Para vendas em SP onde ST já foi recolhido</p>
+                            </div>
+                            <Switch 
+                              checked={simulacao?.tributacao.icmsSaidaZerado || false}
+                              onCheckedChange={(checked) => handleTributacaoChange('icmsSaidaZerado', checked)}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 
                 <Label>Selecione o item do produto:</Label>
-                <ScrollArea className="h-[300px] border rounded-lg">
+                <ScrollArea className="h-[250px] border rounded-lg">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1766,8 +1952,16 @@ export default function Precificacao() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {xmlParsed.itens.map((item, idx) => <TableRow key={idx} className={selectedXmlItemIndex === idx ? 'bg-primary/10' : ''}>
-                          <TableCell className="max-w-[180px] truncate">{item.descricao}</TableCell>
+                      {xmlParsed.itens.map((item, idx) => (
+                        <TableRow key={idx} className={selectedXmlItemIndex === idx ? 'bg-primary/10' : ''}>
+                          <TableCell className="max-w-[180px] truncate">
+                            <div className="flex items-center gap-1">
+                              {item.descricao}
+                              {item.isSubstituicaoTributaria && (
+                                <Badge variant="outline" className="text-[10px] px-1 py-0 bg-orange-50 text-orange-600 border-orange-200">ST</Badge>
+                              )}
+                            </div>
+                          </TableCell>
                           <TableCell className="font-mono text-xs">{item.ncm}</TableCell>
                           <TableCell className="text-right">{item.quantidade}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.valorUnitario)}</TableCell>
@@ -1775,11 +1969,17 @@ export default function Precificacao() {
                           <TableCell className="text-right">{formatCurrency(item.valorIPI || 0)}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.valorTotal)}</TableCell>
                           <TableCell>
-                            <Button variant={selectedXmlItemIndex === idx ? 'default' : 'outline'} size="sm" onClick={() => setSelectedXmlItemIndex(idx)}>
-                              Selecionar
+                            <Button 
+                              variant={selectedXmlItemIndex === idx ? 'default' : 'outline'} 
+                              size="sm" 
+                              onClick={() => setSelectedXmlItemIndex(idx)}
+                              disabled={item.quantidade <= 0}
+                            >
+                              {item.quantidade <= 0 ? 'Inválido' : 'Selecionar'}
                             </Button>
                           </TableCell>
-                        </TableRow>)}
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 </ScrollArea>
