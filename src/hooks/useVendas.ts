@@ -320,7 +320,8 @@ export function useVendas(filtros: VendasFiltros) {
         .eq("tipo_lancamento", "credito")
         .gte("data_transacao", dataInicioUTC)
         .lt("data_transacao", dataFimUTC)
-        .order("data_transacao", { ascending: false });
+        .order("data_transacao", { ascending: false })
+        .limit(1000); // Limitar para performance
 
       if (error) throw error;
 
