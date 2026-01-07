@@ -148,9 +148,36 @@ export default function Vendas() {
         body: { empresa_id: empresaId, days_back: 7 },
       });
       
-      if (error) throw error;
+      // Extrair mensagem de erro da resposta (quando status não é 2xx)
+      if (error) {
+        let mensagemErro = "Erro ao reprocessar vendas";
+        
+        // Tentar extrair mensagem do corpo da resposta
+        try {
+          const errorBody = error.context?.body ? JSON.parse(error.context.body) : null;
+          if (errorBody?.error) {
+            mensagemErro = errorBody.error;
+          }
+        } catch {
+          // Fallback para mensagem padrão
+        }
+        
+        // Verificar se é erro de integração não configurada
+        if (mensagemErro.includes("integração") || mensagemErro.includes("Integrações")) {
+          toast.error(mensagemErro, {
+            duration: 8000,
+            action: {
+              label: "Ir para Integrações",
+              onClick: () => window.location.href = "/integracoes"
+            }
+          });
+        } else {
+          toast.error(mensagemErro);
+        }
+        return;
+      }
       
-      // Verificar se a resposta contém erro (ex: sem integração)
+      // Verificar se a resposta contém erro (para outros casos)
       if (data?.error) {
         toast.error(data.error, {
           duration: 8000,
@@ -167,7 +194,8 @@ export default function Vendas() {
       );
     } catch (err) {
       console.error("Erro ao reprocessar:", err);
-      toast.error("Erro ao reprocessar vendas");
+      const mensagem = err instanceof Error ? err.message : "Erro ao reprocessar vendas";
+      toast.error(mensagem);
     } finally {
       setReprocessando(false);
     }
