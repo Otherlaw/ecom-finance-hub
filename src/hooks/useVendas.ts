@@ -280,58 +280,76 @@ export function useVendas(filtros: VendasFiltros) {
       dataFimDate.setMilliseconds(dataFimDate.getMilliseconds() - 1);
       const dataFimUTC = dataFimDate.toISOString();
 
-      // Query direta nas tabelas já que a view pode não existir ainda
-      const { data: transacoes, error } = await supabase
-        .from("marketplace_transactions")
-        .select(`
-          id,
-          empresa_id,
-          canal,
-          canal_venda,
-          conta_nome,
-          pedido_id,
-          data_transacao,
-          data_repasse,
-          tipo_transacao,
-          descricao,
-          status,
-          referencia_externa,
-          valor_bruto,
-          valor_liquido,
-          tarifas,
-          taxas,
-          outros_descontos,
-          tipo_lancamento,
-          categoria_id,
-          centro_custo_id,
-          tipo_envio,
-          frete_comprador,
-          frete_vendedor,
-          custo_ads,
-          marketplace_transaction_items (
-            id,
-            sku_marketplace,
-            anuncio_id,
-            descricao_item,
-            quantidade,
-            preco_unitario,
-            preco_total,
-            produto_id,
-            produtos:produto_id (
-              sku,
-              nome,
-              custo_medio
-            )
-          )
-        `)
-        .eq("empresa_id", empresaAtiva.id)
-        .eq("tipo_lancamento", "credito")
-        .gte("data_transacao", dataInicioUTC)
-        .lt("data_transacao", dataFimUTC)
-        .order("data_transacao", { ascending: false })
-        .limit(50000); // Limite ajustado para cobrir operações maiores
+      // Query paginada: o backend aplica limite máximo (~1000) por requisição.
+      // Para períodos com muitas vendas (ex.: hoje/7d/30d), precisamos paginar para
+      // que os cards e a tabela reflitam o período corretamente.
+      const transacoes: any[] = [];
+      const pageSize = 1000;
+      const maxPages = 200; // proteção contra loops acidentais (200k linhas)
 
-      if (error) throw error;
+      for (let page = 0; page < maxPages; page++) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+
+        const { data: pageData, error } = await supabase
+          .from("marketplace_transactions")
+          .select(
+            `
+            id,
+            empresa_id,
+            canal,
+            canal_venda,
+            conta_nome,
+            pedido_id,
+            data_transacao,
+            data_repasse,
+            tipo_transacao,
+            descricao,
+            status,
+            referencia_externa,
+            valor_bruto,
+            valor_liquido,
+            tarifas,
+            taxas,
+            outros_descontos,
+            tipo_lancamento,
+            categoria_id,
+            centro_custo_id,
+            tipo_envio,
+            frete_comprador,
+            frete_vendedor,
+            custo_ads,
+            marketplace_transaction_items (
+              id,
+              sku_marketplace,
+              anuncio_id,
+              descricao_item,
+              quantidade,
+              preco_unitario,
+              preco_total,
+              produto_id,
+              produtos:produto_id (
+                sku,
+                nome,
+                custo_medio
+              )
+            )
+          `
+          )
+          .eq("empresa_id", empresaAtiva.id)
+          .eq("tipo_lancamento", "credito")
+          .gte("data_transacao", dataInicioUTC)
+          .lt("data_transacao", dataFimUTC)
+          .order("data_transacao", { ascending: false })
+          .range(from, to);
+
+        if (error) throw error;
+
+        const rows = pageData || [];
+        transacoes.push(...rows);
+
+        if (rows.length < pageSize) break; // terminou
+      }
 
       // Transformar dados para o formato esperado
       const vendas: VendaDetalhada[] = [];
