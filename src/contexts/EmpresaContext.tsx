@@ -73,8 +73,14 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
 
 export function useEmpresaAtiva() {
   const context = useContext(EmpresaContext);
+  // Return safe defaults if context is not available (during initialization)
   if (context === undefined) {
-    throw new Error("useEmpresaAtiva must be used within an EmpresaProvider");
+    return {
+      empresaAtiva: null,
+      setEmpresaAtiva: () => {},
+      empresasDisponiveis: [],
+      isLoading: true,
+    };
   }
   return context;
 }
