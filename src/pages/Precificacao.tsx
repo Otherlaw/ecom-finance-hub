@@ -535,10 +535,15 @@ export default function Precificacao() {
       ipiRateado: ipiDoItem,
       ipiAliquota: ipiAliquotaItem
     };
-    const fator = simulacao?.notaBaixa ? getFatorNotaBaixa(simulacao.notaBaixa) : 1;
-    const custoBaseReal = dadosCusto.custoEfetivoPorUnidade * fator;
-    const stReal = (dadosCusto.stRateado || 0) * fator;
-    const ipiReal = (dadosCusto.ipiRateado || 0) * fator;
+    // Usar os valores já calculados corretamente por calcularCustoEfetivoNF
+    // A função já aplica o fator de nota baixa APENAS em vProd (não em ST/IPI)
+    const fator = custoCalculado.memoriaCalculo?.fatorNotaBaixa || 1;
+    const custoBaseReal = custoCalculado.custoEfetivoPorUnidadeReal;
+    
+    // ST e IPI NÃO são multiplicados pelo fator - são valores absolutos da NF
+    const stReal = custoCalculado.stRateado || 0;
+    const ipiReal = custoCalculado.ipiRateado || 0;
+    
     setSimulacao(prev => {
       if (!prev) return null;
       return {
@@ -547,7 +552,7 @@ export default function Precificacao() {
         custoNF: {
           ...dadosCusto,
           custoEfetivoPorUnidadeReal: custoBaseReal,
-          custoEfetivoReal: dadosCusto.custoEfetivo * fator,
+          custoEfetivoReal: custoCalculado.custoEfetivoReal,
           fatorMultiplicador: fator,
           stReal,
           ipiReal
@@ -555,7 +560,7 @@ export default function Precificacao() {
         tributacao: {
           ...prev.tributacao,
           icmsAliquota: dadosCusto.icmsAliquota || prev.tributacao.icmsAliquota,
-          icmsCredito: dadosCusto.icmsDestacado * fator,
+          icmsCredito: dadosCusto.icmsDestacado,  // Valor original (crédito fiscal)
           stValor: stReal,
           ipiValor: ipiReal,
           ipiAliquota: ipiAliquotaItem || prev.tributacao.ipiAliquota
