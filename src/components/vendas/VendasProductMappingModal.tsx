@@ -37,6 +37,7 @@ import {
   Search,
   ShoppingCart 
 } from "lucide-react";
+import { toast } from "sonner";
 import { SkuPendenteVenda, useVendasPendentes } from "@/hooks/useVendasPendentes";
 import { Produto, useProdutos } from "@/hooks/useProdutos";
 import { ProdutoFormModalV2, DadosIniciaisProduto } from "@/components/products/ProdutoFormModalV2";
@@ -91,13 +92,37 @@ export function VendasProductMappingModal({
     setOpenPopovers((prev) => ({ ...prev, [sku.sku_marketplace]: false }));
   };
 
+  // Função auxiliar para encontrar produto existente com mesmo SKU
+  const findProdutoComMesmoSku = (skuMarketplace: string): Produto | undefined => {
+    return produtos.find(
+      p => p.sku?.toLowerCase() === skuMarketplace?.toLowerCase()
+    );
+  };
+
   const handleCreateProduct = (sku: SkuPendenteVenda) => {
+    // Verificar se já existe produto com mesmo SKU
+    const produtoExistente = findProdutoComMesmoSku(sku.sku_marketplace);
+    
+    if (produtoExistente) {
+      // Produto já existe! Perguntar se deseja vincular
+      toast.info(
+        `Produto "${produtoExistente.nome}" já existe com SKU ${sku.sku_marketplace}.`,
+        {
+          action: {
+            label: "Vincular agora",
+            onClick: () => handleSelectProduct(sku, produtoExistente),
+          },
+          duration: 8000,
+        }
+      );
+      return;
+    }
+    
+    // Se não existir, abrir modal de criação normalmente
     setSelectedSku(sku);
-    // Pré-preencher dados do marketplace para facilitar criação
     setDadosIniciaisProduto({
       sku: sku.sku_marketplace,
       nome: sku.descricao_item || sku.sku_marketplace,
-      // Calcular preço médio baseado nas vendas
       preco_venda: sku.qtd_vendas > 0 ? sku.valor_total_vendido / sku.qtd_vendas : 0,
     });
     setShowProductForm(true);
@@ -259,16 +284,31 @@ export function VendasProductMappingModal({
                         </PopoverContent>
                       </Popover>
 
-                      {/* Botão criar produto */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleCreateProduct(sku)}
-                        className="gap-1"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Criar novo produto
-                      </Button>
+                      {/* Botão criar produto - Mostrar texto diferente se já existir produto com mesmo SKU */}
+                      {(() => {
+                        const produtoExistente = findProdutoComMesmoSku(sku.sku_marketplace);
+                        return produtoExistente ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleSelectProduct(sku, produtoExistente)}
+                            className="gap-1"
+                          >
+                            <Link2 className="h-4 w-4" />
+                            Vincular ao existente ({produtoExistente.sku})
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleCreateProduct(sku)}
+                            className="gap-1"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Criar novo produto
+                          </Button>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))}
