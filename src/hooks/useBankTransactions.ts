@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { registrarMovimentoFinanceiro, removerMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
+import { FLUXO_CAIXA_KEY_PREFIX } from "@/lib/queryKeys";
 
 export interface BankTransaction {
   id: string;
@@ -288,7 +289,7 @@ export function useBankTransactions({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bank_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo-caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
       toast.success("Transação conciliada e registrada no fluxo de caixa");
     },
@@ -337,7 +338,7 @@ export function useBankTransactions({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bank_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo-caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       queryClient.invalidateQueries({ queryKey: ["dre"] });
       toast.success("Transação reaberta");
     },

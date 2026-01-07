@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { registrarMovimentoFinanceiro, removerMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
+import { FLUXO_CAIXA_KEY_PREFIX } from "@/lib/queryKeys";
 
 export type ManualTransactionStatus = "pendente" | "aprovado" | "rejeitado";
 
@@ -203,7 +204,7 @@ export function useMovimentacoesManuais(params: UseMovimentacoesManuaisParams = 
       queryClient.invalidateQueries({ queryKey: ["manual_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_manuais"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       toast.success("Lançamento excluído com sucesso!");
     },
     onError: (error: Error) => {
@@ -268,7 +269,7 @@ export function useMovimentacoesManuais(params: UseMovimentacoesManuaisParams = 
       queryClient.invalidateQueries({ queryKey: ["manual_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_manuais"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       queryClient.invalidateQueries({ queryKey: ["dre_data"] });
       toast.success("Lançamento aprovado e registrado no fluxo de caixa!");
     },
@@ -307,7 +308,7 @@ export function useMovimentacoesManuais(params: UseMovimentacoesManuaisParams = 
       queryClient.invalidateQueries({ queryKey: ["manual_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_manuais"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       queryClient.invalidateQueries({ queryKey: ["dre_data"] });
       toast.success("Lançamento rejeitado e removido do fluxo de caixa.");
     },
@@ -344,7 +345,7 @@ export function useMovimentacoesManuais(params: UseMovimentacoesManuaisParams = 
       queryClient.invalidateQueries({ queryKey: ["manual_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_manuais"] });
-      queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
+      queryClient.invalidateQueries({ queryKey: FLUXO_CAIXA_KEY_PREFIX });
       queryClient.invalidateQueries({ queryKey: ["dre_data"] });
       toast.success("Lançamento reaberto para revisão.");
     },
