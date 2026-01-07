@@ -611,9 +611,11 @@ Deno.serve(async (req) => {
       .single();
 
     if (tokenError || !tokenData) {
-      console.error("[ML Sync] Token não encontrado:", tokenError);
+      console.error("[ML Sync] Token não encontrado para empresa:", empresa_id, tokenError);
       return new Response(
-        JSON.stringify({ error: "Token do Mercado Livre não encontrado" }),
+        JSON.stringify({ 
+          error: "Esta empresa não possui integração com o Mercado Livre configurada. Acesse Integrações para conectar sua conta." 
+        }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
