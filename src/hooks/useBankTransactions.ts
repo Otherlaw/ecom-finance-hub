@@ -114,10 +114,21 @@ export function useBankTransactions({
       
       let existentes: string[] = [];
       if (referencias.length > 0) {
-        const { data } = await supabase
+        const { data, error: checkError } = await supabase
           .from("bank_transactions")
           .select("referencia_externa")
           .in("referencia_externa", referencias as string[]);
+        
+        // Detectar erro de permissão RLS
+        if (checkError) {
+          console.error("Erro ao verificar duplicatas:", checkError);
+          if (checkError.message?.includes("row-level security") || 
+              checkError.code === "42501" ||
+              checkError.message?.includes("permission denied")) {
+            throw new Error("Sem permissão para importar transações nesta empresa. Peça ao administrador para liberar seu acesso (perfil financeiro + vínculo à empresa).");
+          }
+          throw checkError;
+        }
         
         existentes = (data || []).map((d) => d.referencia_externa as string);
       }
@@ -157,6 +168,12 @@ export function useBankTransactions({
 
         if (error) {
           console.error(`Erro no batch ${batchIndex}:`, error);
+          // Detectar erro de permissão RLS
+          if (error.message?.includes("row-level security") || 
+              error.code === "42501" ||
+              error.message?.includes("permission denied")) {
+            throw new Error("Sem permissão para importar transações nesta empresa. Peça ao administrador para liberar seu acesso (perfil financeiro + vínculo à empresa).");
+          }
           throw new Error(`Erro ao importar lote ${batchIndex}: ${error.message}`);
         }
 
