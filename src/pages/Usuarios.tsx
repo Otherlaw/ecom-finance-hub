@@ -13,6 +13,7 @@ import {
   UserCog,
   Loader2,
   AlertTriangle,
+  ShieldAlert,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -24,6 +25,8 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useUsuarios, Usuario, RoleType } from "@/hooks/useUsuarios";
 import { EditarUsuarioModal } from "@/components/usuarios/EditarUsuarioModal";
+import { ConvidarUsuarioModal } from "@/components/usuarios/ConvidarUsuarioModal";
+import { useAuth } from "@/hooks/useAuth";
 
 const roleLabels: Record<RoleType, { label: string; color: string }> = {
   admin: { label: "Administrador", color: "bg-primary/10 text-primary border-primary/20" },
@@ -34,7 +37,9 @@ const roleLabels: Record<RoleType, { label: string; color: string }> = {
 
 export default function Usuarios() {
   const { usuarios, isLoading } = useUsuarios();
+  const { isAdmin, loading: authLoading } = useAuth();
   const [editando, setEditando] = useState<Usuario | null>(null);
+  const [showConvidar, setShowConvidar] = useState(false);
 
   const getInitials = (nome: string | null, email: string) => {
     if (nome) {
@@ -48,12 +53,28 @@ export default function Usuarios() {
     return user.empresas.length === 0 || user.role === "operador";
   };
 
+  // Verificar permissão de admin
+  if (!authLoading && !isAdmin) {
+    return (
+      <MainLayout title="Usuários" subtitle="Gerenciamento de acessos e permissões">
+        <div className="flex flex-col items-center justify-center py-20">
+          <ShieldAlert className="h-16 w-16 text-muted-foreground mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Acesso Restrito</h2>
+          <p className="text-muted-foreground text-center max-w-md">
+            Apenas administradores podem gerenciar usuários do sistema.
+            Entre em contato com um administrador se precisar de alterações no seu perfil.
+          </p>
+        </div>
+      </MainLayout>
+    );
+  }
+
   return (
     <MainLayout
       title="Usuários"
       subtitle="Gerenciamento de acessos e permissões"
       actions={
-        <Button className="gap-2" disabled>
+        <Button className="gap-2" onClick={() => setShowConvidar(true)}>
           <Plus className="h-4 w-4" />
           Convidar Usuário
         </Button>
@@ -277,6 +298,12 @@ export default function Usuarios() {
         usuario={editando}
         open={!!editando}
         onOpenChange={(open) => !open && setEditando(null)}
+      />
+
+      {/* Modal de Convidar */}
+      <ConvidarUsuarioModal
+        open={showConvidar}
+        onOpenChange={setShowConvidar}
       />
     </MainLayout>
   );

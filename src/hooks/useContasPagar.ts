@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { registrarMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
+import { getFriendlyErrorMessage } from "@/lib/supabase-error";
 
 export interface ContaPagar {
   id: string;
@@ -109,7 +110,7 @@ export const useContasPagar = (params: UseContasPagarParams = {}) => {
       toast.success("Conta cadastrada com sucesso!");
     },
     onError: (error: any) => {
-      toast.error("Erro ao cadastrar conta: " + error.message);
+      toast.error(getFriendlyErrorMessage(error, "cadastrar conta a pagar"));
     },
   });
 
@@ -130,7 +131,7 @@ export const useContasPagar = (params: UseContasPagarParams = {}) => {
       toast.success("Conta atualizada com sucesso!");
     },
     onError: (error: any) => {
-      toast.error("Erro ao atualizar conta: " + error.message);
+      toast.error(getFriendlyErrorMessage(error, "atualizar conta a pagar"));
     },
   });
 
@@ -148,7 +149,7 @@ export const useContasPagar = (params: UseContasPagarParams = {}) => {
       toast.success("Conta excluída com sucesso!");
     },
     onError: (error: any) => {
-      toast.error("Erro ao excluir conta: " + error.message);
+      toast.error(getFriendlyErrorMessage(error, "excluir conta a pagar"));
     },
   });
 
@@ -217,7 +218,7 @@ export const useContasPagar = (params: UseContasPagarParams = {}) => {
       toast.success("Pagamento registrado com sucesso!");
     },
     onError: (error: any) => {
-      toast.error("Erro ao registrar pagamento: " + error.message);
+      toast.error(getFriendlyErrorMessage(error, "registrar pagamento"));
     },
   });
 

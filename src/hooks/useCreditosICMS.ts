@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { TipoCreditoICMS, OrigemCredito, StatusCredito } from "@/lib/icms-data";
+import { getFriendlyErrorMessage } from "@/lib/supabase-error";
 
 export interface CreditoICMSDB {
   id: string;
@@ -127,7 +128,7 @@ export function useCreditosICMS(empresaId?: string) {
     },
     onError: (error) => {
       console.error("Error creating credito:", error);
-      toast.error("Erro ao cadastrar crédito de ICMS.");
+      toast.error(getFriendlyErrorMessage(error, "cadastrar crédito de ICMS"));
     },
   });
 
@@ -150,7 +151,7 @@ export function useCreditosICMS(empresaId?: string) {
     },
     onError: (error) => {
       console.error("Error creating multiple creditos:", error);
-      toast.error("Erro ao importar créditos de ICMS.");
+      toast.error(getFriendlyErrorMessage(error, "importar créditos de ICMS"));
     },
   });
 
@@ -173,7 +174,7 @@ export function useCreditosICMS(empresaId?: string) {
     },
     onError: (error) => {
       console.error("Error updating credito:", error);
-      toast.error("Erro ao atualizar crédito de ICMS.");
+      toast.error(getFriendlyErrorMessage(error, "atualizar crédito de ICMS"));
     },
   });
 
@@ -193,7 +194,7 @@ export function useCreditosICMS(empresaId?: string) {
     },
     onError: (error) => {
       console.error("Error deleting credito:", error);
-      toast.error("Erro ao excluir crédito de ICMS.");
+      toast.error(getFriendlyErrorMessage(error, "excluir crédito de ICMS"));
     },
   });
 
