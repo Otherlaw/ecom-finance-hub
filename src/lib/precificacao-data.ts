@@ -433,7 +433,8 @@ export const calcularCustoEfetivoNF = (dados: {
   const creditoICMSAbatidoReal = creditoICMSAbatido;
   
   // FÓRMULA DO CUSTO EFETIVO REAL:
-  // = vProd×fator + vIPI + vICMSST + (frete+despesas-descontos)×fator - crédito×fator
+  // = vProd×fator + vIPI + vICMSST + (frete+despesas-descontos)×fator - crédito
+  // Obs: crédito ICMS NÃO é multiplicado pelo fator (valor absoluto da NF)
   const custoEfetivoReal = vProdReal 
                      + ipiReal 
                      + stReal 
