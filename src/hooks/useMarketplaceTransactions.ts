@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, UseMutationResult } from "@tanst
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { registrarMovimentoFinanceiro, removerMovimentoFinanceiro } from "@/lib/movimentos-financeiros";
+import { processarCMVTransacao, removerCMVTransacao, processarCMVEmLote } from "@/lib/calcular-cmv-venda";
 
 // ============= HELPER DE MENSAGEM DE ERRO =============
 function construirMensagemDeErro(validacao: {
@@ -171,6 +172,12 @@ interface UseMarketplaceTransactionsReturn {
   conciliarTransacao: UseMutationResult<MarketplaceTransaction, Error, string | { id: string; forcarConciliacao?: boolean }, unknown>;
   ignorarTransacao: UseMutationResult<void, Error, string, unknown>;
   reabrirTransacao: UseMutationResult<void, Error, string, unknown>;
+  processarCMVLote: UseMutationResult<{
+    transacoesProcessadas: number;
+    itensCMV: number;
+    itensSemMapeamento: number;
+    erros: number;
+  }, Error, string, unknown>;
   duplicatas: DuplicateGroup[];
   isDuplicatesLoading: boolean;
   refetchDuplicates: () => void;
@@ -526,9 +533,6 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
       if (fetchError) throw fetchError;
 
-      // TODO: Validação de estoque será implementada futuramente
-      // Por enquanto, prosseguir sem validação de estoque
-
       // Atualizar status
       const { error: updateError } = await supabase
         .from("marketplace_transactions")
@@ -546,7 +550,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       
       await registrarMovimentoFinanceiro({
         data: transacao.data_transacao,
-        tipo: "entrada", // Marketplace sempre entrada
+        tipo: "entrada",
         origem: "marketplace",
         descricao: transacao.descricao,
         valor: Math.abs(transacao.valor_liquido ?? transacao.valor_bruto ?? 0),
@@ -560,8 +564,15 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
         formaPagamento: "marketplace",
       });
 
-      // TODO: Motor de saída de estoque será implementado futuramente
-      console.log(`[Conciliação Marketplace] Transação ${transacao.id} conciliada`);
+      // Processar CMV para itens com mapeamento de produto
+      const cmvResult = await processarCMVTransacao(
+        transacao.id,
+        transacao.empresa_id,
+        transacao.canal,
+        transacao.data_transacao
+      );
+
+      console.log(`[Conciliação Marketplace] Transação ${transacao.id} conciliada. CMV: ${cmvResult.processados.length} itens, ${cmvResult.semMapeamento.length} sem mapeamento`);
 
       return transacao as MarketplaceTransaction;
     },
@@ -569,12 +580,12 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
-      // Invalidar queries de estoque e CMV
       queryClient.invalidateQueries({ queryKey: ["produtos"] });
       queryClient.invalidateQueries({ queryKey: ["produto_skus"] });
       queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });
       queryClient.invalidateQueries({ queryKey: ["cmv_registros"] });
       queryClient.invalidateQueries({ queryKey: ["cmv_resumo"] });
+      queryClient.invalidateQueries({ queryKey: ["cmv_por_produto"] });
       queryClient.invalidateQueries({ queryKey: ["marketplace_sku_mappings"] });
       toast.success("Transação conciliada com sucesso");
     },
@@ -617,13 +628,11 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
 
       if (fetchError) throw fetchError;
 
-      // Se estava conciliada, remover do FLOW HUB
+      // Se estava conciliada, remover do FLOW HUB e CMV
       if (transacao.status === "conciliado") {
-        // Remover movimento financeiro
         await removerMovimentoFinanceiro(id, "marketplace");
-        
-        // TODO: Reverter saídas de estoque será implementado futuramente
-        console.log(`[Reabertura Marketplace] Transação ${id} reaberta`);
+        await removerCMVTransacao(id);
+        console.log(`[Reabertura Marketplace] Transação ${id} reaberta, CMV removido`);
       }
 
       // Atualizar status
@@ -641,17 +650,44 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
       queryClient.invalidateQueries({ queryKey: ["marketplace_transactions"] });
       queryClient.invalidateQueries({ queryKey: ["movimentos_financeiros"] });
       queryClient.invalidateQueries({ queryKey: ["fluxo_caixa"] });
-      // Invalidar queries de estoque e CMV
       queryClient.invalidateQueries({ queryKey: ["produtos"] });
       queryClient.invalidateQueries({ queryKey: ["produto_skus"] });
       queryClient.invalidateQueries({ queryKey: ["movimentacoes_estoque"] });
       queryClient.invalidateQueries({ queryKey: ["cmv_registros"] });
       queryClient.invalidateQueries({ queryKey: ["cmv_resumo"] });
+      queryClient.invalidateQueries({ queryKey: ["cmv_por_produto"] });
       toast.success("Transação reaberta");
     },
     onError: (error) => {
       console.error("Erro ao reabrir transação:", error);
       toast.error("Erro ao reabrir transação");
+    },
+  });
+
+  // Processamento de CMV em lote para transações já conciliadas
+  const processarCMVLote = useMutation({
+    mutationFn: async (empresaId: string) => {
+      return await processarCMVEmLote(empresaId);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["cmv_registros"] });
+      queryClient.invalidateQueries({ queryKey: ["cmv_resumo"] });
+      queryClient.invalidateQueries({ queryKey: ["cmv_por_produto"] });
+      
+      if (result.itensCMV > 0) {
+        toast.success(
+          `CMV processado: ${result.itensCMV} itens de ${result.transacoesProcessadas} transações` +
+          (result.itensSemMapeamento > 0 ? ` (${result.itensSemMapeamento} sem mapeamento)` : "")
+        );
+      } else if (result.transacoesProcessadas === 0) {
+        toast.info("Nenhuma transação pendente de CMV encontrada");
+      } else {
+        toast.warning(`${result.transacoesProcessadas} transações processadas, mas nenhum item com mapeamento de produto`);
+      }
+    },
+    onError: (error) => {
+      console.error("Erro ao processar CMV em lote:", error);
+      toast.error("Erro ao processar CMV em lote");
     },
   });
 
@@ -764,6 +800,7 @@ export function useMarketplaceTransactions(params?: UseMarketplaceTransactionsPa
     conciliarTransacao,
     ignorarTransacao,
     reabrirTransacao,
+    processarCMVLote,
     duplicatas: duplicatesQuery.data || [],
     isDuplicatesLoading: duplicatesQuery.isLoading,
     refetchDuplicates: duplicatesQuery.refetch,
