@@ -11,7 +11,7 @@ import { TutorialSelector } from './TutorialSelector';
 import { TutorialStepComponent } from './TutorialStep';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
-import { useEmpresas } from '@/hooks/useEmpresas';
+import { useEmpresaAtiva } from '@/contexts/EmpresaContext';
 
 interface AssistantChatPanelProps {
   isOpen: boolean;
@@ -61,7 +61,7 @@ export function AssistantChatPanel({ isOpen, onClose, initialContext, initialMes
   const { messages, isLoading, error, sendMessage, clearMessages, setContext } = useAssistantChat();
   const { viewMode, setViewMode, showTutorialSelector, backToChat } = useAssistantChatContext();
   const { profile } = useAuth();
-  const { empresas } = useEmpresas();
+  const { empresaAtiva, empresasDisponiveis } = useEmpresaAtiva();
   const { 
     tutorialAtivo, 
     currentStep, 
@@ -74,22 +74,32 @@ export function AssistantChatPanel({ isOpen, onClose, initialContext, initialMes
     isTutorialMode,
   } = useTutorial();
 
-  // Determinar empresa padrão automaticamente
+  // Determinar empresa padrão automaticamente - prioriza empresaAtiva do contexto global
   const empresaPadrao = useMemo(() => {
     if (initialContext?.empresa) return initialContext.empresa;
     
+    // Priorizar empresaAtiva do contexto global
+    if (empresaAtiva) {
+      return {
+        id: empresaAtiva.id,
+        nome: empresaAtiva.nome_fantasia || empresaAtiva.razao_social,
+        regime: undefined,
+      };
+    }
+    
+    // Fallback: buscar empresa padrão do perfil
     const empresaId = profile?.empresa_padrao_id;
-    const empresa = empresas?.find(e => e.id === empresaId) || empresas?.[0];
+    const empresa = empresasDisponiveis?.find(e => e.id === empresaId) || empresasDisponiveis?.[0];
     
     if (empresa) {
       return {
         id: empresa.id,
         nome: empresa.nome_fantasia || empresa.razao_social,
-        regime: empresa.regime_tributario,
+        regime: undefined,
       };
     }
     return undefined;
-  }, [profile, empresas, initialContext]);
+  }, [profile, empresaAtiva, empresasDisponiveis, initialContext]);
   
   const [inputValue, setInputValue] = useState('');
   const [charCount, setCharCount] = useState(0);

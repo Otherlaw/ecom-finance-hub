@@ -26,20 +26,20 @@ import { ProductDetailModal } from "@/components/products/ProductDetailModal";
 import { ExcluirProdutoModal } from "@/components/products/ExcluirProdutoModal";
 import { ProdutoImportJobsPanel } from "@/components/products/ProdutoImportJobsPanel";
 import { useProdutos, Produto, TipoProduto } from "@/hooks/useProdutos";
-import { useEmpresas } from "@/hooks/useEmpresas";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CATEGORIAS_PRODUTO, formatCurrency } from "@/lib/products-data";
 
 export default function Produtos() {
   const navigate = useNavigate();
-  const { empresas } = useEmpresas();
+  const { empresaAtiva, empresasDisponiveis } = useEmpresaAtiva();
   const [empresaId, setEmpresaId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("todos");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [tipoFilter, setTipoFilter] = useState<string>("todos");
 
-  const empresaSelecionada = empresaId || empresas?.[0]?.id || "";
+  const empresaSelecionada = empresaId || empresaAtiva?.id || "";
 
   const { produtos, isLoading, resumo, criarProduto, atualizarProduto, refetch } = useProdutos({
     empresaId: empresaSelecionada,
@@ -193,7 +193,7 @@ export default function Produtos() {
                     <SelectValue placeholder="Empresa" />
                   </SelectTrigger>
                   <SelectContent>
-                    {empresas?.map((emp) => (
+                    {empresasDisponiveis?.map((emp) => (
                       <SelectItem key={emp.id} value={emp.id}>
                         {emp.nome_fantasia || emp.razao_social}
                       </SelectItem>

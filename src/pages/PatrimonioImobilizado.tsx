@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { useEmpresas } from "@/hooks/useEmpresas";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { usePatrimonio, TIPO_BEM_LABELS, TIPO_MOVIMENTO_LABELS, GRUPO_PL_LABELS, PatrimonioBem, PLMovimento } from "@/hooks/usePatrimonio";
 import { BemFormModal } from "@/components/patrimonio/BemFormModal";
 import { PLMovimentoModal } from "@/components/patrimonio/PLMovimentoModal";
@@ -37,8 +37,8 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export default function PatrimonioImobilizado() {
-  const { empresas } = useEmpresas();
-  const empresaId = empresas?.[0]?.id;
+  const { empresaAtiva } = useEmpresaAtiva();
+  const empresaId = empresaAtiva?.id;
 
   const {
     bens,

@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ContaReceber } from '@/hooks/useContasReceber';
 import { useEmpresas } from '@/hooks/useEmpresas';
+import { useEmpresaAtiva } from '@/contexts/EmpresaContext';
 import { useCategoriasFinanceiras } from '@/hooks/useCategoriasFinanceiras';
 import { useCentrosCusto } from '@/hooks/useCentrosCusto';
 import { Loader2 } from 'lucide-react';
@@ -20,6 +21,7 @@ interface ContaReceberFormModalProps {
 
 export function ContaReceberFormModal({ open, onOpenChange, conta, onSave }: ContaReceberFormModalProps) {
   const { empresas } = useEmpresas();
+  const { empresaAtiva } = useEmpresaAtiva();
   const { categorias } = useCategoriasFinanceiras();
   const { centrosCusto } = useCentrosCusto();
   const [loading, setLoading] = useState(false);
@@ -57,7 +59,7 @@ export function ContaReceberFormModal({ open, onOpenChange, conta, onSave }: Con
       });
     } else {
       setFormData({
-        empresa_id: empresas?.[0]?.id || '',
+        empresa_id: empresaAtiva?.id || '',
         cliente_nome: '',
         descricao: '',
         documento: '',
@@ -71,7 +73,7 @@ export function ContaReceberFormModal({ open, onOpenChange, conta, onSave }: Con
         observacoes: '',
       });
     }
-  }, [conta, empresas, open]);
+  }, [conta, empresaAtiva, open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
