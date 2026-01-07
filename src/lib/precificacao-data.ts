@@ -583,7 +583,10 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   } else if (regimeTributario === 'simples_nacional') {
     tributosPercentRegimeAtual = tributacao.simplesAliquota;
   } else {
-    tributosPercentRegimeAtual = tributacao.icmsAliquota + tributacao.pisAliquota + tributacao.cofinsAliquota;
+    // REGRA ST: Se item é ST e icmsSaidaZerado está ativo, zerar ICMS de saída
+    // Isso evita dupla tributação quando ST já foi recolhido na compra
+    const icmsEfetivo = tributacao.icmsSaidaZerado ? 0 : tributacao.icmsAliquota;
+    tributosPercentRegimeAtual = icmsEfetivo + tributacao.pisAliquota + tributacao.cofinsAliquota;
   }
   
   // Calcular alíquota da reforma (CBS + IBS)
@@ -614,7 +617,23 @@ export const calcularResultadoPrecificacao = (simulacao: SimulacaoPrecificacao):
   const taxasExtrasFixas = taxasExtrasAtivas ? taxasExtras.filter(t => t.ativo && t.tipo === 'fixo').reduce((sum, t) => sum + t.valor, 0) : 0;
   
   const comissaoTotal = comissao + taxasExtrasPercent;
-  const tarifaTotal = tarifaFixa + taxasExtrasFixas;
+  
+  // Para ML, calcular tarifa dinâmica com iteração para resolver circularidade
+  let tarifaEfetiva = tarifaFixa;
+  if (marketplace === 'mercadolivre' && custoBase > 0) {
+    // Iteração para resolver: preço depende da tarifa, tarifa depende do preço
+    let precoEstimado = custoBase * 2; // Estimativa inicial
+    for (let i = 0; i < 3; i++) {
+      tarifaEfetiva = calcularTaxaFixaML(precoEstimado);
+      const totalPercentualTemp = (margemDesejada + comissaoTotal + tributosPercentEfetivo + gastosExtrasPercent) / 100;
+      const totalFixoTemp = custoBase + tarifaEfetiva + taxasExtrasFixas + freteVenda + gastosExtrasFixos;
+      const denomTemp = 1 - totalPercentualTemp;
+      if (denomTemp > 0) {
+        precoEstimado = totalFixoTemp / denomTemp;
+      }
+    }
+  }
+  const tarifaTotal = tarifaEfetiva + taxasExtrasFixas;
   
   // DIFAL (valor fixo quando ativo)
   const difalTotal = tributacao.difalAtivo ? (tributacao.difalValor + tributacao.fundoFiscalDifal) : 0;
