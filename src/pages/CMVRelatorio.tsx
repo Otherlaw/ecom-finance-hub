@@ -13,7 +13,9 @@ import {
   BarChart3,
   Filter,
   Download,
-  RefreshCw
+  RefreshCw,
+  Play,
+  Loader2
 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
@@ -37,6 +39,7 @@ import {
 } from "@/components/ui/table";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useCMV, useCMVPorProduto } from "@/hooks/useCMV";
+import { useMarketplaceTransactions } from "@/hooks/useMarketplaceTransactions";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -64,6 +67,7 @@ export default function CMVRelatorio() {
     dataInicio,
     dataFim,
   });
+  const { processarCMVLote } = useMarketplaceTransactions({ empresaId });
 
   useMemo(() => {
     if (empresas && empresas.length > 0 && !empresaId) {
@@ -100,6 +104,11 @@ export default function CMVRelatorio() {
     }
   };
 
+  const handleProcessarCMV = () => {
+    if (!empresaId) return;
+    processarCMVLote.mutate(empresaId);
+  };
+
   const isLoading = isLoadingEmpresas || isLoadingCMV || isLoadingPorProduto;
 
   return (
@@ -118,6 +127,19 @@ export default function CMVRelatorio() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <Button 
+                variant="default" 
+                size="sm" 
+                onClick={handleProcessarCMV}
+                disabled={!empresaId || processarCMVLote.isPending}
+              >
+                {processarCMVLote.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4 mr-2" />
+                )}
+                Processar CMV
+              </Button>
               <Button variant="outline" size="sm" onClick={() => refetch()}>
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Atualizar
