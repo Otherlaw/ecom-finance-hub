@@ -112,31 +112,20 @@ export function useVendasPendentes(params?: UseVendasPendentesParams) {
 
       if (errorMap) throw errorMap;
 
-      // 2. Buscar todas as transações da empresa/canal
-      const { data: transacoesIds, error: errorTrans } = await supabase
-        .from("marketplace_transactions")
-        .select("id")
-        .eq("empresa_id", params.empresaId)
-        .eq("canal", params.canal);
+      // 2. Usar RPC para atualizar itens históricos de forma eficiente
+      const { data: atualizados, error: errorRpc } = await supabase.rpc(
+        'mapear_sku_para_produto',
+        {
+          p_empresa_id: params.empresaId,
+          p_produto_id: params.produtoId,
+          p_canal: params.canal,
+          p_sku_marketplace: params.skuMarketplace
+        }
+      );
 
-      if (errorTrans) throw errorTrans;
+      if (errorRpc) throw errorRpc;
 
-      if (!transacoesIds || transacoesIds.length === 0) {
-        return { atualizados: 0 };
-      }
-
-      // 3. Atualizar todos os itens históricos com esse SKU
-      const { data: itensAtualizados, error: errorUpdate } = await supabase
-        .from("marketplace_transaction_items")
-        .update({ produto_id: params.produtoId })
-        .eq("sku_marketplace", params.skuMarketplace)
-        .is("produto_id", null)
-        .in("transaction_id", transacoesIds.map(t => t.id))
-        .select("id");
-
-      if (errorUpdate) throw errorUpdate;
-
-      return { atualizados: itensAtualizados?.length || 0 };
+      return { atualizados: atualizados || 0 };
     },
     onSuccess: (result) => {
       toast.success(`SKU mapeado! ${result.atualizados} itens atualizados`);
@@ -168,27 +157,19 @@ export function useVendasPendentes(params?: UseVendasPendentesParams) {
 
       let totalAtualizados = 0;
 
-      // 2. Para cada mapeamento, atualizar itens órfãos
+      // 2. Para cada mapeamento, usar RPC para atualizar itens órfãos
       for (const map of mapeamentos) {
-        // Buscar transações do canal
-        const { data: transacoesIds } = await supabase
-          .from("marketplace_transactions")
-          .select("id")
-          .eq("empresa_id", empresaId)
-          .eq("canal", map.canal);
+        const { data: atualizados } = await supabase.rpc(
+          'mapear_sku_para_produto',
+          {
+            p_empresa_id: empresaId,
+            p_produto_id: map.produto_id,
+            p_canal: map.canal,
+            p_sku_marketplace: map.sku_marketplace
+          }
+        );
 
-        if (!transacoesIds || transacoesIds.length === 0) continue;
-
-        // Atualizar itens sem produto_id que correspondem ao SKU
-        const { data: atualizados } = await supabase
-          .from("marketplace_transaction_items")
-          .update({ produto_id: map.produto_id })
-          .eq("sku_marketplace", map.sku_marketplace)
-          .is("produto_id", null)
-          .in("transaction_id", transacoesIds.map(t => t.id))
-          .select("id");
-
-        totalAtualizados += atualizados?.length || 0;
+        totalAtualizados += atualizados || 0;
       }
 
       return { totalAtualizados, mapeamentosProcessados: mapeamentos.length };
