@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
@@ -5,12 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import {
   Users,
   Plus,
-  Mail,
   Shield,
   MoreVertical,
   Check,
   Clock,
   UserCog,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -20,59 +22,38 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useUsuarios, Usuario, RoleType } from "@/hooks/useUsuarios";
+import { EditarUsuarioModal } from "@/components/usuarios/EditarUsuarioModal";
 
-const usuarios = [
-  {
-    id: 1,
-    nome: "Admin Principal",
-    email: "admin@ecomfinance.com",
-    role: "admin",
-    empresas: ["Exchange", "Inpari"],
-    status: "ativo",
-    ultimoAcesso: "Agora",
-  },
-  {
-    id: 2,
-    nome: "Financeiro",
-    email: "financeiro@ecomfinance.com",
-    role: "financeiro",
-    empresas: ["Exchange", "Inpari"],
-    status: "ativo",
-    ultimoAcesso: "Há 2 horas",
-  },
-  {
-    id: 3,
-    nome: "Sócio Investidor",
-    email: "socio@email.com",
-    role: "socio",
-    empresas: ["Exchange"],
-    status: "ativo",
-    ultimoAcesso: "Há 3 dias",
-  },
-  {
-    id: 4,
-    nome: "Contador",
-    email: "contador@contabilidade.com",
-    role: "socio",
-    empresas: ["Exchange", "Inpari"],
-    status: "pendente",
-    ultimoAcesso: "Nunca",
-  },
-];
-
-const roleLabels: Record<string, { label: string; color: string }> = {
+const roleLabels: Record<RoleType, { label: string; color: string }> = {
   admin: { label: "Administrador", color: "bg-primary/10 text-primary border-primary/20" },
   financeiro: { label: "Financeiro", color: "bg-info/10 text-info border-info/20" },
   socio: { label: "Sócio", color: "bg-success/10 text-success border-success/20" },
+  operador: { label: "Operador", color: "bg-warning/10 text-warning border-warning/20" },
 };
 
 export default function Usuarios() {
+  const { usuarios, isLoading } = useUsuarios();
+  const [editando, setEditando] = useState<Usuario | null>(null);
+
+  const getInitials = (nome: string | null, email: string) => {
+    if (nome) {
+      return nome.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+    }
+    return email.slice(0, 2).toUpperCase();
+  };
+
+  const temProblemaAcesso = (user: Usuario) => {
+    // Usuário sem empresas vinculadas ou com role operador (não tem acesso financeiro)
+    return user.empresas.length === 0 || user.role === "operador";
+  };
+
   return (
     <MainLayout
       title="Usuários"
       subtitle="Gerenciamento de acessos e permissões"
       actions={
-        <Button className="gap-2">
+        <Button className="gap-2" disabled>
           <Plus className="h-4 w-4" />
           Convidar Usuário
         </Button>
@@ -84,100 +65,102 @@ export default function Usuarios() {
         icon={Users}
         noPadding
       >
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-secondary/30">
-              <TableHead>Usuário</TableHead>
-              <TableHead>Perfil</TableHead>
-              <TableHead>Empresas</TableHead>
-              <TableHead>Último Acesso</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead className="text-center">Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {usuarios.map((user) => (
-              <TableRow key={user.id}>
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-9 w-9">
-                      <AvatarFallback className="bg-primary/10 text-primary">
-                        {user.nome.split(" ").map(n => n[0]).join("").slice(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">{user.nome}</p>
-                      <p className="text-sm text-muted-foreground">{user.email}</p>
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge className={roleLabels[user.role].color}>
-                    <Shield className="h-3 w-3 mr-1" />
-                    {roleLabels[user.role].label}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1">
-                    {user.empresas.map((emp) => (
-                      <Badge key={emp} variant="outline" className="text-xs">
-                        {emp}
-                      </Badge>
-                    ))}
-                  </div>
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <Clock className="h-4 w-4" />
-                    {user.ultimoAcesso}
-                  </div>
-                </TableCell>
-                <TableCell className="text-center">
-                  {user.status === "ativo" ? (
-                    <Badge className="bg-success/10 text-success border-success/20">
-                      <Check className="h-3 w-3 mr-1" />
-                      Ativo
-                    </Badge>
-                  ) : (
-                    <Badge className="bg-warning/10 text-warning border-warning/20">
-                      <Clock className="h-3 w-3 mr-1" />
-                      Pendente
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-center">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem>
-                        <UserCog className="h-4 w-4 mr-2" />
-                        Editar Perfil
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Shield className="h-4 w-4 mr-2" />
-                        Permissões
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Mail className="h-4 w-4 mr-2" />
-                        Reenviar Convite
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : usuarios.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <Users className="h-12 w-12 mb-4 opacity-50" />
+            <p>Nenhum usuário encontrado</p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-secondary/30">
+                <TableHead>Usuário</TableHead>
+                <TableHead>Perfil</TableHead>
+                <TableHead>Empresas</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-center">Ações</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {usuarios.map((user) => (
+                <TableRow key={user.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-9 w-9">
+                        <AvatarFallback className="bg-primary/10 text-primary">
+                          {getInitials(user.nome, user.email)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="font-medium">{user.nome || "Sem nome"}</p>
+                        <p className="text-sm text-muted-foreground">{user.email}</p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge className={roleLabels[user.role].color}>
+                      <Shield className="h-3 w-3 mr-1" />
+                      {roleLabels[user.role].label}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {user.empresas.length === 0 ? (
+                        <span className="text-sm text-muted-foreground italic">
+                          Nenhuma empresa
+                        </span>
+                      ) : (
+                        user.empresas.map((emp) => (
+                          <Badge key={emp.id} variant="outline" className="text-xs">
+                            {emp.razao_social}
+                          </Badge>
+                        ))
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {temProblemaAcesso(user) ? (
+                      <Badge className="bg-warning/10 text-warning border-warning/20">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Sem Acesso Financeiro
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-success/10 text-success border-success/20">
+                        <Check className="h-3 w-3 mr-1" />
+                        Ativo
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setEditando(user)}>
+                          <UserCog className="h-4 w-4 mr-2" />
+                          Editar Perfil e Empresas
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </ModuleCard>
 
       {/* Permissões */}
       <div className="mt-6">
         <ModuleCard title="Níveis de Permissão" description="O que cada perfil pode acessar" icon={Shield}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="p-6 rounded-xl border border-primary/20 bg-primary/5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg bg-primary/10">
@@ -227,7 +210,7 @@ export default function Usuarios() {
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-success" />
-                  Conciliação Tiny
+                  Importar OFX/CSV
                 </li>
               </ul>
             </div>
@@ -250,17 +233,51 @@ export default function Usuarios() {
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-success" />
-                  Relatórios (somente leitura)
+                  Relatórios (leitura)
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-success" />
-                  Exportar dados
+                  Importar dados
+                </li>
+              </ul>
+            </div>
+
+            <div className="p-6 rounded-xl border border-warning/20 bg-warning/5">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-warning/10">
+                  <Shield className="h-5 w-5 text-warning" />
+                </div>
+                <h4 className="font-semibold">Operador</h4>
+              </div>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  Acesso limitado
+                </li>
+                <li className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  Sem acesso financeiro
+                </li>
+                <li className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  Não pode importar OFX
+                </li>
+                <li className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  Visualização básica
                 </li>
               </ul>
             </div>
           </div>
         </ModuleCard>
       </div>
+
+      {/* Modal de Edição */}
+      <EditarUsuarioModal
+        usuario={editando}
+        open={!!editando}
+        onOpenChange={(open) => !open && setEditando(null)}
+      />
     </MainLayout>
   );
 }
