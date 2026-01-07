@@ -321,7 +321,7 @@ export function useVendas(filtros: VendasFiltros) {
         .gte("data_transacao", dataInicioUTC)
         .lt("data_transacao", dataFimUTC)
         .order("data_transacao", { ascending: false })
-        .limit(1000); // Limitar para performance
+        .limit(50000); // Limite ajustado para cobrir operações maiores
 
       if (error) throw error;
 
