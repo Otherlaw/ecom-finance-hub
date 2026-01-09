@@ -58,9 +58,13 @@ export default function Vendas() {
     contasDisponiveis,
     aliquotaImposto,
     isLoading,
+    isFetching,
     conciliarTransacao,
     dataUpdatedAt,
   } = useVendas(filtros);
+
+  // Combina loading inicial + refetch (mudança de período)
+  const carregando = isLoading || isFetching;
 
   const { resumo: resumoPendentes, reprocessarMapeamentos } = useVendasPendentes({ empresaId });
 
@@ -228,7 +232,7 @@ export default function Vendas() {
         <PeriodFilter
           selectedPeriod={selectedPeriod}
           onPeriodChange={handlePeriodChange}
-          isLoading={isLoading}
+          isLoading={carregando}
         />
       }
     >
@@ -325,9 +329,12 @@ export default function Vendas() {
           </Alert>
         )}
 
-        {isLoading ? (
+        {carregando ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            {isFetching && !isLoading && (
+              <span className="ml-3 text-sm text-muted-foreground">Atualizando período...</span>
+            )}
           </div>
         ) : (
           <>

@@ -258,7 +258,7 @@ export function useVendas(filtros: VendasFiltros) {
 
   const aliquotaImposto = configFiscal?.aliquota_imposto_vendas || 6; // Default 6% (Simples)
 
-  const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
+  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: [
       "vendas",
       filtros.dataInicio,
@@ -341,6 +341,7 @@ export function useVendas(filtros: VendasFiltros) {
           .gte("data_transacao", dataInicioUTC)
           .lt("data_transacao", dataFimUTC)
           .order("data_transacao", { ascending: false })
+          .order("id", { ascending: false }) // Ordenação secundária para paginação estável
           .range(from, to);
 
         if (error) throw error;
@@ -351,10 +352,15 @@ export function useVendas(filtros: VendasFiltros) {
         if (rows.length < pageSize) break; // terminou
       }
 
+      // Deduplicação defensiva por ID da transação
+      const transacoesUnicas = Array.from(
+        new Map(transacoes.map((t) => [t.id, t])).values()
+      );
+
       // Transformar dados para o formato esperado
       const vendas: VendaDetalhada[] = [];
 
-      (transacoes || []).forEach((t: any) => {
+      transacoesUnicas.forEach((t: any) => {
         const items = t.marketplace_transaction_items || [];
         
         // Critério para "não conciliado": não tem dados financeiros relevantes
@@ -533,6 +539,7 @@ export function useVendas(filtros: VendasFiltros) {
     contasDisponiveis,
     aliquotaImposto,
     isLoading,
+    isFetching, // Indica atualização em andamento (mudança de período)
     error,
     refetch,
     conciliarTransacao,
