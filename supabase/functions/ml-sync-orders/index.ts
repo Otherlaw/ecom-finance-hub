@@ -829,15 +829,6 @@ Deno.serve(async (req) => {
         // Usar date_closed (com horário) como data da transação
         const dataTransacao = order.date_closed || order.date_created;
 
-        // Verificar se já existe
-        const { data: existing } = await supabase
-          .from("marketplace_transactions")
-          .select("id")
-          .eq("empresa_id", empresa_id)
-          .eq("referencia_externa", String(order.id))
-          .eq("canal", "Mercado Livre")
-          .single();
-
         const transactionData = {
           empresa_id,
           canal: "Mercado Livre",
@@ -859,35 +850,30 @@ Deno.serve(async (req) => {
           frete_vendedor: freteVendedor,
         };
 
-        if (existing) {
-          // Atualizar registro existente
-          const { error: updateError } = await supabase
-            .from("marketplace_transactions")
-            .update(transactionData)
-            .eq("id", existing.id);
+        // UPSERT: inserir ou atualizar se já existir (baseado no unique index empresa_id, canal, referencia_externa)
+        const { data: upsertedTx, error: upsertError } = await supabase
+          .from("marketplace_transactions")
+          .upsert(transactionData, {
+            onConflict: "empresa_id,canal,referencia_externa",
+            ignoreDuplicates: false,
+          })
+          .select()
+          .single();
+
+        if (upsertError) {
+          console.error(`[ML Sync] Erro ao upsert pedido ${order.id}:`, upsertError);
+          registros_erro++;
+          continue;
+        }
+
+        // Verificar se foi criação ou atualização (by checking criado_em vs atualizado_em)
+        const wasCreated = upsertedTx && new Date(upsertedTx.criado_em).getTime() === new Date(upsertedTx.atualizado_em).getTime();
+        
+        if (wasCreated) {
+          registros_criados++;
           
-          if (updateError) {
-            console.error(`[ML Sync] Erro ao atualizar pedido ${order.id}:`, updateError);
-            registros_erro++;
-          } else {
-            registros_atualizados++;
-          }
-        } else {
-          // Inserir novo registro
-          const { data: newTx, error: insertError } = await supabase
-            .from("marketplace_transactions")
-            .insert(transactionData)
-            .select()
-            .single();
-
-          if (insertError) {
-            console.error("[ML Sync] Erro ao inserir:", insertError);
-            registros_erro++;
-            continue;
-          }
-
-          // Inserir itens do pedido COM MAPEAMENTO AUTOMÁTICO
-          if (order.order_items && newTx) {
+          // Inserir itens do pedido COM MAPEAMENTO AUTOMÁTICO (apenas para novos registros)
+          if (order.order_items && upsertedTx) {
             for (const item of order.order_items) {
               const skuMarketplace = item.item.seller_sku || item.item.id;
               
@@ -899,7 +885,7 @@ Deno.serve(async (req) => {
               }
 
               await supabase.from("marketplace_transaction_items").insert({
-                transaction_id: newTx.id,
+                transaction_id: upsertedTx.id,
                 sku_marketplace: skuMarketplace,
                 descricao_item: item.item.title,
                 quantidade: item.quantity,
@@ -910,8 +896,8 @@ Deno.serve(async (req) => {
               });
             }
           }
-
-          registros_criados++;
+        } else {
+          registros_atualizados++;
         }
       } catch (err) {
         console.error(`[ML Sync] Erro ao processar pedido ${order.id}:`, err);
