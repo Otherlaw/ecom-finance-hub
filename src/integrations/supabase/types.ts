@@ -2017,7 +2017,7 @@ export type Database = {
           origem_extrato: string | null
           outros_descontos: number | null
           pedido_id: string | null
-          referencia_externa: string | null
+          referencia_externa: string
           responsavel_id: string | null
           status: string
           tarifas: number | null
@@ -2048,7 +2048,7 @@ export type Database = {
           origem_extrato?: string | null
           outros_descontos?: number | null
           pedido_id?: string | null
-          referencia_externa?: string | null
+          referencia_externa: string
           responsavel_id?: string | null
           status?: string
           tarifas?: number | null
@@ -2079,7 +2079,7 @@ export type Database = {
           origem_extrato?: string | null
           outros_descontos?: number | null
           pedido_id?: string | null
-          referencia_externa?: string | null
+          referencia_externa?: string
           responsavel_id?: string | null
           status?: string
           tarifas?: number | null
