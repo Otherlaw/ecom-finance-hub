@@ -21,8 +21,8 @@ import { VendaItem } from "@/hooks/useVendaItens";
 
 export default function Vendas() {
   // Estados do filtro de período
-  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("30days");
-  const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("30days"));
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
+  const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
 
   // Estados de paginação
   const [currentPage, setCurrentPage] = useState(0);

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useDREData, usePeridosDisponiveis } from "@/hooks/useDREData";
 import { useFluxoCaixa } from "@/hooks/useFluxoCaixa";
-import { useMarketplaceTransactions } from "@/hooks/useMarketplaceTransactions";
+import { useFechamentoMetrics } from "@/hooks/useFechamentoMetrics";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
@@ -22,7 +22,7 @@ import {
 import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import { useMemo, useState, useEffect } from "react";
-import { format, endOfMonth, subMonths } from "date-fns";
+import { format, endOfMonth, subMonths, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useNavigate } from "react-router-dom";
 import {
@@ -76,20 +76,31 @@ export default function Fechamento() {
   const [showConfirmacaoFechamento, setShowConfirmacaoFechamento] = useState(false);
 
   const [ano, mes] = selectedPeriod.split("-");
-  const periodoInicio = `${ano}-${mes}-01`;
-  const periodoFim = format(endOfMonth(new Date(parseInt(ano), parseInt(mes) - 1)), "yyyy-MM-dd");
+  const periodoInicio = startOfMonth(new Date(parseInt(ano), parseInt(mes) - 1));
+  const periodoFim = endOfMonth(new Date(parseInt(ano), parseInt(mes) - 1));
+  const periodoInicioStr = format(periodoInicio, "yyyy-MM-dd");
+  const periodoFimStr = format(periodoFim, "yyyy-MM-dd");
 
   // Hooks de dados reais
   const { dreData, stats, isLoading: isDRELoading, hasData: hasDREData, transacoesCount } = useDREData(mes, parseInt(ano));
-  const { resumo: fluxoResumo, isLoading: isFluxoLoading, hasData: hasFluxoData } = useFluxoCaixa({ periodoInicio, periodoFim });
-  const { transacoes: marketplaceTransacoes, resumo: mktResumo, isLoading: isMktLoading } = useMarketplaceTransactions({ periodoInicio, periodoFim });
-  const { resumo: contasPagarResumo, contas: contasPagarData, isLoading: isCPLoading } = useContasPagar({ dataInicio: periodoInicio, dataFim: periodoFim });
-  const { resumo: contasReceberResumo, contas: contasReceberData, isLoading: isCRLoading } = useContasReceber({ dataInicio: periodoInicio, dataFim: periodoFim });
+  const { resumo: fluxoResumo, isLoading: isFluxoLoading, hasData: hasFluxoData } = useFluxoCaixa({ periodoInicio: periodoInicioStr, periodoFim: periodoFimStr });
+  
+  // Usar RPC otimizado para métricas de marketplace
+  const { metrics: fechamentoMetrics, isLoading: isMktLoading } = useFechamentoMetrics(periodoInicio, periodoFim);
+  const mktResumo = {
+    total: fechamentoMetrics.marketplace.total_transacoes,
+    conciliadas: fechamentoMetrics.marketplace.conciliadas,
+    pendentes: fechamentoMetrics.marketplace.pendentes,
+    totalCreditos: fechamentoMetrics.marketplace.total_creditos,
+    totalDebitos: fechamentoMetrics.marketplace.total_debitos,
+  };
+  
+  const { resumo: contasPagarResumo, contas: contasPagarData, isLoading: isCPLoading } = useContasPagar({ dataInicio: periodoInicioStr, dataFim: periodoFimStr });
+  const { resumo: contasReceberResumo, contas: contasReceberData, isLoading: isCRLoading } = useContasReceber({ dataInicio: periodoInicioStr, dataFim: periodoFimStr });
   
   // Garantir arrays válidos para evitar erros de undefined
   const contasPagar = contasPagarData || [];
   const contasReceber = contasReceberData || [];
-  const marketplaceTransacoesArr = marketplaceTransacoes || [];
   const { empresaAtiva, empresasDisponiveis } = useEmpresaAtiva();
   
   // Empresa ativa para buscar checklists
@@ -148,55 +159,38 @@ export default function Fechamento() {
     return opcoes;
   }, []);
 
-  // Receita por canal
+  // Receita por canal - usando dados agregados do RPC
   const channelData = useMemo(() => {
-    const porCanal: Record<string, { receita: number; taxas: number; liquido: number }> = {};
-    marketplaceTransacoesArr.forEach(t => {
-      const canal = t.canal_venda || t.canal || "Outros";
-      if (!porCanal[canal]) {
-        porCanal[canal] = { receita: 0, taxas: 0, liquido: 0 };
-      }
-      if (t.tipo_lancamento === "credito") {
-        porCanal[canal].receita += Math.abs(t.valor_liquido);
-        porCanal[canal].liquido += Math.abs(t.valor_liquido);
-      } else {
-        porCanal[canal].taxas += Math.abs(t.valor_liquido);
-        porCanal[canal].liquido -= Math.abs(t.valor_liquido);
-      }
-    });
-    const totalReceita = Object.values(porCanal).reduce((a, b) => a + b.receita, 0);
-    return Object.entries(porCanal)
+    const porCanalData = fechamentoMetrics.por_canal;
+    const totalReceita = Object.values(porCanalData).reduce((a, b) => a + b.receita_bruta, 0);
+    
+    return Object.entries(porCanalData)
       .map(([channel, dados]) => ({
         channel,
-        receitaBruta: dados.receita,
-        taxas: dados.taxas,
-        receitaLiquida: dados.liquido,
-        percentual: totalReceita > 0 ? ((dados.receita / totalReceita) * 100).toFixed(1) : "0",
+        receitaBruta: dados.receita_bruta,
+        taxas: dados.tarifas,
+        receitaLiquida: dados.receita_liquida,
+        percentual: totalReceita > 0 ? ((dados.receita_bruta / totalReceita) * 100).toFixed(1) : "0",
         color: getChannelColor(channel),
       }))
       .sort((a, b) => b.receitaBruta - a.receitaBruta);
-  }, [marketplaceTransacoesArr]);
+  }, [fechamentoMetrics.por_canal]);
 
-  // Resumo por empresa
+  // Resumo por empresa - usando dados agregados e contas a pagar/receber
   const empresaResumo = useMemo(() => {
     const porEmpresa: Record<string, { nome: string; receita: number; despesas: number; liquido: number }> = {};
     
-    // Receitas de marketplace
-    marketplaceTransacoesArr.forEach(t => {
-      const empresaId = t.empresa_id;
-      const empresa = empresasDisponiveis?.find(e => e.id === empresaId);
-      const nome = empresa?.nome_fantasia || empresa?.razao_social || "Empresa não identificada";
-      
-      if (!porEmpresa[empresaId]) {
-        porEmpresa[empresaId] = { nome, receita: 0, despesas: 0, liquido: 0 };
-      }
-      
-      if (t.tipo_lancamento === "credito") {
-        porEmpresa[empresaId].receita += Math.abs(t.valor_liquido);
-      } else {
-        porEmpresa[empresaId].despesas += Math.abs(t.valor_liquido);
-      }
-    });
+    // Receitas de marketplace (da empresa ativa)
+    if (empresaAtiva) {
+      const empresaId = empresaAtiva.id;
+      const nome = empresaAtiva.nome_fantasia || empresaAtiva.razao_social || "Empresa não identificada";
+      porEmpresa[empresaId] = {
+        nome,
+        receita: fechamentoMetrics.marketplace.total_creditos,
+        despesas: fechamentoMetrics.marketplace.total_debitos,
+        liquido: 0,
+      };
+    }
 
     // Adicionar contas a pagar como despesas
     contasPagar?.forEach(c => {
@@ -234,7 +228,7 @@ export default function Fechamento() {
     });
 
     return Object.values(porEmpresa).sort((a, b) => b.receita - a.receita);
-  }, [marketplaceTransacoesArr, contasPagar, contasReceber, empresasDisponiveis]);
+  }, [fechamentoMetrics, contasPagar, contasReceber, empresasDisponiveis, empresaAtiva]);
 
   // Calcular status do checklist por canal
   const checklistCanalStatus = useMemo(() => {
@@ -271,7 +265,7 @@ export default function Fechamento() {
   // Status do fechamento (etapas gerais) - Critérios baseados em dados REAIS do banco
   const statusFechamento = useMemo(() => {
     // 1. IMPORTAÇÃO DE DADOS - verificar fontes reais com contagem
-    const temImportacoesMarketplace = marketplaceTransacoesArr.length > 0;
+    const temImportacoesMarketplace = mktResumo.total > 0;
     const temMovimentosFinanceiros = fluxoResumo.totalEntradas > 0 || fluxoResumo.totalSaidas > 0;
     const temContasPagar = contasPagar.length > 0;
     const temContasReceber = contasReceber.length > 0;
@@ -294,7 +288,7 @@ export default function Fechamento() {
       : fontesComDados >= 1 ? "partial" 
       : "pending";
     const importacaoDetail = temImportacoesMarketplace
-      ? `${marketplaceTransacoesArr.length} mkt, ${contasPagar.length} CP, ${contasReceber.length} CR`
+      ? `${mktTotal} mkt, ${contasPagar.length} CP, ${contasReceber.length} CR`
       : `${fontesComDados}/4 fontes`;
 
     // 2. CONCILIAÇÃO MARKETPLACE - X/Y transações conciliadas
@@ -379,7 +373,7 @@ export default function Fechamento() {
       { step: "Checklist por Canal", status: checklistStatus, detail: checklistDetail },
       { step: "DRE consolidado", status: dreStatus, detail: dreDetail },
     ];
-  }, [mktResumo, contasPagar, contasReceber, hasDREData, transacoesCount, marketplaceTransacoesArr, resumoFechamento, fluxoResumo, dreData]);
+  }, [mktResumo, contasPagar, contasReceber, hasDREData, transacoesCount, resumoFechamento, fluxoResumo, dreData]);
 
   // Handler para encerrar mês
   const handleEncerrarMes = () => {
@@ -399,7 +393,7 @@ export default function Fechamento() {
         totalDespesas: dreData?.totalDespesas || 0,
         margemBruta: stats?.margemBruta || 0,
         margemLiquida: stats?.margemLiquida || 0,
-        transacoesMarketplace: marketplaceTransacoesArr.length,
+        transacoesMarketplace: mktResumo.total,
         contasPagarEmAberto: contasPagarResumo.totalEmAberto,
         contasReceberEmAberto: contasReceberResumo.totalEmAberto,
       },
@@ -600,7 +594,7 @@ export default function Fechamento() {
                   </div>
                 </ModuleCard>
 
-                <ModuleCard title="Marketplace" description={`${marketplaceTransacoesArr.length} transações`} icon={Store}>
+                <ModuleCard title="Marketplace" description={`${mktResumo.total} transações`} icon={Store}>
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">Créditos</span>

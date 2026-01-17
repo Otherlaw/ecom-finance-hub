@@ -3149,6 +3149,14 @@ export type Database = {
         }
         Returns: Json
       }
+      get_fechamento_metrics: {
+        Args: {
+          p_data_fim: string
+          p_data_inicio: string
+          p_empresa_id: string
+        }
+        Returns: Json
+      }
       get_vendas_resumo: {
         Args: {
           p_data_fim: string
