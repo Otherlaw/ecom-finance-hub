@@ -9,6 +9,7 @@ import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -204,10 +205,15 @@ export default function Dashboard() {
     }));
   }, [agregado]);
 
+  // Hook de empresa ativa já é importado via useDashboardMetrics
+  const { empresaAtiva } = useEmpresaAtiva();
+
   // Query para Top 10 produtos mais vendidos (incluindo custo_ads)
   const { data: topProdutosRaw = [], isLoading: isTopProdutosLoading } = useQuery({
-    queryKey: ["top-produtos-vendidos", periodoInicio, periodoFim],
+    queryKey: ["top-produtos-vendidos", empresaAtiva?.id, periodoInicio, periodoFim],
     queryFn: async () => {
+      if (!empresaAtiva?.id) return [];
+      
       const { data, error } = await supabase
         .from("marketplace_transaction_items")
         .select(`
@@ -221,7 +227,8 @@ export default function Dashboard() {
             canal,
             data_transacao,
             tipo_lancamento,
-            custo_ads
+            custo_ads,
+            empresa_id
           ),
           produto:produtos(
             id,
@@ -231,6 +238,7 @@ export default function Dashboard() {
             imagem_url
           )
         `)
+        .eq("transaction.empresa_id", empresaAtiva.id)
         .gte("transaction.data_transacao", periodoInicio)
         .lte("transaction.data_transacao", periodoFim)
         .eq("transaction.tipo_lancamento", "credito");
@@ -241,7 +249,7 @@ export default function Dashboard() {
       }
       return data || [];
     },
-    enabled: !!periodoInicio && !!periodoFim,
+    enabled: !!periodoInicio && !!periodoFim && !!empresaAtiva?.id,
   });
 
   // Processar dados para Top 10 produtos com preço médio e ads
