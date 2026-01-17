@@ -83,8 +83,8 @@ const formatNumber = (value: number): string => {
 };
 
 export default function Dashboard() {
-  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("30days");
-  const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("30days"));
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
+  const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
 
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
