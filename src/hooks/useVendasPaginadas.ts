@@ -1,10 +1,10 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 
 /**
- * Tipo para transações paginadas (sem itens - carregados sob demanda)
+ * Tipo para transações paginadas com CMV agregado
  */
 export interface TransacaoPaginada {
   id: string;
@@ -31,9 +31,10 @@ export interface TransacaoPaginada {
   frete_comprador: number;
   frete_vendedor: number;
   custo_ads: number;
-  // Campos calculados
+  // Campos calculados pela RPC
   nao_conciliado: boolean;
   qtd_itens: number;
+  cmv_total: number; // CMV calculado via RPC
 }
 
 export interface ResumoVendasAgregado {
@@ -61,7 +62,7 @@ interface UseVendasPaginadasParams {
 
 /**
  * Hook otimizado para buscar vendas com paginação real no servidor.
- * Não traz itens junto - use useVendaItens para carregar sob demanda.
+ * Usa RPCs otimizadas para performance e inclui CMV calculado.
  */
 export function useVendasPaginadas({
   page = 0,
@@ -75,17 +76,17 @@ export function useVendasPaginadas({
   const { empresaAtiva } = useEmpresaAtiva();
   const empresaId = empresaAtiva?.id;
 
+  // Converter datas para UTC com ajuste BR (meia-noite BR = 03:00 UTC)
+  const dataInicioUTC = `${periodoInicio}T03:00:00.000Z`;
+  const dataFimDate = new Date(`${periodoFim}T03:00:00.000Z`);
+  dataFimDate.setDate(dataFimDate.getDate() + 1);
+  const dataFimUTC = dataFimDate.toISOString();
+
   // Buscar resumo agregado via RPC (uma chamada para todas as métricas)
   const { data: resumoAgregado, isLoading: isLoadingResumo } = useQuery({
     queryKey: ["vendas-resumo-agregado", empresaId, periodoInicio, periodoFim],
     queryFn: async () => {
       if (!empresaId) return null;
-
-      // Converter datas para UTC
-      const dataInicioUTC = `${periodoInicio}T03:00:00.000Z`;
-      const dataFimDate = new Date(`${periodoFim}T03:00:00.000Z`);
-      dataFimDate.setDate(dataFimDate.getDate() + 1);
-      const dataFimUTC = dataFimDate.toISOString();
 
       const { data, error } = await supabase.rpc("get_vendas_resumo", {
         p_empresa_id: empresaId,
@@ -98,15 +99,46 @@ export function useVendasPaginadas({
         return null;
       }
 
-      // RPC retorna array com 1 registro
       const resultado = Array.isArray(data) ? data[0] : data;
       return resultado as ResumoVendasAgregado | null;
     },
     enabled: !!empresaId,
-    staleTime: 30 * 1000, // Cache por 30 segundos
+    staleTime: 30 * 1000,
   });
 
-  // Buscar transações paginadas (sem itens)
+  // Buscar contagem total via RPC separada (mais performático que count: exact)
+  const { data: totalCount } = useQuery({
+    queryKey: [
+      "vendas-count",
+      empresaId,
+      periodoInicio,
+      periodoFim,
+      canal,
+      statusVenda,
+    ],
+    queryFn: async () => {
+      if (!empresaId) return 0;
+
+      const { data, error } = await supabase.rpc("get_vendas_count", {
+        p_empresa_id: empresaId,
+        p_data_inicio: dataInicioUTC,
+        p_data_fim: dataFimUTC,
+        p_canal: canal || null,
+        p_status: statusVenda || null,
+      });
+
+      if (error) {
+        console.error("Erro ao buscar contagem de vendas:", error);
+        return 0;
+      }
+
+      return data as number;
+    },
+    enabled: !!empresaId,
+    staleTime: 60 * 1000, // Cache contagem por 1 minuto
+  });
+
+  // Buscar transações paginadas COM CMV via RPC otimizada
   const { 
     data: transacoesData, 
     isLoading: isLoadingTransacoes,
@@ -115,104 +147,73 @@ export function useVendasPaginadas({
     refetch,
   } = useQuery({
     queryKey: [
-      "vendas-paginadas",
+      "vendas-paginadas-cmv",
       empresaId,
       periodoInicio,
       periodoFim,
       canal,
-      conta,
       statusVenda,
       page,
       pageSize,
     ],
     queryFn: async () => {
-      if (!empresaId) return { transacoes: [], totalRegistros: 0 };
+      if (!empresaId) return [];
 
-      // Converter datas para UTC
-      const dataInicioUTC = `${periodoInicio}T03:00:00.000Z`;
-      const dataFimDate = new Date(`${periodoFim}T03:00:00.000Z`);
-      dataFimDate.setDate(dataFimDate.getDate() + 1);
-      const dataFimUTC = dataFimDate.toISOString();
-
-      let query = supabase
-        .from("marketplace_transactions")
-        .select("*, marketplace_transaction_items(id)", { count: "exact" })
-        .eq("empresa_id", empresaId)
-        .eq("tipo_lancamento", "credito")
-        .gte("data_transacao", dataInicioUTC)
-        .lt("data_transacao", dataFimUTC)
-        .order("data_transacao", { ascending: false })
-        .order("id", { ascending: false })
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-
-      // Aplicar filtros opcionais
-      if (canal && canal !== "todos") {
-        query = query.eq("canal", canal);
-      }
-      if (conta) {
-        query = query.ilike("conta_nome", `%${conta}%`);
-      }
-      if (statusVenda && statusVenda !== "todos") {
-        query = query.eq("status", statusVenda);
-      }
-
-      const { data, error, count } = await query;
+      const { data, error } = await supabase.rpc("get_vendas_com_cmv", {
+        p_empresa_id: empresaId,
+        p_data_inicio: dataInicioUTC,
+        p_data_fim: dataFimUTC,
+        p_canal: canal || null,
+        p_status: statusVenda || null,
+        p_limit: pageSize,
+        p_offset: page * pageSize,
+      });
 
       if (error) {
         console.error("Erro ao buscar vendas paginadas:", error);
         throw error;
       }
 
-      // Transformar dados
-      const transacoes: TransacaoPaginada[] = (data || []).map((t: any) => {
-        const temDadosFinanceiros =
-          (t.tarifas || 0) !== 0 ||
-          (t.taxas || 0) !== 0 ||
-          (t.frete_vendedor || 0) !== 0 ||
-          (t.custo_ads || 0) !== 0;
+      // Transformar dados da RPC
+      const transacoes: TransacaoPaginada[] = (data || []).map((t: any) => ({
+        id: t.id,
+        empresa_id: t.empresa_id,
+        canal: t.canal,
+        canal_venda: t.canal_venda,
+        conta_nome: t.conta_nome,
+        pedido_id: t.pedido_id,
+        data_transacao: t.data_transacao,
+        data_repasse: t.data_repasse,
+        tipo_transacao: t.tipo_transacao,
+        descricao: t.descricao,
+        status: t.status,
+        referencia_externa: t.referencia_externa,
+        valor_bruto: Number(t.valor_bruto) || 0,
+        valor_liquido: Number(t.valor_liquido) || 0,
+        tarifas: Number(t.tarifas) || 0,
+        taxas: Number(t.taxas) || 0,
+        outros_descontos: Number(t.outros_descontos) || 0,
+        tipo_lancamento: t.tipo_lancamento,
+        categoria_id: t.categoria_id,
+        centro_custo_id: t.centro_custo_id,
+        tipo_envio: t.tipo_envio,
+        frete_comprador: Number(t.frete_comprador) || 0,
+        frete_vendedor: Number(t.frete_vendedor) || 0,
+        custo_ads: Number(t.custo_ads) || 0,
+        nao_conciliado: t.nao_conciliado || false,
+        qtd_itens: Number(t.qtd_itens) || 0,
+        cmv_total: Number(t.cmv_total) || 0,
+      }));
 
-        return {
-          id: t.id,
-          empresa_id: t.empresa_id,
-          canal: t.canal,
-          canal_venda: t.canal_venda,
-          conta_nome: t.conta_nome,
-          pedido_id: t.pedido_id,
-          data_transacao: t.data_transacao,
-          data_repasse: t.data_repasse,
-          tipo_transacao: t.tipo_transacao,
-          descricao: t.descricao,
-          status: t.status,
-          referencia_externa: t.referencia_externa,
-          valor_bruto: t.valor_bruto || 0,
-          valor_liquido: t.valor_liquido || 0,
-          tarifas: t.tarifas || 0,
-          taxas: t.taxas || 0,
-          outros_descontos: t.outros_descontos || 0,
-          tipo_lancamento: t.tipo_lancamento,
-          categoria_id: t.categoria_id,
-          centro_custo_id: t.centro_custo_id,
-          tipo_envio: t.tipo_envio,
-          frete_comprador: t.frete_comprador || 0,
-          frete_vendedor: t.frete_vendedor || 0,
-          custo_ads: t.custo_ads || 0,
-          nao_conciliado: !temDadosFinanceiros && t.status !== "conciliado",
-          qtd_itens: t.marketplace_transaction_items?.length || 0,
-        };
-      });
-
-      return {
-        transacoes,
-        totalRegistros: count || 0,
-      };
+      return transacoes;
     },
     enabled: !!empresaId,
-    refetchInterval: 60 * 1000, // Auto-refresh a cada 1 minuto
+    refetchInterval: 60 * 1000,
     refetchIntervalInBackground: false,
   });
 
-  const transacoes = transacoesData?.transacoes || [];
-  const totalRegistros = transacoesData?.totalRegistros || 0;
+  const transacoes = transacoesData || [];
+  const totalRegistros = totalCount || 0;
   const totalPaginas = Math.ceil(totalRegistros / pageSize);
 
   // Extrair canais e contas disponíveis para filtros

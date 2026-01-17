@@ -3157,6 +3157,56 @@ export type Database = {
         }
         Returns: Json
       }
+      get_vendas_com_cmv: {
+        Args: {
+          p_canal?: string
+          p_data_fim: string
+          p_data_inicio: string
+          p_empresa_id: string
+          p_limit?: number
+          p_offset?: number
+          p_status?: string
+        }
+        Returns: {
+          canal: string
+          canal_venda: string
+          categoria_id: string
+          centro_custo_id: string
+          cmv_total: number
+          conta_nome: string
+          custo_ads: number
+          data_repasse: string
+          data_transacao: string
+          descricao: string
+          empresa_id: string
+          frete_comprador: number
+          frete_vendedor: number
+          id: string
+          nao_conciliado: boolean
+          outros_descontos: number
+          pedido_id: string
+          qtd_itens: number
+          referencia_externa: string
+          status: string
+          tarifas: number
+          taxas: number
+          tipo_envio: string
+          tipo_lancamento: string
+          tipo_transacao: string
+          valor_bruto: number
+          valor_liquido: number
+        }[]
+      }
+      get_vendas_count: {
+        Args: {
+          p_canal?: string
+          p_data_fim: string
+          p_data_inicio: string
+          p_empresa_id: string
+          p_status?: string
+        }
+        Returns: number
+      }
       get_vendas_resumo: {
         Args: {
           p_data_fim: string
