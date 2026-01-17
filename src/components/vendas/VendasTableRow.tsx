@@ -70,19 +70,27 @@ export function VendasTableRow({
   const temItens = transacao.qtd_itens > 0;
   const hasWarnings = transacao.nao_conciliado;
 
-  // Calcular margem simples da transação
+  // CMV vem da RPC (já calculado: quantidade * custo_medio do produto)
+  const cmvTotal = transacao.cmv_total || 0;
+  const semCMV = cmvTotal === 0 && temItens;
+  
+  // Calcular Margem de Contribuição (MC) corretamente:
+  // MC = valor_bruto - (taxas + tarifas) - frete_vendedor - imposto - ads - CMV
+  // Nota: valor_liquido = valor_bruto - (taxas + tarifas), então:
+  // MC = valor_liquido - frete_vendedor - imposto - ads - CMV
   const imposto = transacao.valor_bruto * (aliquotaImposto / 100);
-  const margemRs = transacao.valor_liquido - transacao.frete_vendedor - transacao.custo_ads - imposto;
+  const margemRs = transacao.valor_liquido - transacao.frete_vendedor - transacao.custo_ads - imposto - cmvTotal;
   const margemPercent = transacao.valor_bruto > 0 ? (margemRs / transacao.valor_bruto) * 100 : 0;
 
-  const margemColor =
-    margemRs < 0
-      ? "text-destructive"
-      : margemPercent < 10
-      ? "text-amber-500"
-      : margemPercent < 20
-      ? "text-yellow-600"
-      : "text-emerald-500";
+  const margemColor = semCMV
+    ? "text-muted-foreground"
+    : margemRs < 0
+    ? "text-destructive"
+    : margemPercent < 10
+    ? "text-amber-500"
+    : margemPercent < 20
+    ? "text-yellow-600"
+    : "text-emerald-500";
 
   const handleToggleExpand = () => {
     if (temItens) {
@@ -198,12 +206,28 @@ export function VendasTableRow({
           )}
         </TableCell>
         <TableCell className={cn("text-right text-xs font-medium", margemColor)}>
-          <div>
-            {formatCurrency(margemRs)}
-            <span className="block text-[10px] opacity-75">
-              {formatPercent(margemPercent)}
-            </span>
-          </div>
+          {semCMV ? (
+            <Tooltip>
+              <TooltipTrigger>
+                <div className="flex items-center justify-end gap-1">
+                  <AlertTriangle className="h-3 w-3 text-amber-500" />
+                  <span className="text-muted-foreground">Sem CMV</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">
+                  MC não pode ser calculada pois os produtos não têm custo cadastrado.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div>
+              {formatCurrency(margemRs)}
+              <span className="block text-[10px] opacity-75">
+                {formatPercent(margemPercent)}
+              </span>
+            </div>
+          )}
         </TableCell>
         <TableCell onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-1">

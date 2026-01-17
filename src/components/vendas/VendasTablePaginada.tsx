@@ -10,11 +10,13 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   ArrowUpDown,
   ChevronDown,
   ChevronUp,
   Download,
+  HelpCircle,
   Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -81,8 +83,11 @@ export function VendasTablePaginada({
         bVal = b.valor_liquido;
         break;
       case "margem":
-        aVal = a.valor_liquido - a.frete_vendedor - a.custo_ads;
-        bVal = b.valor_liquido - b.frete_vendedor - b.custo_ads;
+        // MC = valor_liquido - frete_vendedor - imposto - ads - CMV
+        const impA = a.valor_bruto * (aliquotaImposto / 100);
+        const impB = b.valor_bruto * (aliquotaImposto / 100);
+        aVal = a.valor_liquido - a.frete_vendedor - a.custo_ads - impA - (a.cmv_total || 0);
+        bVal = b.valor_liquido - b.frete_vendedor - b.custo_ads - impB - (b.cmv_total || 0);
         break;
       default:
         return 0;
@@ -128,13 +133,15 @@ export function VendasTablePaginada({
       "Frete Vendedor",
       "Imposto",
       "ADS",
-      "Margem R$",
+      "CMV",
+      "MC R$",
       "Status",
     ];
 
     const rows = sortedTransacoes.map((t) => {
       const imposto = t.valor_bruto * (aliquotaImposto / 100);
-      const margemRs = t.valor_liquido - t.frete_vendedor - t.custo_ads - imposto;
+      const cmv = t.cmv_total || 0;
+      const margemRs = t.valor_liquido - t.frete_vendedor - t.custo_ads - imposto - cmv;
 
       return [
         t.canal,
@@ -150,6 +157,7 @@ export function VendasTablePaginada({
         t.frete_vendedor.toFixed(2),
         imposto.toFixed(2),
         t.custo_ads.toFixed(2),
+        cmv.toFixed(2),
         margemRs.toFixed(2),
         t.status,
       ];
@@ -227,7 +235,18 @@ export function VendasTablePaginada({
                 className="w-[100px] text-right cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("margem")}
               >
-                <div className="flex items-center justify-end">
+                <div className="flex items-center justify-end gap-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p className="text-xs font-normal">
+                        <strong>Margem de Contribuição</strong><br/>
+                        MC = Bruto - Tarifas - Frete V. - Imposto - ADS - CMV
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
                   MC
                   <SortIcon field="margem" />
                 </div>
