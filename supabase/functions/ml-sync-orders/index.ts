@@ -326,15 +326,17 @@ async function fetchShippingCosts(
 
 /**
  * Buscar taxas detalhadas da API de Conciliações do ML
+ * Se falhar (403/401), retorna mapa vazio - o fallback extractFeesFromOrder será usado
  */
 async function fetchBillingDetailsFromConciliation(
   supabase: any,
   tokenState: TokenState,
   dateFrom: Date,
   dateTo: Date
-): Promise<{ feesMap: Map<string, OrderFees>; tokenState: TokenState }> {
+): Promise<{ feesMap: Map<string, OrderFees>; tokenState: TokenState; billingAvailable: boolean }> {
   const feesMap = new Map<string, OrderFees>();
   let currentTokenState = tokenState;
+  let billingAvailable = true;
   
   const fromStr = dateFrom.toISOString().split('T')[0];
   const toStr = dateTo.toISOString().split('T')[0];
@@ -357,6 +359,12 @@ async function fetchBillingDetailsFromConciliation(
       
       if (!response.ok) {
         const errorText = await response.text();
+        // Se 403/401 = permissão negada, desligar billingAvailable e usar fallback
+        if (response.status === 403 || response.status === 401) {
+          console.warn(`[ML Sync] ⚠️ API Conciliações: ${response.status} - Sem permissão, usando fallback de marketplace_fee`);
+          billingAvailable = false;
+          break;
+        }
         console.error(`[ML Sync] ❌ Erro API Conciliações: ${response.status} - ${errorText}`);
         break;
       }
@@ -440,9 +448,9 @@ async function fetchBillingDetailsFromConciliation(
     console.log(`[ML Sync] 📊 Tipos de taxa não mapeados encontrados: ${Array.from(tiposDesconhecidos).join(', ')}`);
   }
   
-  console.log(`[ML Sync] 💰 Conciliações: ${feesMap.size} pedidos com taxas mapeadas`);
+  console.log(`[ML Sync] 💰 Conciliações: ${feesMap.size} pedidos com taxas mapeadas (API disponível: ${billingAvailable})`);
   
-  return { feesMap, tokenState: currentTokenState };
+  return { feesMap, tokenState: currentTokenState, billingAvailable };
 }
 
 // Fallback: Extrair taxas diretamente do pedido quando API de Conciliações falha
@@ -745,7 +753,7 @@ Deno.serve(async (req) => {
     // ========== BUSCAR TAXAS DA API DE CONCILIAÇÕES ==========
     console.log(`[ML Sync] 💰 Buscando taxas reais da API de Conciliações...`);
     
-    const { feesMap, tokenState: tokenAfterBilling } = await fetchBillingDetailsFromConciliation(
+    const { feesMap, tokenState: tokenAfterBilling, billingAvailable } = await fetchBillingDetailsFromConciliation(
       supabase,
       tokenState,
       dateFrom,
@@ -753,6 +761,10 @@ Deno.serve(async (req) => {
     );
     tokenState = tokenAfterBilling;
     billing_extraidos = feesMap.size;
+    
+    if (!billingAvailable) {
+      console.log(`[ML Sync] ⚠️ API de Conciliações indisponível, usando marketplace_fee dos pagamentos`);
+    }
 
     // ========== BUSCAR SHIPPING COSTS EM LOTE ==========
     const BATCH_SIZE = 50;
@@ -817,15 +829,21 @@ Deno.serve(async (req) => {
         let freteVendedorFromBilling = 0;
         
         const billingFees = feesMap.get(orderId);
-        if (billingFees && (billingFees.taxas > 0 || billingFees.tarifas > 0 || billingFees.freteVendedor > 0)) {
+        if (billingAvailable && billingFees && (billingFees.taxas > 0 || billingFees.tarifas > 0 || billingFees.freteVendedor > 0)) {
+          // Usar dados da API de Conciliações (mais precisos)
           taxas = billingFees.taxas;
           tarifas = billingFees.tarifas;
           freteVendedorFromBilling = billingFees.freteVendedor;
         } else {
-          // Fallback: usar marketplace_fee do order + estimar parcelamento
+          // Fallback robusto: usar marketplace_fee do order + estimar parcelamento
           const fees = extractFeesFromOrder(order);
           taxas = fees.taxas;
           tarifas = fees.tarifas;
+          
+          // Log apenas se não tiver nenhuma taxa (para investigar)
+          if (taxas === 0 && valorBruto > 0) {
+            console.log(`[ML Sync] ⚠️ Pedido ${order.id}: marketplace_fee=0, valor_bruto=${valorBruto}`);
+          }
         }
 
         // ========== PROCESSAR SHIPPING (CORRIGIDO) ==========
@@ -874,11 +892,11 @@ Deno.serve(async (req) => {
           frete_vendedor: freteVendedor,
         };
 
-        // UPSERT com chave completa (empresa_id, canal, referencia_externa, tipo_transacao, tipo_lancamento)
+        // UPSERT com constraint real uq_mkt_tx_key
         const { data: upsertedTx, error: upsertError } = await supabase
           .from("marketplace_transactions")
           .upsert(transactionData, {
-            onConflict: "empresa_id,canal,referencia_externa,tipo_transacao,tipo_lancamento",
+            onConflict: "uq_mkt_tx_key",
             ignoreDuplicates: false,
           })
           .select()

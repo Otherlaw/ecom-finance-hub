@@ -893,7 +893,7 @@ async function processarImportacaoBackground(
 
     // PASSO 3: Filtrar e remover duplicatas (internas e do banco)
     const hashesVistas = new Set<string>();
-    const transacoesParaInserir: (MarketplaceTransactionInsert & { hash_duplicidade: string })[] = [];
+    const transacoesParaInserir: (MarketplaceTransactionInsert & { hash_duplicidade: string; referencia_externa: string })[] = [];
     
     for (let i = 0; i < transacoesComHash.length; i++) {
       const t = transacoesComHash[i];
@@ -911,7 +911,13 @@ async function processarImportacaoBackground(
       }
       
       hashesVistas.add(t.hash_duplicidade);
-      transacoesParaInserir.push(t);
+      
+      // Garantir que referencia_externa nunca seja nula (usar pedido_id ou hash como fallback)
+      const transacaoComRef = {
+        ...t,
+        referencia_externa: t.referencia_externa || t.pedido_id || t.hash_duplicidade,
+      };
+      transacoesParaInserir.push(transacaoComRef);
       
       // Atualizar progresso durante filtragem (fase 3 = 50% a 60%)
       if ((i + 1) % 200 === 0 || i === transacoesComHash.length - 1) {
