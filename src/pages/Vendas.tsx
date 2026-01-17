@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { MainLayout } from "@/components/MainLayout";
-import { useVendas, VendasFiltros } from "@/hooks/useVendas";
+import { useVendasPaginadas, TransacaoPaginada } from "@/hooks/useVendasPaginadas";
 import { useVendasPendentes } from "@/hooks/useVendasPendentes";
 import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { VendasDashboard } from "@/components/vendas/VendasDashboard";
 import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
-import { VendasFiltrosPanel } from "@/components/vendas/VendasFiltrosPanel";
-import { VendasTable } from "@/components/vendas/VendasTable";
+import { VendasTablePaginada } from "@/components/vendas/VendasTablePaginada";
 import { VendasProductMappingModal } from "@/components/vendas/VendasProductMappingModal";
 import { VendasCategorizacaoModal } from "@/components/vendas/VendasCategorizacaoModal";
 import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
@@ -18,53 +17,56 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { VendaItem } from "@/hooks/useVendaItens";
 
 export default function Vendas() {
   // Estados do filtro de período
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("30days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("30days"));
 
-  const [filtros, setFiltros] = useState<VendasFiltros>({
-    dataInicio: format(dateRange.from, "yyyy-MM-dd"),
-    dataFim: format(dateRange.to, "yyyy-MM-dd"),
-    titulo: "",
-    sku: "",
-    pedidoId: "",
-    canal: "todos",
-    conta: "",
-    statusVenda: "todos",
-    considerarFreteComprador: true,
-    somenteComDivergencia: false,
-    somenteNaoConciliadas: false,
-    somenteSemCusto: false,
-    somenteSemProduto: false,
-  });
+  // Estados de paginação
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pageSize] = useState(50);
+
+  // Estados de filtros simples
+  const [canal, setCanal] = useState<string>("todos");
+  const [conta, setConta] = useState<string>("");
+  const [statusVenda, setStatusVenda] = useState<string>("todos");
+  const [considerarFreteComprador, setConsiderarFreteComprador] = useState(true);
 
   const [showMappingModal, setShowMappingModal] = useState(false);
   const [skuParaMapear, setSkuParaMapear] = useState<string | null>(null);
   
   // Estado para modal de categorização
   const [showCategorizacaoModal, setShowCategorizacaoModal] = useState(false);
-  const [vendaParaCategorizar, setVendaParaCategorizar] = useState<any>(null);
+  const [vendaParaCategorizar, setVendaParaCategorizar] = useState<TransacaoPaginada | null>(null);
 
   const { empresaAtiva } = useEmpresaAtiva();
   const empresaId = empresaAtiva?.id;
 
+  // Hook paginado otimizado
   const { 
-    vendas, 
-    resumo, 
-    consistencia, 
+    transacoes, 
+    totalRegistros,
+    totalPaginas,
+    resumoAgregado,
     canaisDisponiveis, 
     contasDisponiveis,
-    aliquotaImposto,
     isLoading,
     isFetching,
-    conciliarTransacao,
     dataUpdatedAt,
-  } = useVendas(filtros);
+  } = useVendasPaginadas({
+    page: currentPage,
+    pageSize,
+    periodoInicio: format(dateRange.from, "yyyy-MM-dd"),
+    periodoFim: format(dateRange.to, "yyyy-MM-dd"),
+    canal: canal !== "todos" ? canal : undefined,
+    conta: conta || undefined,
+    statusVenda: statusVenda !== "todos" ? statusVenda : undefined,
+  });
 
   // Combina loading inicial + refetch (mudança de período)
-  const carregando = isLoading || isFetching;
+  const carregando = isLoading;
 
   const { resumo: resumoPendentes, reprocessarMapeamentos } = useVendasPendentes({ empresaId });
 
@@ -89,44 +91,7 @@ export default function Vendas() {
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
     setDateRange(range);
-    setFiltros((prev) => ({
-      ...prev,
-      dataInicio: format(range.from, "yyyy-MM-dd"),
-      dataFim: format(range.to, "yyyy-MM-dd"),
-    }));
-  };
-
-  const handleFiltroChange = (campo: keyof VendasFiltros, valor: any) => {
-    setFiltros((prev) => ({ ...prev, [campo]: valor }));
-  };
-
-  const handleConsistenciaClick = (tipo: string) => {
-    setFiltros((prev) => ({
-      ...prev,
-      somenteNaoConciliadas: tipo === "naoConciliadas",
-      somenteSemCusto: tipo === "semCusto",
-      somenteSemProduto: tipo === "semProduto",
-    }));
-  };
-
-  const limparFiltrosConsistencia = () => {
-    setFiltros((prev) => ({
-      ...prev,
-      somenteNaoConciliadas: false,
-      somenteSemCusto: false,
-      somenteSemProduto: false,
-    }));
-  };
-
-  const limparFiltrosEspeciais = () => {
-    setFiltros((prev) => ({
-      ...prev,
-      somenteNaoConciliadas: false,
-      somenteSemCusto: false,
-      somenteSemProduto: false,
-      tipoEnvio: "",
-      teveAds: "todos",
-    }));
+    setCurrentPage(0); // Reset para primeira página ao mudar período
   };
 
   const handleReprocessarMapeamentos = async () => {
@@ -205,25 +170,57 @@ export default function Vendas() {
     }
   };
 
-  const handleAbrirMapeamentoLinha = (venda: any) => {
-    setSkuParaMapear(venda.sku_marketplace || venda.sku_interno || null);
+  const handleAbrirMapeamentoLinha = (transacao: TransacaoPaginada, item?: VendaItem) => {
+    setSkuParaMapear(item?.sku_marketplace || null);
     setShowMappingModal(true);
   };
 
   // Handler para abrir modal de categorização (usado pela tabela)
-  const handleAbrirCategorizacao = (venda: any) => {
-    setVendaParaCategorizar(venda);
+  const handleAbrirCategorizacao = (transacao: TransacaoPaginada) => {
+    setVendaParaCategorizar(transacao);
     setShowCategorizacaoModal(true);
   };
 
   // Handler wrapper para o botão conciliar na tabela
   const handleConciliarWrapper = async (transacaoId: string): Promise<boolean> => {
-    const venda = vendas.find(v => v.transacao_id === transacaoId);
-    if (venda) {
-      handleAbrirCategorizacao(venda);
+    const transacao = transacoes.find(t => t.id === transacaoId);
+    if (transacao) {
+      handleAbrirCategorizacao(transacao);
     }
     return false; // Retorna false para não fechar automaticamente, o modal vai cuidar disso
   };
+
+  // Adaptar resumo para o componente VendasDashboard
+  const resumoAdaptado = {
+    totalFaturamentoBruto: resumoAgregado?.total_bruto || 0,
+    totalFaturamentoLiquido: resumoAgregado?.total_liquido || 0,
+    totalCMV: 0, // CMV não vem do resumo agregado
+    totalTarifas: resumoAgregado?.total_tarifas || 0,
+    totalTaxas: resumoAgregado?.total_taxas || 0,
+    totalOutrosDescontos: 0,
+    totalFreteComprador: resumoAgregado?.total_frete_comprador || 0,
+    totalFreteVendedor: resumoAgregado?.total_frete_vendedor || 0,
+    totalCustoAds: resumoAgregado?.total_custo_ads || 0,
+    totalImpostoVenda: 0, // Calculado pelo dashboard
+    margemContribuicao: 0, // Calculado pelo dashboard
+    margemContribuicaoPercent: 0, // Calculado pelo dashboard
+    ticketMedio: resumoAgregado?.total_transacoes 
+      ? (resumoAgregado.total_bruto || 0) / resumoAgregado.total_transacoes 
+      : 0,
+    qtdTransacoes: resumoAgregado?.total_transacoes || 0,
+    qtdItens: 0, // Não temos esse dado no resumo agregado
+  };
+
+  // Adaptar consistência
+  const consistenciaAdaptada = {
+    totalNaoConciliadas: resumoAgregado?.transacoes_nao_conciliadas || 0,
+    totalSemCusto: 0, // Não temos esse dado no resumo agregado atual
+    totalSemProduto: 0, // Não temos esse dado no resumo agregado atual
+    totalSemCategoria: resumoAgregado?.transacoes_sem_categoria || 0,
+  };
+
+  // Alíquota de imposto (poderia vir de configurações da empresa)
+  const aliquotaImposto = 6;
 
   return (
     <MainLayout 
@@ -232,7 +229,7 @@ export default function Vendas() {
         <PeriodFilter
           selectedPeriod={selectedPeriod}
           onPeriodChange={handlePeriodChange}
-          isLoading={carregando}
+          isLoading={carregando || isFetching}
         />
       }
     >
@@ -290,7 +287,7 @@ export default function Vendas() {
                   variant="outline"
                   size="sm"
                   onClick={handleCategorizarAutomatico}
-                  disabled={isAutoCategorizando || consistencia.totalNaoConciliadas === 0}
+                  disabled={isAutoCategorizando || consistenciaAdaptada.totalNaoConciliadas === 0}
                   className="gap-2 border-primary text-primary hover:bg-primary/10"
                 >
                   {isAutoCategorizando ? (
@@ -332,60 +329,54 @@ export default function Vendas() {
         {carregando ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            {isFetching && !isLoading && (
-              <span className="ml-3 text-sm text-muted-foreground">Atualizando período...</span>
-            )}
           </div>
         ) : (
           <>
             {/* Dashboard de métricas */}
             <VendasDashboard
-              resumo={resumo}
-              vendas={vendas}
+              resumo={resumoAdaptado}
+              vendas={[]} // Não precisamos passar vendas, usamos resumo agregado
               aliquotaImposto={aliquotaImposto}
-              considerarFreteComprador={filtros.considerarFreteComprador ?? true}
-              onConsiderarFreteChange={(value) => handleFiltroChange("considerarFreteComprador", value)}
+              considerarFreteComprador={considerarFreteComprador}
+              onConsiderarFreteChange={setConsiderarFreteComprador}
             />
 
             {/* Bloco de consistência da API */}
             <VendasConsistencia 
-              consistencia={consistencia} 
-              onItemClick={handleConsistenciaClick}
+              consistencia={consistenciaAdaptada} 
+              onItemClick={() => {}}
               filtrosAtivos={{
-                semCusto: filtros.somenteSemCusto,
-                semProduto: filtros.somenteSemProduto,
-                naoConciliadas: filtros.somenteNaoConciliadas,
+                semCusto: false,
+                semProduto: false,
+                naoConciliadas: false,
               }}
-              onLimparFiltros={limparFiltrosConsistencia}
+              onLimparFiltros={() => {}}
             />
 
-            {/* Filtros */}
-            <VendasFiltrosPanel
-              filtros={filtros}
-              onFiltroChange={handleFiltroChange}
-              canaisDisponiveis={canaisDisponiveis}
-              contasDisponiveis={contasDisponiveis}
-              onLimparFiltrosEspeciais={limparFiltrosEspeciais}
-            />
-
-            {/* Tabela de vendas */}
+            {/* Tabela de vendas paginada */}
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-base">Vendas do período</CardTitle>
                     <CardDescription>
-                      {vendas.length} registros encontrados
+                      {totalRegistros} registros encontrados • Página {currentPage + 1} de {totalPaginas || 1}
                     </CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <VendasTable 
-                  vendas={vendas} 
+                <VendasTablePaginada 
+                  transacoes={transacoes} 
                   aliquotaImposto={aliquotaImposto}
+                  currentPage={currentPage}
+                  totalPaginas={totalPaginas}
+                  totalRegistros={totalRegistros}
+                  pageSize={pageSize}
+                  onPageChange={setCurrentPage}
                   onConciliar={handleConciliarWrapper}
                   onAbrirMapeamento={handleAbrirMapeamentoLinha}
+                  isLoading={isFetching}
                 />
               </CardContent>
             </Card>
@@ -407,7 +398,19 @@ export default function Vendas() {
         <VendasCategorizacaoModal
           open={showCategorizacaoModal}
           onOpenChange={setShowCategorizacaoModal}
-          venda={vendaParaCategorizar}
+          venda={{
+            transacao_id: vendaParaCategorizar.id,
+            canal: vendaParaCategorizar.canal,
+            conta: vendaParaCategorizar.conta_nome || "",
+            pedido_id: vendaParaCategorizar.pedido_id || "",
+            data: vendaParaCategorizar.data_transacao,
+            descricao: vendaParaCategorizar.descricao,
+            valor_bruto: vendaParaCategorizar.valor_bruto,
+            valor_liquido: vendaParaCategorizar.valor_liquido,
+            status: vendaParaCategorizar.status,
+            categoria_id: vendaParaCategorizar.categoria_id,
+            centro_custo_id: vendaParaCategorizar.centro_custo_id,
+          }}
           empresaId={empresaId}
           onSuccess={() => {
             setShowCategorizacaoModal(false);
