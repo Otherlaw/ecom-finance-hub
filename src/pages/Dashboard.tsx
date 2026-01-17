@@ -13,7 +13,7 @@ import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { format, endOfMonth, subMonths } from "date-fns";
+import { format, endOfMonth, subMonths, addDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   DollarSign,
@@ -214,6 +214,8 @@ export default function Dashboard() {
     queryFn: async () => {
       if (!empresaAtiva?.id) return [];
       
+      const periodoFimExclusivo = format(addDays(dateRange.to, 1), "yyyy-MM-dd");
+
       const { data, error } = await supabase
         .from("marketplace_transaction_items")
         .select(`
@@ -240,7 +242,7 @@ export default function Dashboard() {
         `)
         .eq("transaction.empresa_id", empresaAtiva.id)
         .gte("transaction.data_transacao", periodoInicio)
-        .lte("transaction.data_transacao", periodoFim)
+        .lt("transaction.data_transacao", periodoFimExclusivo)
         .eq("transaction.tipo_lancamento", "credito");
       
       if (error) {
