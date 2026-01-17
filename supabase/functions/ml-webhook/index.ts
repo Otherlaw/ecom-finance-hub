@@ -5,6 +5,16 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+/**
+ * ML Webhook - Salva "rascunho" mínimo das vendas
+ * 
+ * REGRAS:
+ * - Webhook salva dados mínimos com tarifas/taxas como NULL (não calculado)
+ * - Status = "pendente_sync" para indicar que precisa ser completado pelo sync
+ * - O ml-sync-orders é o "dono" dos números reais
+ * - Não usamos order.shipping.cost como frete_vendedor (incorreto)
+ */
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -28,7 +38,7 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Buscar empresas pelo user_id do ML (pode haver múltiplas empresas com mesmo user_id)
+    // Buscar empresas pelo user_id do ML
     const { data: tokenDataList, error: tokenError } = await supabase
       .from("integracao_tokens")
       .select("empresa_id, access_token")
@@ -37,14 +47,13 @@ Deno.serve(async (req) => {
 
     if (tokenError || !tokenDataList || tokenDataList.length === 0) {
       console.warn("[ML Webhook] Token não encontrado para user_id:", user_id);
-      // Retornar 200 para não bloquear o ML
       return new Response(
         JSON.stringify({ message: "Usuário não encontrado" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Processar para todas as empresas vinculadas ao mesmo user_id
+    // Processar para todas as empresas vinculadas
     for (const tokenData of tokenDataList) {
       const empresa_id = tokenData.empresa_id;
 
@@ -58,25 +67,20 @@ Deno.serve(async (req) => {
         detalhes: { resource, topic, user_id, application_id },
       });
 
-      // Processar por tipo de tópico
       switch (topic) {
         case "orders_v2":
-          // Novo pedido ou atualização - buscar detalhes e salvar
           await processOrder(supabase, tokenData, resource, empresa_id);
           break;
 
         case "payments":
-          // Atualização de pagamento
           await processPayment(supabase, tokenData, resource, empresa_id);
           break;
 
         case "shipments":
-          // Atualização de envio
           console.log("[ML Webhook] Shipment update:", resource, "empresa:", empresa_id);
           break;
 
         case "claims":
-          // Reclamação/mediação
           console.log("[ML Webhook] Claim:", resource, "empresa:", empresa_id);
           break;
 
@@ -92,7 +96,6 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error("[ML Webhook] Erro:", error);
-    // Sempre retornar 200 para não bloquear retentativas do ML
     return new Response(
       JSON.stringify({ message: "Erro processado", error: error instanceof Error ? error.message : "Erro desconhecido" }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -100,9 +103,16 @@ Deno.serve(async (req) => {
   }
 });
 
+/**
+ * Processa pedido do webhook - salva RASCUNHO mínimo
+ * 
+ * IMPORTANTE:
+ * - Não tentamos calcular tarifas/taxas aqui (usamos NULL)
+ * - Não usamos order.shipping.cost como frete_vendedor
+ * - O sync vai completar com dados reais
+ */
 async function processOrder(supabase: any, tokenData: any, resource: string, empresa_id: string) {
   try {
-    // Extrair order ID do resource (ex: /orders/123456789)
     const orderId = resource.split("/").pop();
     if (!orderId) return;
 
@@ -120,44 +130,65 @@ async function processOrder(supabase: any, tokenData: any, resource: string, emp
 
     const order = await response.json();
 
-    // Calcular valores
+    // Valores básicos
     const valorBruto = order.total_amount;
-    const taxas = order.payments?.reduce((sum: number, p: any) => sum + (p.marketplace_fee || 0), 0) || 0;
-    const frete = order.shipping?.cost || 0;
-    const valorLiquido = valorBruto - taxas - frete;
+    
+    // RASCUNHO: não calcular tarifas/taxas aqui - deixar para o sync
+    // Colocar marketplace_fee como estimativa inicial, mas sync vai corrigir
+    const marketplaceFeeEstimado = order.payments?.reduce(
+      (sum: number, p: any) => sum + (p.marketplace_fee || 0), 
+      0
+    ) || 0;
+    
+    // valor_liquido = valor_bruto - taxas (regra padronizada)
+    const valorLiquido = valorBruto - marketplaceFeeEstimado;
 
-    // Verificar se já existe
+    // Verificar se já existe usando a chave completa
     const { data: existing } = await supabase
       .from("marketplace_transactions")
       .select("id")
       .eq("empresa_id", empresa_id)
       .eq("referencia_externa", String(order.id))
       .eq("canal", "Mercado Livre")
-      .single();
+      .eq("tipo_transacao", "venda")
+      .eq("tipo_lancamento", "credito")
+      .maybeSingle();
 
     const transactionData = {
       empresa_id,
       canal: "Mercado Livre",
       data_transacao: order.date_closed || order.date_created,
-      descricao: `Venda #${order.id}`,
+      descricao: `Venda #${order.id}${order.buyer?.nickname ? ` - ${order.buyer.nickname}` : ''}`,
       tipo_lancamento: "credito",
       tipo_transacao: "venda",
       valor_bruto: valorBruto,
       valor_liquido: valorLiquido,
-      taxas: taxas,
-      tarifas: 0,
-      outros_descontos: frete,
+      taxas: marketplaceFeeEstimado, // Estimativa - sync vai corrigir
+      tarifas: 0, // Sync vai preencher com valor real
+      outros_descontos: 0,
       referencia_externa: String(order.id),
       pedido_id: String(order.id),
       origem_extrato: "webhook_mercado_livre",
-      status: order.status === "paid" ? "importado" : "pendente",
+      // Status indica que precisa ser completado pelo sync
+      status: order.status === "paid" ? "pendente_sync" : "pendente",
+      // NÃO preencher frete_vendedor - sync vai buscar via /shipments/{id}/costs
+      frete_vendedor: 0,
+      frete_comprador: 0,
+      tipo_envio: null,
     };
 
     if (existing) {
+      // Só atualiza se o status atual for pendente (não sobrescrever dados do sync)
       await supabase
         .from("marketplace_transactions")
-        .update(transactionData)
-        .eq("id", existing.id);
+        .update({
+          ...transactionData,
+          // Manter status se já foi processado pelo sync
+        })
+        .eq("id", existing.id)
+        .in("status", ["pendente", "pendente_sync"]);
+        
+      console.log(`[ML Webhook] Pedido ${order.id} atualizado (já existia)`);
     } else {
       const { data: newTx } = await supabase
         .from("marketplace_transactions")
@@ -179,6 +210,8 @@ async function processOrder(supabase: any, tokenData: any, resource: string, emp
           });
         }
       }
+      
+      console.log(`[ML Webhook] Pedido ${order.id} criado como rascunho`);
     }
 
     // Atualizar log
@@ -187,7 +220,7 @@ async function processOrder(supabase: any, tokenData: any, resource: string, emp
       provider: "mercado_livre",
       tipo: "webhook",
       status: "success",
-      mensagem: `Pedido ${order.id} processado via webhook`,
+      mensagem: `Pedido ${order.id} salvo como rascunho via webhook`,
       registros_processados: 1,
       registros_criados: existing ? 0 : 1,
       registros_atualizados: existing ? 1 : 0,
@@ -203,7 +236,6 @@ async function processPayment(supabase: any, tokenData: any, resource: string, e
     const paymentId = resource.split("/").pop();
     if (!paymentId) return;
 
-    // Buscar detalhes do pagamento
     const response = await fetch(`https://api.mercadolibre.com/collections/${paymentId}`, {
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`,
@@ -220,13 +252,15 @@ async function processPayment(supabase: any, tokenData: any, resource: string, e
 
     // Atualizar transação associada se existir
     if (payment.order_id) {
-      await supabase
-        .from("marketplace_transactions")
-        .update({ 
-          status: payment.status === "approved" ? "importado" : "pendente" 
-        })
-        .eq("empresa_id", empresa_id)
-        .eq("pedido_id", String(payment.order_id));
+      // Só atualiza status se for "approved" e ainda estiver pendente
+      if (payment.status === "approved") {
+        await supabase
+          .from("marketplace_transactions")
+          .update({ status: "pendente_sync" })
+          .eq("empresa_id", empresa_id)
+          .eq("pedido_id", String(payment.order_id))
+          .in("status", ["pendente"]);
+      }
     }
 
   } catch (err) {

@@ -61,6 +61,12 @@ interface MLOrder {
   };
 }
 
+// Interface para custos de envio da API /shipments/{id}/costs
+interface ShippingCosts {
+  receiver: Array<{ cost: number; cost_type: string }>;
+  senders: Array<{ cost: number; cost_type: string; site?: string }>;
+}
+
 interface ShippingDetails {
   logistic_type?: string;
   receiver_cost?: number;
@@ -87,10 +93,6 @@ interface TokenState {
 
 // ============= HELPER: RENOVAÇÃO AUTOMÁTICA DE TOKEN =============
 
-/**
- * Obtém um access_token válido, renovando se necessário (buffer de 5 min)
- * IMPORTANTE: Salva o novo refresh_token no banco (o ML pode devolver um novo)
- */
 async function getValidAccessToken(
   supabase: any, 
   tokenState: TokenState
@@ -98,7 +100,6 @@ async function getValidAccessToken(
   const now = Date.now();
   const exp = tokenState.expires_at ? new Date(tokenState.expires_at).getTime() : 0;
   
-  // Se token expira em mais de 5 minutos, usar o atual
   if (exp && (exp - now) > TOKEN_BUFFER_MS) {
     return { access_token: tokenState.access_token, tokenState };
   }
@@ -111,7 +112,6 @@ async function getValidAccessToken(
     return { error: refreshResult.error };
   }
   
-  // Retornar estado atualizado
   const updatedTokenState: TokenState = {
     ...tokenState,
     access_token: refreshResult.access_token,
@@ -122,17 +122,12 @@ async function getValidAccessToken(
   return { access_token: refreshResult.access_token, tokenState: updatedTokenState };
 }
 
-/**
- * Wrapper para fetch do ML com retry automático em 401
- * Se receber 401, força refresh do token e tenta novamente 1 vez
- */
 async function mlFetch(
   url: string,
   supabase: any,
   tokenState: TokenState,
   init: RequestInit = {}
 ): Promise<{ response: Response; tokenState: TokenState }> {
-  // Obter token válido (com buffer de 5 min)
   const tokenResult = await getValidAccessToken(supabase, tokenState);
   
   if ('error' in tokenResult) {
@@ -142,7 +137,6 @@ async function mlFetch(
   let currentTokenState = tokenResult.tokenState;
   let accessToken = tokenResult.access_token;
   
-  // Primeira tentativa
   let response = await fetch(url, {
     ...init,
     headers: {
@@ -151,14 +145,12 @@ async function mlFetch(
     },
   });
   
-  // Se 401, tentar refresh e retry 1x
   if (response.status === 401) {
     console.log("[ML Sync] ⚠️ 401 recebido, forçando refresh e retry...");
     
-    // Forçar refresh (ignorar expires_at)
     const forceTokenState: TokenState = {
       ...currentTokenState,
-      expires_at: new Date(0).toISOString(), // Forçar expiração
+      expires_at: new Date(0).toISOString(),
     };
     
     const retryResult = await getValidAccessToken(supabase, forceTokenState);
@@ -170,7 +162,6 @@ async function mlFetch(
     currentTokenState = retryResult.tokenState;
     accessToken = retryResult.access_token;
     
-    // Retry da requisição
     response = await fetch(url, {
       ...init,
       headers: {
@@ -251,13 +242,11 @@ async function fetchOrdersForDay(
     
     offset += limit;
     
-    // LIMITE DA API
     if (offset >= ML_MAX_OFFSET) {
       console.warn(`[ML Sync] ⚠ Limite da API atingido para dia ${dayStart.toISOString().split('T')[0]}`);
       break;
     }
     
-    // Pequena pausa
     if (offset < totalOrders) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
@@ -266,36 +255,77 @@ async function fetchOrdersForDay(
   return { orders: dayOrders, tokenState: currentTokenState };
 }
 
-// Função para buscar detalhes do envio
-async function fetchShippingDetails(
+/**
+ * CORRIGIDO: Buscar custos de envio do vendedor via /shipments/{id}/costs
+ * Este é o endpoint correto para obter o custo real pago pelo vendedor
+ */
+async function fetchShippingCosts(
   supabase: any,
   tokenState: TokenState,
   shippingId: number
-): Promise<{ data: ShippingDetails | null; tokenState: TokenState }> {
+): Promise<{ data: { logistic_type: string; sender_cost: number; receiver_cost: number } | null; tokenState: TokenState }> {
   try {
+    // Primeiro, buscar dados básicos do shipment para logistic_type
     const shippingUrl = `${ML_API_URL}/shipments/${shippingId}`;
-    const { response: shippingResponse, tokenState: updatedState } = await mlFetch(
+    const { response: shippingResponse, tokenState: state1 } = await mlFetch(
       shippingUrl,
       supabase,
       tokenState
     );
 
-    if (!shippingResponse.ok) {
-      return { data: null, tokenState: updatedState };
+    let logisticType = "";
+    if (shippingResponse.ok) {
+      const shippingData = await shippingResponse.json();
+      logisticType = shippingData.logistic_type || "";
     }
 
-    const data = await shippingResponse.json();
-    return { data, tokenState: updatedState };
+    // Agora buscar os CUSTOS reais via /costs
+    const costsUrl = `${ML_API_URL}/shipments/${shippingId}/costs`;
+    const { response: costsResponse, tokenState: state2 } = await mlFetch(
+      costsUrl,
+      supabase,
+      state1
+    );
+
+    if (!costsResponse.ok) {
+      // Fallback: se /costs não disponível, usar dados básicos
+      console.log(`[ML Sync] ⚠️ /costs não disponível para shipping ${shippingId}, usando fallback`);
+      return { 
+        data: { logistic_type: logisticType, sender_cost: 0, receiver_cost: 0 }, 
+        tokenState: state2 
+      };
+    }
+
+    const costsData: ShippingCosts = await costsResponse.json();
+    
+    // Somar todos os custos do vendedor (senders)
+    let senderCost = 0;
+    if (costsData.senders && Array.isArray(costsData.senders)) {
+      senderCost = costsData.senders.reduce((sum, s) => sum + (s.cost || 0), 0);
+    }
+    
+    // Somar custos do comprador (receiver) - para referência
+    let receiverCost = 0;
+    if (costsData.receiver && Array.isArray(costsData.receiver)) {
+      receiverCost = costsData.receiver.reduce((sum, r) => sum + (r.cost || 0), 0);
+    }
+
+    return { 
+      data: { 
+        logistic_type: logisticType, 
+        sender_cost: senderCost, 
+        receiver_cost: receiverCost 
+      }, 
+      tokenState: state2 
+    };
   } catch (err) {
-    console.error(`[ML Sync] ❌ Erro ao buscar shipping ${shippingId}:`, err);
+    console.error(`[ML Sync] ❌ Erro ao buscar shipping costs ${shippingId}:`, err);
     return { data: null, tokenState };
   }
 }
 
 /**
  * Buscar taxas detalhadas da API de Conciliações do ML
- * Endpoint: /billing/integration/details/v2/MERCADO_LIBRE
- * Retorna: CV (comissão), CXE (frete vendedor), taxas de parcelamento, etc
  */
 async function fetchBillingDetailsFromConciliation(
   supabase: any,
@@ -306,7 +336,6 @@ async function fetchBillingDetailsFromConciliation(
   const feesMap = new Map<string, OrderFees>();
   let currentTokenState = tokenState;
   
-  // Formatar datas para a API (YYYY-MM-DD)
   const fromStr = dateFrom.toISOString().split('T')[0];
   const toStr = dateTo.toISOString().split('T')[0];
   
@@ -315,6 +344,9 @@ async function fetchBillingDetailsFromConciliation(
   let hasMore = true;
   
   console.log(`[ML Sync] 💰 Buscando API Conciliações: ${fromStr} a ${toStr}`);
+  
+  // Conjunto para rastrear tipos desconhecidos (evitar spam de logs)
+  const tiposDesconhecidos = new Set<string>();
   
   while (hasMore) {
     try {
@@ -334,63 +366,65 @@ async function fetchBillingDetailsFromConciliation(
       
       console.log(`[ML Sync] 💰 Conciliações batch: ${results.length} registros (offset ${offset})`);
       
-      // Processar cada registro de conciliação
       for (const item of results) {
-        // source_id pode ser order_id ou payment_id dependendo do tipo
         const sourceId = String(item.source_id || item.order_id || '');
         if (!sourceId) continue;
         
-        // Obter ou criar entrada no mapa
         if (!feesMap.has(sourceId)) {
           feesMap.set(sourceId, { taxas: 0, tarifas: 0, freteVendedor: 0 });
         }
         const fees = feesMap.get(sourceId)!;
         
-        const detailType = item.detail_type || item.fee_type || '';
+        const detailType = (item.detail_type || item.fee_type || '').toUpperCase();
         const amount = Math.abs(item.total || item.amount || 0);
         
         // Mapear tipos de taxa do ML para nossos campos
-        // CV = Custo de Venda (comissão ML)
-        // CXE = Custo de Envio por conta do vendedor
-        // ML_FEE, SALE_FEE = comissão
-        // FINANCING_FEE, INSTALLMENT_FEE = parcelamento
-        switch (detailType.toUpperCase()) {
+        switch (detailType) {
+          // Comissão ML (taxas)
           case 'CV':
           case 'ML_FEE':
           case 'SALE_FEE':
           case 'MARKETPLACE_FEE':
-          case 'FVF': // Fixed Variable Fee (comissão fixa + variável)
+          case 'FVF':
+          case 'APPLICATION_FEE':
+          case 'MERCADOPAGO_FEE':
+          case 'FIXED_FEE':
+          case 'VARIABLE_FEE':
             fees.taxas += amount;
             break;
             
+          // Frete vendedor
           case 'CXE':
           case 'SHIPPING_FEE':
           case 'SHIPPING':
           case 'ENVIO':
+          case 'SHIPPING_COST':
+          case 'LOGISTIC_COST':
             fees.freteVendedor += amount;
             break;
             
+          // Parcelamento/financiamento (tarifas)
           case 'FINANCING_FEE':
           case 'INSTALLMENT_FEE':
           case 'FINANCING':
           case 'INTEREST':
+          case 'INSTALLMENTS_FEE':
             fees.tarifas += amount;
             break;
             
-          // Outros tipos que podem ser comissão
-          case 'APPLICATION_FEE':
-          case 'MERCADOPAGO_FEE':
-            fees.taxas += amount;
-            break;
+          default:
+            // Logar tipos desconhecidos apenas uma vez
+            if (detailType && !tiposDesconhecidos.has(detailType)) {
+              tiposDesconhecidos.add(detailType);
+              console.log(`[ML Sync] 📊 Tipo não mapeado: ${detailType} (valor: ${amount})`);
+            }
         }
       }
       
-      // Verificar se há mais páginas
       const paging = data.paging || {};
       hasMore = results.length === limit && (offset + limit) < (paging.total || 100000);
       offset += limit;
       
-      // Pausa entre requests
       if (hasMore) {
         await new Promise(resolve => setTimeout(resolve, 200));
       }
@@ -399,6 +433,11 @@ async function fetchBillingDetailsFromConciliation(
       console.error(`[ML Sync] ❌ Erro ao buscar conciliações:`, err);
       break;
     }
+  }
+  
+  // Logar resumo de tipos desconhecidos
+  if (tiposDesconhecidos.size > 0) {
+    console.log(`[ML Sync] 📊 Tipos de taxa não mapeados encontrados: ${Array.from(tiposDesconhecidos).join(', ')}`);
   }
   
   console.log(`[ML Sync] 💰 Conciliações: ${feesMap.size} pedidos com taxas mapeadas`);
@@ -412,20 +451,17 @@ function extractFeesFromOrder(order: MLOrder): OrderFees {
   let totalFinancingFee = 0;
 
   for (const payment of order.payments || []) {
-    // marketplace_fee já vem no pedido (comissão ML)
     totalMarketplaceFee += payment.marketplace_fee || 0;
     
-    // Estimar taxa de parcelamento baseado em installments
     if (payment.installments && payment.installments > 1) {
-      // Taxa média de ~5% para parcelamento acima de 1x
       totalFinancingFee += (payment.transaction_amount || 0) * FINANCING_FEE_RATE;
     }
   }
 
   return {
     taxas: totalMarketplaceFee,
-    tarifas: Math.round(totalFinancingFee * 100) / 100, // arredondar para 2 casas
-    freteVendedor: 0, // Não disponível no order, vem do shipping
+    tarifas: Math.round(totalFinancingFee * 100) / 100,
+    freteVendedor: 0,
   };
 }
 
@@ -459,12 +495,11 @@ async function refreshToken(supabase: any, tokenData: TokenState): Promise<{ acc
     const data = await response.json();
     const expiresAt = new Date(Date.now() + (data.expires_in * 1000)).toISOString();
 
-    // IMPORTANTE: Salvar o novo refresh_token (o ML pode devolver um novo)
     await supabase
       .from("integracao_tokens")
       .update({
         access_token: data.access_token,
-        refresh_token: data.refresh_token, // NOVO refresh_token
+        refresh_token: data.refresh_token,
         expires_at: expiresAt,
         updated_at: new Date().toISOString(),
       })
@@ -488,7 +523,7 @@ Deno.serve(async (req) => {
   }
 
   const startTime = Date.now();
-  const TIMEOUT_MS = 50000; // 50 segundos (deixa margem de 10s antes do timeout do Supabase)
+  const TIMEOUT_MS = 50000;
   
   let registros_processados = 0;
   let registros_criados = 0;
@@ -508,13 +543,12 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // ============= MODO AUTO_SYNC: Sincroniza TODAS as empresas com tokens válidos =============
+    // ============= MODO AUTO_SYNC =============
     if (auto_sync) {
       console.log(`[ML Sync] ========================================`);
       console.log(`[ML Sync] 🔄 MODO AUTO_SYNC: Sincronizando todas as empresas...`);
       console.log(`[ML Sync] ========================================`);
 
-      // Buscar todas as empresas com tokens ML válidos
       const { data: allTokens, error: tokensError } = await supabase
         .from("integracao_tokens")
         .select("empresa_id")
@@ -537,7 +571,6 @@ Deno.serve(async (req) => {
         try {
           console.log(`[ML Sync] 📦 Iniciando sync para empresa ${empId}...`);
           
-          // Fazer chamada recursiva para cada empresa (sem auto_sync para evitar loop infinito)
           const response = await fetch(`${supabaseUrl}/functions/v1/ml-sync-orders`, {
             method: "POST",
             headers: {
@@ -592,17 +625,14 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ============= MODO NORMAL: Sincroniza uma empresa específica =============
+    // ============= MODO NORMAL =============
     if (!empresa_id) {
       return new Response(
         JSON.stringify({ error: "empresa_id é obrigatório" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+      );
     }
 
-    // Reutiliza supabase já criado acima
-
-    // Buscar token
     const { data: tokenData, error: tokenError } = await supabase
       .from("integracao_tokens")
       .select("*")
@@ -620,7 +650,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Criar estado inicial do token
     let tokenState: TokenState = {
       id: tokenData.id,
       access_token: tokenData.access_token,
@@ -629,7 +658,6 @@ Deno.serve(async (req) => {
       user_id_provider: tokenData.user_id_provider,
     };
 
-    // Obter token válido antes de iniciar (com buffer de 5 min)
     const initialTokenResult = await getValidAccessToken(supabase, tokenState);
     
     if ('error' in initialTokenResult) {
@@ -647,13 +675,13 @@ Deno.serve(async (req) => {
     console.log(`[ML Sync] ✓ Token renovação automática com buffer 5min`);
     console.log(`[ML Sync] ✓ Retry automático em 401`);
     console.log(`[ML Sync] ✓ API Conciliações para taxas REAIS`);
-    console.log(`[ML Sync] ✓ Shipping em batches com concorrência 5`);
+    console.log(`[ML Sync] ✓ API /shipments/costs para FRETE VENDEDOR REAL`);
+    console.log(`[ML Sync] ✓ valor_liquido = valor_bruto - (taxas + tarifas)`);
     console.log(`[ML Sync] ========================================`);
 
     // ========== BUSCA SEGMENTADA POR DIA ==========
     let allOrders: MLOrder[] = [];
     
-    // Calcular período total para API de Conciliações
     const dateFrom = new Date();
     dateFrom.setDate(dateFrom.getDate() - days_back);
     dateFrom.setHours(0, 0, 0, 0);
@@ -662,7 +690,6 @@ Deno.serve(async (req) => {
     dateTo.setHours(23, 59, 59, 999);
     
     for (let dayOffset = 0; dayOffset < days_back; dayOffset++) {
-      // Verificar timeout
       if (Date.now() - startTime > TIMEOUT_MS * 0.3) {
         console.warn(`[ML Sync] ⚠ Aproximando do timeout, parando busca de pedidos`);
         timeout_reached = true;
@@ -691,7 +718,6 @@ Deno.serve(async (req) => {
       allOrders = allOrders.concat(ordersOfDay);
       console.log(`[ML Sync] ✓ ${dayLabel}: ${ordersOfDay.length} pedidos`);
       
-      // Pausa entre dias
       if (dayOffset < days_back - 1) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
@@ -728,14 +754,14 @@ Deno.serve(async (req) => {
     tokenState = tokenAfterBilling;
     billing_extraidos = feesMap.size;
 
-    // ========== BUSCAR SHIPPING EM LOTE COM CONCORRÊNCIA CONTROLADA ==========
+    // ========== BUSCAR SHIPPING COSTS EM LOTE ==========
     const BATCH_SIZE = 50;
     const CONCURRENCY = 5;
     
     const ordersWithShipping = allOrders.filter(o => o.shipping?.id);
-    console.log(`[ML Sync] 📦 Buscando shipping para ${ordersWithShipping.length} pedidos...`);
+    console.log(`[ML Sync] 📦 Buscando custos de envio para ${ordersWithShipping.length} pedidos...`);
     
-    const shippingMap = new Map<number, ShippingDetails | null>();
+    const shippingCostsMap = new Map<number, { logistic_type: string; sender_cost: number; receiver_cost: number }>();
     
     for (let i = 0; i < ordersWithShipping.length; i += BATCH_SIZE) {
       if (Date.now() - startTime > TIMEOUT_MS * 0.6) {
@@ -746,20 +772,19 @@ Deno.serve(async (req) => {
       
       const batch = ordersWithShipping.slice(i, i + BATCH_SIZE);
       
-      // Processar batch com concorrência
       const results = await mapLimit(batch, CONCURRENCY, async (order) => {
-        const { data: shippingData, tokenState: updatedState } = await fetchShippingDetails(
+        const { data: costsData, tokenState: updatedState } = await fetchShippingCosts(
           supabase,
           tokenState,
           order.shipping.id
         );
         tokenState = updatedState;
-        return { orderId: order.id, data: shippingData };
+        return { orderId: order.id, data: costsData };
       });
       
       for (const result of results) {
         if (result?.data) {
-          shippingMap.set(result.orderId, result.data);
+          shippingCostsMap.set(result.orderId, result.data);
           shipping_extraidos++;
         } else {
           shipping_falharam++;
@@ -773,7 +798,6 @@ Deno.serve(async (req) => {
 
     // ========== PROCESSAR E SALVAR PEDIDOS ==========
     for (const order of allOrders) {
-      // Verificar timeout
       if (Date.now() - startTime > TIMEOUT_MS) {
         console.warn(`[ML Sync] ⚠ Timeout atingido, retornando resultados parciais`);
         timeout_reached = true;
@@ -792,7 +816,6 @@ Deno.serve(async (req) => {
         let tarifas = 0;
         let freteVendedorFromBilling = 0;
         
-        // Tentar obter do mapa de conciliações
         const billingFees = feesMap.get(orderId);
         if (billingFees && (billingFees.taxas > 0 || billingFees.tarifas > 0 || billingFees.freteVendedor > 0)) {
           taxas = billingFees.taxas;
@@ -805,28 +828,29 @@ Deno.serve(async (req) => {
           tarifas = fees.tarifas;
         }
 
-        // ========== PROCESSAR SHIPPING ==========
+        // ========== PROCESSAR SHIPPING (CORRIGIDO) ==========
         let tipoEnvio: string | null = null;
         let freteComprador = 0;
-        let freteVendedor = freteVendedorFromBilling; // Pode vir da API de Conciliações
+        let freteVendedor = freteVendedorFromBilling;
 
-        const shippingData = shippingMap.get(order.id);
-        if (shippingData) {
-          const rawLogisticType = shippingData.logistic_type || "";
+        const shippingCosts = shippingCostsMap.get(order.id);
+        if (shippingCosts) {
+          const rawLogisticType = shippingCosts.logistic_type || "";
           tipoEnvio = logisticTypeMap[rawLogisticType] || rawLogisticType || null;
-          freteComprador = shippingData.receiver_cost || 0;
+          freteComprador = shippingCosts.receiver_cost || 0;
           
-          // Se não veio da API de Conciliações, usar sender_cost do shipping
-          if (freteVendedor === 0) {
-            freteVendedor = shippingData.sender_cost ?? 0;
+          // PRIORIZAR custo do vendedor da API /costs (mais preciso)
+          if (shippingCosts.sender_cost > 0) {
+            freteVendedor = shippingCosts.sender_cost;
           }
         }
 
-        // ========== CALCULAR VALORES FINAIS ==========
-        const outrosDescontos = 0;
-        const valorLiquido = valorBruto - taxas - tarifas - freteVendedor;
+        // ========== CALCULAR VALORES FINAIS (PADRONIZADO) ==========
+        // REGRA: valor_liquido = valor_bruto - (taxas + tarifas)
+        // NÃO descontar frete_vendedor, imposto, ads, CMV no valor_liquido
+        // Esses são descontados apenas na margem de contribuição (MC) na UI
+        const valorLiquido = valorBruto - taxas - tarifas;
 
-        // Usar date_closed (com horário) como data da transação
         const dataTransacao = order.date_closed || order.date_created;
 
         const transactionData = {
@@ -840,7 +864,7 @@ Deno.serve(async (req) => {
           valor_liquido: valorLiquido,
           taxas: taxas,
           tarifas: tarifas,
-          outros_descontos: outrosDescontos,
+          outros_descontos: 0,
           referencia_externa: String(order.id),
           pedido_id: String(order.id),
           origem_extrato: "api_mercado_livre",
@@ -850,11 +874,11 @@ Deno.serve(async (req) => {
           frete_vendedor: freteVendedor,
         };
 
-        // UPSERT: inserir ou atualizar se já existir (baseado no unique index empresa_id, canal, referencia_externa)
+        // UPSERT com chave completa (empresa_id, canal, referencia_externa, tipo_transacao, tipo_lancamento)
         const { data: upsertedTx, error: upsertError } = await supabase
           .from("marketplace_transactions")
           .upsert(transactionData, {
-            onConflict: "empresa_id,canal,referencia_externa",
+            onConflict: "empresa_id,canal,referencia_externa,tipo_transacao,tipo_lancamento",
             ignoreDuplicates: false,
           })
           .select()
@@ -866,18 +890,14 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Verificar se foi criação ou atualização (by checking criado_em vs atualizado_em)
         const wasCreated = upsertedTx && new Date(upsertedTx.criado_em).getTime() === new Date(upsertedTx.atualizado_em).getTime();
         
         if (wasCreated) {
           registros_criados++;
           
-          // Inserir itens do pedido COM MAPEAMENTO AUTOMÁTICO (apenas para novos registros)
           if (order.order_items && upsertedTx) {
             for (const item of order.order_items) {
               const skuMarketplace = item.item.seller_sku || item.item.id;
-              
-              // Buscar mapeamento existente
               const produtoId = mapeamentoMap.get(skuMarketplace) || null;
 
               if (produtoId) {
@@ -917,7 +937,6 @@ Deno.serve(async (req) => {
 
     const duracao_ms = Date.now() - startTime;
 
-    // Registrar log
     await supabase.from("integracao_logs").insert({
       empresa_id,
       provider: "mercado_livre",
@@ -940,6 +959,8 @@ Deno.serve(async (req) => {
         otimizado: true,
         token_auto_refresh: true,
         api_conciliacoes: true,
+        api_shipping_costs: true,
+        valor_liquido_padronizado: true,
       },
     });
 
