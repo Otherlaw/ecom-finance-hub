@@ -31,10 +31,16 @@ export function useDashboardMetrics(periodoInicio: string, periodoFim: string) {
     queryFn: async () => {
       if (!empresaId) return null;
 
+      // Converter para UTC com ajuste BR (meia-noite BR = 03:00 UTC)
+      const dataInicioUTC = `${periodoInicio}T03:00:00.000Z`;
+      const dataFimDate = new Date(`${periodoFim}T03:00:00.000Z`);
+      dataFimDate.setDate(dataFimDate.getDate() + 1);
+      const dataFimUTC = dataFimDate.toISOString();
+
       const { data, error } = await supabase.rpc("get_dashboard_metrics", {
         p_empresa_id: empresaId,
-        p_data_inicio: periodoInicio,
-        p_data_fim: periodoFim,
+        p_data_inicio: dataInicioUTC,
+        p_data_fim: dataFimUTC,
       });
 
       if (error) {
