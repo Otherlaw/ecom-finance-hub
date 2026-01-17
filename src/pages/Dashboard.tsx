@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useDREData, usePeridosDisponiveis } from "@/hooks/useDREData";
 import { useFluxoCaixa } from "@/hooks/useFluxoCaixa";
-import { useMarketplaceTransactions } from "@/hooks/useMarketplaceTransactions";
+import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
@@ -99,7 +99,10 @@ export default function Dashboard() {
   // Hooks de dados reais
   const { dreData, stats, isLoading: isDRELoading, hasData: hasDREData } = useDREData(mes, ano);
   const { resumo: fluxoResumo, agregado, isLoading: isFluxoLoading } = useFluxoCaixa({ periodoInicio, periodoFim });
-  const { transacoes: marketplaceTransacoes, resumo: mktResumo, isLoading: isMktLoading } = useMarketplaceTransactions({ periodoInicio, periodoFim });
+  
+  // Hook otimizado para métricas de vendas (usa RPC agregada)
+  const { metrics: mktMetrics, channelData: mktChannelData, ticketMedio: mktTicketMedio, isLoading: isMktLoading } = useDashboardMetrics(periodoInicio, periodoFim);
+  
   const { resumo: contasPagarResumo, isLoading: isCPLoading } = useContasPagar({ dataInicio: periodoInicio, dataFim: periodoFim });
   const { resumo: contasReceberResumo, isLoading: isCRLoading } = useContasReceber({ dataInicio: periodoInicio, dataFim: periodoFim });
   const { data: periodosDisponiveis } = usePeridosDisponiveis();
@@ -116,14 +119,13 @@ export default function Dashboard() {
 
   const isLoading = isDRELoading || isFluxoLoading || isMktLoading || isCPLoading || isCRLoading;
 
-  // KPIs calculados - usando transações do período selecionado
+  // KPIs calculados - agora usando dados agregados da RPC
   const kpis = useMemo(() => {
-    // Calcular receita bruta diretamente das transações de marketplace (respeita período)
-    const vendasCredito = marketplaceTransacoes.filter(t => t.tipo_lancamento === 'credito');
-    const receitaBruta = vendasCredito.reduce((sum, t) => sum + (t.valor_bruto || t.valor_liquido || 0), 0);
-    const receitaLiquida = vendasCredito.reduce((sum, t) => sum + (t.valor_liquido || 0), 0);
-    const totalTarifas = vendasCredito.reduce((sum, t) => sum + (t.tarifas || 0) + (t.taxas || 0) + (t.outros_descontos || 0), 0);
-    const totalAds = vendasCredito.reduce((sum, t) => sum + (t.custo_ads || 0), 0);
+    // Usar dados agregados da RPC (muito mais rápido)
+    const receitaBruta = mktMetrics.receita_bruta || 0;
+    const receitaLiquida = mktMetrics.receita_liquida || 0;
+    const totalTarifas = mktMetrics.total_tarifas || 0;
+    const totalAds = mktMetrics.total_ads || 0;
     
     // CMV estimado (baseado em dados se disponíveis)
     const custos = dreData?.custos?.valor || 0;
@@ -139,9 +141,9 @@ export default function Dashboard() {
     const custosPercentual = receitaBruta > 0 ? (custos / receitaBruta) * 100 : 0;
     const despesasPercentual = receitaBruta > 0 ? (totalDespesas / receitaBruta) * 100 : 0;
 
-    // Pedidos únicos
-    const pedidosUnicos = new Set(vendasCredito.filter(t => t.pedido_id).map(t => t.pedido_id)).size;
-    const ticketMedio = pedidosUnicos > 0 ? receitaBruta / pedidosUnicos : 0;
+    // Pedidos únicos da RPC
+    const pedidosUnicos = mktMetrics.pedidos_unicos || 0;
+    const ticketMedio = mktTicketMedio;
 
     return {
       receitaBruta,
@@ -159,7 +161,7 @@ export default function Dashboard() {
       pedidos: pedidosUnicos,
       ticketMedio,
     };
-  }, [dreData, marketplaceTransacoes]);
+  }, [dreData, mktMetrics, mktTicketMedio]);
 
   // Dados para gráficos
   const cashFlowData = useMemo(() => {
@@ -170,26 +172,27 @@ export default function Dashboard() {
     }));
   }, [agregado]);
 
-  // Receita por canal (marketplace)
+  // Receita por canal (usando dados da RPC)
   const channelData = useMemo(() => {
-    const porCanal: Record<string, number> = {};
-    marketplaceTransacoes.forEach(t => {
-      if (t.tipo_lancamento === "credito" || t.valor_liquido > 0) {
-        const canal = t.canal_venda || t.canal || "Outros";
-        porCanal[canal] = (porCanal[canal] || 0) + Math.abs(t.valor_liquido);
-      }
-    });
-    const total = Object.values(porCanal).reduce((a, b) => a + b, 0);
-    return Object.entries(porCanal)
-      .map(([channel, valor], index) => ({
-        channel,
-        valor,
-        percentual: total > 0 ? ((valor / total) * 100).toFixed(1) : "0",
-        color: CHART_COLORS[index % CHART_COLORS.length],
+    const CHART_COLORS_LOCAL = [
+      "hsl(4, 86%, 55%)",
+      "hsl(217, 91%, 60%)",
+      "hsl(142, 71%, 45%)",
+      "hsl(38, 92%, 50%)",
+      "hsl(262, 83%, 58%)",
+      "hsl(190, 95%, 39%)",
+    ];
+
+    const total = mktChannelData.reduce((a, c) => a + c.valor, 0);
+    return mktChannelData
+      .map((c, index) => ({
+        channel: c.channel,
+        valor: c.valor,
+        percentual: total > 0 ? ((c.valor / total) * 100).toFixed(1) : "0",
+        color: CHART_COLORS_LOCAL[index % CHART_COLORS_LOCAL.length],
       }))
-      .sort((a, b) => b.valor - a.valor)
       .slice(0, 6);
-  }, [marketplaceTransacoes]);
+  }, [mktChannelData]);
 
   // Despesas por categoria
   const expensesByCategory = useMemo(() => {
@@ -880,7 +883,7 @@ export default function Dashboard() {
           </div>
 
           {/* Empty State */}
-          {!hasDREData && marketplaceTransacoes.length === 0 && (
+          {!hasDREData && mktMetrics.total_transacoes === 0 && (
             <div className="mt-6 p-8 text-center bg-muted/30 rounded-lg border border-dashed">
               <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold mb-2">Sem dados no período</h3>

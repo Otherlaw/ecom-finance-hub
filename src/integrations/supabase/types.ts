@@ -3141,6 +3141,33 @@ export type Database = {
       }
     }
     Functions: {
+      get_dashboard_metrics: {
+        Args: {
+          p_data_fim: string
+          p_data_inicio: string
+          p_empresa_id: string
+        }
+        Returns: Json
+      }
+      get_vendas_resumo: {
+        Args: {
+          p_data_fim: string
+          p_data_inicio: string
+          p_empresa_id: string
+        }
+        Returns: {
+          total_bruto: number
+          total_custo_ads: number
+          total_frete_comprador: number
+          total_frete_vendedor: number
+          total_liquido: number
+          total_tarifas: number
+          total_taxas: number
+          total_transacoes: number
+          transacoes_nao_conciliadas: number
+          transacoes_sem_categoria: number
+        }[]
+      }
       has_financial_access: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {
