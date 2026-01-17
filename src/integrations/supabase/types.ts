@@ -3214,6 +3214,8 @@ export type Database = {
         }
         Returns: string
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
       user_has_empresa_access: {
         Args: { p_empresa_id: string }
         Returns: boolean
