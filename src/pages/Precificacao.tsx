@@ -22,7 +22,7 @@ import { REGIME_TRIBUTARIO_CONFIG } from '@/lib/empresas-data';
 import { useEmpresas } from '@/hooks/useEmpresas';
 import { useProdutos, Produto } from '@/hooks/useProdutos';
 import { useCompras, Compra, CompraItem } from '@/hooks/useCompras';
-import { parseNFeXML, NotaFiscalXML, NotaFiscalItem } from '@/lib/icms-data';
+import { parseNFeXML, NotaFiscalXML, NotaFiscalItem, NFSE_ERROR_MARKER } from '@/lib/icms-data';
 
 // Tipo local para empresa da precificação
 interface EmpresaPrecificacao {
@@ -506,14 +506,20 @@ export default function Precificacao() {
     reader.onload = e => {
       const content = e.target?.result as string;
       const nfe = parseNFeXML(content);
-      if (!nfe) {
+      
+      // Verificar se é null ou se é objeto de erro (NFSe)
+      if (!nfe || (nfe as any).error === NFSE_ERROR_MARKER) {
+        const isNFSe = (nfe as any)?.error === NFSE_ERROR_MARKER;
         toast({
           title: 'Erro',
-          description: 'Não foi possível ler o XML. Verifique se é uma NF-e válida.',
+          description: isNFSe 
+            ? 'Este arquivo é uma NFSe (Nota Fiscal de Serviço). Apenas NF-e (Nota Fiscal Eletrônica de produtos) é suportada.'
+            : 'Não foi possível ler o XML. Verifique se é uma NF-e válida.',
           variant: 'destructive'
         });
         return;
       }
+      
       setXmlParsed(nfe);
       setSelectedXmlItemIndex(null);
       toast({
