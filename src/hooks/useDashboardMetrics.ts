@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
+import { buildUtcRangeFromStrings } from "@/lib/dateRangeUtc";
 
 /**
  * Métricas agregadas do dashboard retornadas pela RPC
@@ -21,6 +22,9 @@ export interface DashboardMetrics {
  * Hook otimizado para buscar métricas do dashboard via RPC.
  * Retorna dados agregados em uma única chamada ao invés de
  * carregar todas as transações e calcular no frontend.
+ * 
+ * CORRIGIDO: Agora usa timestamptz para evitar problemas de fuso horário.
+ * O período "Hoje" agora bate exatamente com o dia local.
  */
 export function useDashboardMetrics(periodoInicio: string, periodoFim: string) {
   const { empresaAtiva } = useEmpresaAtiva();
@@ -31,16 +35,13 @@ export function useDashboardMetrics(periodoInicio: string, periodoFim: string) {
     queryFn: async () => {
       if (!empresaId) return null;
 
-      // Converter para UTC com ajuste BR (meia-noite BR = 03:00 UTC)
-      const dataInicioUTC = `${periodoInicio}T03:00:00.000Z`;
-      const dataFimDate = new Date(`${periodoFim}T03:00:00.000Z`);
-      dataFimDate.setDate(dataFimDate.getDate() + 1);
-      const dataFimUTC = dataFimDate.toISOString();
+      // Usar helper para converter datas locais para UTC consistente
+      const { startUtcIso, endUtcIsoExclusive } = buildUtcRangeFromStrings(periodoInicio, periodoFim);
 
       const { data, error } = await supabase.rpc("get_dashboard_metrics", {
         p_empresa_id: empresaId,
-        p_data_inicio: dataInicioUTC,
-        p_data_fim: dataFimUTC,
+        p_data_inicio: startUtcIso,
+        p_data_fim: endUtcIsoExclusive,
       });
 
       if (error) {
