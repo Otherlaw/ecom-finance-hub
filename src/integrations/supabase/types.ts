@@ -3141,14 +3141,23 @@ export type Database = {
       }
     }
     Functions: {
-      get_dashboard_metrics: {
-        Args: {
-          p_data_fim: string
-          p_data_inicio: string
-          p_empresa_id: string
-        }
-        Returns: Json
-      }
+      get_dashboard_metrics:
+        | {
+            Args: {
+              p_data_fim: string
+              p_data_inicio: string
+              p_empresa_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_data_fim: string
+              p_data_inicio: string
+              p_empresa_id: string
+            }
+            Returns: Json
+          }
       get_fechamento_metrics: {
         Args: {
           p_data_fim: string

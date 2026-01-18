@@ -375,13 +375,18 @@ async function fetchBillingDetailsFromConciliation(
       console.log(`[ML Sync] 💰 Conciliações batch: ${results.length} registros (offset ${offset})`);
       
       for (const item of results) {
-        const sourceId = String(item.source_id || item.order_id || '');
-        if (!sourceId) continue;
+        // CORRIGIDO: Priorizar order_id sobre source_id para mapear corretamente
+        // source_id frequentemente é payment_id, que não casa com orderId usado depois
+        const orderId = item.order_id ? String(item.order_id) : null;
+        const paymentId = item.source_id ? String(item.source_id) : null;
+        const primaryKey = orderId || paymentId || '';
         
-        if (!feesMap.has(sourceId)) {
-          feesMap.set(sourceId, { taxas: 0, tarifas: 0, freteVendedor: 0 });
+        if (!primaryKey) continue;
+        
+        if (!feesMap.has(primaryKey)) {
+          feesMap.set(primaryKey, { taxas: 0, tarifas: 0, freteVendedor: 0 });
         }
-        const fees = feesMap.get(sourceId)!;
+        const fees = feesMap.get(primaryKey)!;
         
         const detailType = (item.detail_type || item.fee_type || '').toUpperCase();
         const amount = Math.abs(item.total || item.amount || 0);
@@ -427,6 +432,13 @@ async function fetchBillingDetailsFromConciliation(
               console.log(`[ML Sync] 📊 Tipo não mapeado: ${detailType} (valor: ${amount})`);
             }
         }
+        
+        // ADICIONAL: Mapear também por paymentId se for diferente (fallback)
+        if (paymentId && paymentId !== orderId) {
+          if (!feesMap.has(paymentId)) {
+            feesMap.set(paymentId, { ...fees });
+          }
+        }
       }
       
       const paging = data.paging || {};
@@ -453,7 +465,8 @@ async function fetchBillingDetailsFromConciliation(
   return { feesMap, tokenState: currentTokenState, billingAvailable };
 }
 
-// Fallback: Extrair taxas diretamente do pedido quando API de Conciliações falha
+// Fallback robusto: Extrair taxas diretamente do pedido quando API de Conciliações falha
+// CORRIGIDO: Adiciona estimativa quando marketplace_fee vem zerado
 function extractFeesFromOrder(order: MLOrder): OrderFees {
   let totalMarketplaceFee = 0;
   let totalFinancingFee = 0;
@@ -464,6 +477,14 @@ function extractFeesFromOrder(order: MLOrder): OrderFees {
     if (payment.installments && payment.installments > 1) {
       totalFinancingFee += (payment.transaction_amount || 0) * FINANCING_FEE_RATE;
     }
+  }
+
+  // FALLBACK: Se marketplace_fee veio zerado mas tem valor, estimar comissão típica do ML
+  // Comissão típica ML varia de 11% a 19%, usando 14% como média conservadora
+  const ESTIMATED_COMMISSION_RATE = 0.14;
+  if (totalMarketplaceFee === 0 && order.total_amount > 0) {
+    totalMarketplaceFee = Math.round(order.total_amount * ESTIMATED_COMMISSION_RATE * 100) / 100;
+    console.log(`[ML Sync] ⚠️ Pedido ${order.id}: marketplace_fee=0, estimando ${(ESTIMATED_COMMISSION_RATE * 100)}% = R$${totalMarketplaceFee.toFixed(2)}`);
   }
 
   return {
