@@ -393,10 +393,6 @@ export default function Dashboard() {
     }];
   }, [kpis, contasPagarResumo, contasReceberResumo, fluxoResumo, channelData]);
   return <MainLayout title="Dashboard Executivo" subtitle="Visão geral consolidada do seu e-commerce" actions={<div className="flex items-center gap-3 flex-wrap">
-          {temPendencias && <Button variant="outline" className="gap-2" onClick={() => sincronizar.mutate()} disabled={isSincronizando}>
-              <RefreshCw className={`h-4 w-4 ${isSincronizando ? 'animate-spin' : ''}`} />
-              Sincronizar ({totalPendentes})
-            </Button>}
           <EmpresaFilter value={empresaSelecionada} onChange={setEmpresaSelecionada} showLabel={false} />
           <PeriodFilter selectedPeriod={selectedPeriod} onPeriodChange={handlePeriodChange} isLoading={isLoading} />
           <Button className="gap-2">
