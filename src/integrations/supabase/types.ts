@@ -3215,9 +3215,11 @@ export type Database = {
         }
         Returns: {
           total_bruto: number
+          total_cmv: number
           total_custo_ads: number
           total_frete_comprador: number
           total_frete_vendedor: number
+          total_itens: number
           total_liquido: number
           total_tarifas: number
           total_taxas: number

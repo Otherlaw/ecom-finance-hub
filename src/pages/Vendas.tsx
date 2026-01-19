@@ -51,6 +51,7 @@ export default function Vendas() {
     totalRegistros,
     totalPaginas,
     resumoAgregado,
+    metricasPorTipoEnvio,
     canaisDisponiveis, 
     contasDisponiveis,
     isLoading,
@@ -192,25 +193,28 @@ export default function Vendas() {
     return false; // Retorna false para não fechar automaticamente, o modal vai cuidar disso
   };
 
+  // Alíquota de imposto (poderia vir de configurações da empresa)
+  const aliquotaImposto = 6;
+
   // Adaptar resumo para o componente VendasDashboard
   const resumoAdaptado = {
     totalFaturamentoBruto: resumoAgregado?.total_bruto || 0,
     totalFaturamentoLiquido: resumoAgregado?.total_liquido || 0,
-    totalCMV: 0, // CMV não vem do resumo agregado
+    totalCMV: resumoAgregado?.total_cmv || 0,
     totalTarifas: resumoAgregado?.total_tarifas || 0,
     totalTaxas: resumoAgregado?.total_taxas || 0,
     totalOutrosDescontos: 0,
     totalFreteComprador: resumoAgregado?.total_frete_comprador || 0,
     totalFreteVendedor: resumoAgregado?.total_frete_vendedor || 0,
     totalCustoAds: resumoAgregado?.total_custo_ads || 0,
-    totalImpostoVenda: 0, // Calculado pelo dashboard
+    totalImpostoVenda: (resumoAgregado?.total_bruto || 0) * (aliquotaImposto / 100),
     margemContribuicao: 0, // Calculado pelo dashboard
     margemContribuicaoPercent: 0, // Calculado pelo dashboard
     ticketMedio: resumoAgregado?.total_transacoes 
       ? (resumoAgregado.total_bruto || 0) / resumoAgregado.total_transacoes 
       : 0,
     qtdTransacoes: resumoAgregado?.total_transacoes || 0,
-    qtdItens: 0, // Não temos esse dado no resumo agregado
+    qtdItens: resumoAgregado?.total_itens || 0,
   };
 
   // Adaptar consistência
@@ -220,9 +224,6 @@ export default function Vendas() {
     totalSemProduto: 0, // Não temos esse dado no resumo agregado atual
     totalSemCategoria: resumoAgregado?.transacoes_sem_categoria || 0,
   };
-
-  // Alíquota de imposto (poderia vir de configurações da empresa)
-  const aliquotaImposto = 6;
 
   return (
     <MainLayout 
@@ -347,7 +348,7 @@ export default function Vendas() {
             {/* Dashboard de métricas */}
             <VendasDashboard
               resumo={resumoAdaptado}
-              vendas={[]} // Não precisamos passar vendas, usamos resumo agregado
+              metricasPorTipo={metricasPorTipoEnvio}
               aliquotaImposto={aliquotaImposto}
               considerarFreteComprador={considerarFreteComprador}
               onConsiderarFreteChange={setConsiderarFreteComprador}
