@@ -180,25 +180,21 @@ export function VendasDashboard({
           </CardContent>
         </Card>
 
-        {/* Frete Total */}
+        {/* Frete Vendedor */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Truck className="h-4 w-4 text-blue-500" />
-              Frete Total
+              Frete Vendedor
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className={cn(
-              "text-2xl font-bold",
-              freteLiquido >= 0 ? "text-emerald-500" : "text-red-500"
-            )}>
-              {formatCurrency(freteLiquido)}
+            <div className="text-2xl font-bold text-red-500">
+              {formatCurrency(resumo.totalFreteVendedor)}
             </div>
-            <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
-              <p className="text-emerald-600">Comprador: {formatCurrency(resumo.totalFreteComprador)}</p>
-              <p className="text-red-500">Vendedor: {formatCurrency(resumo.totalFreteVendedor)}</p>
-            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Custo de envio pago por você
+            </p>
           </CardContent>
         </Card>
 
@@ -385,12 +381,9 @@ function TipoEnvioCard({ titulo, icon, metricas, aliquotaImposto, considerarFret
           <span className="font-medium text-orange-500">-{formatCurrency(metricas.cmv)}</span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-sm text-muted-foreground">Frete (liq)</span>
-          <span className={cn(
-            "font-medium",
-            metricas.freteComprador - metricas.freteVendedor >= 0 ? "text-emerald-500" : "text-red-500"
-          )}>
-            {formatCurrency(metricas.freteComprador - metricas.freteVendedor)}
+          <span className="text-sm text-muted-foreground">Frete Vendedor</span>
+          <span className="font-medium text-red-500">
+            -{formatCurrency(metricas.freteVendedor)}
           </span>
         </div>
         <div className="border-t pt-2 flex justify-between items-center">
