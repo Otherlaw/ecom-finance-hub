@@ -3228,6 +3228,26 @@ export type Database = {
           transacoes_sem_categoria: number
         }[]
       }
+      get_vendas_resumo_por_tipo_envio: {
+        Args: {
+          p_data_fim: string
+          p_data_inicio: string
+          p_empresa_id: string
+        }
+        Returns: {
+          cmv_total: number
+          custo_ads: number
+          frete_comprador: number
+          frete_vendedor: number
+          qtd_itens: number
+          qtd_transacoes: number
+          tarifas: number
+          taxas: number
+          tipo_envio: string
+          valor_bruto: number
+          valor_liquido: number
+        }[]
+      }
       has_financial_access: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {
