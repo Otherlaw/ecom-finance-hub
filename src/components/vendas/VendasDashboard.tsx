@@ -237,7 +237,7 @@ export function VendasDashboard({
       </div>
 
       {/* Cards por tipo de envio */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Full */}
         <TipoEnvioCard
           titulo="Full"
@@ -275,6 +275,16 @@ export function VendasDashboard({
           aliquotaImposto={aliquotaImposto}
           considerarFreteComprador={considerarFreteComprador}
           color="amber"
+        />
+
+        {/* Outros - vendas sem tipo de envio definido */}
+        <TipoEnvioCard
+          titulo="Outros"
+          icon={<ShoppingCart className="h-4 w-4" />}
+          metricas={metricasLookup["outros"]}
+          aliquotaImposto={aliquotaImposto}
+          considerarFreteComprador={considerarFreteComprador}
+          color="purple"
         />
       </div>
 
