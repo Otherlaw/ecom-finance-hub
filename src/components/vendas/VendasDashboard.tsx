@@ -6,18 +6,18 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ResumoVendas } from "@/hooks/useVendas";
 import { MetricasPorTipoEnvio } from "@/hooks/useVendasPaginadas";
 import { cn } from "@/lib/utils";
 import {
-  DollarSign,
-  TrendingUp,
   Package,
   Truck,
   Percent,
   Calculator,
   ShoppingCart,
   RotateCcw,
+  AlertTriangle,
 } from "lucide-react";
 
 interface VendasDashboardProps {
@@ -236,8 +236,35 @@ export function VendasDashboard({
         </Label>
       </div>
 
+      {/* Alerta de vendas aguardando classificação */}
+      {(() => {
+        const totalClassificadas = 
+          metricasLookup["full"].qtd + 
+          metricasLookup["flex"].qtd + 
+          metricasLookup["coleta"].qtd + 
+          metricasLookup["places"].qtd;
+        const vendasSemClassificacao = resumo.qtdItens - totalClassificadas;
+        
+        if (vendasSemClassificacao > 0) {
+          return (
+            <Alert className="bg-amber-500/10 border-amber-500/50">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              <AlertTitle className="font-semibold text-amber-800 dark:text-amber-200">
+                {vendasSemClassificacao} itens aguardando classificação
+              </AlertTitle>
+              <AlertDescription className="text-amber-700 dark:text-amber-300">
+                Vendas recentes ainda não foram classificadas por tipo de envio (Full, Flex, Coleta). 
+                Isso é normal para vendas dos últimos dias. A classificação é atualizada automaticamente 
+                pela integração com o Mercado Livre.
+              </AlertDescription>
+            </Alert>
+          );
+        }
+        return null;
+      })()}
+
       {/* Cards por tipo de envio */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Full */}
         <TipoEnvioCard
           titulo="Full"
@@ -275,16 +302,6 @@ export function VendasDashboard({
           aliquotaImposto={aliquotaImposto}
           considerarFreteComprador={considerarFreteComprador}
           color="amber"
-        />
-
-        {/* Outros - vendas sem tipo de envio definido */}
-        <TipoEnvioCard
-          titulo="Outros"
-          icon={<ShoppingCart className="h-4 w-4" />}
-          metricas={metricasLookup["outros"]}
-          aliquotaImposto={aliquotaImposto}
-          considerarFreteComprador={considerarFreteComprador}
-          color="purple"
         />
       </div>
 
