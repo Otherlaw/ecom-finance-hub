@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { buildUtcRangeFromStrings } from "@/lib/dateRangeUtc";
 
 /**
@@ -23,23 +22,26 @@ export interface DashboardMetrics {
  * Retorna dados agregados em uma única chamada ao invés de
  * carregar todas as transações e calcular no frontend.
  * 
- * CORRIGIDO: Agora usa timestamptz para evitar problemas de fuso horário.
- * O período "Hoje" agora bate exatamente com o dia local.
+ * @param periodoInicio - Data de início no formato "yyyy-MM-dd"
+ * @param periodoFim - Data de fim no formato "yyyy-MM-dd"
+ * @param empresaId - ID da empresa ou undefined/null para todas as empresas
  */
-export function useDashboardMetrics(periodoInicio: string, periodoFim: string) {
-  const { empresaAtiva } = useEmpresaAtiva();
-  const empresaId = empresaAtiva?.id;
-
+export function useDashboardMetrics(
+  periodoInicio: string, 
+  periodoFim: string,
+  empresaId?: string | null
+) {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["dashboard-metrics", empresaId, periodoInicio, periodoFim],
     queryFn: async () => {
-      if (!empresaId) return null;
-
       // Usar helper para converter datas locais para UTC consistente
       const { startUtcIso, endUtcIsoExclusive } = buildUtcRangeFromStrings(periodoInicio, periodoFim);
 
+      // Passa null quando empresaId é undefined/"todas" para buscar todas as empresas
+      const empresaParam = empresaId && empresaId !== "todas" ? empresaId : null;
+
       const { data, error } = await supabase.rpc("get_dashboard_metrics", {
-        p_empresa_id: empresaId,
+        p_empresa_id: empresaParam,
         p_data_inicio: startUtcIso,
         p_data_fim: endUtcIsoExclusive,
       });
@@ -68,7 +70,6 @@ export function useDashboardMetrics(periodoInicio: string, periodoFim: string) {
 
       return metrics;
     },
-    enabled: !!empresaId,
     staleTime: 30 * 1000, // Cache por 30 segundos
   });
 

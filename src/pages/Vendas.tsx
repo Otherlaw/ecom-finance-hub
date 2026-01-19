@@ -3,7 +3,6 @@ import { format } from "date-fns";
 import { MainLayout } from "@/components/MainLayout";
 import { useVendasPaginadas, TransacaoPaginada } from "@/hooks/useVendasPaginadas";
 import { useVendasPendentes } from "@/hooks/useVendasPendentes";
-import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { VendasDashboard } from "@/components/vendas/VendasDashboard";
 import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
@@ -11,6 +10,7 @@ import { VendasTablePaginada } from "@/components/vendas/VendasTablePaginada";
 import { VendasProductMappingModal } from "@/components/vendas/VendasProductMappingModal";
 import { VendasCategorizacaoModal } from "@/components/vendas/VendasCategorizacaoModal";
 import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
+import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -23,6 +23,7 @@ export default function Vendas() {
   // Estados do filtro de período
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
+  const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
 
   // Estados de paginação
   const [currentPage, setCurrentPage] = useState(0);
@@ -41,8 +42,8 @@ export default function Vendas() {
   const [showCategorizacaoModal, setShowCategorizacaoModal] = useState(false);
   const [vendaParaCategorizar, setVendaParaCategorizar] = useState<TransacaoPaginada | null>(null);
 
-  const { empresaAtiva } = useEmpresaAtiva();
-  const empresaId = empresaAtiva?.id;
+  // ID da empresa para filtros (undefined = todas)
+  const empresaId = empresaSelecionada !== "todas" ? empresaSelecionada : undefined;
 
   // Hook paginado otimizado
   const { 

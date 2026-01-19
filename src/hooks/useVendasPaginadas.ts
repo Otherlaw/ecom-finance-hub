@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 
 /**
  * Tipo para transações paginadas com CMV agregado
@@ -58,6 +57,8 @@ interface UseVendasPaginadasParams {
   canal?: string;
   conta?: string;
   statusVenda?: string;
+  /** ID da empresa ou undefined/null para todas */
+  empresaId?: string | null;
 }
 
 /**
@@ -72,9 +73,10 @@ export function useVendasPaginadas({
   canal,
   conta,
   statusVenda,
+  empresaId,
 }: UseVendasPaginadasParams) {
-  const { empresaAtiva } = useEmpresaAtiva();
-  const empresaId = empresaAtiva?.id;
+  // Passa null para RPC quando empresaId é undefined/"todas" para buscar todas
+  const empresaParam = empresaId && empresaId !== "todas" ? empresaId : null;
 
   // Converter datas para UTC com ajuste BR (meia-noite BR = 03:00 UTC)
   const dataInicioUTC = `${periodoInicio}T03:00:00.000Z`;
@@ -84,12 +86,10 @@ export function useVendasPaginadas({
 
   // Buscar resumo agregado via RPC (uma chamada para todas as métricas)
   const { data: resumoAgregado, isLoading: isLoadingResumo } = useQuery({
-    queryKey: ["vendas-resumo-agregado", empresaId, periodoInicio, periodoFim],
+    queryKey: ["vendas-resumo-agregado", empresaParam, periodoInicio, periodoFim],
     queryFn: async () => {
-      if (!empresaId) return null;
-
       const { data, error } = await supabase.rpc("get_vendas_resumo", {
-        p_empresa_id: empresaId,
+        p_empresa_id: empresaParam,
         p_data_inicio: dataInicioUTC,
         p_data_fim: dataFimUTC,
       });
@@ -102,7 +102,6 @@ export function useVendasPaginadas({
       const resultado = Array.isArray(data) ? data[0] : data;
       return resultado as ResumoVendasAgregado | null;
     },
-    enabled: !!empresaId,
     staleTime: 30 * 1000,
   });
 
@@ -110,17 +109,15 @@ export function useVendasPaginadas({
   const { data: totalCount } = useQuery({
     queryKey: [
       "vendas-count",
-      empresaId,
+      empresaParam,
       periodoInicio,
       periodoFim,
       canal,
       statusVenda,
     ],
     queryFn: async () => {
-      if (!empresaId) return 0;
-
       const { data, error } = await supabase.rpc("get_vendas_count", {
-        p_empresa_id: empresaId,
+        p_empresa_id: empresaParam,
         p_data_inicio: dataInicioUTC,
         p_data_fim: dataFimUTC,
         p_canal: canal || null,
@@ -134,7 +131,6 @@ export function useVendasPaginadas({
 
       return data as number;
     },
-    enabled: !!empresaId,
     staleTime: 60 * 1000, // Cache contagem por 1 minuto
   });
 
@@ -148,7 +144,7 @@ export function useVendasPaginadas({
   } = useQuery({
     queryKey: [
       "vendas-paginadas-cmv",
-      empresaId,
+      empresaParam,
       periodoInicio,
       periodoFim,
       canal,
@@ -157,10 +153,8 @@ export function useVendasPaginadas({
       pageSize,
     ],
     queryFn: async () => {
-      if (!empresaId) return [];
-
       const { data, error } = await supabase.rpc("get_vendas_com_cmv", {
-        p_empresa_id: empresaId,
+        p_empresa_id: empresaParam,
         p_data_inicio: dataInicioUTC,
         p_data_fim: dataFimUTC,
         p_canal: canal || null,
@@ -207,7 +201,6 @@ export function useVendasPaginadas({
 
       return transacoes;
     },
-    enabled: !!empresaId,
     refetchInterval: 60 * 1000,
     refetchIntervalInBackground: false,
   });
