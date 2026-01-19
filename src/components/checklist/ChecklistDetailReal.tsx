@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ModuleCard } from "@/components/ModuleCard";
 import { EtapaFormModal } from "./EtapaFormModal";
+import { ConferenciaImportacaoModal, ConferenciaData } from "./ConferenciaImportacaoModal";
 import { ChecklistCanalComItens, ChecklistCanalItem, useChecklistsCanal, calcularProgressoChecklist, getStatusLabel, getStatusColor } from "@/hooks/useChecklistsCanal";
 import { getMesNome } from "@/lib/checklist-data";
 import { supabase } from "@/integrations/supabase/client";
@@ -89,6 +90,10 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
   // Estado para modal de confirmação de período incompatível
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
   const [showPeriodoAlertModal, setShowPeriodoAlertModal] = useState(false);
+  
+  // Estado para modal de conferência de importação
+  const [showConferenciaModal, setShowConferenciaModal] = useState(false);
+  const [conferenciaData, setConferenciaData] = useState<ConferenciaData | null>(null);
 
   const { atualizarEtapa, excluirEtapa, adicionarArquivo, removerArquivo, marcarArquivoProcessado } = useChecklistsCanal();
 
@@ -197,6 +202,24 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
         nomeArquivo
       );
       
+      // Preparar dados para modal de conferência
+      const confData: ConferenciaData = {
+        nomeArquivo,
+        tipoArquivoDetectado: resultado.detalhes?.tipoArquivoDetectado || "desconhecido",
+        periodoDetectado: null, // Seria extraído da validação prévia
+        periodoEsperado: { mes: checklist.mes, ano: checklist.ano },
+        periodoCompativel: true,
+        estatisticas: {
+          totalLinhasArquivo: resultado.detalhes?.totalLinhasArquivo || 0,
+          totalTransacoesGeradas: resultado.detalhes?.totalTransacoesGeradas || 0,
+          transacoesImportadas: resultado.transacoesImportadas,
+          duplicatasIgnoradas: resultado.duplicatasIgnoradas,
+          transacoesComErro: resultado.transacoesComErro,
+        },
+        tiposMovimentacao: [],
+        amostraTransacoes: [],
+      };
+      
       if (resultado.sucesso) {
         const msg = resultado.duplicatasIgnoradas > 0
           ? `${resultado.transacoesImportadas} transações importadas (${resultado.duplicatasIgnoradas} duplicatas ignoradas)`
@@ -205,6 +228,14 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
         toast({ 
           title: "Arquivo processado!", 
           description: msg,
+          action: resultado.transacoesImportadas > 0 ? (
+            <Button variant="outline" size="sm" onClick={() => {
+              setConferenciaData(confData);
+              setShowConferenciaModal(true);
+            }}>
+              Ver detalhes
+            </Button>
+          ) : undefined,
         });
       } else {
         toast({ 
@@ -621,6 +652,13 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de conferência de importação */}
+      <ConferenciaImportacaoModal
+        open={showConferenciaModal}
+        onOpenChange={setShowConferenciaModal}
+        data={conferenciaData}
+      />
 
       {/* Input de arquivo oculto */}
       <input

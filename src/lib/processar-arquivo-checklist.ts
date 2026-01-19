@@ -186,29 +186,91 @@ async function parseArquivo(
   }
 }
 
-// Verifica duplicatas na tabela marketplace_transactions
+// Normaliza o nome do canal para comparação consistente
+function normalizarCanal(canal: string): string {
+  const mapeamento: Record<string, string> = {
+    "Mercado Livre": "mercado_livre",
+    "MercadoLivre": "mercado_livre",
+    "MERCADO_LIVRE": "mercado_livre",
+    "Mercado Pago": "mercado_pago",
+    "MercadoPago": "mercado_pago",
+    "MERCADO_PAGO": "mercado_pago",
+    "Shopee": "shopee",
+    "SHOPEE": "shopee",
+    "Shein": "shein",
+    "SHEIN": "shein",
+    "TikTok Shop": "tiktok_shop",
+    "TikTok": "tiktok_shop",
+    "TIKTOK": "tiktok_shop",
+    "Amazon": "amazon",
+    "AMAZON": "amazon",
+    "Magalu": "magalu",
+    "MAGALU": "magalu",
+  };
+  
+  return mapeamento[canal] || canal.toLowerCase().replace(/\s+/g, "_");
+}
+
+// Verifica duplicatas na tabela marketplace_transactions usando múltiplos critérios
 async function verificarDuplicatas(
   empresaId: string, 
   canal: string, 
-  referenciaExterna: string
+  referenciaExterna: string,
+  dataTransacao?: string,
+  valorLiquido?: number,
+  descricao?: string
 ): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("marketplace_transactions")
-    .select("id")
-    .eq("empresa_id", empresaId)
-    .eq("canal", canal)
-    .eq("referencia_externa", referenciaExterna)
-    .limit(1);
-  
-  if (error) {
-    console.error("[verificarDuplicatas] Erro:", error);
-    return false;
+  // Primeiro tenta por referência externa (mais preciso)
+  if (referenciaExterna && referenciaExterna.trim()) {
+    const { data: byRef, error: errRef } = await supabase
+      .from("marketplace_transactions")
+      .select("id")
+      .eq("empresa_id", empresaId)
+      .eq("referencia_externa", referenciaExterna.trim())
+      .limit(1);
+    
+    if (!errRef && byRef && byRef.length > 0) {
+      return true;
+    }
   }
   
-  return (data?.length || 0) > 0;
+  // Fallback: verificar por combinação data + valor + descrição (para evitar duplas entre API e upload)
+  if (dataTransacao && valorLiquido !== undefined) {
+    const canalNormalizado = normalizarCanal(canal);
+    
+    // Também verifica com variações do canal (API pode usar nome diferente do upload)
+    const { data: byCombo, error: errCombo } = await supabase
+      .from("marketplace_transactions")
+      .select("id, canal, descricao")
+      .eq("empresa_id", empresaId)
+      .eq("data_transacao", dataTransacao)
+      .gte("valor_liquido", valorLiquido - 0.01)
+      .lte("valor_liquido", valorLiquido + 0.01)
+      .limit(10);
+    
+    if (!errCombo && byCombo && byCombo.length > 0) {
+      // Verificar se algum match é do mesmo canal (normalizado) ou descrição similar
+      for (const match of byCombo) {
+        const matchCanalNorm = normalizarCanal(match.canal || "");
+        if (matchCanalNorm === canalNormalizado) {
+          return true;
+        }
+        // Se descrição é muito similar, considerar duplicata
+        if (descricao && match.descricao) {
+          const descNorm = descricao.toLowerCase().trim();
+          const matchDescNorm = match.descricao.toLowerCase().trim();
+          if (descNorm === matchDescNorm || descNorm.includes(matchDescNorm) || matchDescNorm.includes(descNorm)) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  
+  return false;
 }
 
-// Inserir transações no banco
+// Inserir transações no banco com verificação inteligente de duplicatas
 async function inserirTransacoes(
   transacoes: any[], 
   empresaId: string, 
@@ -219,11 +281,24 @@ async function inserirTransacoes(
   let erros = 0;
   const mensagensErro: string[] = [];
   
+  // Normalizar canal para consistência
+  const canalNormalizado = normalizarCanal(canal);
+  
   for (const transacao of transacoes) {
     try {
-      // Verificar se já existe
-      const referenciaExterna = transacao.referencia_externa || `${transacao.data_transacao}_${transacao.valor_liquido}`;
-      const isDuplicata = await verificarDuplicatas(empresaId, canal, referenciaExterna);
+      // Gerar referência externa se não existir
+      const referenciaExterna = transacao.referencia_externa || 
+        `${transacao.data_transacao}_${transacao.valor_liquido}_${(transacao.descricao || "").substring(0, 30)}`;
+      
+      // Verificar duplicata usando múltiplos critérios (API vs Upload)
+      const isDuplicata = await verificarDuplicatas(
+        empresaId, 
+        canalNormalizado, 
+        referenciaExterna,
+        transacao.data_transacao,
+        transacao.valor_liquido,
+        transacao.descricao
+      );
       
       if (isDuplicata) {
         duplicatas++;
@@ -233,7 +308,7 @@ async function inserirTransacoes(
       // Preparar dados para inserção
       const dadosInsercao = {
         empresa_id: empresaId,
-        canal: canal,
+        canal: canalNormalizado, // Usar canal normalizado
         data_transacao: transacao.data_transacao,
         descricao: transacao.descricao || "Transação importada",
         valor_liquido: transacao.valor_liquido || 0,
@@ -245,8 +320,11 @@ async function inserirTransacoes(
         tarifas: transacao.tarifas || 0,
         taxas: transacao.taxas || 0,
         outros_descontos: transacao.outros_descontos || 0,
+        frete_vendedor: transacao.frete_vendedor || 0,
+        frete_comprador: transacao.frete_comprador || 0,
+        custo_ads: transacao.custo_ads || 0,
         origem_extrato: "checklist_upload",
-        status: "importado", // Começa como importado, será processado pela categorização automática
+        status: "importado",
       };
       
       const { error } = await supabase
@@ -254,6 +332,11 @@ async function inserirTransacoes(
         .insert(dadosInsercao);
       
       if (error) {
+        // Se o erro for de duplicata (constraint violation), contar como duplicata
+        if (error.code === "23505") {
+          duplicatas++;
+          continue;
+        }
         erros++;
         if (mensagensErro.length < 5) {
           mensagensErro.push(`Linha ${inseridas + duplicatas + erros}: ${error.message}`);

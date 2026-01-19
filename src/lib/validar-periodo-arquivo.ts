@@ -72,11 +72,23 @@ function extrairMesAno(dataStr: string): { mes: number; ano: number } | null {
 }
 
 // Encontra a coluna de data nas headers
+// PRIORIZA "Data da tarifa" para relatórios Mercado Livre
 function encontrarColunaData(headers: string[]): number {
+  // Lista ordenada por prioridade (primeiro match vence)
   const possiveisNomes = [
-    "data", "date", "fecha", "data da tarifa", "data transação",
-    "data do movimento", "data da venda", "data de criação", 
-    "created", "data pedido", "data_transacao"
+    "data da tarifa",      // Mercado Livre - mais precisa
+    "data tarifa",
+    "data transação",
+    "data transacao",
+    "data do movimento",
+    "data da venda", 
+    "data pedido",
+    "data de criação",
+    "data_transacao",
+    "data",                // genérico - por último
+    "date",
+    "fecha",
+    "created",
   ];
   
   for (const nome of possiveisNomes) {
