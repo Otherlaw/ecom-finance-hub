@@ -9,7 +9,7 @@ import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
-import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
+import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,6 +33,8 @@ const formatNumber = (value: number): string => {
 export default function Dashboard() {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
+  const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
+  
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
     setDateRange(range);
@@ -41,6 +43,9 @@ export default function Dashboard() {
   const periodoFim = format(dateRange.to, "yyyy-MM-dd");
   const mes = format(dateRange.from, "MM");
   const ano = parseInt(format(dateRange.from, "yyyy"));
+  
+  // ID da empresa para filtros (null = todas)
+  const empresaIdFiltro = empresaSelecionada !== "todas" ? empresaSelecionada : undefined;
 
   // Hooks de dados reais
   const {
@@ -64,7 +69,7 @@ export default function Dashboard() {
     channelData: mktChannelData,
     ticketMedio: mktTicketMedio,
     isLoading: isMktLoading
-  } = useDashboardMetrics(periodoInicio, periodoFim);
+  } = useDashboardMetrics(periodoInicio, periodoFim, empresaIdFiltro);
   const {
     resumo: contasPagarResumo,
     isLoading: isCPLoading
@@ -176,24 +181,16 @@ export default function Dashboard() {
     }));
   }, [agregado]);
 
-  // Hook de empresa ativa já é importado via useDashboardMetrics
-  const {
-    empresaAtiva
-  } = useEmpresaAtiva();
-
   // Query para Top 10 produtos mais vendidos (incluindo custo_ads)
   const {
     data: topProdutosRaw = [],
     isLoading: isTopProdutosLoading
   } = useQuery({
-    queryKey: ["top-produtos-vendidos", empresaAtiva?.id, periodoInicio, periodoFim],
+    queryKey: ["top-produtos-vendidos", empresaIdFiltro, periodoInicio, periodoFim],
     queryFn: async () => {
-      if (!empresaAtiva?.id) return [];
       const periodoFimExclusivo = format(addDays(dateRange.to, 1), "yyyy-MM-dd");
-      const {
-        data,
-        error
-      } = await supabase.from("marketplace_transaction_items").select(`
+      
+      let query = supabase.from("marketplace_transaction_items").select(`
           quantidade,
           preco_total,
           sku_marketplace,
@@ -214,14 +211,23 @@ export default function Dashboard() {
             custo_medio,
             imagem_url
           )
-        `).eq("transaction.empresa_id", empresaAtiva.id).gte("transaction.data_transacao", periodoInicio).lt("transaction.data_transacao", periodoFimExclusivo).eq("transaction.tipo_lancamento", "credito");
+        `)
+        .gte("transaction.data_transacao", periodoInicio)
+        .lt("transaction.data_transacao", periodoFimExclusivo)
+        .eq("transaction.tipo_lancamento", "credito");
+      
+      if (empresaIdFiltro) {
+        query = query.eq("transaction.empresa_id", empresaIdFiltro);
+      }
+      
+      const { data, error } = await query;
       if (error) {
         console.error("Erro ao buscar top produtos:", error);
         return [];
       }
       return data || [];
     },
-    enabled: !!periodoInicio && !!periodoFim && !!empresaAtiva?.id
+    enabled: !!periodoInicio && !!periodoFim
   });
 
   // Processar dados para Top 10 produtos com preço médio e ads
@@ -391,6 +397,7 @@ export default function Dashboard() {
               <RefreshCw className={`h-4 w-4 ${isSincronizando ? 'animate-spin' : ''}`} />
               Sincronizar ({totalPendentes})
             </Button>}
+          <EmpresaFilter value={empresaSelecionada} onChange={setEmpresaSelecionada} showLabel={false} />
           <PeriodFilter selectedPeriod={selectedPeriod} onPeriodChange={handlePeriodChange} isLoading={isLoading} />
           <Button className="gap-2">
             <Download className="h-4 w-4" />
