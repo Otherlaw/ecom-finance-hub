@@ -100,7 +100,7 @@ export const useEmpresas = () => {
   });
 
   return {
-    empresas,
+    empresas: empresas ?? [],
     isLoading,
     createEmpresa,
     updateEmpresa,
