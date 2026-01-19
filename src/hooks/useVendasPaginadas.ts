@@ -47,6 +47,25 @@ export interface ResumoVendasAgregado {
   total_transacoes: number;
   transacoes_sem_categoria: number;
   transacoes_nao_conciliadas: number;
+  total_cmv: number;
+  total_itens: number;
+}
+
+/**
+ * Métricas agregadas por tipo de envio (Full, Flex, Coleta, etc.)
+ */
+export interface MetricasPorTipoEnvio {
+  tipo_envio: string;
+  qtd_transacoes: number;
+  qtd_itens: number;
+  valor_bruto: number;
+  valor_liquido: number;
+  tarifas: number;
+  taxas: number;
+  frete_comprador: number;
+  frete_vendedor: number;
+  custo_ads: number;
+  cmv_total: number;
 }
 
 interface UseVendasPaginadasParams {
@@ -101,6 +120,39 @@ export function useVendasPaginadas({
 
       const resultado = Array.isArray(data) ? data[0] : data;
       return resultado as ResumoVendasAgregado | null;
+    },
+    staleTime: 30 * 1000,
+  });
+
+  // Buscar métricas por tipo de envio (Full, Flex, Coleta) via RPC
+  const { data: metricasPorTipoEnvio, isLoading: isLoadingMetricasTipo } = useQuery({
+    queryKey: ["vendas-metricas-tipo-envio", empresaParam, periodoInicio, periodoFim],
+    queryFn: async () => {
+      // Cast necessário pois os types do Supabase podem não estar atualizados ainda
+      const { data, error } = await (supabase.rpc as any)("get_vendas_resumo_por_tipo_envio", {
+        p_empresa_id: empresaParam,
+        p_data_inicio: dataInicioUTC,
+        p_data_fim: dataFimUTC,
+      });
+
+      if (error) {
+        console.error("Erro ao buscar métricas por tipo de envio:", error);
+        return [];
+      }
+
+      return (data || []).map((item: any) => ({
+        tipo_envio: item.tipo_envio,
+        qtd_transacoes: Number(item.qtd_transacoes) || 0,
+        qtd_itens: Number(item.qtd_itens) || 0,
+        valor_bruto: Number(item.valor_bruto) || 0,
+        valor_liquido: Number(item.valor_liquido) || 0,
+        tarifas: Number(item.tarifas) || 0,
+        taxas: Number(item.taxas) || 0,
+        frete_comprador: Number(item.frete_comprador) || 0,
+        frete_vendedor: Number(item.frete_vendedor) || 0,
+        custo_ads: Number(item.custo_ads) || 0,
+        cmv_total: Number(item.cmv_total) || 0,
+      })) as MetricasPorTipoEnvio[];
     },
     staleTime: 30 * 1000,
   });
@@ -232,9 +284,10 @@ export function useVendasPaginadas({
     currentPage: page,
     pageSize,
     resumoAgregado,
+    metricasPorTipoEnvio: metricasPorTipoEnvio || [],
     canaisDisponiveis,
     contasDisponiveis,
-    isLoading: isLoadingTransacoes || isLoadingResumo,
+    isLoading: isLoadingTransacoes || isLoadingResumo || isLoadingMetricasTipo,
     isFetching,
     dataUpdatedAt,
     refetch,

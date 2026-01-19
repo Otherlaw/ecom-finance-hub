@@ -6,7 +6,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { ResumoVendas, VendaDetalhada } from "@/hooks/useVendas";
+import { ResumoVendas } from "@/hooks/useVendas";
+import { MetricasPorTipoEnvio } from "@/hooks/useVendasPaginadas";
 import { cn } from "@/lib/utils";
 import {
   DollarSign,
@@ -21,7 +22,7 @@ import {
 
 interface VendasDashboardProps {
   resumo: ResumoVendas;
-  vendas: VendaDetalhada[];
+  metricasPorTipo: MetricasPorTipoEnvio[];
   aliquotaImposto: number;
   considerarFreteComprador: boolean;
   onConsiderarFreteChange: (value: boolean) => void;
@@ -38,10 +39,9 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1).replace(".", ",")}%`;
 }
 
-// Calcular métricas por tipo de envio
-function calcularMetricasPorTipoEnvio(vendas: VendaDetalhada[], aliquotaImposto: number) {
-  const tiposEnvio = ["full", "flex", "coleta", "retirada", "places"];
-  const metricas: Record<string, {
+// Transformar métricas por tipo de envio vindas da RPC em formato de lookup
+function transformarMetricasPorTipo(metricas: MetricasPorTipoEnvio[]) {
+  const lookup: Record<string, {
     qtd: number;
     valorBruto: number;
     valorLiquido: number;
@@ -52,9 +52,9 @@ function calcularMetricasPorTipoEnvio(vendas: VendaDetalhada[], aliquotaImposto:
     custoAds: number;
   }> = {};
 
-  // Inicializar
-  tiposEnvio.forEach(tipo => {
-    metricas[tipo] = {
+  // Inicializar com valores zerados para tipos conhecidos
+  ["full", "flex", "coleta", "places", "outros"].forEach(tipo => {
+    lookup[tipo] = {
       qtd: 0,
       valorBruto: 0,
       valorLiquido: 0,
@@ -66,45 +66,32 @@ function calcularMetricasPorTipoEnvio(vendas: VendaDetalhada[], aliquotaImposto:
     };
   });
 
-  // Processar vendas
-  vendas.forEach(v => {
-    const tipo = (v.tipo_envio || "outros").toLowerCase();
-    const tipoKey = tiposEnvio.includes(tipo) ? tipo : "outros";
-    
-    if (!metricas[tipoKey]) {
-      metricas[tipoKey] = {
-        qtd: 0,
-        valorBruto: 0,
-        valorLiquido: 0,
-        tarifas: 0,
-        cmv: 0,
-        freteComprador: 0,
-        freteVendedor: 0,
-        custoAds: 0,
-      };
-    }
-
-    metricas[tipoKey].qtd += v.quantidade;
-    metricas[tipoKey].valorBruto += v.valor_bruto;
-    metricas[tipoKey].valorLiquido += v.valor_liquido;
-    metricas[tipoKey].tarifas += v.tarifas + v.taxas;
-    metricas[tipoKey].cmv += v.custo_calculado;
-    metricas[tipoKey].freteComprador += v.frete_comprador;
-    metricas[tipoKey].freteVendedor += v.frete_vendedor;
-    metricas[tipoKey].custoAds += v.custo_ads;
+  // Preencher com dados reais da RPC
+  metricas.forEach(m => {
+    const tipo = (m.tipo_envio || "outros").toLowerCase();
+    lookup[tipo] = {
+      qtd: m.qtd_itens,
+      valorBruto: m.valor_bruto,
+      valorLiquido: m.valor_liquido,
+      tarifas: m.tarifas + m.taxas,
+      cmv: m.cmv_total,
+      freteComprador: m.frete_comprador,
+      freteVendedor: m.frete_vendedor,
+      custoAds: m.custo_ads,
+    };
   });
 
-  return metricas;
+  return lookup;
 }
 
 export function VendasDashboard({
   resumo,
-  vendas,
+  metricasPorTipo,
   aliquotaImposto,
   considerarFreteComprador,
   onConsiderarFreteChange,
 }: VendasDashboardProps) {
-  const metricasPorTipo = calcularMetricasPorTipoEnvio(vendas, aliquotaImposto);
+  const metricasLookup = transformarMetricasPorTipo(metricasPorTipo);
 
   // Calcular margens considerando ou não frete do comprador
   const calcularMargem = (valorLiquido: number, cmv: number, freteVendedor: number, custoAds: number, freteComprador: number, valorBruto: number) => {
@@ -259,7 +246,7 @@ export function VendasDashboard({
         <TipoEnvioCard
           titulo="Full"
           icon={<Package className="h-4 w-4" />}
-          metricas={metricasPorTipo["full"]}
+          metricas={metricasLookup["full"]}
           aliquotaImposto={aliquotaImposto}
           considerarFreteComprador={considerarFreteComprador}
           color="emerald"
@@ -269,7 +256,7 @@ export function VendasDashboard({
         <TipoEnvioCard
           titulo="Flex"
           icon={<Truck className="h-4 w-4" />}
-          metricas={metricasPorTipo["flex"]}
+          metricas={metricasLookup["flex"]}
           aliquotaImposto={aliquotaImposto}
           considerarFreteComprador={considerarFreteComprador}
           color="blue"
@@ -280,14 +267,14 @@ export function VendasDashboard({
           titulo="Places / Coleta"
           icon={<RotateCcw className="h-4 w-4" />}
           metricas={{
-            qtd: (metricasPorTipo["places"]?.qtd || 0) + (metricasPorTipo["coleta"]?.qtd || 0),
-            valorBruto: (metricasPorTipo["places"]?.valorBruto || 0) + (metricasPorTipo["coleta"]?.valorBruto || 0),
-            valorLiquido: (metricasPorTipo["places"]?.valorLiquido || 0) + (metricasPorTipo["coleta"]?.valorLiquido || 0),
-            tarifas: (metricasPorTipo["places"]?.tarifas || 0) + (metricasPorTipo["coleta"]?.tarifas || 0),
-            cmv: (metricasPorTipo["places"]?.cmv || 0) + (metricasPorTipo["coleta"]?.cmv || 0),
-            freteComprador: (metricasPorTipo["places"]?.freteComprador || 0) + (metricasPorTipo["coleta"]?.freteComprador || 0),
-            freteVendedor: (metricasPorTipo["places"]?.freteVendedor || 0) + (metricasPorTipo["coleta"]?.freteVendedor || 0),
-            custoAds: (metricasPorTipo["places"]?.custoAds || 0) + (metricasPorTipo["coleta"]?.custoAds || 0),
+            qtd: (metricasLookup["places"]?.qtd || 0) + (metricasLookup["coleta"]?.qtd || 0),
+            valorBruto: (metricasLookup["places"]?.valorBruto || 0) + (metricasLookup["coleta"]?.valorBruto || 0),
+            valorLiquido: (metricasLookup["places"]?.valorLiquido || 0) + (metricasLookup["coleta"]?.valorLiquido || 0),
+            tarifas: (metricasLookup["places"]?.tarifas || 0) + (metricasLookup["coleta"]?.tarifas || 0),
+            cmv: (metricasLookup["places"]?.cmv || 0) + (metricasLookup["coleta"]?.cmv || 0),
+            freteComprador: (metricasLookup["places"]?.freteComprador || 0) + (metricasLookup["coleta"]?.freteComprador || 0),
+            freteVendedor: (metricasLookup["places"]?.freteVendedor || 0) + (metricasLookup["coleta"]?.freteVendedor || 0),
+            custoAds: (metricasLookup["places"]?.custoAds || 0) + (metricasLookup["coleta"]?.custoAds || 0),
           }}
           aliquotaImposto={aliquotaImposto}
           considerarFreteComprador={considerarFreteComprador}
