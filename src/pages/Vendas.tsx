@@ -64,6 +64,7 @@ export default function Vendas() {
     canal: canal !== "todos" ? canal : undefined,
     conta: conta || undefined,
     statusVenda: statusVenda !== "todos" ? statusVenda : undefined,
+    empresaId,
   });
 
   // Combina loading inicial + refetch (mudança de período)
@@ -235,6 +236,16 @@ export default function Vendas() {
       }
     >
       <div className="flex flex-col gap-6 p-6">
+        {/* Filtro de empresa */}
+        <div className="flex items-center gap-4">
+          <EmpresaFilter
+            value={empresaSelecionada}
+            onChange={(val) => {
+              setEmpresaSelecionada(val);
+              setCurrentPage(0);
+            }}
+          />
+        </div>
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
