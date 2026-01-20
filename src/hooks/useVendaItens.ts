@@ -88,7 +88,8 @@ export function useVendaItens(transactionId: string | null) {
       return itensTransformados;
     },
     enabled: !!transactionId,
-    staleTime: 5 * 60 * 1000, // Cache por 5 minutos
+    staleTime: 30 * 1000, // Cache por 30 segundos para permitir refresh rápido após mapeamento
+    refetchOnWindowFocus: false,
   });
 
   return {
