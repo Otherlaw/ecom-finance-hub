@@ -3,9 +3,8 @@ import { KPICard } from "@/components/KPICard";
 import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useDREData, usePeridosDisponiveis } from "@/hooks/useDREData";
+import { useDashboardKPIs } from "@/hooks/useDashboardKPIs";
 import { useFluxoCaixa } from "@/hooks/useFluxoCaixa";
-import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
@@ -13,7 +12,7 @@ import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { format, endOfMonth, subMonths } from "date-fns";
+import { format } from "date-fns";
 import { buildUtcRangeFromStrings } from "@/lib/dateRangeUtc";
 import { ptBR } from "date-fns/locale";
 import { DollarSign, TrendingUp, Percent, ShoppingCart, Package, CreditCard, BarChart3, PieChart, Download, Loader2, RefreshCw, HelpCircle, Target, Scale, Wallet, Activity, ImageIcon } from "lucide-react";
@@ -42,19 +41,19 @@ export default function Dashboard() {
   };
   const periodoInicio = format(dateRange.from, "yyyy-MM-dd");
   const periodoFim = format(dateRange.to, "yyyy-MM-dd");
-  const mes = format(dateRange.from, "MM");
-  const ano = parseInt(format(dateRange.from, "yyyy"));
   
   // ID da empresa para filtros (null = todas)
   const empresaIdFiltro = empresaSelecionada !== "todas" ? empresaSelecionada : undefined;
 
-  // Hooks de dados reais
+  // Hook UNIFICADO para todos os KPIs do período (substitui DRE mensal + métricas)
   const {
-    dreData,
-    stats,
-    isLoading: isDRELoading,
-    hasData: hasDREData
-  } = useDREData(mes, ano);
+    kpis: dashboardKpis,
+    channelData: mktChannelData,
+    alertas: kpisAlertas,
+    isLoading: isKPIsLoading
+  } = useDashboardKPIs(periodoInicio, periodoFim, empresaIdFiltro);
+
+  // Fluxo de caixa (para gráfico e saldo)
   const {
     resumo: fluxoResumo,
     agregado,
@@ -64,13 +63,7 @@ export default function Dashboard() {
     periodoFim
   });
 
-  // Hook otimizado para métricas de vendas (usa RPC agregada)
-  const {
-    metrics: mktMetrics,
-    channelData: mktChannelData,
-    ticketMedio: mktTicketMedio,
-    isLoading: isMktLoading
-  } = useDashboardMetrics(periodoInicio, periodoFim, empresaIdFiltro);
+  // Contas a pagar/receber (para cards de resumo)
   const {
     resumo: contasPagarResumo,
     isLoading: isCPLoading
@@ -85,17 +78,12 @@ export default function Dashboard() {
     dataInicio: periodoInicio,
     dataFim: periodoFim
   });
-  const {
-    data: periodosDisponiveis
-  } = usePeridosDisponiveis();
 
   // Sincronização MEU
   const {
     temPendencias,
-    totalPendentes,
     sincronizar,
-    isSincronizando,
-    refetchPendentes
+    isSincronizando
   } = useSincronizacaoMEU();
 
   // Sincronizar automaticamente se houver pendências
@@ -104,33 +92,23 @@ export default function Dashboard() {
       sincronizar.mutate();
     }
   }, [temPendencias]);
-  const isLoading = isDRELoading || isFluxoLoading || isMktLoading || isCPLoading || isCRLoading;
 
-  // KPIs calculados - agora usando dados agregados da RPC
+  const isLoading = isKPIsLoading || isFluxoLoading || isCPLoading || isCRLoading;
+
+  // KPIs já vêm calculados da RPC unificada (sem misturar DRE mensal)
   const kpis = useMemo(() => {
-    // Usar dados agregados da RPC (muito mais rápido)
-    const receitaBruta = mktMetrics.receita_bruta || 0;
-    const receitaLiquida = mktMetrics.receita_liquida || 0;
-    const totalTarifas = mktMetrics.total_tarifas || 0;
-    const totalAds = mktMetrics.total_ads || 0;
+    const receitaBruta = dashboardKpis.faturamento_bruto || 0;
+    const receitaLiquida = dashboardKpis.receita_liquida || 0;
+    const custos = dashboardKpis.cmv_total || 0;
+    const totalDespesas = dashboardKpis.despesas_operacionais_total || 0;
+    const lucroBruto = dashboardKpis.lucro_bruto || 0;
+    const lucroLiquido = dashboardKpis.lucro_liquido || 0;
+    const margemBruta = dashboardKpis.margem_bruta_pct || 0;
+    const margemLiquida = dashboardKpis.margem_liquida_pct || 0;
 
-    // CMV estimado (baseado em dados se disponíveis)
-    const custos = dreData?.custos?.valor || 0;
-    const lucroBruto = receitaLiquida - custos;
+    const custosPercentual = receitaBruta > 0 ? (custos / receitaBruta) * 100 : 0;
+    const despesasPercentual = receitaBruta > 0 ? (totalDespesas / receitaBruta) * 100 : 0;
 
-    // Despesas do DRE (já considera período mensal)
-    const totalDespesas = dreData?.totalDespesas || 0;
-    const lucroLiquido = lucroBruto - totalDespesas;
-
-    // Margens calculadas
-    const margemBruta = receitaBruta > 0 ? lucroBruto / receitaBruta * 100 : 0;
-    const margemLiquida = receitaBruta > 0 ? lucroLiquido / receitaBruta * 100 : 0;
-    const custosPercentual = receitaBruta > 0 ? custos / receitaBruta * 100 : 0;
-    const despesasPercentual = receitaBruta > 0 ? totalDespesas / receitaBruta * 100 : 0;
-
-    // Pedidos únicos da RPC
-    const pedidosUnicos = mktMetrics.pedidos_unicos || 0;
-    const ticketMedio = mktTicketMedio;
     return {
       receitaBruta,
       receitaLiquida,
@@ -138,16 +116,19 @@ export default function Dashboard() {
       lucroLiquido,
       totalDespesas,
       custos,
-      totalTarifas,
-      totalAds,
+      totalTarifas: dashboardKpis.comissao_total + dashboardKpis.tarifa_fixa_total,
+      totalAds: dashboardKpis.ads_total,
       margemBruta,
       margemLiquida,
       custosPercentual,
       despesasPercentual,
-      pedidos: pedidosUnicos,
-      ticketMedio
+      pedidos: dashboardKpis.pedidos_unicos || 0,
+      ticketMedio: dashboardKpis.ticket_medio || 0,
+      // Alertas de completude
+      cmvIncompleto: kpisAlertas.cmvIncompleto,
+      semDespesas: kpisAlertas.semDespesas,
     };
-  }, [dreData, mktMetrics, mktTicketMedio]);
+  }, [dashboardKpis, kpisAlertas]);
 
   // Dados para gráficos
   const cashFlowData = useMemo(() => {
@@ -679,7 +660,7 @@ export default function Dashboard() {
           </div>
 
           {/* Empty State */}
-          {!hasDREData && mktMetrics.total_transacoes === 0 && <div className="mt-6 p-8 text-center bg-muted/30 rounded-lg border border-dashed">
+          {dashboardKpis.total_transacoes === 0 && kpis.pedidos === 0 && <div className="mt-6 p-8 text-center bg-muted/30 rounded-lg border border-dashed">
               <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold mb-2">Sem dados no período</h3>
               <p className="text-muted-foreground max-w-md mx-auto">
