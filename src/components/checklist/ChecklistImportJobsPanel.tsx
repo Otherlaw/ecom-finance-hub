@@ -1,31 +1,30 @@
 /**
- * Painel de progresso para jobs de importação de arquivos do checklist
- * Mostra status em tempo real com barra de progresso animada
+ * Painel de Jobs de Importação do Checklist
+ * 
+ * Exibe progresso de importações em andamento e histórico recente.
+ * Inclui botão "Ver Detalhes" para abrir modal de resumo da importação.
  */
 
-import { useState } from "react";
-import { 
-  CheckCircle2, 
-  XCircle, 
-  Loader2, 
-  ChevronUp, 
-  ChevronDown,
-  FileSpreadsheet,
-  Ban,
-  Clock,
-  AlertTriangle
-} from "lucide-react";
+import { useState, useEffect } from "react";
+import { useChecklistImportJobs, ChecklistImportJob } from "@/hooks/useChecklistImportJobs";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { 
-  useChecklistImportJobs, 
-  ChecklistImportJob 
-} from "@/hooks/useChecklistImportJobs";
+  FileSpreadsheet, 
+  Loader2, 
+  CheckCircle2, 
+  XCircle, 
+  ChevronDown,
+  AlertTriangle,
+  Clock,
+  Ban,
+  Eye
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { ImportResultDetailModal } from "./ImportResultDetailModal";
 
 interface ChecklistImportJobsPanelProps {
   empresaId?: string;
