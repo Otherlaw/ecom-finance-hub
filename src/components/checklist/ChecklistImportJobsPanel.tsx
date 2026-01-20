@@ -11,12 +11,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Badge } from "@/components/ui/badge";
 import { 
   FileSpreadsheet, 
   Loader2, 
   CheckCircle2, 
   XCircle, 
   ChevronDown,
+  ChevronUp,
   AlertTriangle,
   Clock,
   Ban,
