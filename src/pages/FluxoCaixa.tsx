@@ -580,6 +580,18 @@ export default function FluxoCaixa() {
         </div>
       }
     >
+      {/* Alerta informativo sobre o que é Fluxo de Caixa */}
+      <Alert className="mb-6 border-info/30 bg-info/5">
+        <Info className="h-4 w-4 text-info" />
+        <AlertTitle className="text-info">O que aparece aqui?</AlertTitle>
+        <AlertDescription className="text-muted-foreground text-sm">
+          O Fluxo de Caixa mostra apenas <strong>movimentações reais de dinheiro</strong>: 
+          transações bancárias, repasses de marketplace, pagamentos efetuados e recebimentos. 
+          Vendas individuais de marketplace (por pedido) estão na aba <strong>Vendas</strong> — 
+          aqui você vê apenas quando o dinheiro efetivamente entrou/saiu da conta.
+        </AlertDescription>
+      </Alert>
+
       {/* KPIs - usando resumoFiltrado */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <KPICard
