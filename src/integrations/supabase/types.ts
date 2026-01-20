@@ -1897,6 +1897,65 @@ export type Database = {
           },
         ]
       }
+      marketplace_financial_events: {
+        Row: {
+          atualizado_em: string
+          canal: string
+          conta_nome: string | null
+          criado_em: string
+          data_evento: string
+          descricao: string | null
+          empresa_id: string
+          event_id: string
+          id: string
+          metadados: Json | null
+          origem: string
+          pedido_id: string | null
+          tipo_evento: string
+          valor: number
+        }
+        Insert: {
+          atualizado_em?: string
+          canal?: string
+          conta_nome?: string | null
+          criado_em?: string
+          data_evento: string
+          descricao?: string | null
+          empresa_id: string
+          event_id: string
+          id?: string
+          metadados?: Json | null
+          origem?: string
+          pedido_id?: string | null
+          tipo_evento: string
+          valor?: number
+        }
+        Update: {
+          atualizado_em?: string
+          canal?: string
+          conta_nome?: string | null
+          criado_em?: string
+          data_evento?: string
+          descricao?: string | null
+          empresa_id?: string
+          event_id?: string
+          id?: string
+          metadados?: Json | null
+          origem?: string
+          pedido_id?: string | null
+          tipo_evento?: string
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_financial_events_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       marketplace_import_jobs: {
         Row: {
           arquivo_nome: string

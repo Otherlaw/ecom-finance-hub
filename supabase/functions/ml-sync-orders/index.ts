@@ -930,6 +930,94 @@ Deno.serve(async (req) => {
         }
 
         const wasCreated = upsertedTx && new Date(upsertedTx.criado_em).getTime() === new Date(upsertedTx.atualizado_em).getTime();
+
+        // ========== GRAVAR EVENTOS FINANCEIROS NA NOVA TABELA ==========
+        // Eventos são gravados com UPSERT idempotente por event_id
+        const eventosFinanceiros: Array<{
+          empresa_id: string;
+          canal: string;
+          event_id: string;
+          pedido_id: string;
+          tipo_evento: string;
+          data_evento: string;
+          valor: number;
+          descricao: string;
+          origem: string;
+        }> = [];
+
+        // Evento: Comissão (taxas = CV)
+        if (taxas > 0) {
+          eventosFinanceiros.push({
+            empresa_id,
+            canal: "Mercado Livre",
+            event_id: `${order.id}_comissao`,
+            pedido_id: String(order.id),
+            tipo_evento: "comissao",
+            data_evento: dataTransacao,
+            valor: -taxas, // Custo = valor negativo
+            descricao: `Comissão ML pedido #${order.id}`,
+            origem: billingAvailable && billingFees ? "api_conciliacoes" : "api_orders",
+          });
+        }
+
+        // Evento: Tarifa Fixa / Financiamento
+        if (tarifas > 0) {
+          eventosFinanceiros.push({
+            empresa_id,
+            canal: "Mercado Livre",
+            event_id: `${order.id}_tarifa`,
+            pedido_id: String(order.id),
+            tipo_evento: "tarifa_financeira",
+            data_evento: dataTransacao,
+            valor: -tarifas,
+            descricao: `Tarifa/financiamento pedido #${order.id}`,
+            origem: billingAvailable && billingFees ? "api_conciliacoes" : "api_orders",
+          });
+        }
+
+        // Evento: Frete Vendedor
+        if (freteVendedor > 0) {
+          eventosFinanceiros.push({
+            empresa_id,
+            canal: "Mercado Livre",
+            event_id: `${order.id}_frete_vendedor`,
+            pedido_id: String(order.id),
+            tipo_evento: "frete_vendedor",
+            data_evento: dataTransacao,
+            valor: -freteVendedor,
+            descricao: `Frete vendedor pedido #${order.id}`,
+            origem: "api_shipping_costs",
+          });
+        }
+
+        // Evento: Frete Comprador (receita adicional)
+        if (freteComprador > 0) {
+          eventosFinanceiros.push({
+            empresa_id,
+            canal: "Mercado Livre",
+            event_id: `${order.id}_frete_comprador`,
+            pedido_id: String(order.id),
+            tipo_evento: "frete_comprador",
+            data_evento: dataTransacao,
+            valor: freteComprador, // Receita = valor positivo
+            descricao: `Frete comprador pedido #${order.id}`,
+            origem: "api_shipping_costs",
+          });
+        }
+
+        // UPSERT eventos financeiros
+        if (eventosFinanceiros.length > 0) {
+          const { error: eventsError } = await supabase
+            .from("marketplace_financial_events")
+            .upsert(eventosFinanceiros, {
+              onConflict: "uq_mkt_fin_event",
+              ignoreDuplicates: false,
+            });
+
+          if (eventsError) {
+            console.error(`[ML Sync] Erro ao salvar eventos financeiros pedido ${order.id}:`, eventsError);
+          }
+        }
         
         if (wasCreated) {
           registros_criados++;
