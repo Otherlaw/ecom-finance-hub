@@ -2387,6 +2387,7 @@ export type Database = {
           observacoes: string | null
           origem: Database["public"]["Enums"]["movimento_origem"]
           referencia_id: string | null
+          regime: string
           responsavel_id: string | null
           tipo: Database["public"]["Enums"]["movimento_tipo"]
           valor: number
@@ -2408,6 +2409,7 @@ export type Database = {
           observacoes?: string | null
           origem: Database["public"]["Enums"]["movimento_origem"]
           referencia_id?: string | null
+          regime?: string
           responsavel_id?: string | null
           tipo: Database["public"]["Enums"]["movimento_tipo"]
           valor: number
@@ -2429,6 +2431,7 @@ export type Database = {
           observacoes?: string | null
           origem?: Database["public"]["Enums"]["movimento_origem"]
           referencia_id?: string | null
+          regime?: string
           responsavel_id?: string | null
           tipo?: Database["public"]["Enums"]["movimento_tipo"]
           valor?: number
