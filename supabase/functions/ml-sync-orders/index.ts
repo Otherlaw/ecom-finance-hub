@@ -1429,20 +1429,9 @@ Deno.serve(async (req) => {
           });
         }
 
-        if (freteComprador > 0) {
-          eventosFinanceiros.push({
-            empresa_id,
-            canal: "Mercado Livre",
-            event_id: `order_${order.id}_frete_comprador`,
-            pedido_id: String(order.id),
-            conta_nome: contaNome,
-            tipo_evento: "frete_comprador",
-            data_evento: dataTransacao,
-            valor: freteComprador,
-            descricao: `Frete comprador pedido #${order.id}`,
-            origem: "api_shipping_costs",
-          });
-        }
+        // REMOVIDO: frete_comprador não é mais criado como evento
+        // O valor fica apenas em marketplace_transactions.frete_comprador para informação
+        // mas NÃO entra em marketplace_financial_events para não distorcer margem
 
         if (eventosFinanceiros.length > 0) {
           const { error: eventsError } = await supabase
