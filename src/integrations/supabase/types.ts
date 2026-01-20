@@ -3634,40 +3634,75 @@ export type Database = {
         }
         Returns: number
       }
-      get_vendas_por_pedido: {
-        Args: {
-          p_canal?: string
-          p_conta?: string
-          p_data_fim?: string
-          p_data_inicio?: string
-          p_empresa_id?: string
-          p_limit?: number
-          p_offset?: number
-          p_status?: string
-        }
-        Returns: {
-          ads_total: number
-          canal: string
-          cmv_total: number
-          comissao_total: number
-          conta_nome: string
-          data_pedido: string
-          data_repasse: string
-          empresa_id: string
-          frete_vendedor_total: number
-          impostos_total: number
-          margem_contribuicao: number
-          outros_descontos_total: number
-          pedido_id: string
-          qtd_itens: number
-          status: string
-          tarifa_fixa_total: number
-          tem_cmv: boolean
-          tipo_envio: string
-          valor_liquido_calculado: number
-          valor_produto: number
-        }[]
-      }
+      get_vendas_por_pedido:
+        | {
+            Args: {
+              p_canal?: string
+              p_conta?: string
+              p_data_fim?: string
+              p_data_inicio?: string
+              p_empresa_id?: string
+              p_limit?: number
+              p_offset?: number
+              p_status?: string
+            }
+            Returns: {
+              ads_total: number
+              canal: string
+              cmv_total: number
+              comissao_total: number
+              conta_nome: string
+              data_pedido: string
+              data_repasse: string
+              empresa_id: string
+              frete_vendedor_total: number
+              impostos_total: number
+              margem_contribuicao: number
+              outros_descontos_total: number
+              pedido_id: string
+              qtd_itens: number
+              status: string
+              tarifa_fixa_total: number
+              tem_cmv: boolean
+              tipo_envio: string
+              valor_liquido_calculado: number
+              valor_produto: number
+            }[]
+          }
+        | {
+            Args: {
+              p_canal?: string
+              p_conta?: string
+              p_data_fim?: string
+              p_data_inicio?: string
+              p_empresa_id?: string
+              p_limit?: number
+              p_offset?: number
+              p_status?: string
+            }
+            Returns: {
+              ads_total: number
+              canal: string
+              cmv_total: number
+              comissao_total: number
+              conta_nome: string
+              data_pedido: string
+              data_repasse: string
+              empresa_id: string
+              frete_vendedor_total: number
+              impostos_total: number
+              margem_contribuicao: number
+              outros_descontos_total: number
+              pedido_id: string
+              qtd_itens: number
+              status: string
+              tarifa_fixa_total: number
+              tem_cmv: boolean
+              tipo_envio: string
+              valor_liquido_calculado: number
+              valor_produto: number
+            }[]
+          }
       get_vendas_por_pedido_count: {
         Args: {
           p_canal?: string
@@ -3720,6 +3755,28 @@ export type Database = {
               outros_descontos_total: number
               qtd_itens_total: number
               tarifa_fixa_total: number
+              total_pedidos: number
+              valor_liquido_total: number
+              valor_produto_total: number
+            }[]
+          }
+        | {
+            Args: {
+              p_data_fim?: string
+              p_data_inicio?: string
+              p_empresa_id?: string
+            }
+            Returns: {
+              ads_total: number
+              cmv_total: number
+              comissao_total: number
+              frete_vendedor_total: number
+              impostos_total: number
+              margem_contribuicao_total: number
+              pedidos_com_cmv: number
+              pedidos_sem_cmv: number
+              tarifa_fixa_total: number
+              total_itens: number
               total_pedidos: number
               valor_liquido_total: number
               valor_produto_total: number
