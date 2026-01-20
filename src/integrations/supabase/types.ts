@@ -3613,6 +3613,7 @@ export type Database = {
           qtd_itens: number
           status: string
           tarifa_fixa_total: number
+          tem_cmv: boolean
           tipo_envio: string
           valor_liquido_calculado: number
           valor_produto: number
@@ -3642,8 +3643,9 @@ export type Database = {
           frete_vendedor_total: number
           impostos_total: number
           margem_contribuicao_total: number
+          pedidos_com_cmv: number
+          pedidos_sem_cmv: number
           tarifa_fixa_total: number
-          total_itens: number
           total_pedidos: number
           valor_liquido_total: number
           valor_produto_total: number

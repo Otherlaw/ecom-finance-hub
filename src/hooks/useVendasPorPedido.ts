@@ -17,17 +17,18 @@ export interface PedidoAgregado {
   tipo_envio: string | null;
   // Valores financeiros
   valor_produto: number;
-  comissao_total: number;      // taxas (CV - comissão de venda)
-  tarifa_fixa_total: number;   // tarifas (FINANCING_FEE, etc)
-  frete_vendedor_total: number; // CXE
+  comissao_total: number | null;      // taxas (CV - comissão de venda) - NULL se pendente
+  tarifa_fixa_total: number | null;   // tarifas (FINANCING_FEE, etc) - NULL se pendente
+  frete_vendedor_total: number | null; // CXE - NULL se pendente
   ads_total: number;
   impostos_total: number;
   outros_descontos_total: number;
   valor_liquido_calculado: number;
   // CMV e margem
   qtd_itens: number;
-  cmv_total: number;
-  margem_contribuicao: number;
+  cmv_total: number | null;  // NULL se produto não tem custo
+  margem_contribuicao: number | null;  // NULL se CMV é NULL
+  tem_cmv: boolean;  // Flag para indicar se CMV foi calculado
 }
 
 /**
@@ -45,6 +46,8 @@ export interface ResumoPedidosAgregado {
   valor_liquido_total: number;
   cmv_total: number;
   margem_contribuicao_total: number;
+  pedidos_com_cmv: number;
+  pedidos_sem_cmv: number;
 }
 
 interface UseVendasPorPedidoParams {
@@ -108,6 +111,8 @@ export function useVendasPorPedido({
         valor_liquido_total: Number(resultado.valor_liquido_total) || 0,
         cmv_total: Number(resultado.cmv_total) || 0,
         margem_contribuicao_total: Number(resultado.margem_contribuicao_total) || 0,
+        pedidos_com_cmv: Number(resultado.pedidos_com_cmv) || 0,
+        pedidos_sem_cmv: Number(resultado.pedidos_sem_cmv) || 0,
       } as ResumoPedidosAgregado;
     },
     staleTime: 30 * 1000,
@@ -192,16 +197,19 @@ export function useVendasPorPedido({
         status: p.status,
         tipo_envio: p.tipo_envio,
         valor_produto: Number(p.valor_produto) || 0,
-        comissao_total: Number(p.comissao_total) || 0,
-        tarifa_fixa_total: Number(p.tarifa_fixa_total) || 0,
-        frete_vendedor_total: Number(p.frete_vendedor_total) || 0,
+        // Valores que podem ser NULL (pendentes de enriquecimento)
+        comissao_total: p.comissao_total != null ? Number(p.comissao_total) : null,
+        tarifa_fixa_total: p.tarifa_fixa_total != null ? Number(p.tarifa_fixa_total) : null,
+        frete_vendedor_total: p.frete_vendedor_total != null ? Number(p.frete_vendedor_total) : null,
         ads_total: Number(p.ads_total) || 0,
         impostos_total: Number(p.impostos_total) || 0,
         outros_descontos_total: Number(p.outros_descontos_total) || 0,
         valor_liquido_calculado: Number(p.valor_liquido_calculado) || 0,
         qtd_itens: Number(p.qtd_itens) || 0,
-        cmv_total: Number(p.cmv_total) || 0,
-        margem_contribuicao: Number(p.margem_contribuicao) || 0,
+        // CMV e margem: NULL quando não há custo cadastrado
+        cmv_total: p.cmv_total != null ? Number(p.cmv_total) : null,
+        margem_contribuicao: p.margem_contribuicao != null ? Number(p.margem_contribuicao) : null,
+        tem_cmv: Boolean(p.tem_cmv),
       }));
 
       return pedidos;
