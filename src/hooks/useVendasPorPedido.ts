@@ -80,6 +80,11 @@ export function useVendasPorPedido({
   // PADRONIZADO: Envia strings DATE (YYYY-MM-DD) diretamente
   // A RPC converte para TIMESTAMPTZ usando date_to_br_timestamptz internamente
   // Isso garante consistência com Dashboard e outras telas
+  
+  // Log para debug de períodos (apenas em desenvolvimento)
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[Vendas] Período: ${periodoInicio} a ${periodoFim}`);
+  }
 
   // Buscar resumo agregado via RPC
   const { data: resumoAgregado, isLoading: isLoadingResumo } = useQuery({
