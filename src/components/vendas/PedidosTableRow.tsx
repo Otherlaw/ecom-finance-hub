@@ -139,15 +139,17 @@ export function PedidosTableRow({
   // Verificar se há itens - usar 0 se não houver (não fallback para 1)
   const temItens = pedido.qtd_itens > 0;
   
-  // CMV e margem
-  const cmvTotal = pedido.cmv_total || 0;
-  const semCMV = cmvTotal === 0 && temItens;
+  // CMV e margem - usar a flag tem_cmv da RPC
+  const cmvTotal = pedido.cmv_total;
+  const semCMV = !pedido.tem_cmv && temItens;
   
-  // Margem de contribuição já vem calculada pela RPC
-  const margemRs = pedido.margem_contribuicao;
-  const margemPercent = pedido.valor_produto > 0 ? (margemRs / pedido.valor_produto) * 100 : 0;
+  // Margem de contribuição já vem calculada pela RPC (pode ser null)
+  const margemRs = pedido.margem_contribuicao ?? 0;
+  const margemPercent = pedido.valor_produto > 0 && pedido.margem_contribuicao != null 
+    ? (margemRs / pedido.valor_produto) * 100 
+    : 0;
 
-  const margemColor = semCMV
+  const margemColor = semCMV || pedido.margem_contribuicao == null
     ? "text-muted-foreground"
     : margemRs < 0
     ? "text-destructive"
