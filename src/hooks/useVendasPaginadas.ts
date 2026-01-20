@@ -122,6 +122,7 @@ export function useVendasPaginadas({
       return resultado as ResumoVendasAgregado | null;
     },
     staleTime: 30 * 1000,
+    placeholderData: (previousData) => previousData,
   });
 
   // Buscar métricas por tipo de envio (Full, Flex, Coleta) via RPC
@@ -155,6 +156,7 @@ export function useVendasPaginadas({
       })) as MetricasPorTipoEnvio[];
     },
     staleTime: 30 * 1000,
+    placeholderData: (previousData) => previousData,
   });
 
   // Buscar contagem total via RPC separada (mais performático que count: exact)
@@ -183,7 +185,8 @@ export function useVendasPaginadas({
 
       return data as number;
     },
-    staleTime: 60 * 1000, // Cache contagem por 1 minuto
+    staleTime: 60 * 1000,
+    placeholderData: (previousData) => previousData,
   });
 
   // Buscar transações paginadas COM CMV via RPC otimizada
@@ -255,6 +258,7 @@ export function useVendasPaginadas({
     },
     refetchInterval: 60 * 1000,
     refetchIntervalInBackground: false,
+    placeholderData: (previousData) => previousData,
   });
 
   const transacoes = transacoesData || [];
