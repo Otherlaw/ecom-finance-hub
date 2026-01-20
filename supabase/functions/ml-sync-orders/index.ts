@@ -38,6 +38,10 @@ interface MLOrder {
     id: number;
     nickname: string;
   };
+  seller?: {
+    id: number;
+    nickname?: string;
+  };
   order_items: Array<{
     item: { id: string; title: string; seller_sku: string; category_id?: string };
     quantity: number;
@@ -778,6 +782,30 @@ Deno.serve(async (req) => {
     console.log(`[ML Sync] Total: ${allOrders.length} pedidos em ${days_back} dias`);
     console.log(`[ML Sync] ========================================`);
 
+    // ========== BUSCAR NOME DA CONTA DO VENDEDOR ==========
+    let contaNome: string | null = null;
+    try {
+      const userUrl = `${ML_API_URL}/users/${tokenState.user_id_provider}`;
+      const { response: userResponse, tokenState: userTokenState } = await mlFetch(
+        userUrl,
+        supabase,
+        tokenState
+      );
+      tokenState = userTokenState;
+      
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        contaNome = userData.nickname || userData.first_name || `ML-${tokenState.user_id_provider}`;
+        console.log(`[ML Sync] 👤 Conta do vendedor: ${contaNome}`);
+      } else {
+        contaNome = `ML-${tokenState.user_id_provider}`;
+        console.log(`[ML Sync] ⚠️ Não foi possível obter nickname, usando: ${contaNome}`);
+      }
+    } catch (err) {
+      contaNome = `ML-${tokenState.user_id_provider}`;
+      console.log(`[ML Sync] ⚠️ Erro ao buscar dados do vendedor, usando: ${contaNome}`);
+    }
+
     // Buscar mapeamentos existentes para a empresa
     const { data: mapeamentosExistentes } = await supabase
       .from("produto_marketplace_map")
@@ -914,9 +942,13 @@ Deno.serve(async (req) => {
 
         const dataTransacao = order.date_closed || order.date_created;
 
+        // Calcular quantidade total de itens (soma das quantidades, não apenas count)
+        const qtdItens = order.order_items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1;
+
         const transactionData = {
           empresa_id,
           canal: "Mercado Livre",
+          conta_nome: contaNome, // Nome da conta do vendedor
           data_transacao: dataTransacao,
           descricao: `Venda #${order.id}${buyerNickname ? ` - ${buyerNickname}` : ''}`,
           tipo_lancamento: "credito",
@@ -935,43 +967,21 @@ Deno.serve(async (req) => {
           frete_vendedor: freteVendedor,
         };
 
-        // UPSERT com constraint parcial uq_mkt_venda_pedido para vendas
-        // Isso garante idempotência: mesmo pedido rodado várias vezes = 1 registro
+        // UPSERT usando colunas do índice único uq_mkt_tx_key
+        // (empresa_id, canal, referencia_externa, tipo_transacao, tipo_lancamento)
         const { data: upsertedTx, error: upsertError } = await supabase
           .from("marketplace_transactions")
           .upsert(transactionData, {
-            onConflict: "uq_mkt_venda_pedido", // Constraint parcial para vendas
+            onConflict: "empresa_id,canal,referencia_externa,tipo_transacao,tipo_lancamento",
             ignoreDuplicates: false,
           })
           .select()
           .single();
 
         if (upsertError) {
-          // Se falhou no uq_mkt_venda_pedido, tentar com uq_mkt_tx_key como fallback
-          console.warn(`[ML Sync] ⚠️ Fallback para uq_mkt_tx_key no pedido ${order.id}`);
-          const { data: fallbackTx, error: fallbackError } = await supabase
-            .from("marketplace_transactions")
-            .upsert(transactionData, {
-              onConflict: "uq_mkt_tx_key",
-              ignoreDuplicates: false,
-            })
-            .select()
-            .single();
-
-          if (fallbackError) {
-            console.error(`[ML Sync] Erro ao upsert pedido ${order.id}:`, fallbackError);
-            registros_erro++;
-            continue;
-          }
-
-          // Usar resultado do fallback
-          const wasCreatedFallback = fallbackTx && new Date(fallbackTx.criado_em).getTime() === new Date(fallbackTx.atualizado_em).getTime();
-          if (wasCreatedFallback) {
-            registros_criados++;
-          } else {
-            registros_atualizados++;
-          }
-          continue; // Pular para próximo pedido
+          console.error(`[ML Sync] Erro ao upsert pedido ${order.id}:`, upsertError);
+          registros_erro++;
+          continue;
         }
 
         const wasCreated = upsertedTx && new Date(upsertedTx.criado_em).getTime() === new Date(upsertedTx.atualizado_em).getTime();
