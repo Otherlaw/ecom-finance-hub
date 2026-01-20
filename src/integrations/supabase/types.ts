@@ -230,6 +230,7 @@ export type Database = {
       }
       checklist_canal_arquivos: {
         Row: {
+          atualizado_em: string | null
           checklist_item_id: string
           cnpj_arquivo: string | null
           data_upload: string
@@ -245,6 +246,7 @@ export type Database = {
           url: string
         }
         Insert: {
+          atualizado_em?: string | null
           checklist_item_id: string
           cnpj_arquivo?: string | null
           data_upload?: string
@@ -260,6 +262,7 @@ export type Database = {
           url: string
         }
         Update: {
+          atualizado_em?: string | null
           checklist_item_id?: string
           cnpj_arquivo?: string | null
           data_upload?: string
@@ -349,9 +352,10 @@ export type Database = {
       checklist_etapas: {
         Row: {
           ano: number
+          atualizado_em: string | null
           codigo_etapa: string
           concluidas: number | null
-          created_at: string | null
+          criado_em: string | null
           descricao: string | null
           empresa_id: string
           id: string
@@ -362,13 +366,13 @@ export type Database = {
           pendencias: number | null
           secao: string
           status: string | null
-          updated_at: string | null
         }
         Insert: {
           ano: number
+          atualizado_em?: string | null
           codigo_etapa: string
           concluidas?: number | null
-          created_at?: string | null
+          criado_em?: string | null
           descricao?: string | null
           empresa_id: string
           id?: string
@@ -379,13 +383,13 @@ export type Database = {
           pendencias?: number | null
           secao: string
           status?: string | null
-          updated_at?: string | null
         }
         Update: {
           ano?: number
+          atualizado_em?: string | null
           codigo_etapa?: string
           concluidas?: number | null
-          created_at?: string | null
+          criado_em?: string | null
           descricao?: string | null
           empresa_id?: string
           id?: string
@@ -396,7 +400,6 @@ export type Database = {
           pendencias?: number | null
           secao?: string
           status?: string | null
-          updated_at?: string | null
         }
         Relationships: [
           {

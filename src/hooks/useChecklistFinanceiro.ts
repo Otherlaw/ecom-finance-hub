@@ -18,8 +18,8 @@ export interface ChecklistEtapa {
   status: 'pendente' | 'concluido' | 'nao_aplicavel';
   pendencias: number;
   concluidas: number;
-  updated_at: string;
-  created_at: string;
+  atualizado_em: string;
+  criado_em: string;
 }
 
 interface UseChecklistParams {
@@ -251,7 +251,6 @@ export const useChecklistFinanceiro = ({ empresaId, mes, ano }: UseChecklistPara
           .update({ 
             pendencias,
             ...(novoStatus && { status: novoStatus }),
-            updated_at: new Date().toISOString()
           })
           .eq("empresa_id", empresaId)
           .eq("ano", ano)
@@ -284,7 +283,6 @@ export const useChecklistFinanceiro = ({ empresaId, mes, ano }: UseChecklistPara
         .from("checklist_etapas")
         .update({ 
           status: 'concluido',
-          updated_at: new Date().toISOString()
         })
         .eq("id", etapaId);
 
@@ -316,7 +314,6 @@ export const useChecklistFinanceiro = ({ empresaId, mes, ano }: UseChecklistPara
         .from("checklist_etapas")
         .update({ 
           status: 'pendente',
-          updated_at: new Date().toISOString()
         })
         .eq("id", etapaId);
 
