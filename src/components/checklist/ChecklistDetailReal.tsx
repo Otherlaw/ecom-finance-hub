@@ -5,11 +5,12 @@ import { Progress } from "@/components/ui/progress";
 import { ModuleCard } from "@/components/ModuleCard";
 import { EtapaFormModal } from "./EtapaFormModal";
 import { ConferenciaImportacaoModal, ConferenciaData } from "./ConferenciaImportacaoModal";
+import { ChecklistImportJobsPanel } from "./ChecklistImportJobsPanel";
 import { ChecklistCanalComItens, ChecklistCanalItem, useChecklistsCanal, calcularProgressoChecklist, getStatusLabel, getStatusColor } from "@/hooks/useChecklistsCanal";
 import { getMesNome } from "@/lib/checklist-data";
 import { supabase } from "@/integrations/supabase/client";
 import { validarPeriodoArquivo, getNomeMes } from "@/lib/validar-periodo-arquivo";
-import { processarArquivoChecklist, ResultadoProcessamento } from "@/lib/processar-arquivo-checklist";
+import { processarArquivoChecklistBackground } from "@/lib/processar-arquivo-checklist";
 import {
   ArrowLeft,
   FileText,
@@ -83,7 +84,6 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
   const [etapaParaExcluir, setEtapaParaExcluir] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
-  const [processingArquivoId, setProcessingArquivoId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [currentUploadItemId, setCurrentUploadItemId] = useState<string | null>(null);
   
@@ -156,11 +156,20 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
         tipoMime: file.type,
       });
 
-      toast({ title: "Arquivo enviado com sucesso" });
+      toast({ title: "Arquivo enviado!", description: "Processamento iniciado em segundo plano" });
       
-      // Processar automaticamente o arquivo
+      // Iniciar processamento em background (não bloqueia)
       if (arquivoResult) {
-        await processarArquivoAutomaticamente(arquivoResult.id, urlData.publicUrl, file.name);
+        processarArquivoChecklistBackground(
+          arquivoResult.id, 
+          urlData.publicUrl, 
+          checklist.canal_id,
+          checklist.empresa_id,
+          file.name,
+          currentUploadItemId
+        ).catch(err => {
+          console.error("Erro ao iniciar processamento:", err);
+        });
       }
 
       onRefresh();

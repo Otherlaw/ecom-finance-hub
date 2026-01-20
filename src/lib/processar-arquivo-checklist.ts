@@ -9,6 +9,12 @@ import {
   parseXLSXFile,
   ParseResult 
 } from "@/lib/parsers/arquivoFinanceiro";
+import {
+  atualizarFaseJob,
+  atualizarProgressoJob,
+  finalizarJobChecklist,
+  verificarJobCancelado,
+} from "@/hooks/useChecklistImportJobs";
 
 export interface ResultadoProcessamento {
   sucesso: boolean;
@@ -21,6 +27,12 @@ export interface ResultadoProcessamento {
     totalTransacoesGeradas: number;
     tipoArquivoDetectado: string;
   };
+}
+
+// Callback para atualização de progresso
+export interface ProgressCallback {
+  jobId: string;
+  onProgress?: (processed: number, total: number) => void;
 }
 
 // Mapeia canal_id do checklist para canal do marketplace
@@ -271,10 +283,12 @@ async function verificarDuplicatas(
 }
 
 // Inserir transações no banco com verificação inteligente de duplicatas
+// Suporta callback para atualização de progresso em background
 async function inserirTransacoes(
   transacoes: any[], 
   empresaId: string, 
-  canal: string
+  canal: string,
+  jobId?: string
 ): Promise<{ inseridas: number; duplicatas: number; erros: number; mensagensErro: string[] }> {
   let inseridas = 0;
   let duplicatas = 0;
@@ -284,7 +298,20 @@ async function inserirTransacoes(
   // Normalizar canal para consistência
   const canalNormalizado = normalizarCanal(canal);
   
+  // Configuração de batch para atualização de progresso
+  const BATCH_SIZE = 25; // Atualiza progresso a cada 25 transações
+  let processadas = 0;
+  
   for (const transacao of transacoes) {
+    // Verificar se job foi cancelado
+    if (jobId && processadas % 50 === 0) {
+      const cancelado = await verificarJobCancelado(jobId);
+      if (cancelado) {
+        console.log(`[inserirTransacoes] Job ${jobId} cancelado pelo usuário`);
+        break;
+      }
+    }
+    
     try {
       // Gerar referência externa se não existir
       const referenciaExterna = transacao.referencia_externa || 
@@ -302,6 +329,7 @@ async function inserirTransacoes(
       
       if (isDuplicata) {
         duplicatas++;
+        processadas++;
         continue;
       }
       
@@ -335,39 +363,65 @@ async function inserirTransacoes(
         // Se o erro for de duplicata (constraint violation), contar como duplicata
         if (error.code === "23505") {
           duplicatas++;
+          processadas++;
           continue;
         }
         erros++;
         if (mensagensErro.length < 5) {
           mensagensErro.push(`Linha ${inseridas + duplicatas + erros}: ${error.message}`);
         }
+        processadas++;
         continue;
       }
       
       inseridas++;
+      processadas++;
+      
+      // Atualizar progresso no job (em batch para não sobrecarregar)
+      if (jobId && processadas % BATCH_SIZE === 0) {
+        await atualizarProgressoJob(jobId, {
+          linhas_processadas: processadas,
+          linhas_importadas: inseridas,
+          linhas_duplicadas: duplicatas,
+          linhas_com_erro: erros,
+        });
+      }
     } catch (e) {
       erros++;
+      processadas++;
       if (mensagensErro.length < 5) {
         mensagensErro.push(`Erro inesperado: ${e instanceof Error ? e.message : "Desconhecido"}`);
       }
     }
   }
   
+  // Atualização final de progresso
+  if (jobId) {
+    await atualizarProgressoJob(jobId, {
+      linhas_processadas: processadas,
+      linhas_importadas: inseridas,
+      linhas_duplicadas: duplicatas,
+      linhas_com_erro: erros,
+    });
+  }
+  
   return { inseridas, duplicatas, erros, mensagensErro };
 }
 
-// Função principal de processamento
+// Função principal de processamento (síncrona, para compatibilidade)
 export async function processarArquivoChecklist(
   arquivoId: string,
   fileUrl: string,
   canalId: string,
   empresaId: string,
-  nomeArquivo: string
+  nomeArquivo: string,
+  jobId?: string
 ): Promise<ResultadoProcessamento> {
-  console.log(`[processarArquivoChecklist] Iniciando: ${nomeArquivo} para canal ${canalId}`);
+  console.log(`[processarArquivoChecklist] Iniciando: ${nomeArquivo} para canal ${canalId}${jobId ? ` (job: ${jobId})` : ""}`);
   
   try {
     // 1. Baixar arquivo do Storage
+    if (jobId) await atualizarFaseJob(jobId, "baixando");
     const downloadResult = await baixarArquivoDoStorage(fileUrl);
     
     if (!downloadResult) {
@@ -382,7 +436,8 @@ export async function processarArquivoChecklist(
     
     const { blob, fileName } = downloadResult;
     
-    // 2. Detectar tipo de relatório
+    // 2. Detectar tipo de relatório e fazer parse
+    if (jobId) await atualizarFaseJob(jobId, "parsing");
     const tipoRelatorio = detectarTipoRelatorio(fileName, canalId);
     console.log(`[processarArquivoChecklist] Tipo detectado: ${tipoRelatorio}`);
     
@@ -401,35 +456,56 @@ export async function processarArquivoChecklist(
     
     console.log(`[processarArquivoChecklist] Transações extraídas: ${parseResult.transacoes.length}`);
     
+    // Atualizar total de linhas no job
+    if (jobId) {
+      await atualizarProgressoJob(jobId, { total_linhas: parseResult.transacoes.length });
+      await atualizarFaseJob(jobId, "verificando_duplicatas");
+    }
+    
     // 4. Mapear canal
     const canalMapeado = mapearCanalChecklist(canalId);
     
-    // 5. Inserir transações
+    // 5. Inserir transações (com progresso se tiver jobId)
+    if (jobId) await atualizarFaseJob(jobId, "inserindo");
     const resultadoInsercao = await inserirTransacoes(
       parseResult.transacoes, 
       empresaId, 
-      canalMapeado
+      canalMapeado,
+      jobId
     );
     
     console.log(`[processarArquivoChecklist] Resultado:`, resultadoInsercao);
     
     // 6. Atualizar registro do arquivo
+    const resultadoParaArquivo = {
+      tipo_arquivo: tipoRelatorio,
+      estatisticas: parseResult.estatisticas,
+      resultado: resultadoInsercao,
+      processado_em: new Date().toISOString(),
+    };
+    
     const { error: updateError } = await supabase
       .from("checklist_canal_arquivos")
       .update({
         processado: true,
-        resultado_processamento: {
-          tipo_arquivo: tipoRelatorio,
-          estatisticas: parseResult.estatisticas,
-          resultado: resultadoInsercao,
-          processado_em: new Date().toISOString(),
-        },
+        resultado_processamento: resultadoParaArquivo,
         transacoes_importadas: resultadoInsercao.inseridas,
       })
       .eq("id", arquivoId);
     
     if (updateError) {
       console.error("[processarArquivoChecklist] Erro ao atualizar arquivo:", updateError);
+    }
+    
+    // 7. Finalizar job se existir
+    if (jobId) {
+      await finalizarJobChecklist(jobId, {
+        sucesso: resultadoInsercao.inseridas > 0 || resultadoInsercao.duplicatas > 0,
+        linhasImportadas: resultadoInsercao.inseridas,
+        linhasDuplicadas: resultadoInsercao.duplicatas,
+        linhasComErro: resultadoInsercao.erros,
+        resultadoProcessamento: resultadoParaArquivo,
+      });
     }
     
     return {
@@ -446,6 +522,18 @@ export async function processarArquivoChecklist(
     };
   } catch (error) {
     console.error("[processarArquivoChecklist] Erro geral:", error);
+    
+    // Finalizar job com erro
+    if (jobId) {
+      await finalizarJobChecklist(jobId, {
+        sucesso: false,
+        linhasImportadas: 0,
+        linhasDuplicadas: 0,
+        linhasComErro: 0,
+        mensagemErro: error instanceof Error ? error.message : "Erro desconhecido",
+      });
+    }
+    
     return {
       sucesso: false,
       transacoesImportadas: 0,
@@ -454,4 +542,61 @@ export async function processarArquivoChecklist(
       erros: [error instanceof Error ? error.message : "Erro desconhecido ao processar arquivo"],
     };
   }
+}
+
+/**
+ * Versão em background do processamento de arquivo
+ * Cria job, inicia processamento e retorna imediatamente
+ */
+export async function processarArquivoChecklistBackground(
+  arquivoId: string,
+  fileUrl: string,
+  canalId: string,
+  empresaId: string,
+  nomeArquivo: string,
+  checklistItemId: string
+): Promise<{ jobId: string }> {
+  // Criar job no banco
+  const { data: job, error } = await supabase
+    .from("checklist_import_jobs")
+    .insert({
+      empresa_id: empresaId,
+      checklist_item_id: checklistItemId,
+      arquivo_id: arquivoId,
+      arquivo_nome: nomeArquivo,
+      canal: canalId,
+      status: "processando",
+      fase: "iniciando",
+    })
+    .select("id")
+    .single();
+
+  if (error || !job) {
+    throw new Error(`Erro ao criar job de importação: ${error?.message}`);
+  }
+
+  const jobId = job.id;
+
+  // Iniciar processamento em background (não bloqueia)
+  // Usa Promise sem await para não bloquear
+  processarArquivoChecklist(
+    arquivoId,
+    fileUrl,
+    canalId,
+    empresaId,
+    nomeArquivo,
+    jobId
+  ).catch((err) => {
+    console.error(`[processarArquivoChecklistBackground] Erro no job ${jobId}:`, err);
+    // Tentar marcar job como erro se falhar
+    finalizarJobChecklist(jobId, {
+      sucesso: false,
+      linhasImportadas: 0,
+      linhasDuplicadas: 0,
+      linhasComErro: 0,
+      mensagemErro: err instanceof Error ? err.message : "Erro desconhecido",
+    }).catch(console.error);
+  });
+
+  return { jobId };
 }
