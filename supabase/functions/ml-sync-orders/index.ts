@@ -1060,12 +1060,12 @@ Deno.serve(async (req) => {
           });
         }
 
-        // UPSERT eventos financeiros
+        // UPSERT eventos financeiros usando colunas da constraint única
         if (eventosFinanceiros.length > 0) {
           const { error: eventsError } = await supabase
             .from("marketplace_financial_events")
             .upsert(eventosFinanceiros, {
-              onConflict: "uq_mkt_fin_event",
+              onConflict: "empresa_id,canal,event_id",
               ignoreDuplicates: false,
             });
 
@@ -1076,59 +1076,56 @@ Deno.serve(async (req) => {
         
         if (wasCreated) {
           registros_criados++;
-          
-          // Inserir itens com UPSERT para evitar duplicatas
-          if (order.order_items && upsertedTx) {
-            for (const item of order.order_items) {
-              const skuMarketplace = item.item.seller_sku || item.item.id;
-              const produtoId = mapeamentoMap.get(skuMarketplace) || null;
-
-              if (produtoId) {
-                itens_mapeados_automaticamente++;
-              }
-
-              // UPSERT com índice único (transaction_id, sku_marketplace)
-              await supabase.from("marketplace_transaction_items").upsert({
-                transaction_id: upsertedTx.id,
-                sku_marketplace: skuMarketplace,
-                descricao_item: item.item.title,
-                quantidade: item.quantity,
-                preco_unitario: item.unit_price,
-                preco_total: item.quantity * item.unit_price,
-                anuncio_id: item.item.id,
-                produto_id: produtoId,
-                batch_id: batch_id,
-              }, {
-                onConflict: "uq_mkt_item_tx_sku",
-                ignoreDuplicates: false,
-              });
-            }
-          }
         } else {
           registros_atualizados++;
-          
-          // Atualizar itens existentes via UPSERT
-          if (order.order_items && upsertedTx) {
-            for (const item of order.order_items) {
-              const skuMarketplace = item.item.seller_sku || item.item.id;
-              const produtoId = mapeamentoMap.get(skuMarketplace) || null;
+        }
 
-              await supabase.from("marketplace_transaction_items").upsert({
-                transaction_id: upsertedTx.id,
-                sku_marketplace: skuMarketplace,
-                descricao_item: item.item.title,
-                quantidade: item.quantity,
-                preco_unitario: item.unit_price,
-                preco_total: item.quantity * item.unit_price,
-                anuncio_id: item.item.id,
-                produto_id: produtoId,
-                batch_id: batch_id,
-              }, {
-                onConflict: "uq_mkt_item_tx_sku",
-                ignoreDuplicates: false,
-              });
-            }
+        // ========== SINCRONIZAR ITENS - DELETE + INSERT SEMPRE ==========
+        // Idempotente: remove itens existentes e insere novamente
+        // Garante que a quantidade e mapeamentos estejam sempre corretos
+        if (upsertedTx && order.order_items && order.order_items.length > 0) {
+          // 1. Deletar itens existentes desta transação
+          const { error: deleteError } = await supabase
+            .from("marketplace_transaction_items")
+            .delete()
+            .eq("transaction_id", upsertedTx.id);
+
+          if (deleteError) {
+            console.error(`[ML Sync] Erro ao deletar itens do pedido ${order.id}:`, deleteError);
           }
+
+          // 2. Inserir todos os itens novamente
+          const itensParaInserir = order.order_items.map((item) => {
+            const skuMarketplace = item.item.seller_sku || item.item.id;
+            const produtoId = mapeamentoMap.get(skuMarketplace) || null;
+
+            if (produtoId) {
+              itens_mapeados_automaticamente++;
+            }
+
+            return {
+              transaction_id: upsertedTx.id,
+              sku_marketplace: skuMarketplace,
+              descricao_item: item.item.title,
+              quantidade: item.quantity,
+              preco_unitario: item.unit_price,
+              preco_total: item.quantity * item.unit_price,
+              anuncio_id: item.item.id,
+              produto_id: produtoId,
+              batch_id: batch_id,
+            };
+          });
+
+          const { error: insertError } = await supabase
+            .from("marketplace_transaction_items")
+            .insert(itensParaInserir);
+
+          if (insertError) {
+            console.error(`[ML Sync] Erro ao inserir itens do pedido ${order.id}:`, insertError);
+          }
+        } else if (upsertedTx && (!order.order_items || order.order_items.length === 0)) {
+          // Pedido sem itens - apenas logar
+          console.log(`[ML Sync] ⚠️ Pedido ${order.id} sem order_items`);
         }
       } catch (err) {
         console.error(`[ML Sync] Erro ao processar pedido ${order.id}:`, err);
