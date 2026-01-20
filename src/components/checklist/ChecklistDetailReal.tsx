@@ -99,8 +99,8 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
 
   const { atualizarEtapa, excluirEtapa, adicionarArquivo, removerArquivo, marcarArquivoProcessado } = useChecklistsCanal();
   
-  // Hook para monitorar jobs de importação ativos
-  const { emAndamento } = useChecklistImportJobs({});
+  // Hook para monitorar jobs de importação ativos - passa empresa_id do checklist
+  const { emAndamento } = useChecklistImportJobs({ empresaId: checklist.empresa_id });
   const hasActiveJobs = emAndamento.length > 0;
   
   // Aviso ao sair da página durante processamento
@@ -348,7 +348,7 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
       )}
 
       {/* Painel de Jobs de Importação em Background */}
-      <ChecklistImportJobsPanel />
+      <ChecklistImportJobsPanel empresaId={checklist.empresa_id} />
 
       {/* Header */}
       <div className="flex items-center justify-between">
