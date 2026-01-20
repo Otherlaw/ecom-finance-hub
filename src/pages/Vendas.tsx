@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { MainLayout } from "@/components/MainLayout";
 import { useVendasPorPedido, PedidoAgregado, ResumoPedidosAgregado } from "@/hooks/useVendasPorPedido";
@@ -18,12 +18,24 @@ import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw, Wand2
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { VendaItem } from "@/hooks/useVendaItens";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 
 export default function Vendas() {
+  const { empresaAtiva, empresasDisponiveis, isLoading: loadingEmpresas } = useEmpresaAtiva();
+  
   // Estados do filtro de período
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
-  const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
+  
+  // CORRIGIDO: Default para empresa ativa do contexto (evita "todas" que causa duplicatas)
+  const [empresaSelecionada, setEmpresaSelecionada] = useState<string | null>(null);
+  
+  // Inicializar com empresa ativa do contexto quando disponível
+  useEffect(() => {
+    if (!empresaSelecionada && empresaAtiva?.id) {
+      setEmpresaSelecionada(empresaAtiva.id);
+    }
+  }, [empresaAtiva, empresaSelecionada]);
 
   // Estados de paginação
   const [currentPage, setCurrentPage] = useState(0);
@@ -38,8 +50,8 @@ export default function Vendas() {
   const [showMappingModal, setShowMappingModal] = useState(false);
   const [skuParaMapear, setSkuParaMapear] = useState<string | null>(null);
 
-  // ID da empresa para filtros (undefined = todas)
-  const empresaId = empresaSelecionada !== "todas" ? empresaSelecionada : undefined;
+  // ID da empresa para filtros (null se não selecionada ainda)
+  const empresaId = empresaSelecionada || undefined;
 
   // Hook de vendas por pedido (agregado - 1 linha por pedido)
   const {
@@ -240,14 +252,20 @@ export default function Vendas() {
       }
     >
       <div className="flex flex-col gap-6 p-6">
-        {/* Filtro de empresa */}
+        {/* Filtro de empresa - FORÇAR seleção específica para evitar duplicatas */}
         <div className="flex items-center gap-4">
           <EmpresaFilter
-            value={empresaSelecionada}
+            value={empresaSelecionada || ""}
             onChange={(val) => {
-              setEmpresaSelecionada(val);
+              // Não permitir "todas" para evitar soma de duplicatas entre empresas
+              if (val === "todas" && empresasDisponiveis.length > 0) {
+                setEmpresaSelecionada(empresasDisponiveis[0].id);
+              } else if (val !== "todas") {
+                setEmpresaSelecionada(val);
+              }
               setCurrentPage(0);
             }}
+            hideAllOption={true}
           />
         </div>
 
