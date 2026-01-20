@@ -89,11 +89,13 @@ interface RawShippingCosts {
   raw_receiver?: any[];
 }
 
-// Estrutura para taxas extraídas da API de Conciliações
+// Estrutura para taxas extraídas da API de Conciliações - SEPARADAS por componente
 interface OrderFees {
-  taxas: number;      // CV - Custo de Venda (comissão ML)
-  tarifas: number;    // Taxa de parcelamento/financiamento
-  freteVendedor: number; // CXE - Custo de Envio Vendedor
+  comissao: number;        // CV - Comissão marketplace (marketplace_fee)
+  tarifaFixa: number;      // Taxa fixa por venda (fixed_fee)
+  tarifaFinanceira: number; // Taxa de parcelamento/financiamento (financing_fee)
+  freteVendedor: number;   // CXE - Custo de Envio Vendedor
+  origem: 'api_conciliacoes' | 'api_orders' | 'estimado';
 }
 
 interface TokenState {
@@ -399,16 +401,22 @@ async function fetchBillingDetailsFromConciliation(
         if (!primaryKey) continue;
         
         if (!feesMap.has(primaryKey)) {
-          feesMap.set(primaryKey, { taxas: 0, tarifas: 0, freteVendedor: 0 });
+          feesMap.set(primaryKey, { 
+            comissao: 0, 
+            tarifaFixa: 0, 
+            tarifaFinanceira: 0, 
+            freteVendedor: 0,
+            origem: 'api_conciliacoes'
+          });
         }
         const fees = feesMap.get(primaryKey)!;
         
         const detailType = (item.detail_type || item.fee_type || '').toUpperCase();
         const amount = Math.abs(item.total || item.amount || 0);
         
-        // Mapear tipos de taxa do ML para nossos campos
+        // Mapear tipos de taxa do ML para nossos campos SEPARADOS
         switch (detailType) {
-          // Comissão ML (taxas)
+          // Comissão ML (marketplace_fee) - percentual sobre a venda
           case 'CV':
           case 'ML_FEE':
           case 'SALE_FEE':
@@ -416,9 +424,15 @@ async function fetchBillingDetailsFromConciliation(
           case 'FVF':
           case 'APPLICATION_FEE':
           case 'MERCADOPAGO_FEE':
-          case 'FIXED_FEE':
           case 'VARIABLE_FEE':
-            fees.taxas += amount;
+            fees.comissao += amount;
+            break;
+            
+          // Taxa fixa por transação (fixed_fee)
+          case 'FIXED_FEE':
+          case 'FLAT_FEE':
+          case 'TRANSACTION_FEE':
+            fees.tarifaFixa += amount;
             break;
             
           // Frete vendedor
@@ -431,13 +445,13 @@ async function fetchBillingDetailsFromConciliation(
             fees.freteVendedor += amount;
             break;
             
-          // Parcelamento/financiamento (tarifas)
+          // Parcelamento/financiamento (financing_fee)
           case 'FINANCING_FEE':
           case 'INSTALLMENT_FEE':
           case 'FINANCING':
           case 'INTEREST':
           case 'INSTALLMENTS_FEE':
-            fees.tarifas += amount;
+            fees.tarifaFinanceira += amount;
             break;
             
           default:
@@ -485,6 +499,7 @@ async function fetchBillingDetailsFromConciliation(
 function extractFeesFromOrder(order: MLOrder): OrderFees {
   let totalMarketplaceFee = 0;
   let totalFinancingFee = 0;
+  let isEstimated = false;
 
   for (const payment of order.payments || []) {
     totalMarketplaceFee += payment.marketplace_fee || 0;
@@ -499,13 +514,18 @@ function extractFeesFromOrder(order: MLOrder): OrderFees {
   const ESTIMATED_COMMISSION_RATE = 0.14;
   if (totalMarketplaceFee === 0 && order.total_amount > 0) {
     totalMarketplaceFee = Math.round(order.total_amount * ESTIMATED_COMMISSION_RATE * 100) / 100;
+    isEstimated = true;
     console.log(`[ML Sync] ⚠️ Pedido ${order.id}: marketplace_fee=0, estimando ${(ESTIMATED_COMMISSION_RATE * 100)}% = R$${totalMarketplaceFee.toFixed(2)}`);
   }
 
+  // Fallback de orders não tem breakdown de taxas, tudo vai para comissao
+  // tarifa_fixa não disponível via API orders (só via API conciliações)
   return {
-    taxas: totalMarketplaceFee,
-    tarifas: Math.round(totalFinancingFee * 100) / 100,
+    comissao: totalMarketplaceFee,
+    tarifaFixa: 0, // Não disponível no fallback
+    tarifaFinanceira: Math.round(totalFinancingFee * 100) / 100,
     freteVendedor: 0,
+    origem: isEstimated ? 'estimado' : 'api_orders',
   };
 }
 
@@ -904,27 +924,40 @@ Deno.serve(async (req) => {
         const valorBruto = order.total_amount;
         const buyerNickname = order.buyer?.nickname || null;
         
-        // ========== EXTRAIR TAXAS - PRIORIZAR API DE CONCILIAÇÕES ==========
+        // ========== EXTRAIR TAXAS - SEPARADAS POR COMPONENTE ==========
         const orderId = String(order.id);
-        let taxas = 0;
-        let tarifas = 0;
+        let comissao = 0;      // marketplace_fee (comissão do ML)
+        let tarifaFixa = 0;    // fixed_fee (tarifa fixa por transação)
+        let tarifaFinanceira = 0; // financing_fee (tarifa de parcelamento)
         let freteVendedorFromBilling = 0;
+        let origemFees: 'api_conciliacoes' | 'api_orders' | 'estimado' = 'api_orders';
         
         const billingFees = feesMap.get(orderId);
-        if (billingAvailable && billingFees && (billingFees.taxas > 0 || billingFees.tarifas > 0 || billingFees.freteVendedor > 0)) {
-          // Usar dados da API de Conciliações (mais precisos)
-          taxas = billingFees.taxas;
-          tarifas = billingFees.tarifas;
-          freteVendedorFromBilling = billingFees.freteVendedor;
+        const temDadosBilling = billingFees && (
+          billingFees.comissao > 0 || 
+          billingFees.tarifaFixa > 0 || 
+          billingFees.tarifaFinanceira > 0 || 
+          billingFees.freteVendedor > 0
+        );
+        
+        if (billingAvailable && temDadosBilling) {
+          // Usar dados da API de Conciliações (mais precisos e separados)
+          comissao = billingFees!.comissao;
+          tarifaFixa = billingFees!.tarifaFixa;
+          tarifaFinanceira = billingFees!.tarifaFinanceira;
+          freteVendedorFromBilling = billingFees!.freteVendedor;
+          origemFees = 'api_conciliacoes';
         } else {
           // Fallback robusto: usar marketplace_fee do order + estimar parcelamento
           const fees = extractFeesFromOrder(order);
-          taxas = fees.taxas;
-          tarifas = fees.tarifas;
+          comissao = fees.comissao;
+          tarifaFixa = fees.tarifaFixa;
+          tarifaFinanceira = fees.tarifaFinanceira;
+          origemFees = fees.origem;
           
           // Log apenas se não tiver nenhuma taxa (para investigar)
-          if (taxas === 0 && valorBruto > 0) {
-            console.log(`[ML Sync] ⚠️ Pedido ${order.id}: marketplace_fee=0, valor_bruto=${valorBruto}`);
+          if (comissao === 0 && valorBruto > 0) {
+            console.log(`[ML Sync] ⚠️ Pedido ${order.id}: comissao=0, valor_bruto=${valorBruto}`);
           }
         }
 
@@ -946,10 +979,11 @@ Deno.serve(async (req) => {
         }
 
         // ========== CALCULAR VALORES FINAIS (PADRONIZADO) ==========
-        // REGRA: valor_liquido = valor_bruto - (taxas + tarifas)
+        // REGRA: valor_liquido = valor_bruto - (comissao + tarifa_fixa + tarifa_financeira)
         // NÃO descontar frete_vendedor, imposto, ads, CMV no valor_liquido
         // Esses são descontados apenas na margem de contribuição (MC) na UI
-        const valorLiquido = valorBruto - taxas - tarifas;
+        const totalTarifas = comissao + tarifaFixa + tarifaFinanceira;
+        const valorLiquido = valorBruto - totalTarifas;
 
         const dataTransacao = order.date_closed || order.date_created;
 
@@ -962,9 +996,8 @@ Deno.serve(async (req) => {
         let statusEnriquecimento = "completo";
         const camposPendentes: string[] = [];
         
-        // Taxas (comissão): se billingAvailable=false E marketplace_fee foi estimado
-        const taxasFoiEstimada = !billingAvailable && !billingFees && taxas > 0 && 
-          (order.payments?.every(p => (p.marketplace_fee || 0) === 0) || false);
+        // Taxas: se origem='estimado', marcar como pendente
+        const taxasFoiEstimada = origemFees === 'estimado';
         if (taxasFoiEstimada) {
           camposPendentes.push("taxas_estimadas");
         }
@@ -999,16 +1032,15 @@ Deno.serve(async (req) => {
           shipping_logistic_type: order.shipping?.logistic_type,
         };
 
-        // ========== PREPARAR RAW_FEES PARA AUDITORIA ==========
-        const rawFees = billingFees ? {
-          source: "api_conciliacoes",
-          taxas: billingFees.taxas,
-          tarifas: billingFees.tarifas,
-          freteVendedor: billingFees.freteVendedor,
-        } : {
-          source: "api_orders_fallback",
+        // ========== PREPARAR RAW_FEES PARA AUDITORIA (componentes separados) ==========
+        const rawFees = {
+          source: origemFees,
+          comissao,
+          tarifa_fixa: tarifaFixa,
+          tarifa_financeira: tarifaFinanceira,
+          frete_vendedor: freteVendedorFromBilling,
+          total_taxas: totalTarifas,
           marketplace_fee_sum: order.payments?.reduce((sum, p) => sum + (p.marketplace_fee || 0), 0) || 0,
-          estimated: taxas > 0 && order.payments?.every(p => (p.marketplace_fee || 0) === 0),
         };
 
         const transactionData = {
@@ -1023,8 +1055,9 @@ Deno.serve(async (req) => {
           tipo_transacao: "venda",
           valor_bruto: valorBruto,
           valor_liquido: valorLiquido,
-          taxas: taxasFoiEstimada ? null : taxas, // NULL se foi estimado, para indicar pendente
-          tarifas: tarifas,
+          // Campos legados mantidos para compatibilidade (soma das partes)
+          taxas: taxasFoiEstimada ? null : (comissao + tarifaFixa), // NULL se foi estimado
+          tarifas: tarifaFinanceira,
           outros_descontos: 0,
           referencia_externa: String(order.id),
           pedido_id: String(order.id),
@@ -1034,7 +1067,7 @@ Deno.serve(async (req) => {
           frete_comprador: freteComprador,
           frete_vendedor: fretePendente ? null : freteVendedor, // NULL se pendente de shipping costs
           raw_order: rawOrder, // Payload do pedido para auditoria
-          raw_fees: rawFees, // Taxas brutas para auditoria
+          raw_fees: rawFees, // Taxas brutas para auditoria (agora com componentes separados)
           raw_shipping_costs: shippingCosts ? {
             logistic_type: shippingCosts.logistic_type,
             sender_cost: shippingCosts.sender_cost,
@@ -1078,8 +1111,10 @@ Deno.serve(async (req) => {
           origem: string;
         }> = [];
 
-        // Evento: Comissão (taxas = CV)
-        if (taxas > 0) {
+        // ========== EVENTOS FINANCEIROS SEPARADOS POR COMPONENTE ==========
+        
+        // Evento: Comissão ML (marketplace_fee)
+        if (comissao > 0) {
           eventosFinanceiros.push({
             empresa_id,
             canal: "Mercado Livre",
@@ -1087,24 +1122,39 @@ Deno.serve(async (req) => {
             pedido_id: String(order.id),
             tipo_evento: "comissao",
             data_evento: dataTransacao,
-            valor: -taxas, // Custo = valor negativo
+            valor: -comissao, // Custo = valor negativo
             descricao: `Comissão ML pedido #${order.id}`,
-            origem: billingAvailable && billingFees ? "api_conciliacoes" : "api_orders",
+            origem: origemFees,
           });
         }
 
-        // Evento: Tarifa Fixa / Financiamento
-        if (tarifas > 0) {
+        // Evento: Tarifa Fixa (fixed_fee)
+        if (tarifaFixa > 0) {
           eventosFinanceiros.push({
             empresa_id,
             canal: "Mercado Livre",
-            event_id: `${order.id}_tarifa`,
+            event_id: `${order.id}_tarifa_fixa`,
+            pedido_id: String(order.id),
+            tipo_evento: "tarifa_fixa",
+            data_evento: dataTransacao,
+            valor: -tarifaFixa,
+            descricao: `Tarifa fixa pedido #${order.id}`,
+            origem: origemFees,
+          });
+        }
+
+        // Evento: Tarifa Financeira (financing_fee / parcelamento)
+        if (tarifaFinanceira > 0) {
+          eventosFinanceiros.push({
+            empresa_id,
+            canal: "Mercado Livre",
+            event_id: `${order.id}_tarifa_financeira`,
             pedido_id: String(order.id),
             tipo_evento: "tarifa_financeira",
             data_evento: dataTransacao,
-            valor: -tarifas,
-            descricao: `Tarifa/financiamento pedido #${order.id}`,
-            origem: billingAvailable && billingFees ? "api_conciliacoes" : "api_orders",
+            valor: -tarifaFinanceira,
+            descricao: `Tarifa financeira/parcelamento pedido #${order.id}`,
+            origem: origemFees,
           });
         }
 
