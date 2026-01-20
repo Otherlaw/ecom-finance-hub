@@ -149,13 +149,25 @@ async function sincronizarContasReceber(): Promise<{ sincronizadas: number; erro
 }
 
 /**
- * Sincroniza transações marketplace conciliadas que não estão no MEU
+ * Sincroniza transações marketplace que representam CAIXA REAL (repasses, saques, etc.)
+ * 
+ * IMPORTANTE: NÃO sincroniza vendas individuais (tipo_transacao='venda')!
+ * Vendas são tratadas na aba Vendas (competência), não no Fluxo de Caixa.
+ * 
+ * Tipos que SÃO sincronizados para caixa:
+ * - repasse: dinheiro efetivamente transferido para a conta bancária
+ * - saque: saque do saldo do marketplace
+ * - devolucao_repasse: estorno de repasse
+ * - taxa_financeira: taxa cobrada pelo marketplace
  */
 async function sincronizarMarketplace(): Promise<{ sincronizadas: number; erros: string[] }> {
   const erros: string[] = [];
   let sincronizadas = 0;
 
-  // Buscar transações conciliadas
+  // CORREÇÃO: Buscar apenas transações que representam movimentação REAL de caixa
+  // Excluir vendas (tipo_transacao='venda') que são competência, não caixa
+  const tiposCaixa = ['repasse', 'saque', 'devolucao_repasse', 'taxa_financeira', 'estorno'];
+  
   const { data: transacoes, error: fetchError } = await supabase
     .from("marketplace_transactions")
     .select(`
@@ -163,7 +175,8 @@ async function sincronizarMarketplace(): Promise<{ sincronizadas: number; erros:
       categoria:categorias_financeiras(id, nome, tipo),
       centro_custo:centros_de_custo(id, nome, codigo)
     `)
-    .eq("status", "conciliado");
+    .eq("status", "conciliado")
+    .in("tipo_transacao", tiposCaixa);
 
   if (fetchError) {
     erros.push(`Erro ao buscar marketplace: ${fetchError.message}`);
@@ -188,12 +201,16 @@ async function sincronizarMarketplace(): Promise<{ sincronizadas: number; erros:
   for (const transacao of transacoes) {
     if (idsExistentes.has(transacao.id)) continue;
 
+    // Determinar tipo do movimento baseado no tipo_transacao
+    const isEntrada = ['repasse', 'saque'].includes(transacao.tipo_transacao);
+    const tipoMovimento = isEntrada ? "entrada" : "saida";
+
     try {
       await registrarMovimentoFinanceiro({
-        data: transacao.data_transacao,
-        tipo: "entrada" as TipoMovimento,
+        data: transacao.data_repasse || transacao.data_transacao,
+        tipo: tipoMovimento as TipoMovimento,
         origem: "marketplace" as OrigemMovimento,
-        descricao: transacao.descricao,
+        descricao: `[${transacao.canal}] ${transacao.descricao || transacao.tipo_transacao}`,
         valor: Math.abs(transacao.valor_liquido || transacao.valor_bruto || 0),
         empresaId: transacao.empresa_id,
         referenciaId: transacao.id,
@@ -279,11 +296,13 @@ export async function contarPendentesSincronizacao(): Promise<{
     .select("*", { count: "exact", head: true })
     .eq("origem", "contas_receber");
 
-  // Marketplace
+  // Marketplace - APENAS tipos que representam caixa real (não vendas)
+  const tiposCaixa = ['repasse', 'saque', 'devolucao_repasse', 'taxa_financeira', 'estorno'];
   const { count: mktTotal } = await supabase
     .from("marketplace_transactions")
     .select("*", { count: "exact", head: true })
-    .eq("status", "conciliado");
+    .eq("status", "conciliado")
+    .in("tipo_transacao", tiposCaixa);
 
   const { count: mktSincronizadas } = await supabase
     .from("movimentos_financeiros")

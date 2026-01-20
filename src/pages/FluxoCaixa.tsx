@@ -583,12 +583,13 @@ export default function FluxoCaixa() {
       {/* Alerta informativo sobre o que é Fluxo de Caixa */}
       <Alert className="mb-6 border-info/30 bg-info/5">
         <Info className="h-4 w-4 text-info" />
-        <AlertTitle className="text-info">O que aparece aqui?</AlertTitle>
+        <AlertTitle className="text-info">Fluxo de Caixa ≠ Vendas</AlertTitle>
         <AlertDescription className="text-muted-foreground text-sm">
           O Fluxo de Caixa mostra apenas <strong>movimentações reais de dinheiro</strong>: 
-          transações bancárias, repasses de marketplace, pagamentos efetuados e recebimentos. 
-          Vendas individuais de marketplace (por pedido) estão na aba <strong>Vendas</strong> — 
-          aqui você vê apenas quando o dinheiro efetivamente entrou/saiu da conta.
+          extratos bancários (OFX), pagamentos de contas, recebimentos e lançamentos manuais.
+          <br />
+          <strong>Vendas de marketplace não aparecem aqui</strong> — elas ficam na aba Vendas (competência).
+          Aqui você verá apenas os <strong>repasses</strong> quando o dinheiro efetivamente entrar na conta.
         </AlertDescription>
       </Alert>
 
