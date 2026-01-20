@@ -1405,6 +1405,7 @@ export type Database = {
           capital_inicial: number | null
           cnpj: string
           created_at: string
+          created_by: string | null
           email: string | null
           endereco: string | null
           id: string
@@ -1420,6 +1421,7 @@ export type Database = {
           capital_inicial?: number | null
           cnpj: string
           created_at?: string
+          created_by?: string | null
           email?: string | null
           endereco?: string | null
           id?: string
@@ -1435,6 +1437,7 @@ export type Database = {
           capital_inicial?: number | null
           cnpj?: string
           created_at?: string
+          created_by?: string | null
           email?: string | null
           endereco?: string | null
           id?: string
@@ -3475,6 +3478,10 @@ export type Database = {
       }
     }
     Functions: {
+      add_user_to_empresa_by_email: {
+        Args: { p_email: string; p_empresa_id: string; p_role?: string }
+        Returns: Json
+      }
       date_to_br_timestamptz: { Args: { p_date: string }; Returns: string }
       get_dashboard_metrics: {
         Args: {
@@ -3491,6 +3498,16 @@ export type Database = {
           p_empresa_id?: string
         }
         Returns: Json
+      }
+      get_empresa_members: {
+        Args: { p_empresa_id: string }
+        Returns: {
+          created_at: string
+          email: string
+          nome: string
+          role_na_empresa: string
+          user_id: string
+        }[]
       }
       get_fechamento_metrics: {
         Args: {
@@ -3693,6 +3710,10 @@ export type Database = {
           p_valor: number
         }
         Returns: string
+      }
+      remove_user_from_empresa: {
+        Args: { p_empresa_id: string; p_user_id: string }
+        Returns: Json
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }

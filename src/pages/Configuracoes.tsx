@@ -22,6 +22,7 @@ import {
   LogIn,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MembrosEmpresaCard } from "@/components/empresas/MembrosEmpresaCard";
 
 export default function Configuracoes() {
   const navigate = useNavigate();
@@ -83,6 +84,9 @@ export default function Configuracoes() {
             </div>
           )}
         </ModuleCard>
+
+        {/* Membros da Empresa */}
+        <MembrosEmpresaCard />
 
         {/* Notificações */}
         <ModuleCard title="Notificações" icon={Bell}>
