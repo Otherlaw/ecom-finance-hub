@@ -223,67 +223,103 @@ function normalizarCanal(canal: string): string {
   return mapeamento[canal] || canal.toLowerCase().replace(/\s+/g, "_");
 }
 
-// Verifica duplicatas na tabela marketplace_transactions usando múltiplos critérios
-async function verificarDuplicatas(
+// Verifica duplicatas em BATCH para melhor performance
+// Retorna Set com referências que já existem no banco
+async function verificarDuplicatasBatch(
   empresaId: string, 
   canal: string, 
-  referenciaExterna: string,
-  dataTransacao?: string,
-  valorLiquido?: number,
-  descricao?: string
-): Promise<boolean> {
-  // Primeiro tenta por referência externa (mais preciso)
-  if (referenciaExterna && referenciaExterna.trim()) {
-    const { data: byRef, error: errRef } = await supabase
-      .from("marketplace_transactions")
-      .select("id")
-      .eq("empresa_id", empresaId)
-      .eq("referencia_externa", referenciaExterna.trim())
-      .limit(1);
+  transacoes: Array<{
+    referencia_externa?: string;
+    data_transacao?: string;
+    valor_liquido?: number;
+  }>
+): Promise<Set<string>> {
+  const duplicatasEncontradas = new Set<string>();
+  const canalNormalizado = normalizarCanal(canal);
+  
+  // Coletar todas as referências externas válidas
+  const referenciasValidas = transacoes
+    .filter(t => t.referencia_externa?.trim())
+    .map(t => t.referencia_externa!.trim());
+  
+  // Buscar duplicatas por referência externa em lotes de 500
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < referenciasValidas.length; i += BATCH_SIZE) {
+    const batch = referenciasValidas.slice(i, i + BATCH_SIZE);
     
-    if (!errRef && byRef && byRef.length > 0) {
-      return true;
+    const { data: existentes } = await supabase
+      .from("marketplace_transactions")
+      .select("referencia_externa")
+      .eq("empresa_id", empresaId)
+      .in("referencia_externa", batch);
+    
+    if (existentes) {
+      existentes.forEach(e => {
+        if (e.referencia_externa) duplicatasEncontradas.add(e.referencia_externa);
+      });
     }
   }
   
-  // Fallback: verificar por combinação data + valor + descrição (para evitar duplas entre API e upload)
-  if (dataTransacao && valorLiquido !== undefined) {
-    const canalNormalizado = normalizarCanal(canal);
-    
-    // Também verifica com variações do canal (API pode usar nome diferente do upload)
-    const { data: byCombo, error: errCombo } = await supabase
-      .from("marketplace_transactions")
-      .select("id, canal, descricao")
-      .eq("empresa_id", empresaId)
-      .eq("data_transacao", dataTransacao)
-      .gte("valor_liquido", valorLiquido - 0.01)
-      .lte("valor_liquido", valorLiquido + 0.01)
-      .limit(10);
-    
-    if (!errCombo && byCombo && byCombo.length > 0) {
-      // Verificar se algum match é do mesmo canal (normalizado) ou descrição similar
-      for (const match of byCombo) {
-        const matchCanalNorm = normalizarCanal(match.canal || "");
-        if (matchCanalNorm === canalNormalizado) {
-          return true;
+  // Buscar por combinação data+valor (para duplicatas entre API e upload)
+  // Agrupa transações únicas por data para buscar uma vez
+  const porData = new Map<string, Array<{ valor: number; ref: string }>>();
+  
+  for (const t of transacoes) {
+    if (t.data_transacao && t.valor_liquido !== undefined) {
+      const ref = t.referencia_externa || 
+        `${t.data_transacao}_${t.valor_liquido}`;
+      
+      // Só verificar se ainda não foi marcado como duplicata por referência
+      if (!duplicatasEncontradas.has(ref)) {
+        if (!porData.has(t.data_transacao)) {
+          porData.set(t.data_transacao, []);
         }
-        // Se descrição é muito similar, considerar duplicata
-        if (descricao && match.descricao) {
-          const descNorm = descricao.toLowerCase().trim();
-          const matchDescNorm = match.descricao.toLowerCase().trim();
-          if (descNorm === matchDescNorm || descNorm.includes(matchDescNorm) || matchDescNorm.includes(descNorm)) {
-            return true;
+        porData.get(t.data_transacao)!.push({ 
+          valor: t.valor_liquido, 
+          ref 
+        });
+      }
+    }
+  }
+  
+  // Verificar duplicatas por data+valor (pegar datas únicas)
+  const datasUnicas = Array.from(porData.keys()).slice(0, 50); // Limitar a 50 datas
+  
+  for (const data of datasUnicas) {
+    const transacoesNaData = porData.get(data)!;
+    const valoresMinMax = transacoesNaData.map(t => t.valor);
+    const minValor = Math.min(...valoresMinMax) - 0.01;
+    const maxValor = Math.max(...valoresMinMax) + 0.01;
+    
+    const { data: existentesPorData } = await supabase
+      .from("marketplace_transactions")
+      .select("id, valor_liquido, canal")
+      .eq("empresa_id", empresaId)
+      .eq("data_transacao", data)
+      .gte("valor_liquido", minValor)
+      .lte("valor_liquido", maxValor)
+      .limit(100);
+    
+    if (existentesPorData) {
+      for (const existente of existentesPorData) {
+        const canalExistente = normalizarCanal(existente.canal || "");
+        if (canalExistente === canalNormalizado) {
+          // Marcar transações com esse valor como duplicatas
+          for (const t of transacoesNaData) {
+            if (Math.abs(t.valor - existente.valor_liquido) <= 0.01) {
+              duplicatasEncontradas.add(t.ref);
+            }
           }
         }
       }
     }
   }
   
-  return false;
+  return duplicatasEncontradas;
 }
 
-// Inserir transações no banco com verificação inteligente de duplicatas
-// Suporta callback para atualização de progresso em background
+// Inserir transações no banco com inserção em LOTES para melhor performance
+// Usa verificação de duplicatas em batch antes de inserir
 async function inserirTransacoes(
   transacoes: any[], 
   empresaId: string, 
@@ -298,13 +334,49 @@ async function inserirTransacoes(
   // Normalizar canal para consistência
   const canalNormalizado = normalizarCanal(canal);
   
-  // Configuração de batch para atualização de progresso
-  const BATCH_SIZE = 25; // Atualiza progresso a cada 25 transações
-  let processadas = 0;
+  // ETAPA 1: Verificar duplicatas em batch (muito mais rápido)
+  if (jobId) await atualizarFaseJob(jobId, "verificando_duplicatas");
   
-  for (const transacao of transacoes) {
+  // Preparar transações com referências
+  const transacoesComRef = transacoes.map(t => ({
+    ...t,
+    referencia_externa: t.referencia_externa || 
+      `${t.data_transacao}_${t.valor_liquido}_${(t.descricao || "").substring(0, 30)}`,
+  }));
+  
+  // Verificar todas as duplicatas de uma vez
+  const duplicatasSet = await verificarDuplicatasBatch(
+    empresaId,
+    canalNormalizado,
+    transacoesComRef.map(t => ({
+      referencia_externa: t.referencia_externa,
+      data_transacao: t.data_transacao,
+      valor_liquido: t.valor_liquido,
+    }))
+  );
+  
+  // Filtrar transações que não são duplicatas
+  const transacoesNovas = transacoesComRef.filter(t => !duplicatasSet.has(t.referencia_externa));
+  duplicatas = transacoesComRef.length - transacoesNovas.length;
+  
+  console.log(`[inserirTransacoes] Total: ${transacoes.length}, Duplicatas: ${duplicatas}, Novas: ${transacoesNovas.length}`);
+  
+  // Atualizar progresso após verificação
+  if (jobId) {
+    await atualizarProgressoJob(jobId, {
+      linhas_processadas: duplicatas,
+      linhas_duplicadas: duplicatas,
+    });
+    await atualizarFaseJob(jobId, "inserindo");
+  }
+  
+  // ETAPA 2: Inserir em lotes (batch insert)
+  const BATCH_SIZE = 100; // Inserir 100 por vez
+  const UPDATE_INTERVAL = 50; // Atualizar progresso a cada 50 inserções
+  
+  for (let i = 0; i < transacoesNovas.length; i += BATCH_SIZE) {
     // Verificar se job foi cancelado
-    if (jobId && processadas % 50 === 0) {
+    if (jobId && i % (BATCH_SIZE * 2) === 0) {
       const cancelado = await verificarJobCancelado(jobId);
       if (cancelado) {
         console.log(`[inserirTransacoes] Job ${jobId} cancelado pelo usuário`);
@@ -312,93 +384,94 @@ async function inserirTransacoes(
       }
     }
     
+    const batch = transacoesNovas.slice(i, i + BATCH_SIZE);
+    
+    // Preparar dados para inserção em lote
+    const dadosBatch = batch.map(transacao => ({
+      empresa_id: empresaId,
+      canal: canalNormalizado,
+      data_transacao: transacao.data_transacao,
+      descricao: transacao.descricao || "Transação importada",
+      valor_liquido: transacao.valor_liquido || 0,
+      valor_bruto: transacao.valor_bruto || transacao.valor_liquido || 0,
+      tipo_transacao: transacao.tipo_transacao || "outro",
+      tipo_lancamento: transacao.tipo_lancamento || "credito",
+      referencia_externa: transacao.referencia_externa,
+      pedido_id: transacao.pedido_id || null,
+      tarifas: transacao.tarifas || 0,
+      taxas: transacao.taxas || 0,
+      outros_descontos: transacao.outros_descontos || 0,
+      frete_vendedor: transacao.frete_vendedor || 0,
+      frete_comprador: transacao.frete_comprador || 0,
+      custo_ads: transacao.custo_ads || 0,
+      origem_extrato: "checklist_upload",
+      status: "importado",
+    }));
+    
     try {
-      // Gerar referência externa se não existir
-      const referenciaExterna = transacao.referencia_externa || 
-        `${transacao.data_transacao}_${transacao.valor_liquido}_${(transacao.descricao || "").substring(0, 30)}`;
-      
-      // Verificar duplicata usando múltiplos critérios (API vs Upload)
-      const isDuplicata = await verificarDuplicatas(
-        empresaId, 
-        canalNormalizado, 
-        referenciaExterna,
-        transacao.data_transacao,
-        transacao.valor_liquido,
-        transacao.descricao
-      );
-      
-      if (isDuplicata) {
-        duplicatas++;
-        processadas++;
-        continue;
-      }
-      
-      // Preparar dados para inserção
-      const dadosInsercao = {
-        empresa_id: empresaId,
-        canal: canalNormalizado, // Usar canal normalizado
-        data_transacao: transacao.data_transacao,
-        descricao: transacao.descricao || "Transação importada",
-        valor_liquido: transacao.valor_liquido || 0,
-        valor_bruto: transacao.valor_bruto || transacao.valor_liquido || 0,
-        tipo_transacao: transacao.tipo_transacao || "outro",
-        tipo_lancamento: transacao.tipo_lancamento || "credito",
-        referencia_externa: referenciaExterna,
-        pedido_id: transacao.pedido_id || null,
-        tarifas: transacao.tarifas || 0,
-        taxas: transacao.taxas || 0,
-        outros_descontos: transacao.outros_descontos || 0,
-        frete_vendedor: transacao.frete_vendedor || 0,
-        frete_comprador: transacao.frete_comprador || 0,
-        custo_ads: transacao.custo_ads || 0,
-        origem_extrato: "checklist_upload",
-        status: "importado",
-      };
-      
-      const { error } = await supabase
+      const { error, data } = await supabase
         .from("marketplace_transactions")
-        .insert(dadosInsercao);
+        .insert(dadosBatch)
+        .select("id");
       
       if (error) {
-        // Se o erro for de duplicata (constraint violation), contar como duplicata
+        // Se houver erro de constraint em lote, tentar inserir um por um
         if (error.code === "23505") {
-          duplicatas++;
-          processadas++;
-          continue;
+          // Inserção individual para contabilizar corretamente
+          for (const dado of dadosBatch) {
+            try {
+              const { error: errIndiv } = await supabase
+                .from("marketplace_transactions")
+                .insert(dado);
+              
+              if (errIndiv) {
+                if (errIndiv.code === "23505") {
+                  duplicatas++;
+                } else {
+                  erros++;
+                  if (mensagensErro.length < 5) {
+                    mensagensErro.push(`Erro: ${errIndiv.message}`);
+                  }
+                }
+              } else {
+                inseridas++;
+              }
+            } catch (e) {
+              erros++;
+            }
+          }
+        } else {
+          erros += batch.length;
+          if (mensagensErro.length < 5) {
+            mensagensErro.push(`Lote ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
+          }
         }
-        erros++;
-        if (mensagensErro.length < 5) {
-          mensagensErro.push(`Linha ${inseridas + duplicatas + erros}: ${error.message}`);
-        }
-        processadas++;
-        continue;
-      }
-      
-      inseridas++;
-      processadas++;
-      
-      // Atualizar progresso no job (em batch para não sobrecarregar)
-      if (jobId && processadas % BATCH_SIZE === 0) {
-        await atualizarProgressoJob(jobId, {
-          linhas_processadas: processadas,
-          linhas_importadas: inseridas,
-          linhas_duplicadas: duplicatas,
-          linhas_com_erro: erros,
-        });
+      } else {
+        inseridas += data?.length || batch.length;
       }
     } catch (e) {
-      erros++;
-      processadas++;
+      erros += batch.length;
       if (mensagensErro.length < 5) {
-        mensagensErro.push(`Erro inesperado: ${e instanceof Error ? e.message : "Desconhecido"}`);
+        mensagensErro.push(`Erro inesperado no lote: ${e instanceof Error ? e.message : "Desconhecido"}`);
       }
+    }
+    
+    // Atualizar progresso periodicamente
+    if (jobId && (i % UPDATE_INTERVAL === 0 || i + BATCH_SIZE >= transacoesNovas.length)) {
+      const processadas = duplicatas + inseridas + erros;
+      await atualizarProgressoJob(jobId, {
+        linhas_processadas: processadas,
+        linhas_importadas: inseridas,
+        linhas_duplicadas: duplicatas,
+        linhas_com_erro: erros,
+      });
     }
   }
   
   // Atualização final de progresso
   if (jobId) {
     await atualizarProgressoJob(jobId, {
-      linhas_processadas: processadas,
+      linhas_processadas: duplicatas + inseridas + erros,
       linhas_importadas: inseridas,
       linhas_duplicadas: duplicatas,
       linhas_com_erro: erros,
