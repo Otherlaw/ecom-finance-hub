@@ -7,12 +7,17 @@ import { ModuleCard } from "@/components/ModuleCard";
 import { EtapaFormModal } from "./EtapaFormModal";
 import { ConferenciaImportacaoModal, ConferenciaData } from "./ConferenciaImportacaoModal";
 import { ChecklistImportJobsPanel } from "./ChecklistImportJobsPanel";
+import { ValidacaoArquivoModal } from "./ValidacaoArquivoModal";
 import { useChecklistImportJobs } from "@/hooks/useChecklistImportJobs";
 import { ChecklistCanalComItens, ChecklistCanalItem, useChecklistsCanal, calcularProgressoChecklist, getStatusLabel, getStatusColor } from "@/hooks/useChecklistsCanal";
 import { getMesNome } from "@/lib/checklist-data";
 import { supabase } from "@/integrations/supabase/client";
 import { validarPeriodoArquivo, getNomeMes } from "@/lib/validar-periodo-arquivo";
+import { validarEmpresaArquivo } from "@/lib/validar-empresa-arquivo";
+import { verificarArquivoDuplicado } from "@/lib/validar-arquivo-duplicado";
+import { validarSobreposicaoDados } from "@/lib/validar-sobreposicao-dados";
 import { processarArquivoChecklistBackground } from "@/lib/processar-arquivo-checklist";
+import { calcularHashArquivo } from "@/lib/validar-arquivo-duplicado";
 import {
   ArrowLeft,
   FileText,
@@ -34,6 +39,7 @@ import {
   RefreshCw,
   CheckCircle2,
   XCircle,
+  Tag,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -56,6 +62,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Link } from "react-router-dom";
 
 interface ChecklistDetailRealProps {
   checklist: ChecklistCanalComItens;
@@ -80,6 +87,24 @@ interface PendingUpload {
   };
 }
 
+interface ValidacaoState {
+  isLoading: boolean;
+  open: boolean;
+  file: File | null;
+  itemId: string | null;
+  validacaoPeriodo?: {
+    valido: boolean;
+    mesArquivo?: number;
+    anoArquivo?: number;
+    mesChecklist: number;
+    anoChecklist: number;
+    mensagem?: string;
+  };
+  validacaoEmpresa?: Awaited<ReturnType<typeof validarEmpresaArquivo>>;
+  validacaoDuplicidade?: Awaited<ReturnType<typeof verificarArquivoDuplicado>>;
+  validacaoSobreposicao?: Awaited<ReturnType<typeof validarSobreposicaoDados>>;
+}
+
 export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistDetailRealProps) {
   const [showEtapaModal, setShowEtapaModal] = useState(false);
   const [etapaParaEditar, setEtapaParaEditar] = useState<ChecklistCanalItem | null>(null);
@@ -89,19 +114,35 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [currentUploadItemId, setCurrentUploadItemId] = useState<string | null>(null);
   
-  // Estado para modal de confirmação de período incompatível
+  // Estado para modal de confirmação de período incompatível (legacy - usado como fallback)
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
   const [showPeriodoAlertModal, setShowPeriodoAlertModal] = useState(false);
   
   // Estado para modal de conferência de importação
   const [showConferenciaModal, setShowConferenciaModal] = useState(false);
   const [conferenciaData, setConferenciaData] = useState<ConferenciaData | null>(null);
+  
+  // Estado para validação unificada pré-upload
+  const [validacaoState, setValidacaoState] = useState<ValidacaoState>({
+    isLoading: false,
+    open: false,
+    file: null,
+    itemId: null,
+  });
+  
+  // Estado para hash do arquivo (para salvar no registro)
+  const [currentFileHash, setCurrentFileHash] = useState<string | null>(null);
 
   const { atualizarEtapa, excluirEtapa, adicionarArquivo, removerArquivo, marcarArquivoProcessado } = useChecklistsCanal();
   
   // Hook para monitorar jobs de importação ativos - passa empresa_id do checklist
-  const { emAndamento } = useChecklistImportJobs({ empresaId: checklist.empresa_id });
+  const { emAndamento, historico } = useChecklistImportJobs({ empresaId: checklist.empresa_id });
   const hasActiveJobs = emAndamento.length > 0;
+  
+  // Contar transações importadas recentes pendentes de categorização
+  const totalImportadasRecentes = historico
+    .filter(j => j.status === "concluido")
+    .reduce((acc, j) => acc + (j.linhas_importadas || 0), 0);
   
   // Aviso ao sair da página durante processamento
   useEffect(() => {
@@ -126,34 +167,90 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
     const file = e.target.files?.[0];
     if (!file || !currentUploadItemId) return;
 
-    // Primeiro, validar o período do arquivo
-    const validacao = await validarPeriodoArquivo(file, checklist.mes, checklist.ano);
-    
-    if (validacao.alertaIncompatibilidade && validacao.periodoDetectado) {
-      // Período incompatível - mostrar modal de confirmação
-      setPendingUpload({
+    // Limpar input para permitir reselecionar mesmo arquivo
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    // Abrir modal de validação e iniciar validações em paralelo
+    setValidacaoState({
+      isLoading: true,
+      open: true,
+      file,
+      itemId: currentUploadItemId,
+    });
+
+    try {
+      // Executar todas as validações em paralelo
+      const [periodoResult, empresaResult, duplicidadeResult, sobreposicaoResult] = await Promise.all([
+        validarPeriodoArquivo(file, checklist.mes, checklist.ano),
+        validarEmpresaArquivo(file, checklist.empresa_id),
+        verificarArquivoDuplicado(file, checklist.empresa_id, checklist.canal_id),
+        validarSobreposicaoDados(file, checklist.empresa_id, checklist.canal_id),
+      ]);
+
+      // Guardar hash para salvar no arquivo depois
+      const hash = await calcularHashArquivo(file);
+      setCurrentFileHash(hash);
+
+      // Atualizar estado com resultados
+      setValidacaoState({
+        isLoading: false,
+        open: true,
         file,
         itemId: currentUploadItemId,
-        validacao: {
-          valido: validacao.valido,
-          periodoDetectado: validacao.periodoDetectado,
-          periodoEsperado: validacao.periodoEsperado,
+        validacaoPeriodo: {
+          valido: periodoResult.valido,
+          mesArquivo: periodoResult.periodoDetectado?.mes,
+          anoArquivo: periodoResult.periodoDetectado?.ano,
+          mesChecklist: checklist.mes,
+          anoChecklist: checklist.ano,
+          mensagem: periodoResult.alertaIncompatibilidade 
+            ? `Arquivo de ${periodoResult.periodoDetectado ? getNomeMes(periodoResult.periodoDetectado.mes) + "/" + periodoResult.periodoDetectado.ano : "período desconhecido"}`
+            : undefined,
         },
+        validacaoEmpresa: empresaResult,
+        validacaoDuplicidade: duplicidadeResult,
+        validacaoSobreposicao: sobreposicaoResult,
       });
-      setShowPeriodoAlertModal(true);
-      // Limpar input para permitir reselecionar mesmo arquivo
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
+    } catch (error) {
+      console.error("Erro nas validações:", error);
+      toast({ 
+        title: "Erro na validação", 
+        description: "Não foi possível validar o arquivo. Tente novamente.", 
+        variant: "destructive" 
+      });
+      setValidacaoState({
+        isLoading: false,
+        open: false,
+        file: null,
+        itemId: null,
+      });
     }
-    
-    // Período válido ou não detectável - prosseguir com upload
-    await executarUpload(file, currentUploadItemId);
   };
 
-  const executarUpload = async (file: File, itemId: string) => {
+  const handleConfirmValidatedUpload = async () => {
+    if (!validacaoState.file || !validacaoState.itemId) return;
+    setValidacaoState(prev => ({ ...prev, open: false }));
+    await executarUpload(validacaoState.file, validacaoState.itemId, currentFileHash);
+  };
+
+  const handleCancelValidatedUpload = () => {
+    setValidacaoState({
+      isLoading: false,
+      open: false,
+      file: null,
+      itemId: null,
+    });
+    setCurrentFileHash(null);
+    setCurrentUploadItemId(null);
+  };
+
+  const executarUpload = async (file: File, itemId: string, hashArquivo?: string | null) => {
     setUploadingItemId(itemId);
 
     try {
+      // Calcular hash se não foi passado
+      const fileHash = hashArquivo || await calcularHashArquivo(file);
+      
       // Upload para Storage
       const fileName = `checklist/${itemId}/${Date.now()}_${file.name}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -167,13 +264,15 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
         .from("product-images")
         .getPublicUrl(fileName);
 
-      // Registrar arquivo no banco
+      // Registrar arquivo no banco com hash
       const arquivoResult = await adicionarArquivo.mutateAsync({
         checklistItemId: itemId,
         nomeArquivo: file.name,
         url: urlData.publicUrl,
         tamanhoBytes: file.size,
         tipoMime: file.type,
+        hashArquivo: fileHash,
+        cnpjArquivo: validacaoState.validacaoEmpresa?.cnpjArquivo || null,
       });
 
       toast({ title: "Arquivo enviado!", description: "Processamento iniciado em segundo plano" });
@@ -186,12 +285,14 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
           checklist.canal_id,
           checklist.empresa_id,
           file.name,
-          currentUploadItemId
+          itemId
         ).catch(err => {
           console.error("Erro ao iniciar processamento:", err);
         });
       }
 
+      // Limpar estados
+      setCurrentFileHash(null);
       onRefresh();
     } catch (error: any) {
       console.error("Erro no upload:", error);
@@ -343,6 +444,24 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
           <AlertDescription>
             Não saia desta página durante o processamento para evitar interrupções.
             O progresso é exibido no painel abaixo.
+          </AlertDescription>
+        </Alert>
+      )}
+      
+      {/* Alert de transações pendentes de categorização */}
+      {!hasActiveJobs && totalImportadasRecentes > 0 && (
+        <Alert variant="default" className="border-primary/50 bg-primary/5">
+          <Tag className="h-4 w-4 text-primary" />
+          <AlertTitle className="text-primary">Transações importadas</AlertTitle>
+          <AlertDescription className="flex items-center justify-between">
+            <span>
+              {totalImportadasRecentes} transações foram importadas recentemente e estão pendentes de categorização.
+            </span>
+            <Link to="/conciliacao?tab=marketplace">
+              <Button size="sm" variant="outline" className="ml-4">
+                Categorizar agora
+              </Button>
+            </Link>
           </AlertDescription>
         </Alert>
       )}
@@ -633,6 +752,20 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
         open={showConferenciaModal}
         onOpenChange={setShowConferenciaModal}
         data={conferenciaData}
+      />
+      
+      {/* Modal de validação unificada pré-upload */}
+      <ValidacaoArquivoModal
+        open={validacaoState.open}
+        onOpenChange={(open) => !open && handleCancelValidatedUpload()}
+        fileName={validacaoState.file?.name || ""}
+        isLoading={validacaoState.isLoading}
+        validacaoPeriodo={validacaoState.validacaoPeriodo}
+        validacaoEmpresa={validacaoState.validacaoEmpresa}
+        validacaoDuplicidade={validacaoState.validacaoDuplicidade}
+        validacaoSobreposicao={validacaoState.validacaoSobreposicao}
+        onConfirm={handleConfirmValidatedUpload}
+        onCancel={handleCancelValidatedUpload}
       />
 
       {/* Input de arquivo oculto */}
