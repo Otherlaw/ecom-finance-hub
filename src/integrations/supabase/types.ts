@@ -221,9 +221,12 @@ export type Database = {
       checklist_canal_arquivos: {
         Row: {
           checklist_item_id: string
+          cnpj_arquivo: string | null
           data_upload: string
+          hash_arquivo: string | null
           id: string
           nome_arquivo: string
+          periodo_detectado: Json | null
           processado: boolean
           resultado_processamento: Json | null
           tamanho_bytes: number | null
@@ -233,9 +236,12 @@ export type Database = {
         }
         Insert: {
           checklist_item_id: string
+          cnpj_arquivo?: string | null
           data_upload?: string
+          hash_arquivo?: string | null
           id?: string
           nome_arquivo: string
+          periodo_detectado?: Json | null
           processado?: boolean
           resultado_processamento?: Json | null
           tamanho_bytes?: number | null
@@ -245,9 +251,12 @@ export type Database = {
         }
         Update: {
           checklist_item_id?: string
+          cnpj_arquivo?: string | null
           data_upload?: string
+          hash_arquivo?: string | null
           id?: string
           nome_arquivo?: string
+          periodo_detectado?: Json | null
           processado?: boolean
           resultado_processamento?: Json | null
           tamanho_bytes?: number | null
