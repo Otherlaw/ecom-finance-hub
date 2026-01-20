@@ -221,12 +221,9 @@ export type Database = {
       checklist_canal_arquivos: {
         Row: {
           checklist_item_id: string
-          cnpj_arquivo: string | null
           data_upload: string
-          hash_arquivo: string | null
           id: string
           nome_arquivo: string
-          periodo_detectado: Json | null
           processado: boolean
           resultado_processamento: Json | null
           tamanho_bytes: number | null
@@ -236,12 +233,9 @@ export type Database = {
         }
         Insert: {
           checklist_item_id: string
-          cnpj_arquivo?: string | null
           data_upload?: string
-          hash_arquivo?: string | null
           id?: string
           nome_arquivo: string
-          periodo_detectado?: Json | null
           processado?: boolean
           resultado_processamento?: Json | null
           tamanho_bytes?: number | null
@@ -251,12 +245,9 @@ export type Database = {
         }
         Update: {
           checklist_item_id?: string
-          cnpj_arquivo?: string | null
           data_upload?: string
-          hash_arquivo?: string | null
           id?: string
           nome_arquivo?: string
-          periodo_detectado?: Json | null
           processado?: boolean
           resultado_processamento?: Json | null
           tamanho_bytes?: number | null
@@ -391,91 +382,6 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "checklist_etapas_empresa_id_fkey"
-            columns: ["empresa_id"]
-            isOneToOne: false
-            referencedRelation: "empresas"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      checklist_import_jobs: {
-        Row: {
-          arquivo_id: string | null
-          arquivo_nome: string
-          atualizado_em: string
-          canal: string
-          checklist_item_id: string
-          criado_em: string
-          empresa_id: string
-          fase: string | null
-          finalizado_em: string | null
-          id: string
-          linhas_com_erro: number
-          linhas_duplicadas: number
-          linhas_importadas: number
-          linhas_processadas: number
-          mensagem_erro: string | null
-          resultado_processamento: Json | null
-          status: string
-          total_linhas: number
-        }
-        Insert: {
-          arquivo_id?: string | null
-          arquivo_nome: string
-          atualizado_em?: string
-          canal: string
-          checklist_item_id: string
-          criado_em?: string
-          empresa_id: string
-          fase?: string | null
-          finalizado_em?: string | null
-          id?: string
-          linhas_com_erro?: number
-          linhas_duplicadas?: number
-          linhas_importadas?: number
-          linhas_processadas?: number
-          mensagem_erro?: string | null
-          resultado_processamento?: Json | null
-          status?: string
-          total_linhas?: number
-        }
-        Update: {
-          arquivo_id?: string | null
-          arquivo_nome?: string
-          atualizado_em?: string
-          canal?: string
-          checklist_item_id?: string
-          criado_em?: string
-          empresa_id?: string
-          fase?: string | null
-          finalizado_em?: string | null
-          id?: string
-          linhas_com_erro?: number
-          linhas_duplicadas?: number
-          linhas_importadas?: number
-          linhas_processadas?: number
-          mensagem_erro?: string | null
-          resultado_processamento?: Json | null
-          status?: string
-          total_linhas?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "checklist_import_jobs_arquivo_id_fkey"
-            columns: ["arquivo_id"]
-            isOneToOne: false
-            referencedRelation: "checklist_canal_arquivos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "checklist_import_jobs_checklist_item_id_fkey"
-            columns: ["checklist_item_id"]
-            isOneToOne: false
-            referencedRelation: "checklist_canal_itens"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "checklist_import_jobs_empresa_id_fkey"
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresas"

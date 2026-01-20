@@ -10,7 +10,16 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ResumoVendas } from "@/hooks/useVendas";
 import { MetricasPorTipoEnvio } from "@/hooks/useVendasPaginadas";
 import { cn } from "@/lib/utils";
-import { Package, Truck, Percent, Calculator, ShoppingCart, RotateCcw, AlertTriangle } from "lucide-react";
+import {
+  Package,
+  Truck,
+  Percent,
+  Calculator,
+  ShoppingCart,
+  RotateCcw,
+  AlertTriangle,
+} from "lucide-react";
+
 interface VendasDashboardProps {
   resumo: ResumoVendas;
   metricasPorTipo: MetricasPorTipoEnvio[];
@@ -18,12 +27,14 @@ interface VendasDashboardProps {
   considerarFreteComprador: boolean;
   onConsiderarFreteChange: (value: boolean) => void;
 }
+
 function formatCurrency(value: number): string {
   return value.toLocaleString("pt-BR", {
     style: "currency",
-    currency: "BRL"
+    currency: "BRL",
   });
 }
+
 function formatPercent(value: number): string {
   return `${value.toFixed(1).replace(".", ",")}%`;
 }
@@ -51,7 +62,7 @@ function transformarMetricasPorTipo(metricas: MetricasPorTipoEnvio[]) {
       cmv: 0,
       freteComprador: 0,
       freteVendedor: 0,
-      custoAds: 0
+      custoAds: 0,
     };
   });
 
@@ -66,17 +77,19 @@ function transformarMetricasPorTipo(metricas: MetricasPorTipoEnvio[]) {
       cmv: m.cmv_total,
       freteComprador: m.frete_comprador,
       freteVendedor: m.frete_vendedor,
-      custoAds: m.custo_ads
+      custoAds: m.custo_ads,
     };
   });
+
   return lookup;
 }
+
 export function VendasDashboard({
   resumo,
   metricasPorTipo,
   aliquotaImposto,
   considerarFreteComprador,
-  onConsiderarFreteChange
+  onConsiderarFreteChange,
 }: VendasDashboardProps) {
   const metricasLookup = transformarMetricasPorTipo(metricasPorTipo);
 
@@ -87,17 +100,24 @@ export function VendasDashboard({
     if (considerarFreteComprador) {
       margemRs += freteComprador;
     }
-    const margemPercent = valorBruto > 0 ? margemRs / valorBruto * 100 : 0;
-    return {
-      margemRs,
-      margemPercent
-    };
+    const margemPercent = valorBruto > 0 ? (margemRs / valorBruto) * 100 : 0;
+    return { margemRs, margemPercent };
   };
-  const margemGeral = calcularMargem(resumo.totalFaturamentoLiquido, resumo.totalCMV, resumo.totalFreteVendedor, resumo.totalCustoAds, resumo.totalFreteComprador, resumo.totalFaturamentoBruto);
+
+  const margemGeral = calcularMargem(
+    resumo.totalFaturamentoLiquido,
+    resumo.totalCMV,
+    resumo.totalFreteVendedor,
+    resumo.totalCustoAds,
+    resumo.totalFreteComprador,
+    resumo.totalFaturamentoBruto
+  );
 
   // Frete líquido (comprador - vendedor)
   const freteLiquido = resumo.totalFreteComprador - resumo.totalFreteVendedor;
-  return <div className="space-y-4">
+
+  return (
+    <div className="space-y-4">
       {/* Cards principais */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Vendas Aprovadas */}
@@ -152,9 +172,11 @@ export function VendasDashboard({
             <p className="text-xs text-muted-foreground mt-1">
               {((resumo.totalTarifas + resumo.totalTaxas) / resumo.totalFaturamentoBruto * 100 || 0).toFixed(1)}% do faturamento
             </p>
-            {resumo.totalCustoAds > 0 && <p className="text-xs text-purple-500 mt-0.5">
+            {resumo.totalCustoAds > 0 && (
+              <p className="text-xs text-purple-500 mt-0.5">
                 + ADS: {formatCurrency(resumo.totalCustoAds)}
-              </p>}
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -185,10 +207,17 @@ export function VendasDashboard({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className={cn("text-2xl font-bold", margemGeral.margemRs >= 0 ? "text-emerald-500" : "text-red-500")}>
+            <div className={cn(
+              "text-2xl font-bold",
+              margemGeral.margemRs >= 0 ? "text-emerald-500" : "text-red-500"
+            )}>
               {formatCurrency(margemGeral.margemRs)}
             </div>
-            <p className={cn("text-sm font-medium mt-1", margemGeral.margemPercent >= 20 ? "text-emerald-500" : margemGeral.margemPercent >= 10 ? "text-amber-500" : "text-red-500")}>
+            <p className={cn(
+              "text-sm font-medium mt-1",
+              margemGeral.margemPercent >= 20 ? "text-emerald-500" :
+              margemGeral.margemPercent >= 10 ? "text-amber-500" : "text-red-500"
+            )}>
               {formatPercent(margemGeral.margemPercent)}
             </p>
           </CardContent>
@@ -196,14 +225,29 @@ export function VendasDashboard({
       </div>
 
       {/* Checkbox considerar frete */}
-      
+      <div className="flex items-center gap-2 px-1">
+        <Checkbox
+          id="considerar-frete"
+          checked={considerarFreteComprador}
+          onCheckedChange={(checked) => onConsiderarFreteChange(checked as boolean)}
+        />
+        <Label htmlFor="considerar-frete" className="text-sm cursor-pointer">
+          Considerar frete do comprador na margem
+        </Label>
+      </div>
 
       {/* Alerta de vendas aguardando classificação */}
       {(() => {
-      const totalClassificadas = metricasLookup["full"].qtd + metricasLookup["flex"].qtd + metricasLookup["coleta"].qtd + metricasLookup["places"].qtd;
-      const vendasSemClassificacao = resumo.qtdItens - totalClassificadas;
-      if (vendasSemClassificacao > 0) {
-        return <Alert className="bg-amber-500/10 border-amber-500/50">
+        const totalClassificadas = 
+          metricasLookup["full"].qtd + 
+          metricasLookup["flex"].qtd + 
+          metricasLookup["coleta"].qtd + 
+          metricasLookup["places"].qtd;
+        const vendasSemClassificacao = resumo.qtdItens - totalClassificadas;
+        
+        if (vendasSemClassificacao > 0) {
+          return (
+            <Alert className="bg-amber-500/10 border-amber-500/50">
               <AlertTriangle className="h-4 w-4 text-amber-600" />
               <AlertTitle className="font-semibold text-amber-800 dark:text-amber-200">
                 {vendasSemClassificacao} itens aguardando classificação
@@ -213,40 +257,79 @@ export function VendasDashboard({
                 Isso é normal para vendas dos últimos dias. A classificação é atualizada automaticamente 
                 pela integração com o Mercado Livre.
               </AlertDescription>
-            </Alert>;
-      }
-      return null;
-    })()}
+            </Alert>
+          );
+        }
+        return null;
+      })()}
 
       {/* Cards por tipo de envio */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Full */}
-        <TipoEnvioCard titulo="Full" icon={<Package className="h-4 w-4" />} metricas={metricasLookup["full"]} aliquotaImposto={aliquotaImposto} considerarFreteComprador={considerarFreteComprador} color="emerald" />
+        <TipoEnvioCard
+          titulo="Full"
+          icon={<Package className="h-4 w-4" />}
+          metricas={metricasLookup["full"]}
+          aliquotaImposto={aliquotaImposto}
+          considerarFreteComprador={considerarFreteComprador}
+          color="emerald"
+        />
 
         {/* Flex */}
-        <TipoEnvioCard titulo="Flex" icon={<Truck className="h-4 w-4" />} metricas={metricasLookup["flex"]} aliquotaImposto={aliquotaImposto} considerarFreteComprador={considerarFreteComprador} color="blue" />
+        <TipoEnvioCard
+          titulo="Flex"
+          icon={<Truck className="h-4 w-4" />}
+          metricas={metricasLookup["flex"]}
+          aliquotaImposto={aliquotaImposto}
+          considerarFreteComprador={considerarFreteComprador}
+          color="blue"
+        />
 
         {/* Places/Coleta */}
-        <TipoEnvioCard titulo="Places / Coleta" icon={<RotateCcw className="h-4 w-4" />} metricas={{
-        qtd: (metricasLookup["places"]?.qtd || 0) + (metricasLookup["coleta"]?.qtd || 0),
-        valorBruto: (metricasLookup["places"]?.valorBruto || 0) + (metricasLookup["coleta"]?.valorBruto || 0),
-        valorLiquido: (metricasLookup["places"]?.valorLiquido || 0) + (metricasLookup["coleta"]?.valorLiquido || 0),
-        tarifas: (metricasLookup["places"]?.tarifas || 0) + (metricasLookup["coleta"]?.tarifas || 0),
-        cmv: (metricasLookup["places"]?.cmv || 0) + (metricasLookup["coleta"]?.cmv || 0),
-        freteComprador: (metricasLookup["places"]?.freteComprador || 0) + (metricasLookup["coleta"]?.freteComprador || 0),
-        freteVendedor: (metricasLookup["places"]?.freteVendedor || 0) + (metricasLookup["coleta"]?.freteVendedor || 0),
-        custoAds: (metricasLookup["places"]?.custoAds || 0) + (metricasLookup["coleta"]?.custoAds || 0)
-      }} aliquotaImposto={aliquotaImposto} considerarFreteComprador={considerarFreteComprador} color="amber" />
+        <TipoEnvioCard
+          titulo="Places / Coleta"
+          icon={<RotateCcw className="h-4 w-4" />}
+          metricas={{
+            qtd: (metricasLookup["places"]?.qtd || 0) + (metricasLookup["coleta"]?.qtd || 0),
+            valorBruto: (metricasLookup["places"]?.valorBruto || 0) + (metricasLookup["coleta"]?.valorBruto || 0),
+            valorLiquido: (metricasLookup["places"]?.valorLiquido || 0) + (metricasLookup["coleta"]?.valorLiquido || 0),
+            tarifas: (metricasLookup["places"]?.tarifas || 0) + (metricasLookup["coleta"]?.tarifas || 0),
+            cmv: (metricasLookup["places"]?.cmv || 0) + (metricasLookup["coleta"]?.cmv || 0),
+            freteComprador: (metricasLookup["places"]?.freteComprador || 0) + (metricasLookup["coleta"]?.freteComprador || 0),
+            freteVendedor: (metricasLookup["places"]?.freteVendedor || 0) + (metricasLookup["coleta"]?.freteVendedor || 0),
+            custoAds: (metricasLookup["places"]?.custoAds || 0) + (metricasLookup["coleta"]?.custoAds || 0),
+          }}
+          aliquotaImposto={aliquotaImposto}
+          considerarFreteComprador={considerarFreteComprador}
+          color="amber"
+        />
       </div>
 
       {/* Métricas adicionais */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <MiniMetricaCard titulo="Ticket Médio" valor={formatCurrency(resumo.ticketMedio)} subtitulo="por pedido" />
-        <MiniMetricaCard titulo="Ticket Médio MC" valor={formatCurrency(resumo.qtdTransacoes > 0 ? margemGeral.margemRs / resumo.qtdTransacoes : 0)} subtitulo="margem por pedido" />
-        <MiniMetricaCard titulo="Qtd Vendas" valor={resumo.qtdTransacoes.toString()} subtitulo="pedidos aprovados" />
-        <MiniMetricaCard titulo="Qtd Itens" valor={resumo.qtdItens.toString()} subtitulo="produtos vendidos" />
+        <MiniMetricaCard
+          titulo="Ticket Médio"
+          valor={formatCurrency(resumo.ticketMedio)}
+          subtitulo="por pedido"
+        />
+        <MiniMetricaCard
+          titulo="Ticket Médio MC"
+          valor={formatCurrency(resumo.qtdTransacoes > 0 ? margemGeral.margemRs / resumo.qtdTransacoes : 0)}
+          subtitulo="margem por pedido"
+        />
+        <MiniMetricaCard
+          titulo="Qtd Vendas"
+          valor={resumo.qtdTransacoes.toString()}
+          subtitulo="pedidos aprovados"
+        />
+        <MiniMetricaCard
+          titulo="Qtd Itens"
+          valor={resumo.qtdItens.toString()}
+          subtitulo="produtos vendidos"
+        />
       </div>
-    </div>;
+    </div>
+  );
 }
 
 // Componente para card de tipo de envio
@@ -267,28 +350,25 @@ interface TipoEnvioCardProps {
   considerarFreteComprador: boolean;
   color: "emerald" | "blue" | "amber" | "purple";
 }
-function TipoEnvioCard({
-  titulo,
-  icon,
-  metricas,
-  aliquotaImposto,
-  considerarFreteComprador,
-  color
-}: TipoEnvioCardProps) {
+
+function TipoEnvioCard({ titulo, icon, metricas, aliquotaImposto, considerarFreteComprador, color }: TipoEnvioCardProps) {
   const colorClasses = {
     emerald: "text-emerald-500 bg-emerald-500/10",
     blue: "text-blue-500 bg-blue-500/10",
     amber: "text-amber-500 bg-amber-500/10",
-    purple: "text-purple-500 bg-purple-500/10"
+    purple: "text-purple-500 bg-purple-500/10",
   };
+
   const imposto = metricas.valorBruto * (aliquotaImposto / 100);
   let margem = metricas.valorLiquido - metricas.cmv - metricas.freteVendedor - metricas.custoAds - imposto;
   if (considerarFreteComprador) {
     margem += metricas.freteComprador;
   }
-  const margemPercent = metricas.valorBruto > 0 ? margem / metricas.valorBruto * 100 : 0;
+  const margemPercent = metricas.valorBruto > 0 ? (margem / metricas.valorBruto) * 100 : 0;
+
   if (metricas.qtd === 0) {
-    return <Card className="opacity-50">
+    return (
+      <Card className="opacity-50">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <div className={cn("p-1.5 rounded", colorClasses[color])}>
@@ -300,9 +380,12 @@ function TipoEnvioCard({
         <CardContent>
           <p className="text-sm text-muted-foreground">Sem vendas no período</p>
         </CardContent>
-      </Card>;
+      </Card>
+    );
   }
-  return <Card>
+
+  return (
+    <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
           <div className={cn("p-1.5 rounded", colorClasses[color])}>
@@ -333,10 +416,17 @@ function TipoEnvioCard({
         <div className="border-t pt-2 flex justify-between items-center">
           <span className="text-sm font-medium">Margem</span>
           <div className="text-right">
-            <span className={cn("font-bold", margem >= 0 ? "text-emerald-500" : "text-red-500")}>
+            <span className={cn(
+              "font-bold",
+              margem >= 0 ? "text-emerald-500" : "text-red-500"
+            )}>
               {formatCurrency(margem)}
             </span>
-            <span className={cn("block text-xs", margemPercent >= 20 ? "text-emerald-500" : margemPercent >= 10 ? "text-amber-500" : "text-red-500")}>
+            <span className={cn(
+              "block text-xs",
+              margemPercent >= 20 ? "text-emerald-500" :
+              margemPercent >= 10 ? "text-amber-500" : "text-red-500"
+            )}>
               {formatPercent(margemPercent)}
             </span>
           </div>
@@ -345,24 +435,19 @@ function TipoEnvioCard({
           {metricas.qtd} itens vendidos
         </p>
       </CardContent>
-    </Card>;
+    </Card>
+  );
 }
 
 // Mini card de métrica
-function MiniMetricaCard({
-  titulo,
-  valor,
-  subtitulo
-}: {
-  titulo: string;
-  valor: string;
-  subtitulo: string;
-}) {
-  return <Card>
+function MiniMetricaCard({ titulo, valor, subtitulo }: { titulo: string; valor: string; subtitulo: string }) {
+  return (
+    <Card>
       <CardContent className="pt-4 pb-3">
         <p className="text-xs text-muted-foreground">{titulo}</p>
         <p className="text-lg font-bold">{valor}</p>
         <p className="text-xs text-muted-foreground">{subtitulo}</p>
       </CardContent>
-    </Card>;
+    </Card>
+  );
 }

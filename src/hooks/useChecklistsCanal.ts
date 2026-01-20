@@ -408,16 +408,12 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
       url,
       tamanhoBytes,
       tipoMime,
-      hashArquivo,
-      cnpjArquivo,
     }: {
       checklistItemId: string;
       nomeArquivo: string;
       url: string;
       tamanhoBytes?: number;
       tipoMime?: string;
-      hashArquivo?: string | null;
-      cnpjArquivo?: string | null;
     }) => {
       const { data, error } = await supabase
         .from("checklist_canal_arquivos")
@@ -427,8 +423,6 @@ export function useChecklistsCanal(params?: UseChecklistsCanalParams) {
           url,
           tamanho_bytes: tamanhoBytes || null,
           tipo_mime: tipoMime || null,
-          hash_arquivo: hashArquivo || null,
-          cnpj_arquivo: cnpjArquivo || null,
           processado: false,
         })
         .select()

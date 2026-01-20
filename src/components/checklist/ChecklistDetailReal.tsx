@@ -1,27 +1,19 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ModuleCard } from "@/components/ModuleCard";
 import { EtapaFormModal } from "./EtapaFormModal";
-import { ConferenciaImportacaoModal, ConferenciaData } from "./ConferenciaImportacaoModal";
-import { ChecklistImportJobsPanel } from "./ChecklistImportJobsPanel";
-import { ValidacaoArquivoModal } from "./ValidacaoArquivoModal";
-import { useChecklistImportJobs } from "@/hooks/useChecklistImportJobs";
 import { ChecklistCanalComItens, ChecklistCanalItem, useChecklistsCanal, calcularProgressoChecklist, getStatusLabel, getStatusColor } from "@/hooks/useChecklistsCanal";
 import { getMesNome } from "@/lib/checklist-data";
 import { supabase } from "@/integrations/supabase/client";
-import { validarPeriodoArquivo, getNomeMes } from "@/lib/validar-periodo-arquivo";
-import { validarEmpresaArquivo } from "@/lib/validar-empresa-arquivo";
-import { verificarArquivoDuplicado } from "@/lib/validar-arquivo-duplicado";
-import { validarSobreposicaoDados } from "@/lib/validar-sobreposicao-dados";
-import { processarArquivoChecklistBackground } from "@/lib/processar-arquivo-checklist";
-import { calcularHashArquivo } from "@/lib/validar-arquivo-duplicado";
 import {
   ArrowLeft,
+  Download,
   FileText,
   Check,
+  Clock,
+  AlertCircle,
   ShoppingBag,
   Store,
   Shirt,
@@ -32,18 +24,18 @@ import {
   Upload,
   ChevronDown,
   ChevronRight,
+  Save,
+  X,
   Loader2,
   File,
-  X,
-  AlertTriangle,
-  RefreshCw,
-  CheckCircle2,
-  XCircle,
-  Tag,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,15 +46,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Link } from "react-router-dom";
 
 interface ChecklistDetailRealProps {
   checklist: ChecklistCanalComItens;
@@ -77,34 +60,6 @@ const iconMap: Record<string, React.ElementType> = {
   tiktok: Music,
 };
 
-interface PendingUpload {
-  file: File;
-  itemId: string;
-  validacao: {
-    valido: boolean;
-    periodoDetectado: { mes: number; ano: number } | null;
-    periodoEsperado: { mes: number; ano: number };
-  };
-}
-
-interface ValidacaoState {
-  isLoading: boolean;
-  open: boolean;
-  file: File | null;
-  itemId: string | null;
-  validacaoPeriodo?: {
-    valido: boolean;
-    mesArquivo?: number;
-    anoArquivo?: number;
-    mesChecklist: number;
-    anoChecklist: number;
-    mensagem?: string;
-  };
-  validacaoEmpresa?: Awaited<ReturnType<typeof validarEmpresaArquivo>>;
-  validacaoDuplicidade?: Awaited<ReturnType<typeof verificarArquivoDuplicado>>;
-  validacaoSobreposicao?: Awaited<ReturnType<typeof validarSobreposicaoDados>>;
-}
-
 export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistDetailRealProps) {
   const [showEtapaModal, setShowEtapaModal] = useState(false);
   const [etapaParaEditar, setEtapaParaEditar] = useState<ChecklistCanalItem | null>(null);
@@ -113,50 +68,8 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [currentUploadItemId, setCurrentUploadItemId] = useState<string | null>(null);
-  
-  // Estado para modal de confirmação de período incompatível (legacy - usado como fallback)
-  const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
-  const [showPeriodoAlertModal, setShowPeriodoAlertModal] = useState(false);
-  
-  // Estado para modal de conferência de importação
-  const [showConferenciaModal, setShowConferenciaModal] = useState(false);
-  const [conferenciaData, setConferenciaData] = useState<ConferenciaData | null>(null);
-  
-  // Estado para validação unificada pré-upload
-  const [validacaoState, setValidacaoState] = useState<ValidacaoState>({
-    isLoading: false,
-    open: false,
-    file: null,
-    itemId: null,
-  });
-  
-  // Estado para hash do arquivo (para salvar no registro)
-  const [currentFileHash, setCurrentFileHash] = useState<string | null>(null);
 
-  const { atualizarEtapa, excluirEtapa, adicionarArquivo, removerArquivo, marcarArquivoProcessado } = useChecklistsCanal();
-  
-  // Hook para monitorar jobs de importação ativos - passa empresa_id do checklist
-  const { emAndamento, historico } = useChecklistImportJobs({ empresaId: checklist.empresa_id });
-  const hasActiveJobs = emAndamento.length > 0;
-  
-  // Contar transações importadas recentes pendentes de categorização
-  const totalImportadasRecentes = historico
-    .filter(j => j.status === "concluido")
-    .reduce((acc, j) => acc + (j.linhas_importadas || 0), 0);
-  
-  // Aviso ao sair da página durante processamento
-  useEffect(() => {
-    if (hasActiveJobs) {
-      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-        e.preventDefault();
-        e.returnValue = "Há processamentos em andamento. Se você sair, eles podem ser interrompidos.";
-        return e.returnValue;
-      };
-      
-      window.addEventListener("beforeunload", handleBeforeUnload);
-      return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-    }
-  }, [hasActiveJobs]);
+  const { atualizarEtapa, excluirEtapa, adicionarArquivo, removerArquivo } = useChecklistsCanal();
 
   const handleUploadClick = (itemId: string) => {
     setCurrentUploadItemId(itemId);
@@ -167,92 +80,11 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
     const file = e.target.files?.[0];
     if (!file || !currentUploadItemId) return;
 
-    // Limpar input para permitir reselecionar mesmo arquivo
-    if (fileInputRef.current) fileInputRef.current.value = "";
-
-    // Abrir modal de validação e iniciar validações em paralelo
-    setValidacaoState({
-      isLoading: true,
-      open: true,
-      file,
-      itemId: currentUploadItemId,
-    });
+    setUploadingItemId(currentUploadItemId);
 
     try {
-      // Executar todas as validações em paralelo
-      const [periodoResult, empresaResult, duplicidadeResult, sobreposicaoResult] = await Promise.all([
-        validarPeriodoArquivo(file, checklist.mes, checklist.ano),
-        validarEmpresaArquivo(file, checklist.empresa_id),
-        verificarArquivoDuplicado(file, checklist.empresa_id, checklist.canal_id),
-        validarSobreposicaoDados(file, checklist.empresa_id, checklist.canal_id),
-      ]);
-
-      // Guardar hash para salvar no arquivo depois
-      const hash = await calcularHashArquivo(file);
-      setCurrentFileHash(hash);
-
-      // Atualizar estado com resultados
-      setValidacaoState({
-        isLoading: false,
-        open: true,
-        file,
-        itemId: currentUploadItemId,
-        validacaoPeriodo: {
-          valido: periodoResult.valido,
-          mesArquivo: periodoResult.periodoDetectado?.mes,
-          anoArquivo: periodoResult.periodoDetectado?.ano,
-          mesChecklist: checklist.mes,
-          anoChecklist: checklist.ano,
-          mensagem: periodoResult.alertaIncompatibilidade 
-            ? `Arquivo de ${periodoResult.periodoDetectado ? getNomeMes(periodoResult.periodoDetectado.mes) + "/" + periodoResult.periodoDetectado.ano : "período desconhecido"}`
-            : undefined,
-        },
-        validacaoEmpresa: empresaResult,
-        validacaoDuplicidade: duplicidadeResult,
-        validacaoSobreposicao: sobreposicaoResult,
-      });
-    } catch (error) {
-      console.error("Erro nas validações:", error);
-      toast({ 
-        title: "Erro na validação", 
-        description: "Não foi possível validar o arquivo. Tente novamente.", 
-        variant: "destructive" 
-      });
-      setValidacaoState({
-        isLoading: false,
-        open: false,
-        file: null,
-        itemId: null,
-      });
-    }
-  };
-
-  const handleConfirmValidatedUpload = async () => {
-    if (!validacaoState.file || !validacaoState.itemId) return;
-    setValidacaoState(prev => ({ ...prev, open: false }));
-    await executarUpload(validacaoState.file, validacaoState.itemId, currentFileHash);
-  };
-
-  const handleCancelValidatedUpload = () => {
-    setValidacaoState({
-      isLoading: false,
-      open: false,
-      file: null,
-      itemId: null,
-    });
-    setCurrentFileHash(null);
-    setCurrentUploadItemId(null);
-  };
-
-  const executarUpload = async (file: File, itemId: string, hashArquivo?: string | null) => {
-    setUploadingItemId(itemId);
-
-    try {
-      // Calcular hash se não foi passado
-      const fileHash = hashArquivo || await calcularHashArquivo(file);
-      
       // Upload para Storage
-      const fileName = `checklist/${itemId}/${Date.now()}_${file.name}`;
+      const fileName = `checklist/${currentUploadItemId}/${Date.now()}_${file.name}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("product-images")
         .upload(fileName, file);
@@ -264,36 +96,17 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
         .from("product-images")
         .getPublicUrl(fileName);
 
-      // Registrar arquivo no banco com hash
-      const arquivoResult = await adicionarArquivo.mutateAsync({
-        checklistItemId: itemId,
+      // Registrar arquivo no banco
+      await adicionarArquivo.mutateAsync({
+        checklistItemId: currentUploadItemId,
         nomeArquivo: file.name,
         url: urlData.publicUrl,
         tamanhoBytes: file.size,
         tipoMime: file.type,
-        hashArquivo: fileHash,
-        cnpjArquivo: validacaoState.validacaoEmpresa?.cnpjArquivo || null,
       });
 
-      toast({ title: "Arquivo enviado!", description: "Processamento iniciado em segundo plano" });
-      
-      // Iniciar processamento em background (não bloqueia)
-      if (arquivoResult) {
-        processarArquivoChecklistBackground(
-          arquivoResult.id, 
-          urlData.publicUrl, 
-          checklist.canal_id,
-          checklist.empresa_id,
-          file.name,
-          itemId
-        ).catch(err => {
-          console.error("Erro ao iniciar processamento:", err);
-        });
-      }
-
-      // Limpar estados
-      setCurrentFileHash(null);
       onRefresh();
+      toast({ title: "Arquivo enviado com sucesso" });
     } catch (error: any) {
       console.error("Erro no upload:", error);
       toast({ title: "Erro ao enviar arquivo", description: error.message, variant: "destructive" });
@@ -301,39 +114,6 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
       setUploadingItemId(null);
       setCurrentUploadItemId(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  const handleConfirmUploadWithInvalidPeriod = async () => {
-    if (pendingUpload) {
-      await executarUpload(pendingUpload.file, pendingUpload.itemId);
-    }
-    setShowPeriodoAlertModal(false);
-    setPendingUpload(null);
-  };
-
-  const handleCancelUpload = () => {
-    setShowPeriodoAlertModal(false);
-    setPendingUpload(null);
-    setCurrentUploadItemId(null);
-  };
-
-  // Reprocessar arquivo que não foi processado ainda - agora usa background
-  const handleReprocessarArquivo = async (arquivo: { id: string; url: string; nome_arquivo: string }, itemId: string) => {
-    try {
-      toast({ title: "Reprocessando...", description: "Processamento iniciado em segundo plano" });
-      await processarArquivoChecklistBackground(
-        arquivo.id,
-        arquivo.url,
-        checklist.canal_id,
-        checklist.empresa_id,
-        arquivo.nome_arquivo,
-        itemId
-      );
-      onRefresh();
-    } catch (error) {
-      console.error("Erro ao reprocessar:", error);
-      toast({ title: "Erro ao reprocessar", variant: "destructive" });
     }
   };
 
@@ -397,78 +177,8 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
     i => i.status === "concluido" || i.status === "nao_aplicavel"
   );
 
-  // Renderizar status de processamento do arquivo
-  const renderArquivoStatus = (arquivo: { processado: boolean; transacoes_importadas: number; resultado_processamento: any }) => {
-    if (arquivo.processado) {
-      if (arquivo.transacoes_importadas > 0) {
-        return (
-          <span className="flex items-center gap-1 text-xs text-success">
-            <CheckCircle2 className="h-3 w-3" />
-            {arquivo.transacoes_importadas} transações importadas
-          </span>
-        );
-      } else {
-        const resultado = arquivo.resultado_processamento?.resultado;
-        if (resultado?.duplicatas > 0) {
-          return (
-            <span className="flex items-center gap-1 text-xs text-warning">
-              <AlertTriangle className="h-3 w-3" />
-              {resultado.duplicatas} duplicatas ignoradas
-            </span>
-          );
-        }
-        return (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Check className="h-3 w-3" />
-            Processado (sem novas transações)
-          </span>
-        );
-      }
-    }
-    
-    return (
-      <span className="flex items-center gap-1 text-xs text-amber-600">
-        <AlertTriangle className="h-3 w-3" />
-        Aguardando processamento
-      </span>
-    );
-  };
-
   return (
     <div className="space-y-6">
-      {/* Aviso de processamento ativo */}
-      {hasActiveJobs && (
-        <Alert variant="default" className="border-warning/50 bg-warning/10">
-          <Loader2 className="h-4 w-4 animate-spin text-warning" />
-          <AlertTitle className="text-warning">Processamento em andamento</AlertTitle>
-          <AlertDescription>
-            Não saia desta página durante o processamento para evitar interrupções.
-            O progresso é exibido no painel abaixo.
-          </AlertDescription>
-        </Alert>
-      )}
-      
-      {/* Alert de transações pendentes de categorização */}
-      {!hasActiveJobs && totalImportadasRecentes > 0 && (
-        <Alert variant="default" className="border-primary/50 bg-primary/5">
-          <Tag className="h-4 w-4 text-primary" />
-          <AlertTitle className="text-primary">Transações importadas</AlertTitle>
-          <AlertDescription className="flex items-center justify-between">
-            <span>
-              {totalImportadasRecentes} transações foram importadas recentemente e estão pendentes de categorização.
-            </span>
-            <Link to="/conciliacao?tab=marketplace">
-              <Button size="sm" variant="outline" className="ml-4">
-                Categorizar agora
-              </Button>
-            </Link>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Painel de Jobs de Importação em Background */}
-      <ChecklistImportJobsPanel empresaId={checklist.empresa_id} />
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -604,43 +314,26 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
                         </div>
                         {/* Lista de arquivos */}
                         {item.arquivos && item.arquivos.length > 0 && (
-                          <div className="space-y-2">
+                          <div className="space-y-1">
                             {item.arquivos.map((arquivo) => (
-                              <div key={arquivo.id} className="flex flex-col gap-1 text-sm p-3 bg-secondary/30 rounded-lg">
-                                <div className="flex items-center gap-2">
-                                  <File className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                                  <a 
-                                    href={arquivo.url} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="flex-1 hover:underline text-primary truncate"
-                                  >
-                                    {arquivo.nome_arquivo}
-                                  </a>
-                                  {!arquivo.processado && (
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm" 
-                                      className="h-7 px-2 text-xs"
-                                      onClick={() => handleReprocessarArquivo(arquivo, item.id)}
-                                    >
-                                      <RefreshCw className="h-3 w-3 mr-1" />
-                                      Processar
-                                    </Button>
-                                  )}
-                                  <Button 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                                    onClick={() => handleRemoveFile(arquivo.id)}
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                                {/* Status do processamento */}
-                                <div className="ml-6">
-                                  {renderArquivoStatus(arquivo)}
-                                </div>
+                              <div key={arquivo.id} className="flex items-center gap-2 text-sm p-2 bg-secondary/30 rounded">
+                                <File className="h-4 w-4 text-muted-foreground" />
+                                <a 
+                                  href={arquivo.url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="flex-1 hover:underline text-primary truncate"
+                                >
+                                  {arquivo.nome_arquivo}
+                                </a>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                                  onClick={() => handleRemoveFile(arquivo.id)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
                               </div>
                             ))}
                           </div>
@@ -697,76 +390,6 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Modal de alerta de período incompatível */}
-      <Dialog open={showPeriodoAlertModal} onOpenChange={setShowPeriodoAlertModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-600">
-              <AlertTriangle className="h-5 w-5" />
-              Período Incompatível Detectado
-            </DialogTitle>
-            <DialogDescription className="pt-4 space-y-4">
-              {pendingUpload && (
-                <>
-                  <p>
-                    O arquivo <strong>"{pendingUpload.file.name}"</strong> contém transações de{" "}
-                    <strong className="text-amber-600">
-                      {pendingUpload.validacao.periodoDetectado 
-                        ? `${getNomeMes(pendingUpload.validacao.periodoDetectado.mes)}/${pendingUpload.validacao.periodoDetectado.ano}`
-                        : "período desconhecido"
-                      }
-                    </strong>
-                    , mas este checklist é de{" "}
-                    <strong className="text-primary">
-                      {getNomeMes(pendingUpload.validacao.periodoEsperado.mes)}/{pendingUpload.validacao.periodoEsperado.ano}
-                    </strong>.
-                  </p>
-                  <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg text-sm">
-                    <p className="font-medium text-amber-800 dark:text-amber-200 mb-1">Isso pode indicar:</p>
-                    <ul className="list-disc list-inside text-amber-700 dark:text-amber-300 space-y-1">
-                      <li>Arquivo errado selecionado</li>
-                      <li>Upload no checklist de período incorreto</li>
-                    </ul>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Deseja continuar mesmo assim? As transações serão importadas com as datas originais do arquivo.
-                  </p>
-                </>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={handleCancelUpload}>
-              Cancelar
-            </Button>
-            <Button variant="default" onClick={handleConfirmUploadWithInvalidPeriod} className="bg-amber-600 hover:bg-amber-700">
-              Continuar mesmo assim
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal de conferência de importação */}
-      <ConferenciaImportacaoModal
-        open={showConferenciaModal}
-        onOpenChange={setShowConferenciaModal}
-        data={conferenciaData}
-      />
-      
-      {/* Modal de validação unificada pré-upload */}
-      <ValidacaoArquivoModal
-        open={validacaoState.open}
-        onOpenChange={(open) => !open && handleCancelValidatedUpload()}
-        fileName={validacaoState.file?.name || ""}
-        isLoading={validacaoState.isLoading}
-        validacaoPeriodo={validacaoState.validacaoPeriodo}
-        validacaoEmpresa={validacaoState.validacaoEmpresa}
-        validacaoDuplicidade={validacaoState.validacaoDuplicidade}
-        validacaoSobreposicao={validacaoState.validacaoSobreposicao}
-        onConfirm={handleConfirmValidatedUpload}
-        onCancel={handleCancelValidatedUpload}
-      />
 
       {/* Input de arquivo oculto */}
       <input
