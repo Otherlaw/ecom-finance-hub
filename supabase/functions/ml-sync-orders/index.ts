@@ -80,6 +80,15 @@ interface ShippingDetails {
   mode?: string;
 }
 
+// Dados brutos de shipping costs para auditoria
+interface RawShippingCosts {
+  logistic_type: string;
+  sender_cost: number;
+  receiver_cost: number;
+  raw_senders?: any[];
+  raw_receiver?: any[];
+}
+
 // Estrutura para taxas extraídas da API de Conciliações
 interface OrderFees {
   taxas: number;      // CV - Custo de Venda (comissão ML)
@@ -267,7 +276,7 @@ async function fetchShippingCosts(
   supabase: any,
   tokenState: TokenState,
   shippingId: number
-): Promise<{ data: { logistic_type: string; sender_cost: number; receiver_cost: number } | null; tokenState: TokenState }> {
+): Promise<{ data: RawShippingCosts | null; tokenState: TokenState }> {
   try {
     // Primeiro, buscar dados básicos do shipment para logistic_type
     const shippingUrl = `${ML_API_URL}/shipments/${shippingId}`;
@@ -318,7 +327,9 @@ async function fetchShippingCosts(
       data: { 
         logistic_type: logisticType, 
         sender_cost: senderCost, 
-        receiver_cost: receiverCost 
+        receiver_cost: receiverCost,
+        raw_senders: costsData.senders,
+        raw_receiver: costsData.receiver,
       }, 
       tokenState: state2 
     };
@@ -844,7 +855,7 @@ Deno.serve(async (req) => {
     const ordersWithShipping = allOrders.filter(o => o.shipping?.id);
     console.log(`[ML Sync] 📦 Buscando custos de envio para ${ordersWithShipping.length} pedidos...`);
     
-    const shippingCostsMap = new Map<number, { logistic_type: string; sender_cost: number; receiver_cost: number }>();
+    const shippingCostsMap = new Map<number, RawShippingCosts>();
     
     for (let i = 0; i < ordersWithShipping.length; i += BATCH_SIZE) {
       if (Date.now() - startTime > TIMEOUT_MS * 0.6) {
@@ -945,10 +956,44 @@ Deno.serve(async (req) => {
         // Calcular quantidade total de itens (soma das quantidades, não apenas count)
         const qtdItens = order.order_items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1;
 
+        // ========== PREPARAR RAW_ORDER PARA AUDITORIA ==========
+        // Salvar campos principais do pedido para debug (sem dados sensíveis)
+        const rawOrder = {
+          id: order.id,
+          status: order.status,
+          date_created: order.date_created,
+          date_closed: order.date_closed,
+          total_amount: order.total_amount,
+          paid_amount: order.paid_amount,
+          currency_id: order.currency_id,
+          buyer_id: order.buyer?.id,
+          buyer_nickname: order.buyer?.nickname,
+          seller_id: order.seller?.id,
+          tags: order.tags,
+          payments_count: order.payments?.length || 0,
+          items_count: order.order_items?.length || 0,
+          shipping_id: order.shipping?.id,
+          shipping_logistic_type: order.shipping?.logistic_type,
+        };
+
+        // ========== PREPARAR RAW_FEES PARA AUDITORIA ==========
+        const rawFees = billingFees ? {
+          source: "api_conciliacoes",
+          taxas: billingFees.taxas,
+          tarifas: billingFees.tarifas,
+          freteVendedor: billingFees.freteVendedor,
+        } : {
+          source: "api_orders_fallback",
+          marketplace_fee_sum: order.payments?.reduce((sum, p) => sum + (p.marketplace_fee || 0), 0) || 0,
+          estimated: taxas > 0 && order.payments?.every(p => (p.marketplace_fee || 0) === 0),
+        };
+
         const transactionData = {
           empresa_id,
           canal: "Mercado Livre",
           conta_nome: contaNome, // Nome da conta do vendedor
+          seller_id: tokenState.user_id_provider, // ID do vendedor
+          shipment_id: order.shipping?.id ? String(order.shipping.id) : null, // ID do envio
           data_transacao: dataTransacao,
           descricao: `Venda #${order.id}${buyerNickname ? ` - ${buyerNickname}` : ''}`,
           tipo_lancamento: "credito",
@@ -965,6 +1010,15 @@ Deno.serve(async (req) => {
           tipo_envio: tipoEnvio,
           frete_comprador: freteComprador,
           frete_vendedor: freteVendedor,
+          raw_order: rawOrder, // Payload do pedido para auditoria
+          raw_fees: rawFees, // Taxas brutas para auditoria
+          raw_shipping_costs: shippingCosts ? {
+            logistic_type: shippingCosts.logistic_type,
+            sender_cost: shippingCosts.sender_cost,
+            receiver_cost: shippingCosts.receiver_cost,
+            raw_senders: shippingCosts.raw_senders,
+            raw_receiver: shippingCosts.raw_receiver,
+          } : null, // Custos de envio brutos
         };
 
         // UPSERT usando colunas do índice único uq_mkt_tx_key
