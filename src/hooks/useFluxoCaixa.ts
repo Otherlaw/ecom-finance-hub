@@ -48,6 +48,19 @@ interface UseFluxoCaixaParams {
 
 /**
  * Hook para Fluxo de Caixa usando Motor de Entrada Unificada (MEU)
+ * 
+ * IMPORTANTE: Filtra apenas movimentos com regime='caixa' para garantir
+ * que vendas individuais (regime='competencia') não contaminem o caixa.
+ * 
+ * Fluxo de Caixa mostra:
+ * - Transações bancárias (origem='banco')
+ * - Lançamentos manuais (origem='manual')
+ * - Pagamentos de contas (origem='contas_pagar')
+ * - Recebimentos (origem='contas_receber')
+ * - Repasses de marketplace (quando configurados como regime='caixa')
+ * 
+ * NÃO mostra:
+ * - Vendas individuais de marketplace (regime='competencia' - ficam em Vendas)
  */
 export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxoCaixaParams = {}) => {
   const { data: movimentosRaw, isLoading } = useQuery({
@@ -56,6 +69,8 @@ export const useFluxoCaixa = ({ periodoInicio, periodoFim, empresaId }: UseFluxo
       let query = supabase
         .from("movimentos_financeiros")
         .select(`*, categoria:categorias_financeiras(id, nome, tipo), empresa:empresas(id, razao_social, nome_fantasia)`)
+        // CRÍTICO: Filtrar apenas regime='caixa' para não incluir vendas individuais
+        .eq("regime", "caixa")
         .order("data", { ascending: true });
 
       if (periodoInicio) query = query.gte("data", periodoInicio);
