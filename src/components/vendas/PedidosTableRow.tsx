@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  DollarSign,
   Link2,
   Loader2,
   Package,
@@ -20,7 +21,8 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { MapearCmvModal } from "./MapearCmvModal";
 
 interface PedidosTableRowProps {
   pedido: PedidoAgregado;
@@ -117,6 +119,9 @@ export function PedidosTableRow({
   onAbrirMapeamento,
 }: PedidosTableRowProps) {
   const [expanded, setExpanded] = useState(false);
+  const [showCmvModal, setShowCmvModal] = useState(false);
+  const [itemParaMapear, setItemParaMapear] = useState<VendaItem | null>(null);
+  const queryClient = useQueryClient();
   
   // Buscar transaction_id pelo pedido_id para depois buscar itens
   const { data: transactionId } = useQuery({
@@ -124,17 +129,27 @@ export function PedidosTableRow({
     queryFn: async () => {
       const { data } = await supabase
         .from("marketplace_transactions")
-        .select("id")
+        .select("id, empresa_id")
         .eq("pedido_id", pedido.pedido_id)
         .eq("tipo_transacao", "venda")
         .limit(1)
         .single();
-      return data?.id || null;
+      return data || null;
     },
     enabled: expanded,
   });
 
-  const { itens, isLoading: isLoadingItens } = useVendaItens(expanded && transactionId ? transactionId : null);
+  const { itens, isLoading: isLoadingItens } = useVendaItens(expanded && transactionId?.id ? transactionId.id : null);
+
+  const handleAbrirCmvModal = (item: VendaItem) => {
+    setItemParaMapear(item);
+    setShowCmvModal(true);
+  };
+
+  const handleCmvSalvo = () => {
+    queryClient.invalidateQueries({ queryKey: ["venda-itens"] });
+    queryClient.invalidateQueries({ queryKey: ["vendas-por-pedido"] });
+  };
 
   // Verificar se há itens - usar 0 se não houver (não fallback para 1)
   const temItens = pedido.qtd_itens > 0;
