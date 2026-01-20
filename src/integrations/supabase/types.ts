@@ -2283,6 +2283,7 @@ export type Database = {
           seller_id: string | null
           shipment_id: string | null
           status: string
+          status_enriquecimento: string | null
           tarifas: number | null
           taxas: number | null
           tipo_envio: string | null
@@ -2320,6 +2321,7 @@ export type Database = {
           seller_id?: string | null
           shipment_id?: string | null
           status?: string
+          status_enriquecimento?: string | null
           tarifas?: number | null
           taxas?: number | null
           tipo_envio?: string | null
@@ -2357,6 +2359,7 @@ export type Database = {
           seller_id?: string | null
           shipment_id?: string | null
           status?: string
+          status_enriquecimento?: string | null
           tarifas?: number | null
           taxas?: number | null
           tipo_envio?: string | null

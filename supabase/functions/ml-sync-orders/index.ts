@@ -956,6 +956,29 @@ Deno.serve(async (req) => {
         // Calcular quantidade total de itens (soma das quantidades, não apenas count)
         const qtdItens = order.order_items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1;
 
+        // ========== DETERMINAR STATUS_ENRIQUECIMENTO ==========
+        // Se não conseguimos obter um componente, gravar NULL e marcar como pendente
+        // Valores são NULL quando: API indisponível, dados ainda não processados, etc.
+        let statusEnriquecimento = "completo";
+        const camposPendentes: string[] = [];
+        
+        // Taxas (comissão): se billingAvailable=false E marketplace_fee foi estimado
+        const taxasFoiEstimada = !billingAvailable && !billingFees && taxas > 0 && 
+          (order.payments?.every(p => (p.marketplace_fee || 0) === 0) || false);
+        if (taxasFoiEstimada) {
+          camposPendentes.push("taxas_estimadas");
+        }
+        
+        // Frete vendedor: se não temos dados de shipping costs
+        const fretePendente = order.shipping?.id && !shippingCosts;
+        if (fretePendente) {
+          camposPendentes.push("frete");
+        }
+        
+        if (camposPendentes.length > 0) {
+          statusEnriquecimento = `pendente_${camposPendentes.join("_")}`;
+        }
+
         // ========== PREPARAR RAW_ORDER PARA AUDITORIA ==========
         // Salvar campos principais do pedido para debug (sem dados sensíveis)
         const rawOrder = {
@@ -1000,7 +1023,7 @@ Deno.serve(async (req) => {
           tipo_transacao: "venda",
           valor_bruto: valorBruto,
           valor_liquido: valorLiquido,
-          taxas: taxas,
+          taxas: taxasFoiEstimada ? null : taxas, // NULL se foi estimado, para indicar pendente
           tarifas: tarifas,
           outros_descontos: 0,
           referencia_externa: String(order.id),
@@ -1009,7 +1032,7 @@ Deno.serve(async (req) => {
           status: order.status === "paid" ? "importado" : "pendente",
           tipo_envio: tipoEnvio,
           frete_comprador: freteComprador,
-          frete_vendedor: freteVendedor,
+          frete_vendedor: fretePendente ? null : freteVendedor, // NULL se pendente de shipping costs
           raw_order: rawOrder, // Payload do pedido para auditoria
           raw_fees: rawFees, // Taxas brutas para auditoria
           raw_shipping_costs: shippingCosts ? {
@@ -1019,6 +1042,7 @@ Deno.serve(async (req) => {
             raw_senders: shippingCosts.raw_senders,
             raw_receiver: shippingCosts.raw_receiver,
           } : null, // Custos de envio brutos
+          status_enriquecimento: statusEnriquecimento, // Status do enriquecimento de dados
         };
 
         // UPSERT usando colunas do índice único uq_mkt_tx_key

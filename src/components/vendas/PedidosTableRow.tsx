@@ -232,27 +232,62 @@ export function PedidosTableRow({
           {formatCurrency(pedido.valor_produto)}
         </TableCell>
         <TableCell className="text-right text-xs text-destructive/80">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>{formatCurrency(pedido.comissao_total)}</span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="text-xs">Comissão de venda (CV)</p>
-            </TooltipContent>
-          </Tooltip>
+          {pedido.comissao_total === null || pedido.comissao_total === undefined ? (
+            <Tooltip>
+              <TooltipTrigger>
+                <span className="text-muted-foreground">—</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Pendente de enriquecimento. Re-sincronize para obter.</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : pedido.comissao_total > 0 ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>{formatCurrency(pedido.comissao_total)}</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Comissão de venda (CV)</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
         </TableCell>
         <TableCell className="text-right text-xs text-destructive/80">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>{formatCurrency(pedido.tarifa_fixa_total)}</span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="text-xs">Tarifa fixa + financiamento</p>
-            </TooltipContent>
-          </Tooltip>
+          {pedido.tarifa_fixa_total === null || pedido.tarifa_fixa_total === undefined ? (
+            <Tooltip>
+              <TooltipTrigger>
+                <span className="text-muted-foreground">—</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Pendente de enriquecimento. Re-sincronize para obter.</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : pedido.tarifa_fixa_total > 0 ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>{formatCurrency(pedido.tarifa_fixa_total)}</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Tarifa fixa + financiamento</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
         </TableCell>
         <TableCell className="text-right text-xs text-destructive/80">
-          {pedido.frete_vendedor_total > 0 ? (
+          {pedido.frete_vendedor_total === null || pedido.frete_vendedor_total === undefined ? (
+            <Tooltip>
+              <TooltipTrigger>
+                <span className="text-muted-foreground">—</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Pendente de enriquecimento. Re-sincronize para obter.</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : pedido.frete_vendedor_total > 0 ? (
             formatCurrency(pedido.frete_vendedor_total)
           ) : (
             <span className="text-muted-foreground">—</span>
@@ -341,21 +376,73 @@ export function PedidosTableRow({
                   </div>
                   
                   <div className="space-y-1">
-                    <p className="text-muted-foreground">Comissão (CV)</p>
-                    <p className="font-medium text-destructive">-{formatCurrency(pedido.comissao_total)}</p>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Tarifa/Financ.</p>
-                    <p className="font-medium text-destructive">-{formatCurrency(pedido.tarifa_fixa_total)}</p>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Frete Vendedor</p>
+                    <p className="text-muted-foreground flex items-center gap-1">
+                      Comissão (CV)
+                      {(pedido.comissao_total === null || pedido.comissao_total === undefined) && (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <HelpCircle className="h-3 w-3 text-amber-500" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">Pendente de enriquecimento</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </p>
                     <p className="font-medium text-destructive">
-                      {pedido.frete_vendedor_total > 0 
-                        ? `-${formatCurrency(pedido.frete_vendedor_total)}`
-                        : "—"
+                      {pedido.comissao_total === null || pedido.comissao_total === undefined
+                        ? <span className="text-muted-foreground">—</span>
+                        : pedido.comissao_total > 0 
+                          ? `-${formatCurrency(pedido.comissao_total)}`
+                          : <span className="text-muted-foreground">—</span>
+                      }
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground flex items-center gap-1">
+                      Tarifa/Financ.
+                      {(pedido.tarifa_fixa_total === null || pedido.tarifa_fixa_total === undefined) && (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <HelpCircle className="h-3 w-3 text-amber-500" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">Pendente de enriquecimento</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </p>
+                    <p className="font-medium text-destructive">
+                      {pedido.tarifa_fixa_total === null || pedido.tarifa_fixa_total === undefined
+                        ? <span className="text-muted-foreground">—</span>
+                        : pedido.tarifa_fixa_total > 0 
+                          ? `-${formatCurrency(pedido.tarifa_fixa_total)}`
+                          : <span className="text-muted-foreground">—</span>
+                      }
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground flex items-center gap-1">
+                      Frete Vendedor
+                      {(pedido.frete_vendedor_total === null || pedido.frete_vendedor_total === undefined) && (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <HelpCircle className="h-3 w-3 text-amber-500" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">Pendente de enriquecimento</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </p>
+                    <p className="font-medium text-destructive">
+                      {pedido.frete_vendedor_total === null || pedido.frete_vendedor_total === undefined
+                        ? <span className="text-muted-foreground">—</span>
+                        : pedido.frete_vendedor_total > 0 
+                          ? `-${formatCurrency(pedido.frete_vendedor_total)}`
+                          : <span className="text-muted-foreground">—</span>
                       }
                     </p>
                   </div>
