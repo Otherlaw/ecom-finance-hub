@@ -221,9 +221,12 @@ export type Database = {
       checklist_canal_arquivos: {
         Row: {
           checklist_item_id: string
+          cnpj_arquivo: string | null
           data_upload: string
+          hash_arquivo: string | null
           id: string
           nome_arquivo: string
+          periodo_detectado: Json | null
           processado: boolean
           resultado_processamento: Json | null
           tamanho_bytes: number | null
@@ -233,9 +236,12 @@ export type Database = {
         }
         Insert: {
           checklist_item_id: string
+          cnpj_arquivo?: string | null
           data_upload?: string
+          hash_arquivo?: string | null
           id?: string
           nome_arquivo: string
+          periodo_detectado?: Json | null
           processado?: boolean
           resultado_processamento?: Json | null
           tamanho_bytes?: number | null
@@ -245,9 +251,12 @@ export type Database = {
         }
         Update: {
           checklist_item_id?: string
+          cnpj_arquivo?: string | null
           data_upload?: string
+          hash_arquivo?: string | null
           id?: string
           nome_arquivo?: string
+          periodo_detectado?: Json | null
           processado?: boolean
           resultado_processamento?: Json | null
           tamanho_bytes?: number | null
@@ -382,6 +391,91 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "checklist_etapas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      checklist_import_jobs: {
+        Row: {
+          arquivo_id: string | null
+          arquivo_nome: string
+          atualizado_em: string
+          canal: string
+          checklist_item_id: string
+          criado_em: string
+          empresa_id: string
+          fase: string | null
+          finalizado_em: string | null
+          id: string
+          linhas_com_erro: number
+          linhas_duplicadas: number
+          linhas_importadas: number
+          linhas_processadas: number
+          mensagem_erro: string | null
+          resultado_processamento: Json | null
+          status: string
+          total_linhas: number
+        }
+        Insert: {
+          arquivo_id?: string | null
+          arquivo_nome: string
+          atualizado_em?: string
+          canal: string
+          checklist_item_id: string
+          criado_em?: string
+          empresa_id: string
+          fase?: string | null
+          finalizado_em?: string | null
+          id?: string
+          linhas_com_erro?: number
+          linhas_duplicadas?: number
+          linhas_importadas?: number
+          linhas_processadas?: number
+          mensagem_erro?: string | null
+          resultado_processamento?: Json | null
+          status?: string
+          total_linhas?: number
+        }
+        Update: {
+          arquivo_id?: string | null
+          arquivo_nome?: string
+          atualizado_em?: string
+          canal?: string
+          checklist_item_id?: string
+          criado_em?: string
+          empresa_id?: string
+          fase?: string | null
+          finalizado_em?: string | null
+          id?: string
+          linhas_com_erro?: number
+          linhas_duplicadas?: number
+          linhas_importadas?: number
+          linhas_processadas?: number
+          mensagem_erro?: string | null
+          resultado_processamento?: Json | null
+          status?: string
+          total_linhas?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_import_jobs_arquivo_id_fkey"
+            columns: ["arquivo_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_canal_arquivos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checklist_import_jobs_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_canal_itens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checklist_import_jobs_empresa_id_fkey"
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresas"
@@ -3206,6 +3300,70 @@ export type Database = {
           p_status?: string
         }
         Returns: number
+      }
+      get_vendas_por_pedido: {
+        Args: {
+          p_canal?: string
+          p_conta?: string
+          p_data_fim?: string
+          p_data_inicio?: string
+          p_empresa_id?: string
+          p_limit?: number
+          p_offset?: number
+          p_status?: string
+        }
+        Returns: {
+          ads_total: number
+          canal: string
+          cmv_total: number
+          comissao_total: number
+          conta_nome: string
+          data_pedido: string
+          data_repasse: string
+          empresa_id: string
+          frete_vendedor_total: number
+          impostos_total: number
+          margem_contribuicao: number
+          outros_descontos_total: number
+          pedido_id: string
+          qtd_itens: number
+          status: string
+          tarifa_fixa_total: number
+          tipo_envio: string
+          valor_liquido_calculado: number
+          valor_produto: number
+        }[]
+      }
+      get_vendas_por_pedido_count: {
+        Args: {
+          p_canal?: string
+          p_conta?: string
+          p_data_fim?: string
+          p_data_inicio?: string
+          p_empresa_id?: string
+          p_status?: string
+        }
+        Returns: number
+      }
+      get_vendas_por_pedido_resumo: {
+        Args: {
+          p_data_fim?: string
+          p_data_inicio?: string
+          p_empresa_id?: string
+        }
+        Returns: {
+          ads_total: number
+          cmv_total: number
+          comissao_total: number
+          frete_vendedor_total: number
+          impostos_total: number
+          margem_contribuicao_total: number
+          tarifa_fixa_total: number
+          total_itens: number
+          total_pedidos: number
+          valor_liquido_total: number
+          valor_produto_total: number
+        }[]
       }
       get_vendas_resumo: {
         Args: {

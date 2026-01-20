@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { MainLayout } from "@/components/MainLayout";
-import { useVendasPaginadas, TransacaoPaginada } from "@/hooks/useVendasPaginadas";
+import { useVendasPorPedido, PedidoAgregado, ResumoPedidosAgregado } from "@/hooks/useVendasPorPedido";
+import { useVendasPaginadas } from "@/hooks/useVendasPaginadas";
 import { useVendasPendentes } from "@/hooks/useVendasPendentes";
 import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
 import { VendasDashboard } from "@/components/vendas/VendasDashboard";
 import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
-import { VendasTablePaginada } from "@/components/vendas/VendasTablePaginada";
+import { PedidosTable } from "@/components/vendas/PedidosTable";
 import { VendasProductMappingModal } from "@/components/vendas/VendasProductMappingModal";
-import { VendasCategorizacaoModal } from "@/components/vendas/VendasCategorizacaoModal";
 import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
 import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,27 +37,22 @@ export default function Vendas() {
 
   const [showMappingModal, setShowMappingModal] = useState(false);
   const [skuParaMapear, setSkuParaMapear] = useState<string | null>(null);
-  
-  // Estado para modal de categorização
-  const [showCategorizacaoModal, setShowCategorizacaoModal] = useState(false);
-  const [vendaParaCategorizar, setVendaParaCategorizar] = useState<TransacaoPaginada | null>(null);
 
   // ID da empresa para filtros (undefined = todas)
   const empresaId = empresaSelecionada !== "todas" ? empresaSelecionada : undefined;
 
-  // Hook paginado otimizado
-  const { 
-    transacoes, 
+  // Hook de vendas por pedido (agregado - 1 linha por pedido)
+  const {
+    pedidos,
     totalRegistros,
     totalPaginas,
     resumoAgregado,
-    metricasPorTipoEnvio,
-    canaisDisponiveis, 
+    canaisDisponiveis,
     contasDisponiveis,
     isLoading,
     isFetching,
     dataUpdatedAt,
-  } = useVendasPaginadas({
+  } = useVendasPorPedido({
     page: currentPage,
     pageSize,
     periodoInicio: format(dateRange.from, "yyyy-MM-dd"),
@@ -68,7 +63,16 @@ export default function Vendas() {
     empresaId,
   });
 
-  // Combina loading inicial + refetch (mudança de período)
+  // Hook antigo apenas para métricas por tipo de envio (dashboard)
+  const { metricasPorTipoEnvio } = useVendasPaginadas({
+    page: 0,
+    pageSize: 1,
+    periodoInicio: format(dateRange.from, "yyyy-MM-dd"),
+    periodoFim: format(dateRange.to, "yyyy-MM-dd"),
+    empresaId,
+  });
+
+  // Combina loading inicial + refetch
   const carregando = isLoading;
 
   const { resumo: resumoPendentes, reprocessarMapeamentos } = useVendasPendentes({ empresaId });
@@ -82,7 +86,7 @@ export default function Vendas() {
       toast.error("Nenhuma empresa selecionada");
       return;
     }
-    
+
     try {
       await reprocessarAntigas.mutateAsync({ empresaId });
     } catch (error) {
@@ -94,7 +98,7 @@ export default function Vendas() {
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
     setDateRange(range);
-    setCurrentPage(0); // Reset para primeira página ao mudar período
+    setCurrentPage(0);
   };
 
   const handleReprocessarMapeamentos = async () => {
@@ -105,36 +109,33 @@ export default function Vendas() {
     await reprocessarMapeamentos.mutateAsync(empresaId);
   };
 
-  // Estado e handler para reprocessar vendas incompletas (taxas/frete zerados)
+  // Estado e handler para reprocessar vendas incompletas
   const [reprocessando, setReprocessando] = useState(false);
-  
+
   const handleReprocessarIncompletas = async () => {
     if (!empresaId) {
       toast.error("Nenhuma empresa selecionada");
       return;
     }
-    
+
     setReprocessando(true);
     try {
       const { data, error } = await supabase.functions.invoke("ml-sync-orders", {
         body: { empresa_id: empresaId, days_back: 7 },
       });
-      
-      // Extrair mensagem de erro da resposta (quando status não é 2xx)
+
       if (error) {
         let mensagemErro = "Erro ao reprocessar vendas";
-        
-        // Tentar extrair mensagem do corpo da resposta
+
         try {
           const errorBody = error.context?.body ? JSON.parse(error.context.body) : null;
           if (errorBody?.error) {
             mensagemErro = errorBody.error;
           }
         } catch {
-          // Fallback para mensagem padrão
+          // Fallback
         }
-        
-        // Verificar se é erro de integração não configurada
+
         if (mensagemErro.includes("integração") || mensagemErro.includes("Integrações")) {
           toast.error(mensagemErro, {
             duration: 8000,
@@ -148,8 +149,7 @@ export default function Vendas() {
         }
         return;
       }
-      
-      // Verificar se a resposta contém erro (para outros casos)
+
       if (data?.error) {
         toast.error(data.error, {
           duration: 8000,
@@ -160,7 +160,7 @@ export default function Vendas() {
         });
         return;
       }
-      
+
       toast.success(
         `Sincronização concluída: ${data.registros_criados} novos, ${data.registros_atualizados} atualizados${data.partial ? " (parcial)" : ""}`
       );
@@ -173,60 +173,63 @@ export default function Vendas() {
     }
   };
 
-  const handleAbrirMapeamentoLinha = (transacao: TransacaoPaginada, item?: VendaItem) => {
+  const handleAbrirMapeamentoLinha = (pedido: PedidoAgregado, item?: VendaItem) => {
     setSkuParaMapear(item?.sku_marketplace || null);
     setShowMappingModal(true);
-  };
-
-  // Handler para abrir modal de categorização (usado pela tabela)
-  const handleAbrirCategorizacao = (transacao: TransacaoPaginada) => {
-    setVendaParaCategorizar(transacao);
-    setShowCategorizacaoModal(true);
-  };
-
-  // Handler wrapper para o botão conciliar na tabela
-  const handleConciliarWrapper = async (transacaoId: string): Promise<boolean> => {
-    const transacao = transacoes.find(t => t.id === transacaoId);
-    if (transacao) {
-      handleAbrirCategorizacao(transacao);
-    }
-    return false; // Retorna false para não fechar automaticamente, o modal vai cuidar disso
   };
 
   // Alíquota de imposto (poderia vir de configurações da empresa)
   const aliquotaImposto = 6;
 
   // Adaptar resumo para o componente VendasDashboard
-  const resumoAdaptado = {
-    totalFaturamentoBruto: resumoAgregado?.total_bruto || 0,
-    totalFaturamentoLiquido: resumoAgregado?.total_liquido || 0,
-    totalCMV: resumoAgregado?.total_cmv || 0,
-    totalTarifas: resumoAgregado?.total_tarifas || 0,
-    totalTaxas: resumoAgregado?.total_taxas || 0,
+  const resumoAdaptado = resumoAgregado ? {
+    totalFaturamentoBruto: resumoAgregado.valor_produto_total,
+    totalFaturamentoLiquido: resumoAgregado.valor_liquido_total,
+    totalCMV: resumoAgregado.cmv_total,
+    totalTarifas: resumoAgregado.tarifa_fixa_total,
+    totalTaxas: resumoAgregado.comissao_total,
     totalOutrosDescontos: 0,
-    totalFreteComprador: resumoAgregado?.total_frete_comprador || 0,
-    totalFreteVendedor: resumoAgregado?.total_frete_vendedor || 0,
-    totalCustoAds: resumoAgregado?.total_custo_ads || 0,
-    totalImpostoVenda: (resumoAgregado?.total_bruto || 0) * (aliquotaImposto / 100),
-    margemContribuicao: 0, // Calculado pelo dashboard
-    margemContribuicaoPercent: 0, // Calculado pelo dashboard
-    ticketMedio: resumoAgregado?.total_transacoes 
-      ? (resumoAgregado.total_bruto || 0) / resumoAgregado.total_transacoes 
+    totalFreteComprador: 0, // Não incluído na agregação por pedido
+    totalFreteVendedor: resumoAgregado.frete_vendedor_total,
+    totalCustoAds: resumoAgregado.ads_total,
+    totalImpostoVenda: resumoAgregado.impostos_total,
+    margemContribuicao: resumoAgregado.margem_contribuicao_total,
+    margemContribuicaoPercent: resumoAgregado.valor_produto_total > 0
+      ? (resumoAgregado.margem_contribuicao_total / resumoAgregado.valor_produto_total) * 100
       : 0,
-    qtdTransacoes: resumoAgregado?.total_transacoes || 0,
-    qtdItens: resumoAgregado?.total_itens || 0,
+    ticketMedio: resumoAgregado.total_pedidos > 0
+      ? resumoAgregado.valor_produto_total / resumoAgregado.total_pedidos
+      : 0,
+    qtdTransacoes: resumoAgregado.total_pedidos,
+    qtdItens: resumoAgregado.total_itens,
+  } : {
+    totalFaturamentoBruto: 0,
+    totalFaturamentoLiquido: 0,
+    totalCMV: 0,
+    totalTarifas: 0,
+    totalTaxas: 0,
+    totalOutrosDescontos: 0,
+    totalFreteComprador: 0,
+    totalFreteVendedor: 0,
+    totalCustoAds: 0,
+    totalImpostoVenda: 0,
+    margemContribuicao: 0,
+    margemContribuicaoPercent: 0,
+    ticketMedio: 0,
+    qtdTransacoes: 0,
+    qtdItens: 0,
   };
 
-  // Adaptar consistência
+  // Adaptar consistência (valores não disponíveis na agregação por pedido)
   const consistenciaAdaptada = {
-    totalNaoConciliadas: resumoAgregado?.transacoes_nao_conciliadas || 0,
-    totalSemCusto: 0, // Não temos esse dado no resumo agregado atual
-    totalSemProduto: 0, // Não temos esse dado no resumo agregado atual
-    totalSemCategoria: resumoAgregado?.transacoes_sem_categoria || 0,
+    totalNaoConciliadas: 0,
+    totalSemCusto: 0,
+    totalSemProduto: 0,
+    totalSemCategoria: 0,
   };
 
   return (
-    <MainLayout 
+    <MainLayout
       title="Vendas"
       actions={
         <PeriodFilter
@@ -247,6 +250,7 @@ export default function Vendas() {
             }}
           />
         </div>
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -254,13 +258,12 @@ export default function Vendas() {
               <ShoppingBag className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Vendas</h1>
+              <h1 className="text-2xl font-bold tracking-tight">Vendas por Pedido</h1>
               <p className="text-sm text-muted-foreground flex items-center gap-2">
-                Análise operacional de vendas e validação de dados da API
+                1 linha por pedido • Custos consolidados
                 <span className="text-xs">•</span>
                 <span className="text-xs">
-                  Atualiza automaticamente
-                  {dataUpdatedAt && ` • Última: ${format(new Date(dataUpdatedAt), "HH:mm:ss")}`}
+                  {dataUpdatedAt && `Atualizado: ${format(new Date(dataUpdatedAt), "HH:mm:ss")}`}
                 </span>
               </p>
             </div>
@@ -296,20 +299,6 @@ export default function Vendas() {
                   )}
                   Reprocessar Mapeamentos
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCategorizarAutomatico}
-                  disabled={isAutoCategorizando || consistenciaAdaptada.totalNaoConciliadas === 0}
-                  className="gap-2 border-primary text-primary hover:bg-primary/10"
-                >
-                  {isAutoCategorizando ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Wand2 className="h-4 w-4" />
-                  )}
-                  {isAutoCategorizando ? "Categorizando..." : "Categorizar Automaticamente"}
-                </Button>
               </>
             )}
           </div>
@@ -326,8 +315,8 @@ export default function Vendas() {
               <span>
                 {resumoPendentes.totalVendasAfetadas} vendas sem CMV calculado
               </span>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={() => setShowMappingModal(true)}
                 className="ml-4"
@@ -354,40 +343,26 @@ export default function Vendas() {
               onConsiderarFreteChange={setConsiderarFreteComprador}
             />
 
-            {/* Bloco de consistência da API */}
-            <VendasConsistencia 
-              consistencia={consistenciaAdaptada} 
-              onItemClick={() => {}}
-              filtrosAtivos={{
-                semCusto: false,
-                semProduto: false,
-                naoConciliadas: false,
-              }}
-              onLimparFiltros={() => {}}
-            />
-
-            {/* Tabela de vendas paginada */}
+            {/* Tabela de pedidos (1 linha por pedido) */}
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="text-base">Vendas do período</CardTitle>
+                    <CardTitle className="text-base">Pedidos do período</CardTitle>
                     <CardDescription>
-                      {totalRegistros} registros encontrados • Página {currentPage + 1} de {totalPaginas || 1}
+                      {totalRegistros} pedidos • Página {currentPage + 1} de {totalPaginas || 1}
                     </CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <VendasTablePaginada 
-                  transacoes={transacoes} 
-                  aliquotaImposto={aliquotaImposto}
+                <PedidosTable
+                  pedidos={pedidos}
                   currentPage={currentPage}
                   totalPaginas={totalPaginas}
                   totalRegistros={totalRegistros}
                   pageSize={pageSize}
                   onPageChange={setCurrentPage}
-                  onConciliar={handleConciliarWrapper}
                   onAbrirMapeamento={handleAbrirMapeamentoLinha}
                   isLoading={isFetching}
                 />
@@ -403,32 +378,6 @@ export default function Vendas() {
           open={showMappingModal}
           onOpenChange={setShowMappingModal}
           empresaId={empresaId}
-        />
-      )}
-
-      {/* Modal de categorização */}
-      {empresaId && vendaParaCategorizar && (
-        <VendasCategorizacaoModal
-          open={showCategorizacaoModal}
-          onOpenChange={setShowCategorizacaoModal}
-          venda={{
-            transacao_id: vendaParaCategorizar.id,
-            canal: vendaParaCategorizar.canal,
-            conta: vendaParaCategorizar.conta_nome || "",
-            pedido_id: vendaParaCategorizar.pedido_id || "",
-            data: vendaParaCategorizar.data_transacao,
-            descricao: vendaParaCategorizar.descricao,
-            valor_bruto: vendaParaCategorizar.valor_bruto,
-            valor_liquido: vendaParaCategorizar.valor_liquido,
-            status: vendaParaCategorizar.status,
-            categoria_id: vendaParaCategorizar.categoria_id,
-            centro_custo_id: vendaParaCategorizar.centro_custo_id,
-          }}
-          empresaId={empresaId}
-          onSuccess={() => {
-            setShowCategorizacaoModal(false);
-            setVendaParaCategorizar(null);
-          }}
         />
       )}
     </MainLayout>
