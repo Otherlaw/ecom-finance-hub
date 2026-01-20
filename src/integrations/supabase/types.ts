@@ -61,6 +61,7 @@ export type Database = {
       bank_transactions: {
         Row: {
           atualizado_em: string
+          batch_id: string | null
           categoria_id: string | null
           centro_custo_id: string | null
           conta_id: string | null
@@ -80,6 +81,7 @@ export type Database = {
         }
         Insert: {
           atualizado_em?: string
+          batch_id?: string | null
           categoria_id?: string | null
           centro_custo_id?: string | null
           conta_id?: string | null
@@ -99,6 +101,7 @@ export type Database = {
         }
         Update: {
           atualizado_em?: string
+          batch_id?: string | null
           categoria_id?: string | null
           centro_custo_id?: string | null
           conta_id?: string | null
@@ -117,6 +120,13 @@ export type Database = {
           valor?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "bank_transactions_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "bank_transactions_categoria_id_fkey"
             columns: ["categoria_id"]
@@ -1652,6 +1662,74 @@ export type Database = {
           },
         ]
       }
+      import_batches: {
+        Row: {
+          canal: string
+          criado_em: string
+          empresa_id: string
+          file_hash: string | null
+          file_name: string | null
+          finalizado_em: string | null
+          id: string
+          mensagem_erro: string | null
+          metadados: Json | null
+          periodo_fim: string | null
+          periodo_inicio: string | null
+          registros_atualizados: number
+          registros_criados: number
+          registros_ignorados: number
+          status: string
+          tipo_importacao: string
+          total_registros: number
+        }
+        Insert: {
+          canal: string
+          criado_em?: string
+          empresa_id: string
+          file_hash?: string | null
+          file_name?: string | null
+          finalizado_em?: string | null
+          id?: string
+          mensagem_erro?: string | null
+          metadados?: Json | null
+          periodo_fim?: string | null
+          periodo_inicio?: string | null
+          registros_atualizados?: number
+          registros_criados?: number
+          registros_ignorados?: number
+          status?: string
+          tipo_importacao: string
+          total_registros?: number
+        }
+        Update: {
+          canal?: string
+          criado_em?: string
+          empresa_id?: string
+          file_hash?: string | null
+          file_name?: string | null
+          finalizado_em?: string | null
+          id?: string
+          mensagem_erro?: string | null
+          metadados?: Json | null
+          periodo_fim?: string | null
+          periodo_inicio?: string | null
+          registros_atualizados?: number
+          registros_criados?: number
+          registros_ignorados?: number
+          status?: string
+          tipo_importacao?: string
+          total_registros?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_batches_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integracao_config: {
         Row: {
           ativo: boolean
@@ -1900,6 +1978,7 @@ export type Database = {
       marketplace_financial_events: {
         Row: {
           atualizado_em: string
+          batch_id: string | null
           canal: string
           conta_nome: string | null
           criado_em: string
@@ -1916,6 +1995,7 @@ export type Database = {
         }
         Insert: {
           atualizado_em?: string
+          batch_id?: string | null
           canal?: string
           conta_nome?: string | null
           criado_em?: string
@@ -1932,6 +2012,7 @@ export type Database = {
         }
         Update: {
           atualizado_em?: string
+          batch_id?: string | null
           canal?: string
           conta_nome?: string | null
           criado_em?: string
@@ -1947,6 +2028,13 @@ export type Database = {
           valor?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "marketplace_financial_events_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "marketplace_financial_events_empresa_id_fkey"
             columns: ["empresa_id"]
@@ -2085,6 +2173,7 @@ export type Database = {
       marketplace_transaction_items: {
         Row: {
           anuncio_id: string | null
+          batch_id: string | null
           created_at: string
           descricao_item: string | null
           id: string
@@ -2099,6 +2188,7 @@ export type Database = {
         }
         Insert: {
           anuncio_id?: string | null
+          batch_id?: string | null
           created_at?: string
           descricao_item?: string | null
           id?: string
@@ -2113,6 +2203,7 @@ export type Database = {
         }
         Update: {
           anuncio_id?: string | null
+          batch_id?: string | null
           created_at?: string
           descricao_item?: string | null
           id?: string
@@ -2126,6 +2217,13 @@ export type Database = {
           variante_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "marketplace_transaction_items_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "marketplace_transaction_items_produto_id_fkey"
             columns: ["produto_id"]
@@ -2152,6 +2250,7 @@ export type Database = {
       marketplace_transactions: {
         Row: {
           atualizado_em: string
+          batch_id: string | null
           canal: string
           canal_venda: string | null
           categoria_id: string | null
@@ -2183,6 +2282,7 @@ export type Database = {
         }
         Insert: {
           atualizado_em?: string
+          batch_id?: string | null
           canal: string
           canal_venda?: string | null
           categoria_id?: string | null
@@ -2214,6 +2314,7 @@ export type Database = {
         }
         Update: {
           atualizado_em?: string
+          batch_id?: string | null
           canal?: string
           canal_venda?: string | null
           categoria_id?: string | null
@@ -2244,6 +2345,13 @@ export type Database = {
           valor_liquido?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "marketplace_transactions_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "marketplace_transactions_categoria_id_fkey"
             columns: ["categoria_id"]

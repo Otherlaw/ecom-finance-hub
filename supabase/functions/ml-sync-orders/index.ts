@@ -563,6 +563,7 @@ Deno.serve(async (req) => {
   let shipping_falharam = 0;
   let billing_extraidos = 0;
   let timeout_reached = false;
+  let batch_id: string | null = null;
 
   try {
     const body = await req.json();
@@ -706,17 +707,38 @@ Deno.serve(async (req) => {
     console.log(`[ML Sync] ✓ API Conciliações para taxas REAIS`);
     console.log(`[ML Sync] ✓ API /shipments/costs para FRETE VENDEDOR REAL`);
     console.log(`[ML Sync] ✓ valor_liquido = valor_bruto - (taxas + tarifas)`);
+    console.log(`[ML Sync] ✓ Sistema de batches para rastreabilidade`);
     console.log(`[ML Sync] ========================================`);
 
-    // ========== BUSCA SEGMENTADA POR DIA ==========
-    let allOrders: MLOrder[] = [];
-    
+    // ========== CRIAR BATCH DE IMPORTAÇÃO ==========
     const dateFrom = new Date();
     dateFrom.setDate(dateFrom.getDate() - days_back);
     dateFrom.setHours(0, 0, 0, 0);
     
     const dateTo = new Date();
     dateTo.setHours(23, 59, 59, 999);
+
+    const { data: batchData, error: batchError } = await supabase
+      .from("import_batches")
+      .insert({
+        empresa_id,
+        canal: "Mercado Livre",
+        tipo_importacao: "sync_api",
+        periodo_inicio: dateFrom.toISOString().split('T')[0],
+        periodo_fim: dateTo.toISOString().split('T')[0],
+        status: "processando",
+        metadados: { days_back, source: "ml-sync-orders" },
+      })
+      .select()
+      .single();
+
+    if (!batchError && batchData) {
+      batch_id = batchData.id;
+      console.log(`[ML Sync] 📦 Batch criado: ${batch_id}`);
+    }
+
+    // ========== BUSCA SEGMENTADA POR DIA ==========
+    let allOrders: MLOrder[] = [];
     
     for (let dayOffset = 0; dayOffset < days_back; dayOffset++) {
       if (Date.now() - startTime > TIMEOUT_MS * 0.3) {
@@ -1022,6 +1044,7 @@ Deno.serve(async (req) => {
         if (wasCreated) {
           registros_criados++;
           
+          // Inserir itens com UPSERT para evitar duplicatas
           if (order.order_items && upsertedTx) {
             for (const item of order.order_items) {
               const skuMarketplace = item.item.seller_sku || item.item.id;
@@ -1031,7 +1054,8 @@ Deno.serve(async (req) => {
                 itens_mapeados_automaticamente++;
               }
 
-              await supabase.from("marketplace_transaction_items").insert({
+              // UPSERT com índice único (transaction_id, sku_marketplace)
+              await supabase.from("marketplace_transaction_items").upsert({
                 transaction_id: upsertedTx.id,
                 sku_marketplace: skuMarketplace,
                 descricao_item: item.item.title,
@@ -1040,16 +1064,67 @@ Deno.serve(async (req) => {
                 preco_total: item.quantity * item.unit_price,
                 anuncio_id: item.item.id,
                 produto_id: produtoId,
+                batch_id: batch_id,
+              }, {
+                onConflict: "uq_mkt_item_tx_sku",
+                ignoreDuplicates: false,
               });
             }
           }
         } else {
           registros_atualizados++;
+          
+          // Atualizar itens existentes via UPSERT
+          if (order.order_items && upsertedTx) {
+            for (const item of order.order_items) {
+              const skuMarketplace = item.item.seller_sku || item.item.id;
+              const produtoId = mapeamentoMap.get(skuMarketplace) || null;
+
+              await supabase.from("marketplace_transaction_items").upsert({
+                transaction_id: upsertedTx.id,
+                sku_marketplace: skuMarketplace,
+                descricao_item: item.item.title,
+                quantidade: item.quantity,
+                preco_unitario: item.unit_price,
+                preco_total: item.quantity * item.unit_price,
+                anuncio_id: item.item.id,
+                produto_id: produtoId,
+                batch_id: batch_id,
+              }, {
+                onConflict: "uq_mkt_item_tx_sku",
+                ignoreDuplicates: false,
+              });
+            }
+          }
         }
       } catch (err) {
         console.error(`[ML Sync] Erro ao processar pedido ${order.id}:`, err);
         registros_erro++;
       }
+    }
+
+    // ========== ATUALIZAR BATCH COM RESULTADOS ==========
+    if (batch_id) {
+      await supabase
+        .from("import_batches")
+        .update({
+          total_registros: registros_processados,
+          registros_criados,
+          registros_atualizados,
+          registros_ignorados: registros_erro,
+          status: timeout_reached ? "parcial" : (registros_erro > 0 ? "parcial" : "concluido"),
+          finalizado_em: new Date().toISOString(),
+          metadados: {
+            days_back,
+            shipping_extraidos,
+            billing_extraidos,
+            itens_mapeados_automaticamente,
+            timeout_reached,
+          },
+        })
+        .eq("id", batch_id);
+      
+      console.log(`[ML Sync] 📦 Batch ${batch_id} finalizado`);
     }
 
     // Atualizar config com última sync
