@@ -2,7 +2,7 @@
  * Modal para mapear SKUs de vendas marketplace a produtos internos
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -54,18 +54,30 @@ interface VendasProductMappingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   empresaId: string;
+  skuFiltro?: string | null; // SKU específico para destacar/filtrar
 }
 
 export function VendasProductMappingModal({
   open,
   onOpenChange,
   empresaId,
+  skuFiltro,
 }: VendasProductMappingModalProps) {
-  const [searchTerm, setSearchTerm] = useState("");
+  // Inicializa o termo de busca com o SKU específico se fornecido
+  const [searchTerm, setSearchTerm] = useState(skuFiltro || "");
   const [selectedSku, setSelectedSku] = useState<SkuPendenteVenda | null>(null);
   const [openPopovers, setOpenPopovers] = useState<Record<string, boolean>>({});
   const [showProductForm, setShowProductForm] = useState(false);
   const [dadosIniciaisProduto, setDadosIniciaisProduto] = useState<DadosIniciaisProduto | null>(null);
+
+  // Atualizar o termo de busca quando o skuFiltro mudar
+  useEffect(() => {
+    if (open && skuFiltro) {
+      setSearchTerm(skuFiltro);
+    } else if (!open) {
+      setSearchTerm("");
+    }
+  }, [open, skuFiltro]);
 
   const { skusPendentes, resumo, mapearSkuParaProduto, isLoading: loadingSkus } = useVendasPendentes({ empresaId });
   const { produtos, isLoading: loadingProdutos } = useProdutos({ empresaId, status: "ativo", apenasRaiz: false });

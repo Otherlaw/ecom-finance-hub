@@ -578,8 +578,10 @@ export function PedidosTableRow({
                           </TooltipTrigger>
                           <TooltipContent>
                             <div className="text-xs space-y-1">
-                              {item.sem_produto && <p>• Sem produto vinculado</p>}
-                              {item.sem_custo && <p>• Sem custo cadastrado</p>}
+                              {item.sem_produto && <p>• Sem produto vinculado - clique em "Mapear produto"</p>}
+                              {!item.sem_produto && item.sem_custo && (
+                                <p>• Produto sem custo cadastrado - configure o custo médio no cadastro de produtos</p>
+                              )}
                             </div>
                           </TooltipContent>
                         </Tooltip>
@@ -593,6 +595,7 @@ export function PedidosTableRow({
                         <span className="text-xs truncate max-w-[200px]">
                           {item.produto_nome || item.descricao_item || "Produto não identificado"}
                         </span>
+                        {/* Botão mapear: sempre aparece se não tem produto_id */}
                         {item.sem_produto && onAbrirMapeamento && (
                           <button
                             onClick={(e) => {
@@ -606,6 +609,12 @@ export function PedidosTableRow({
                             <Link2 className="h-3 w-3" />
                             Mapear produto
                           </button>
+                        )}
+                        {/* Alerta: produto mapeado mas sem custo */}
+                        {!item.sem_produto && item.sem_custo && (
+                          <span className="text-[10px] text-amber-600 mt-1">
+                            ⚠ Produto sem custo cadastrado
+                          </span>
                         )}
                       </div>
                     </TableCell>

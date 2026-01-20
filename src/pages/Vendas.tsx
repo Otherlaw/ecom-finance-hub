@@ -376,8 +376,12 @@ export default function Vendas() {
       {empresaId && (
         <VendasProductMappingModal
           open={showMappingModal}
-          onOpenChange={setShowMappingModal}
+          onOpenChange={(open) => {
+            setShowMappingModal(open);
+            if (!open) setSkuParaMapear(null);
+          }}
           empresaId={empresaId}
+          skuFiltro={skuParaMapear}
         />
       )}
     </MainLayout>
