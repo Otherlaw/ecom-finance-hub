@@ -128,10 +128,14 @@ export function useVendasPendentes(params?: UseVendasPendentesParams) {
       return { atualizados: atualizados || 0 };
     },
     onSuccess: (result) => {
-      toast.success(`SKU mapeado! ${result.atualizados} itens atualizados`);
+      toast.success(`SKU mapeado! ${result.atualizados} itens históricos atualizados. Novas vendas deste SKU já virão mapeadas.`);
+      // Invalidar todas as queries relacionadas para atualizar a UI
       queryClient.invalidateQueries({ queryKey: ["vendas-skus-pendentes"] });
       queryClient.invalidateQueries({ queryKey: ["produto_marketplace_map"] });
       queryClient.invalidateQueries({ queryKey: ["vendas"] });
+      queryClient.invalidateQueries({ queryKey: ["vendas-por-pedido"] });
+      queryClient.invalidateQueries({ queryKey: ["vendas-por-pedido-resumo"] });
+      queryClient.invalidateQueries({ queryKey: ["marketplace-transaction-items"] });
     },
     onError: (error) => {
       console.error("Erro ao mapear SKU:", error);
