@@ -42,6 +42,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { EmpresaFormModal } from "@/components/empresas/EmpresaFormModal";
+import { ColaboradoresModal } from "@/components/empresas/ColaboradoresModal";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useIntegracoes } from "@/hooks/useIntegracoes";
 import {
@@ -65,6 +66,8 @@ export default function Empresas() {
   const [editingEmpresa, setEditingEmpresa] = useState<any | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [empresaToDelete, setEmpresaToDelete] = useState<any | null>(null);
+  const [colaboradoresModalOpen, setColaboradoresModalOpen] = useState(false);
+  const [selectedEmpresaForColabs, setSelectedEmpresaForColabs] = useState<any | null>(null);
 
   const handleEdit = (empresa: any) => {
     setEditingEmpresa(empresa);
@@ -223,9 +226,14 @@ export default function Empresas() {
                             <Store className="h-4 w-4 mr-2" />
                             Marketplaces
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedEmpresaForColabs(empresa);
+                              setColaboradoresModalOpen(true);
+                            }}
+                          >
                             <Users className="h-4 w-4 mr-2" />
-                            Usuários
+                            Colaboradores
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem 
@@ -366,6 +374,12 @@ export default function Empresas() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ColaboradoresModal
+        open={colaboradoresModalOpen}
+        onOpenChange={setColaboradoresModalOpen}
+        empresa={selectedEmpresaForColabs}
+      />
     </MainLayout>
   );
 }

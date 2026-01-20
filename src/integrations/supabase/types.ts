@@ -3621,6 +3621,10 @@ export type Database = {
         Args: { p_empresa_id: string }
         Returns: boolean
       }
+      user_is_empresa_owner: {
+        Args: { p_empresa_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       app_role: "admin" | "financeiro" | "socio" | "operador"
