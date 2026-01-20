@@ -164,16 +164,24 @@ export default function Dashboard() {
   }, [agregado]);
 
   // Query para Top 10 produtos mais vendidos (incluindo custo_ads)
+  // IMPORTANTE: Requer empresa específica para evitar mistura de dados entre CNPJs
   const {
     data: topProdutosRaw = [],
     isLoading: isTopProdutosLoading
   } = useQuery({
     queryKey: ["top-produtos-vendidos", empresaIdFiltro, periodoInicio, periodoFim],
     queryFn: async () => {
+      // Requer empresa selecionada para evitar mistura de dados
+      if (!empresaIdFiltro) {
+        return [];
+      }
+      
       // Usar helper centralizado para garantir consistência com Vendas
       const { startUtcIso, endUtcIsoExclusive } = buildUtcRangeFromStrings(periodoInicio, periodoFim);
       
-      let query = supabase.from("marketplace_transaction_items").select(`
+      const { data, error } = await supabase
+        .from("marketplace_transaction_items")
+        .select(`
           quantidade,
           preco_total,
           sku_marketplace,
@@ -197,20 +205,17 @@ export default function Dashboard() {
         `)
         .gte("transaction.data_transacao", startUtcIso)
         .lt("transaction.data_transacao", endUtcIsoExclusive)
-        .eq("transaction.tipo_lancamento", "credito");
+        .eq("transaction.tipo_lancamento", "credito")
+        .eq("transaction.empresa_id", empresaIdFiltro);
       
-      if (empresaIdFiltro) {
-        query = query.eq("transaction.empresa_id", empresaIdFiltro);
-      }
-      
-      const { data, error } = await query;
       if (error) {
         console.error("Erro ao buscar top produtos:", error);
         return [];
       }
       return data || [];
     },
-    enabled: !!periodoInicio && !!periodoFim
+    // Só busca se tiver empresa selecionada
+    enabled: !!periodoInicio && !!periodoFim && !!empresaIdFiltro
   });
 
   // Processar dados para Top 10 produtos com preço médio e ads
@@ -452,11 +457,20 @@ export default function Dashboard() {
 
           {/* Top 10 Produtos Mais Vendidos */}
           <div className="mt-6 my-[22px]">
-            <ModuleCard title="Top 10 Produtos Mais Vendidos" description={`No período selecionado`} icon={Package}>
-              {isTopProdutosLoading ? <div className="flex items-center justify-center py-8">
+            <ModuleCard title="Top 10 Produtos Mais Vendidos" description={empresaIdFiltro ? "No período selecionado" : "Selecione uma empresa para visualizar"} icon={Package}>
+              {!empresaIdFiltro ? (
+                <div className="py-8 text-center text-muted-foreground">
+                  <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p className="font-medium">Selecione uma empresa</p>
+                  <p className="text-sm">O Top 10 Produtos requer uma empresa específica para evitar mistura de dados entre CNPJs.</p>
+                </div>
+              ) : isTopProdutosLoading ? (
+                <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-primary mr-2" />
                   <span className="text-muted-foreground">Carregando produtos...</span>
-                </div> : topProdutosProcessados.length > 0 ? <div className="overflow-x-auto">
+                </div>
+              ) : topProdutosProcessados.length > 0 ? (
+                <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -470,7 +484,8 @@ export default function Dashboard() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {topProdutosProcessados.map(produto => <TableRow key={produto.id}>
+                      {topProdutosProcessados.map(produto => (
+                        <TableRow key={produto.id}>
                           {/* Coluna Produto */}
                           <TableCell>
                             <div className="flex items-center gap-3">
@@ -497,11 +512,13 @@ export default function Dashboard() {
                               <span className="font-semibold text-lg">{formatNumber(produto.qtdTotal)}</span>
                               <div className="flex flex-wrap justify-center gap-1">
                                 {Object.entries(produto.porCanal).map(([canal, qtd]) => {
-                          const canalAbrev = canal === "Mercado Livre" ? "ML" : canal === "Shopee" ? "SH" : canal === "Shein" ? "SN" : canal === "TikTok" ? "TT" : canal.substring(0, 3);
-                          return <Badge key={canal} variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-normal" title={canal}>
+                                  const canalAbrev = canal === "Mercado Livre" ? "ML" : canal === "Shopee" ? "SH" : canal === "Shein" ? "SN" : canal === "TikTok" ? "TT" : canal.substring(0, 3);
+                                  return (
+                                    <Badge key={canal} variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-normal" title={canal}>
                                       {canalAbrev}: {qtd}
-                                    </Badge>;
-                        })}
+                                    </Badge>
+                                  );
+                                })}
                               </div>
                             </div>
                           </TableCell>
@@ -529,13 +546,17 @@ export default function Dashboard() {
                               {produto.margem.toFixed(1)}%
                             </Badge>
                           </TableCell>
-                        </TableRow>)}
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
-                </div> : <div className="py-8 text-center text-muted-foreground">
+                </div>
+              ) : (
+                <div className="py-8 text-center text-muted-foreground">
                   <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
                   Nenhum produto vendido no período selecionado
-                </div>}
+                </div>
+              )}
             </ModuleCard>
           </div>
 
