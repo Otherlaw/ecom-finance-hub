@@ -4,17 +4,20 @@ import { PedidoAgregado } from "@/hooks/useVendasPorPedido";
 import { useVendaItens, VendaItem } from "@/hooks/useVendaItens";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
   Check,
   ChevronDown,
   ChevronRight,
+  Clock,
   Link2,
   Loader2,
   Package,
+  XCircle,
+  HelpCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
@@ -35,9 +38,61 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1).replace(".", ",")}%`;
 }
 
+// Mapeamento de status técnicos para labels amigáveis
+const STATUS_MAP: Record<string, { label: string; icon: React.ReactNode; className: string }> = {
+  pendente_sync: {
+    label: "Pendente de sincronização",
+    icon: <Clock className="h-3 w-3 mr-1" />,
+    className: "bg-amber-500/10 text-amber-600 border-amber-300",
+  },
+  pendente: {
+    label: "Pendente",
+    icon: <Clock className="h-3 w-3 mr-1" />,
+    className: "bg-amber-500/10 text-amber-600 border-amber-300",
+  },
+  importado: {
+    label: "Importado",
+    icon: <Clock className="h-3 w-3 mr-1" />,
+    className: "bg-blue-500/10 text-blue-600 border-blue-300",
+  },
+  conciliado: {
+    label: "Conciliado",
+    icon: <Check className="h-3 w-3 mr-1" />,
+    className: "bg-emerald-500/10 text-emerald-600 border-emerald-300",
+  },
+  ignorado: {
+    label: "Ignorado",
+    icon: <XCircle className="h-3 w-3 mr-1" />,
+    className: "bg-muted text-muted-foreground",
+  },
+};
+
+function getStatusDisplay(status: string) {
+  const mapped = STATUS_MAP[status?.toLowerCase()];
+  if (mapped) return mapped;
+  
+  // Fallback para status desconhecidos
+  return {
+    label: status || "Desconhecido",
+    icon: <HelpCircle className="h-3 w-3 mr-1" />,
+    className: "bg-muted text-muted-foreground",
+  };
+}
+
 // Badge de tipo de envio com cores
 function TipoEnvioBadge({ tipo }: { tipo: string | null }) {
-  if (!tipo) return <span className="text-muted-foreground">—</span>;
+  if (!tipo) {
+    return (
+      <Tooltip>
+        <TooltipTrigger>
+          <span className="text-muted-foreground">—</span>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="text-xs">Tipo de envio não informado pela API</p>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
 
   const colors: Record<string, string> = {
     full: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
@@ -81,6 +136,7 @@ export function PedidosTableRow({
 
   const { itens, isLoading: isLoadingItens } = useVendaItens(expanded && transactionId ? transactionId : null);
 
+  // Verificar se há itens - usar 0 se não houver (não fallback para 1)
   const temItens = pedido.qtd_itens > 0;
   
   // CMV e margem
@@ -102,31 +158,28 @@ export function PedidosTableRow({
     : "text-emerald-500";
 
   const handleToggleExpand = () => {
-    if (temItens) {
-      setExpanded(!expanded);
-    }
+    // Permitir expandir mesmo sem itens para ver o resumo
+    setExpanded(!expanded);
   };
 
-  // Total de custos para exibição
-  const totalCustos = pedido.comissao_total + pedido.tarifa_fixa_total;
+  // Obter display do status
+  const statusDisplay = getStatusDisplay(pedido.status);
 
   return (
     <>
       <TableRow
         className={cn(
-          temItens && "cursor-pointer hover:bg-muted/50",
+          "cursor-pointer hover:bg-muted/50",
           expanded && "bg-muted/30"
         )}
         onClick={handleToggleExpand}
       >
         <TableCell className="w-[30px]">
-          {temItens ? (
-            expanded ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            )
-          ) : null}
+          {expanded ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
         </TableCell>
         <TableCell>
           <Badge variant="outline" className="text-xs">
@@ -134,7 +187,18 @@ export function PedidosTableRow({
           </Badge>
         </TableCell>
         <TableCell className="text-xs text-muted-foreground truncate max-w-[100px]">
-          {pedido.conta_nome || "-"}
+          {pedido.conta_nome ? (
+            pedido.conta_nome
+          ) : (
+            <Tooltip>
+              <TooltipTrigger>
+                <span className="text-muted-foreground">—</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Conta não identificada na sincronização</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </TableCell>
         <TableCell className="text-xs font-mono text-muted-foreground">
           {pedido.pedido_id || "-"}
@@ -150,7 +214,20 @@ export function PedidosTableRow({
         <TableCell>
           <TipoEnvioBadge tipo={pedido.tipo_envio} />
         </TableCell>
-        <TableCell className="text-center text-xs">{pedido.qtd_itens || 1}</TableCell>
+        <TableCell className="text-center text-xs">
+          {temItens ? (
+            pedido.qtd_itens
+          ) : (
+            <Tooltip>
+              <TooltipTrigger>
+                <span className="text-muted-foreground">—</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Itens pendentes de sincronização</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </TableCell>
         <TableCell className="text-right text-xs font-medium">
           {formatCurrency(pedido.valor_produto)}
         </TableCell>
@@ -191,7 +268,11 @@ export function PedidosTableRow({
           )}
         </TableCell>
         <TableCell className="text-right text-xs text-destructive/80">
-          {formatCurrency(pedido.impostos_total)}
+          {pedido.impostos_total > 0 ? (
+            formatCurrency(pedido.impostos_total)
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
         </TableCell>
         <TableCell className="text-right text-xs">
           {cmvTotal > 0 ? (
@@ -235,30 +316,114 @@ export function PedidosTableRow({
         </TableCell>
         <TableCell onClick={(e) => e.stopPropagation()}>
           <Badge
-            variant={pedido.status === "conciliado" ? "default" : "secondary"}
-            className={cn(
-              "text-xs",
-              pedido.status === "conciliado" && "bg-emerald-500/10 text-emerald-600"
-            )}
+            variant="outline"
+            className={cn("text-xs flex items-center w-fit", statusDisplay.className)}
           >
-            {pedido.status === "conciliado" ? (
-              <>
-                <Check className="h-3 w-3 mr-1" />
-                Conciliado
-              </>
-            ) : (
-              pedido.status
-            )}
+            {statusDisplay.icon}
+            {statusDisplay.label}
           </Badge>
         </TableCell>
       </TableRow>
 
-      {/* Linhas expandidas com itens */}
+      {/* Área expandida com itens e resumo financeiro */}
       {expanded && (
         <>
+          {/* Resumo financeiro do pedido */}
+          <TableRow className="bg-muted/20 border-l-4 border-l-primary/30">
+            <TableCell colSpan={16}>
+              <div className="py-3 px-4">
+                <p className="text-sm font-medium mb-3">Resumo do Pedido #{pedido.pedido_id}</p>
+                
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 text-xs">
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground">Receita Bruta</p>
+                    <p className="font-medium text-foreground">{formatCurrency(pedido.valor_produto)}</p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground">Comissão (CV)</p>
+                    <p className="font-medium text-destructive">-{formatCurrency(pedido.comissao_total)}</p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground">Tarifa/Financ.</p>
+                    <p className="font-medium text-destructive">-{formatCurrency(pedido.tarifa_fixa_total)}</p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground">Frete Vendedor</p>
+                    <p className="font-medium text-destructive">
+                      {pedido.frete_vendedor_total > 0 
+                        ? `-${formatCurrency(pedido.frete_vendedor_total)}`
+                        : "—"
+                      }
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground">ADS</p>
+                    <p className="font-medium text-purple-600">
+                      {pedido.ads_total > 0 
+                        ? `-${formatCurrency(pedido.ads_total)}`
+                        : "—"
+                      }
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground flex items-center gap-1">
+                      Impostos
+                      {pedido.impostos_total === 0 && (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">Impostos são estimados com base no regime tributário</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </p>
+                    <p className="font-medium text-destructive">
+                      {pedido.impostos_total > 0 
+                        ? `-${formatCurrency(pedido.impostos_total)}`
+                        : <span className="text-muted-foreground">—</span>
+                      }
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground">CMV</p>
+                    <p className="font-medium text-orange-600">
+                      {cmvTotal > 0 
+                        ? `-${formatCurrency(cmvTotal)}`
+                        : semCMV 
+                          ? <span className="flex items-center gap-1 text-amber-500">
+                              <AlertTriangle className="h-3 w-3" /> Sem custo
+                            </span>
+                          : <span className="text-muted-foreground">—</span>
+                      }
+                    </p>
+                  </div>
+                </div>
+                
+                <Separator className="my-3" />
+                
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium">Margem de Contribuição (MC)</p>
+                  <div className={cn("text-right", margemColor)}>
+                    <span className="text-lg font-bold">{formatCurrency(margemRs)}</span>
+                    <span className="ml-2 text-sm">({formatPercent(margemPercent)})</span>
+                  </div>
+                </div>
+              </div>
+            </TableCell>
+          </TableRow>
+
+          {/* Lista de itens */}
           {isLoadingItens ? (
             <TableRow>
-              <TableCell colSpan={16} className="bg-muted/20">
+              <TableCell colSpan={16} className="bg-muted/10">
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
                   <span className="text-sm text-muted-foreground">Carregando itens...</span>
@@ -267,51 +432,60 @@ export function PedidosTableRow({
             </TableRow>
           ) : itens.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={16} className="bg-muted/20">
+              <TableCell colSpan={16} className="bg-muted/10">
                 <div className="flex items-center justify-center py-4 text-muted-foreground">
                   <Package className="h-4 w-4 mr-2" />
-                  <span className="text-sm">Nenhum item encontrado</span>
+                  <span className="text-sm">Nenhum item encontrado para este pedido</span>
                 </div>
               </TableCell>
             </TableRow>
           ) : (
-            itens.map((item) => {
-              const itemCusto = item.custo_total;
-              const itemMargem = item.preco_total - itemCusto;
-              const itemMargemPercent = item.preco_total > 0 ? (itemMargem / item.preco_total) * 100 : 0;
+            <>
+              {/* Header dos itens */}
+              <TableRow className="bg-muted/10">
+                <TableCell></TableCell>
+                <TableCell colSpan={3} className="text-xs font-medium text-muted-foreground">
+                  SKU / Produto
+                </TableCell>
+                <TableCell className="text-xs font-medium text-muted-foreground text-center">
+                  Qtd
+                </TableCell>
+                <TableCell className="text-xs font-medium text-muted-foreground text-right">
+                  Vlr. Unit.
+                </TableCell>
+                <TableCell className="text-xs font-medium text-muted-foreground text-right">
+                  Total
+                </TableCell>
+                <TableCell className="text-xs font-medium text-muted-foreground text-right">
+                  Custo Unit.
+                </TableCell>
+                <TableCell className="text-xs font-medium text-muted-foreground text-right">
+                  CMV Total
+                </TableCell>
+                <TableCell colSpan={7} className="text-xs font-medium text-muted-foreground text-right">
+                  Margem
+                </TableCell>
+              </TableRow>
+              
+              {itens.map((item) => {
+                const itemCusto = item.custo_total;
+                const itemMargem = item.preco_total - itemCusto;
+                const itemMargemPercent = item.preco_total > 0 ? (itemMargem / item.preco_total) * 100 : 0;
 
-              const itemMargemColor =
-                itemMargem < 0
-                  ? "text-destructive"
-                  : itemMargemPercent < 10
-                  ? "text-amber-500"
-                  : "text-emerald-500";
+                const itemMargemColor =
+                  itemMargem < 0
+                    ? "text-destructive"
+                    : itemMargemPercent < 10
+                    ? "text-amber-500"
+                    : "text-emerald-500";
 
-              return (
-                <TableRow key={item.id} className="bg-muted/20 border-l-4 border-l-primary/20">
-                  <TableCell></TableCell>
-                  <TableCell colSpan={5}></TableCell>
-                  <TableCell className="text-center text-xs">{item.quantidade}</TableCell>
-                  <TableCell className="text-right text-xs font-medium">
-                    {formatCurrency(item.preco_total)}
-                  </TableCell>
-                  <TableCell colSpan={5}></TableCell>
-                  <TableCell className="text-right text-xs text-orange-600">
-                    {item.sem_custo ? (
-                      <span className="text-amber-500">—</span>
-                    ) : (
-                      formatCurrency(itemCusto)
-                    )}
-                  </TableCell>
-                  <TableCell className={cn("text-right text-xs font-medium", item.sem_custo ? "text-muted-foreground" : itemMargemColor)}>
-                    {item.sem_custo ? "—" : formatCurrency(itemMargem)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-start gap-1.5 pl-4">
+                return (
+                  <TableRow key={item.id} className="bg-muted/10 border-l-4 border-l-primary/10">
+                    <TableCell>
                       {(item.sem_produto || item.sem_custo) && (
                         <Tooltip>
                           <TooltipTrigger>
-                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
                           </TooltipTrigger>
                           <TooltipContent>
                             <div className="text-xs space-y-1">
@@ -321,12 +495,14 @@ export function PedidosTableRow({
                           </TooltipContent>
                         </Tooltip>
                       )}
+                    </TableCell>
+                    <TableCell colSpan={3}>
                       <div className="flex flex-col gap-1">
-                        <p className="text-xs truncate max-w-[140px]">
+                        <span className="text-xs font-mono text-muted-foreground">
+                          {item.produto_sku || item.sku_marketplace || "—"}
+                        </span>
+                        <span className="text-xs truncate max-w-[200px]">
                           {item.produto_nome || item.descricao_item || "Produto não identificado"}
-                        </p>
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                          {item.produto_sku || item.sku_marketplace || "-"}
                         </span>
                         {item.sem_produto && onAbrirMapeamento && (
                           <button
@@ -336,18 +512,53 @@ export function PedidosTableRow({
                             }}
                             className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full
                                        bg-amber-500/10 text-amber-600 border border-amber-300
-                                       hover:bg-amber-500/20 transition w-fit"
+                                       hover:bg-amber-500/20 transition w-fit mt-1"
                           >
                             <Link2 className="h-3 w-3" />
-                            Mapear
+                            Mapear produto
                           </button>
                         )}
                       </div>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })
+                    </TableCell>
+                    <TableCell className="text-center text-xs font-medium">
+                      {item.quantidade}
+                    </TableCell>
+                    <TableCell className="text-right text-xs">
+                      {formatCurrency(item.preco_unitario || 0)}
+                    </TableCell>
+                    <TableCell className="text-right text-xs font-medium">
+                      {formatCurrency(item.preco_total)}
+                    </TableCell>
+                    <TableCell className="text-right text-xs">
+                      {item.sem_custo ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        formatCurrency((item.custo_total || 0) / (item.quantidade || 1))
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-xs text-orange-600">
+                      {item.sem_custo ? (
+                        <span className="text-amber-500">—</span>
+                      ) : (
+                        formatCurrency(itemCusto)
+                      )}
+                    </TableCell>
+                    <TableCell colSpan={7} className={cn("text-right text-xs font-medium", item.sem_custo ? "text-muted-foreground" : itemMargemColor)}>
+                      {item.sem_custo ? (
+                        "—"
+                      ) : (
+                        <>
+                          {formatCurrency(itemMargem)}
+                          <span className="ml-1 text-[10px] opacity-75">
+                            ({formatPercent(itemMargemPercent)})
+                          </span>
+                        </>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </>
           )}
         </>
       )}
