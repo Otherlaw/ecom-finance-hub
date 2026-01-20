@@ -1,277 +1,259 @@
 /**
- * CHECKLIST - IMPORTAÇÃO DE RELATÓRIOS COM MERGE
+ * CHECKLIST - IMPORTAÇÃO DE RELATÓRIOS DE MARKETPLACE
  * 
- * Este módulo implementa a lógica de importação de relatórios de marketplace
- * com merge por pedido_id para evitar duplicações e complementar dados.
+ * Motor de fechamento: gera eventos financeiros (marketplace_financial_events)
+ * com origem='report' para complementar/sobrescrever dados da API.
  * 
- * REGRA PRINCIPAL:
- * - Se pedido_id já existe: ATUALIZA campos faltantes
- * - Se pedido_id não existe: CRIA nova transação
- * - NUNCA criar venda duplicada para mesmo pedido
+ * REGRAS DE ARQUITETURA:
+ * 1. Relatórios geram APENAS eventos financeiros (comissao, tarifa, frete, ads, etc.)
+ * 2. NUNCA criar transações de venda aqui (vendas vêm do sync de pedidos)
+ * 3. NUNCA criar movimentos de caixa aqui (caixa vem de OFX/repasses)
+ * 4. Eventos do relatório têm PRIORIDADE sobre eventos da API
+ * 5. UPSERT idempotente por event_id determinístico
  */
 
 import { supabase } from "@/integrations/supabase/client";
 
-export interface TransacaoImportada {
+// ============= TIPOS =============
+
+export interface EventoFinanceiroImportado {
   pedido_id: string;
-  data_transacao: string;
-  canal: string;
-  tipo_transacao: string;
-  tipo_lancamento: string;
-  valor_bruto?: number;
-  valor_liquido?: number;
+  data_evento: string;
+  tipo_evento: 'comissao' | 'tarifa_fixa' | 'tarifa_financeira' | 'frete_vendedor' | 'ads' | 'estorno' | 'cancelamento' | 'ajuste' | 'outros';
+  valor: number;
+  descricao?: string;
+  conta_nome?: string;
+}
+
+export interface LinhaRelatorio {
+  pedido_id?: string;
+  data?: string;
   comissao?: number;
-  tarifa?: number;
+  tarifa_fixa?: number;
+  tarifa_financeira?: number;
   frete_vendedor?: number;
   ads?: number;
-  imposto?: number;
+  estorno?: number;
+  ajuste?: number;
+  outros?: number;
   conta_nome?: string;
-  tipo_envio?: string;
   descricao?: string;
-  referencia_externa?: string;
-  empresa_id: string;
+  referencia?: string;
 }
 
 export interface ResultadoImportacao {
-  totalProcessadas: number;
-  novasInseridas: number;
-  atualizadas: number;
-  semPedidoId: number;
+  totalLinhasProcessadas: number;
+  eventosGerados: number;
+  eventosAtualizados: number;
+  linhasSemPedidoId: number;
+  linhasIgnoradas: number;
   erros: string[];
+  resumoPorTipo: Record<string, { qtd: number; valor: number }>;
 }
 
+// ============= GERADOR DE EVENT_ID DETERMINÍSTICO =============
+
 /**
- * Importa transações de relatório de marketplace com lógica de merge
- * 
- * COMPORTAMENTO:
- * 1. Busca transações existentes por pedido_id
- * 2. Se existe: atualiza campos que estão nulos/zerados
- * 3. Se não existe: insere nova transação
- * 4. Transações sem pedido_id são inseridas normalmente (usando referencia_externa)
+ * Gera um event_id único e determinístico baseado nos dados do evento.
+ * Permite UPSERT idempotente (rodar múltiplas vezes sem duplicar).
  */
-export async function importarComMerge(
-  transacoes: TransacaoImportada[],
+function gerarEventId(
+  pedidoId: string,
+  tipoEvento: string,
+  canal: string,
+  origem: string = 'report'
+): string {
+  // Formato: report_{canal}_{pedido_id}_{tipo_evento}
+  const base = `${origem}_${canal}_${pedidoId}_${tipoEvento}`;
+  // Limpar caracteres especiais
+  return base.toLowerCase().replace(/[^a-z0-9_]/g, '_').substring(0, 100);
+}
+
+// ============= PARSER DE LINHAS PARA EVENTOS =============
+
+/**
+ * Transforma uma linha do relatório em múltiplos eventos financeiros.
+ * Cada tipo de custo vira um evento separado para granularidade.
+ */
+function linhaParaEventos(
+  linha: LinhaRelatorio,
   empresaId: string,
-  canal: string
-): Promise<ResultadoImportacao> {
-  const resultado: ResultadoImportacao = {
-    totalProcessadas: 0,
-    novasInseridas: 0,
-    atualizadas: 0,
-    semPedidoId: 0,
-    erros: [],
-  };
+  canal: string,
+  contaNome?: string
+): EventoFinanceiroImportado[] {
+  const eventos: EventoFinanceiroImportado[] = [];
+  
+  if (!linha.pedido_id || !linha.pedido_id.trim()) {
+    return eventos; // Ignorar linhas sem pedido_id
+  }
 
-  // Separar transações com e sem pedido_id
-  const comPedidoId = transacoes.filter(t => t.pedido_id && t.pedido_id.trim());
-  const semPedidoId = transacoes.filter(t => !t.pedido_id || !t.pedido_id.trim());
+  const pedidoId = linha.pedido_id.trim();
+  const dataEvento = linha.data || new Date().toISOString();
+  const conta = linha.conta_nome || contaNome;
 
-  resultado.semPedidoId = semPedidoId.length;
+  // Mapear cada tipo de custo para um evento
+  const tiposValores: Array<{ tipo: EventoFinanceiroImportado['tipo_evento']; valor?: number }> = [
+    { tipo: 'comissao', valor: linha.comissao },
+    { tipo: 'tarifa_fixa', valor: linha.tarifa_fixa },
+    { tipo: 'tarifa_financeira', valor: linha.tarifa_financeira },
+    { tipo: 'frete_vendedor', valor: linha.frete_vendedor },
+    { tipo: 'ads', valor: linha.ads },
+    { tipo: 'estorno', valor: linha.estorno },
+    { tipo: 'ajuste', valor: linha.ajuste },
+    { tipo: 'outros', valor: linha.outros },
+  ];
 
-  // === PROCESSAR TRANSAÇÕES COM PEDIDO_ID (MERGE) ===
-  if (comPedidoId.length > 0) {
-    // Buscar pedidos existentes para fazer merge
-    const pedidoIds = [...new Set(comPedidoId.map(t => t.pedido_id))];
-    
-    const { data: existentes, error: fetchError } = await supabase
-      .from("marketplace_transactions")
-      .select("*")
-      .eq("empresa_id", empresaId)
-      .eq("canal", canal)
-      .eq("tipo_transacao", "venda")
-      .in("pedido_id", pedidoIds);
-
-    if (fetchError) {
-      resultado.erros.push(`Erro ao buscar transações existentes: ${fetchError.message}`);
-      return resultado;
-    }
-
-    // Criar mapa de existentes por pedido_id
-    const existentesMap = new Map<string, any>();
-    (existentes || []).forEach(t => {
-      if (t.pedido_id) {
-        existentesMap.set(t.pedido_id, t);
-      }
-    });
-
-    // Agrupar novas transações por pedido_id (pode haver múltiplas linhas)
-    const novasAgrupadas = new Map<string, TransacaoImportada[]>();
-    comPedidoId.forEach(t => {
-      const grupo = novasAgrupadas.get(t.pedido_id) || [];
-      grupo.push(t);
-      novasAgrupadas.set(t.pedido_id, grupo);
-    });
-
-    // Processar cada pedido
-    for (const [pedidoId, linhas] of novasAgrupadas) {
-      resultado.totalProcessadas += linhas.length;
-
-      // Consolidar dados das linhas (pode ter múltiplas com partes diferentes)
-      const dadosConsolidados = linhas.reduce((acc, linha) => ({
-        comissao: acc.comissao || linha.comissao || 0,
-        tarifa: acc.tarifa || linha.tarifa || 0,
-        frete_vendedor: acc.frete_vendedor || linha.frete_vendedor || 0,
-        ads: acc.ads || linha.ads || 0,
-        imposto: acc.imposto || linha.imposto || 0,
-        conta_nome: acc.conta_nome || linha.conta_nome,
-        tipo_envio: acc.tipo_envio || linha.tipo_envio,
-        valor_bruto: acc.valor_bruto || linha.valor_bruto || 0,
-        valor_liquido: acc.valor_liquido || linha.valor_liquido || 0,
-        data_transacao: acc.data_transacao || linha.data_transacao,
-        descricao: acc.descricao || linha.descricao,
-      }), {} as any);
-
-      const existente = existentesMap.get(pedidoId);
-
-      if (existente) {
-        // === MERGE: Atualizar apenas campos faltantes ===
-        const atualizacoes: Record<string, any> = {};
-        let temAtualizacao = false;
-
-        // Comissão: atualizar se atual é nulo/0 e novo tem valor
-        if ((!existente.taxas || existente.taxas === 0) && dadosConsolidados.comissao > 0) {
-          atualizacoes.taxas = dadosConsolidados.comissao;
-          temAtualizacao = true;
-        }
-
-        // Tarifa: atualizar se atual é nulo/0 e novo tem valor
-        if ((!existente.tarifas || existente.tarifas === 0) && dadosConsolidados.tarifa > 0) {
-          atualizacoes.tarifas = dadosConsolidados.tarifa;
-          temAtualizacao = true;
-        }
-
-        // Frete vendedor
-        if ((!existente.frete_vendedor || existente.frete_vendedor === 0) && dadosConsolidados.frete_vendedor > 0) {
-          atualizacoes.frete_vendedor = dadosConsolidados.frete_vendedor;
-          temAtualizacao = true;
-        }
-
-        // ADS
-        if ((!existente.ads || existente.ads === 0) && dadosConsolidados.ads > 0) {
-          atualizacoes.ads = dadosConsolidados.ads;
-          temAtualizacao = true;
-        }
-
-        // Imposto
-        if ((!existente.imposto || existente.imposto === 0) && dadosConsolidados.imposto > 0) {
-          atualizacoes.imposto = dadosConsolidados.imposto;
-          temAtualizacao = true;
-        }
-
-        // Conta nome
-        if (!existente.conta_nome && dadosConsolidados.conta_nome) {
-          atualizacoes.conta_nome = dadosConsolidados.conta_nome;
-          temAtualizacao = true;
-        }
-
-        // Tipo envio
-        if (!existente.tipo_envio && dadosConsolidados.tipo_envio) {
-          atualizacoes.tipo_envio = dadosConsolidados.tipo_envio;
-          temAtualizacao = true;
-        }
-
-        if (temAtualizacao) {
-          atualizacoes.atualizado_em = new Date().toISOString();
-
-          const { error: updateError } = await supabase
-            .from("marketplace_transactions")
-            .update(atualizacoes)
-            .eq("id", existente.id);
-
-          if (updateError) {
-            resultado.erros.push(`Erro ao atualizar pedido ${pedidoId}: ${updateError.message}`);
-          } else {
-            resultado.atualizadas++;
-          }
-        }
-      } else {
-        // === INSERT: Transação nova ===
-        const primeiraLinha = linhas[0];
-        
-        const novaTransacao = {
-          empresa_id: empresaId,
-          canal,
-          pedido_id: pedidoId,
-          data_transacao: dadosConsolidados.data_transacao || primeiraLinha.data_transacao,
-          tipo_transacao: "venda",
-          tipo_lancamento: "credito",
-          valor_bruto: dadosConsolidados.valor_bruto || 0,
-          valor_liquido: dadosConsolidados.valor_liquido || 0,
-          taxas: dadosConsolidados.comissao || 0,
-          tarifas: dadosConsolidados.tarifa || 0,
-          frete_vendedor: dadosConsolidados.frete_vendedor || 0,
-          ads: dadosConsolidados.ads || 0,
-          imposto: dadosConsolidados.imposto || 0,
-          conta_nome: dadosConsolidados.conta_nome || null,
-          tipo_envio: dadosConsolidados.tipo_envio || null,
-          descricao: dadosConsolidados.descricao || `Venda ${pedidoId}`,
-          referencia_externa: primeiraLinha.referencia_externa || pedidoId,
-          status: "importado",
-          regime: "competencia",
-        };
-
-        const { error: insertError } = await supabase
-          .from("marketplace_transactions")
-          .insert(novaTransacao);
-
-        if (insertError) {
-          // Verificar se é erro de duplicata (constraint)
-          if (insertError.code === "23505") {
-            // Duplicata, tentar atualizar
-            resultado.atualizadas++;
-          } else {
-            resultado.erros.push(`Erro ao inserir pedido ${pedidoId}: ${insertError.message}`);
-          }
-        } else {
-          resultado.novasInseridas++;
-        }
-      }
+  for (const { tipo, valor } of tiposValores) {
+    if (valor !== undefined && valor !== null && valor !== 0) {
+      eventos.push({
+        pedido_id: pedidoId,
+        data_evento: dataEvento,
+        tipo_evento: tipo,
+        valor: Math.abs(valor), // Sempre positivo, o tipo indica se é custo
+        descricao: linha.descricao || `${tipo} - Relatório`,
+        conta_nome: conta,
+      });
     }
   }
 
-  // === PROCESSAR TRANSAÇÕES SEM PEDIDO_ID (INSERT DIRETO) ===
-  // Essas são inseridas via upsert com referencia_externa
-  if (semPedidoId.length > 0) {
-    for (const transacao of semPedidoId) {
-      resultado.totalProcessadas++;
+  return eventos;
+}
 
-      const novaTransacao = {
+// ============= FUNÇÃO PRINCIPAL DE IMPORTAÇÃO =============
+
+/**
+ * Importa eventos financeiros de um relatório de marketplace.
+ * 
+ * COMPORTAMENTO:
+ * 1. Parseia linhas do relatório
+ * 2. Gera eventos por tipo (comissao, tarifa, etc.)
+ * 3. UPSERT em marketplace_financial_events com origem='report'
+ * 4. Eventos do relatório sobrescrevem eventos da API (mesma constraint)
+ */
+export async function importarRelatorioParaEventos(
+  linhas: LinhaRelatorio[],
+  empresaId: string,
+  canal: string,
+  contaNomePadrao?: string,
+  batchId?: string
+): Promise<ResultadoImportacao> {
+  const resultado: ResultadoImportacao = {
+    totalLinhasProcessadas: 0,
+    eventosGerados: 0,
+    eventosAtualizados: 0,
+    linhasSemPedidoId: 0,
+    linhasIgnoradas: 0,
+    erros: [],
+    resumoPorTipo: {},
+  };
+
+  // Normalizar nome do canal
+  const canalNormalizado = normalizarCanal(canal);
+  
+  // Converter linhas em eventos
+  const todosEventos: Array<{
+    empresa_id: string;
+    canal: string;
+    conta_nome: string | null;
+    event_id: string;
+    pedido_id: string;
+    tipo_evento: string;
+    data_evento: string;
+    valor: number;
+    descricao: string | null;
+    origem: string;
+    batch_id: string | null;
+    metadados: { fonte: string; importado_em: string };
+  }> = [];
+
+  for (const linha of linhas) {
+    resultado.totalLinhasProcessadas++;
+
+    if (!linha.pedido_id || !linha.pedido_id.trim()) {
+      resultado.linhasSemPedidoId++;
+      continue;
+    }
+
+    const eventosLinha = linhaParaEventos(linha, empresaId, canalNormalizado, contaNomePadrao);
+    
+    if (eventosLinha.length === 0) {
+      resultado.linhasIgnoradas++;
+      continue;
+    }
+
+    for (const evento of eventosLinha) {
+      const eventId = gerarEventId(evento.pedido_id, evento.tipo_evento, canalNormalizado);
+      
+      todosEventos.push({
         empresa_id: empresaId,
-        canal,
-        pedido_id: null,
-        data_transacao: transacao.data_transacao,
-        tipo_transacao: transacao.tipo_transacao || "outro",
-        tipo_lancamento: transacao.tipo_lancamento || "debito",
-        valor_bruto: transacao.valor_bruto || 0,
-        valor_liquido: transacao.valor_liquido || 0,
-        taxas: transacao.comissao || 0,
-        tarifas: transacao.tarifa || 0,
-        frete_vendedor: transacao.frete_vendedor || 0,
-        ads: transacao.ads || 0,
-        imposto: transacao.imposto || 0,
-        conta_nome: transacao.conta_nome || null,
-        tipo_envio: transacao.tipo_envio || null,
-        descricao: transacao.descricao || "Transação importada",
-        referencia_externa: transacao.referencia_externa || `${transacao.data_transacao}_${transacao.valor_liquido}`,
-        status: "importado",
-        regime: "competencia",
-      };
+        canal: canalNormalizado,
+        conta_nome: evento.conta_nome || null,
+        event_id: eventId,
+        pedido_id: evento.pedido_id,
+        tipo_evento: evento.tipo_evento,
+        data_evento: evento.data_evento,
+        valor: evento.valor,
+        descricao: evento.descricao || null,
+        origem: 'report',
+        batch_id: batchId || null,
+        metadados: {
+          fonte: 'checklist_importacao',
+          importado_em: new Date().toISOString(),
+        },
+      });
 
-      const { error: insertError } = await supabase
-        .from("marketplace_transactions")
-        .upsert(novaTransacao, {
-          onConflict: "empresa_id,canal,referencia_externa,tipo_transacao,tipo_lancamento",
-        });
-
-      if (insertError) {
-        resultado.erros.push(`Erro ao inserir transação: ${insertError.message}`);
-      } else {
-        resultado.novasInseridas++;
+      // Contabilizar resumo
+      if (!resultado.resumoPorTipo[evento.tipo_evento]) {
+        resultado.resumoPorTipo[evento.tipo_evento] = { qtd: 0, valor: 0 };
       }
+      resultado.resumoPorTipo[evento.tipo_evento].qtd++;
+      resultado.resumoPorTipo[evento.tipo_evento].valor += evento.valor;
+    }
+  }
+
+  // Inserir em lotes de 500 (limite Supabase)
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < todosEventos.length; i += BATCH_SIZE) {
+    const lote = todosEventos.slice(i, i + BATCH_SIZE);
+    
+    const { error, count } = await supabase
+      .from("marketplace_financial_events")
+      .upsert(lote, {
+        onConflict: "empresa_id,canal,event_id",
+        ignoreDuplicates: false, // Atualizar se existir
+      });
+
+    if (error) {
+      resultado.erros.push(`Erro no lote ${Math.floor(i / BATCH_SIZE) + 1}: ${error.message}`);
+    } else {
+      resultado.eventosGerados += lote.length;
     }
   }
 
   return resultado;
+}
+
+// ============= FUNÇÕES AUXILIARES =============
+
+/**
+ * Normaliza o nome do canal para formato padrão
+ */
+export function normalizarCanal(canal: string): string {
+  const mapa: Record<string, string> = {
+    'mercado livre': 'mercado_livre',
+    'mercadolivre': 'mercado_livre',
+    'ml': 'mercado_livre',
+    'shopee': 'shopee',
+    'shein': 'shein',
+    'tiktok': 'tiktok',
+    'tiktok shop': 'tiktok',
+    'amazon': 'amazon',
+    'magalu': 'magalu',
+    'magazine luiza': 'magalu',
+  };
+  
+  const canalLower = canal.toLowerCase().trim();
+  return mapa[canalLower] || canalLower.replace(/\s+/g, '_');
 }
 
 /**
@@ -281,12 +263,11 @@ export function validarPeriodoArquivo(
   datasArquivo: string[],
   mesChecklist: number,
   anoChecklist: number
-): { valido: boolean; mensagem: string } {
+): { valido: boolean; mensagem: string; percentualDentro: number } {
   if (datasArquivo.length === 0) {
-    return { valido: false, mensagem: "Nenhuma data encontrada no arquivo" };
+    return { valido: false, mensagem: "Nenhuma data encontrada no arquivo", percentualDentro: 0 };
   }
 
-  // Contar quantas datas são do período esperado
   let dentroPeríodo = 0;
   let foraPeríodo = 0;
 
@@ -308,13 +289,17 @@ export function validarPeriodoArquivo(
 
   const total = dentroPeríodo + foraPeríodo;
   if (total === 0) {
-    return { valido: false, mensagem: "Nenhuma data válida encontrada" };
+    return { valido: false, mensagem: "Nenhuma data válida encontrada", percentualDentro: 0 };
   }
 
   const percentualDentro = (dentroPeríodo / total) * 100;
 
   if (percentualDentro >= 80) {
-    return { valido: true, mensagem: `${percentualDentro.toFixed(0)}% das transações são do período` };
+    return { 
+      valido: true, 
+      mensagem: `${percentualDentro.toFixed(0)}% das transações são do período`,
+      percentualDentro 
+    };
   }
 
   const mesNome = [
@@ -325,6 +310,226 @@ export function validarPeriodoArquivo(
   return {
     valido: false,
     mensagem: `Atenção: Apenas ${percentualDentro.toFixed(0)}% das transações são de ${mesNome}/${anoChecklist}. ` +
-              `O arquivo pode ser de outro período.`
+              `O arquivo pode ser de outro período.`,
+    percentualDentro
   };
 }
+
+/**
+ * Busca resumo de completude do mês para um canal
+ */
+export async function buscarCompletudeMes(
+  empresaId: string,
+  canal: string,
+  mes: number,
+  ano: number
+): Promise<{
+  totalPedidos: number;
+  pedidosComEventosReport: number;
+  pedidosApenasApi: number;
+  percentualCompleto: number;
+  tiposEventosFaltando: string[];
+}> {
+  const canalNormalizado = normalizarCanal(canal);
+  
+  // Data range do mês
+  const dataInicio = new Date(ano, mes - 1, 1);
+  const dataFim = new Date(ano, mes, 0); // Último dia do mês
+
+  // Buscar pedidos do período
+  const { data: transacoes, error: errTransacoes } = await supabase
+    .from("marketplace_transactions")
+    .select("pedido_id")
+    .eq("empresa_id", empresaId)
+    .eq("canal", canalNormalizado)
+    .eq("tipo_transacao", "venda")
+    .gte("data_transacao", dataInicio.toISOString())
+    .lte("data_transacao", dataFim.toISOString());
+
+  if (errTransacoes) {
+    console.error("Erro ao buscar transações:", errTransacoes);
+    return {
+      totalPedidos: 0,
+      pedidosComEventosReport: 0,
+      pedidosApenasApi: 0,
+      percentualCompleto: 0,
+      tiposEventosFaltando: [],
+    };
+  }
+
+  const pedidoIds = [...new Set((transacoes || []).map(t => t.pedido_id).filter(Boolean))];
+  const totalPedidos = pedidoIds.length;
+
+  if (totalPedidos === 0) {
+    return {
+      totalPedidos: 0,
+      pedidosComEventosReport: 0,
+      pedidosApenasApi: 0,
+      percentualCompleto: 100,
+      tiposEventosFaltando: [],
+    };
+  }
+
+  // Buscar eventos financeiros dos pedidos
+  const { data: eventos, error: errEventos } = await supabase
+    .from("marketplace_financial_events")
+    .select("pedido_id, origem, tipo_evento")
+    .eq("empresa_id", empresaId)
+    .eq("canal", canalNormalizado)
+    .in("pedido_id", pedidoIds);
+
+  if (errEventos) {
+    console.error("Erro ao buscar eventos:", errEventos);
+    return {
+      totalPedidos,
+      pedidosComEventosReport: 0,
+      pedidosApenasApi: totalPedidos,
+      percentualCompleto: 0,
+      tiposEventosFaltando: ['comissao', 'tarifa_fixa'],
+    };
+  }
+
+  // Agrupar por pedido_id
+  const eventosPorPedido = new Map<string, { temReport: boolean; tipos: Set<string> }>();
+  for (const evento of eventos || []) {
+    if (!evento.pedido_id) continue;
+    
+    if (!eventosPorPedido.has(evento.pedido_id)) {
+      eventosPorPedido.set(evento.pedido_id, { temReport: false, tipos: new Set() });
+    }
+    
+    const info = eventosPorPedido.get(evento.pedido_id)!;
+    if (evento.origem === 'report') {
+      info.temReport = true;
+    }
+    info.tipos.add(evento.tipo_evento);
+  }
+
+  let pedidosComReport = 0;
+  let pedidosApenasApi = 0;
+  const todosTipos = new Set<string>();
+
+  for (const pedidoId of pedidoIds) {
+    const info = eventosPorPedido.get(pedidoId);
+    if (info?.temReport) {
+      pedidosComReport++;
+    } else if (info) {
+      pedidosApenasApi++;
+    }
+    info?.tipos.forEach(t => todosTipos.add(t));
+  }
+
+  // Tipos esperados vs encontrados
+  const tiposEsperados = ['comissao', 'tarifa_fixa'];
+  const tiposFaltando = tiposEsperados.filter(t => !todosTipos.has(t));
+
+  const percentualCompleto = totalPedidos > 0 
+    ? Math.round((pedidosComReport / totalPedidos) * 100) 
+    : 0;
+
+  return {
+    totalPedidos,
+    pedidosComEventosReport: pedidosComReport,
+    pedidosApenasApi,
+    percentualCompleto,
+    tiposEventosFaltando: tiposFaltando,
+  };
+}
+
+// ============= PARSER DE CSV GENÉRICO =============
+
+export interface ColunasMapeamento {
+  pedido_id: string;
+  data?: string;
+  comissao?: string;
+  tarifa_fixa?: string;
+  tarifa_financeira?: string;
+  frete_vendedor?: string;
+  ads?: string;
+  estorno?: string;
+  conta_nome?: string;
+}
+
+/**
+ * Parseia um CSV com mapeamento de colunas flexível
+ */
+export function parsearCSVParaLinhas(
+  csvData: string[][],
+  mapeamento: ColunasMapeamento,
+  headerRow: number = 0
+): LinhaRelatorio[] {
+  const linhas: LinhaRelatorio[] = [];
+  const headers = csvData[headerRow].map(h => h.toLowerCase().trim());
+  
+  const getColIndex = (colName?: string): number => {
+    if (!colName) return -1;
+    return headers.findIndex(h => h.includes(colName.toLowerCase()));
+  };
+
+  const indices = {
+    pedido_id: getColIndex(mapeamento.pedido_id),
+    data: getColIndex(mapeamento.data),
+    comissao: getColIndex(mapeamento.comissao),
+    tarifa_fixa: getColIndex(mapeamento.tarifa_fixa),
+    tarifa_financeira: getColIndex(mapeamento.tarifa_financeira),
+    frete_vendedor: getColIndex(mapeamento.frete_vendedor),
+    ads: getColIndex(mapeamento.ads),
+    estorno: getColIndex(mapeamento.estorno),
+    conta_nome: getColIndex(mapeamento.conta_nome),
+  };
+
+  const parseNumero = (val: string | undefined): number | undefined => {
+    if (!val) return undefined;
+    const num = parseFloat(val.replace(',', '.').replace(/[^0-9.-]/g, ''));
+    return isNaN(num) ? undefined : num;
+  };
+
+  for (let i = headerRow + 1; i < csvData.length; i++) {
+    const row = csvData[i];
+    if (!row || row.length === 0) continue;
+
+    const linha: LinhaRelatorio = {
+      pedido_id: indices.pedido_id >= 0 ? row[indices.pedido_id]?.trim() : undefined,
+      data: indices.data >= 0 ? row[indices.data] : undefined,
+      comissao: parseNumero(indices.comissao >= 0 ? row[indices.comissao] : undefined),
+      tarifa_fixa: parseNumero(indices.tarifa_fixa >= 0 ? row[indices.tarifa_fixa] : undefined),
+      tarifa_financeira: parseNumero(indices.tarifa_financeira >= 0 ? row[indices.tarifa_financeira] : undefined),
+      frete_vendedor: parseNumero(indices.frete_vendedor >= 0 ? row[indices.frete_vendedor] : undefined),
+      ads: parseNumero(indices.ads >= 0 ? row[indices.ads] : undefined),
+      estorno: parseNumero(indices.estorno >= 0 ? row[indices.estorno] : undefined),
+      conta_nome: indices.conta_nome >= 0 ? row[indices.conta_nome]?.trim() : undefined,
+    };
+
+    linhas.push(linha);
+  }
+
+  return linhas;
+}
+
+// ============= MAPEAMENTOS PRÉ-DEFINIDOS POR CANAL =============
+
+export const MAPEAMENTOS_CANAIS: Record<string, ColunasMapeamento> = {
+  mercado_livre: {
+    pedido_id: 'id da venda',
+    data: 'data da tarifa',
+    comissao: 'comissão',
+    tarifa_fixa: 'tarifa fixa',
+    tarifa_financeira: 'custo de envio',
+    frete_vendedor: 'frete pago pelo vendedor',
+    ads: 'product ads',
+  },
+  shopee: {
+    pedido_id: 'no. do pedido',
+    data: 'data do pedido',
+    comissao: 'taxa de comissão',
+    tarifa_fixa: 'taxa de serviço',
+    frete_vendedor: 'frete pago pelo vendedor',
+    ads: 'taxa de anúncio',
+  },
+  shein: {
+    pedido_id: 'order id',
+    data: 'order date',
+    comissao: 'commission',
+    tarifa_fixa: 'service fee',
+  },
+};

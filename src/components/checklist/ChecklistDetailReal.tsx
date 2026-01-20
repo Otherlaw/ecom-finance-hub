@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ModuleCard } from "@/components/ModuleCard";
 import { EtapaFormModal } from "./EtapaFormModal";
+import { ProcessarRelatorioModal } from "./ProcessarRelatorioModal";
+import { CompletudeMesCard } from "./CompletudeMesCard";
 import { ChecklistCanalComItens, ChecklistCanalItem, useChecklistsCanal, calcularProgressoChecklist, getStatusLabel, getStatusColor } from "@/hooks/useChecklistsCanal";
 import { getMesNome } from "@/lib/checklist-data";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,6 +30,7 @@ import {
   X,
   Loader2,
   File,
+  FileSpreadsheet,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -68,7 +71,12 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [currentUploadItemId, setCurrentUploadItemId] = useState<string | null>(null);
-
+  
+  // Modal de processamento de relatório
+  const [arquivoParaProcessar, setArquivoParaProcessar] = useState<{
+    url: string;
+    nome: string;
+  } | null>(null);
   const { atualizarEtapa, excluirEtapa, adicionarArquivo, removerArquivo } = useChecklistsCanal();
 
   const handleUploadClick = (itemId: string) => {
