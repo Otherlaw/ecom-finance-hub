@@ -106,6 +106,7 @@ interface OrderFees {
   tarifaFinanceira: number;
   freteVendedor: number;
   origemFallback?: boolean;
+  origemListingPrices?: boolean;
 }
 
 interface TokenState {
@@ -115,6 +116,16 @@ interface TokenState {
   expires_at: string | null;
   user_id_provider: string;
 }
+
+// Cache de listing_prices por listing_type_id e category_id
+interface ListingPriceInfo {
+  fixed_fee: number;
+  financing_add_on_fee: number;
+  sale_fee_pct: number;
+}
+
+// Cache global para evitar chamadas repetidas
+const listingPricesCache = new Map<string, ListingPriceInfo>();
 
 // Resultado minimalista da busca (apenas IDs)
 interface OrderSearchResult {
@@ -549,16 +560,73 @@ async function fetchBillingDetailsFromConciliation(
 }
 
 /**
- * NOVA FUNÇÃO: Extrair taxas do payload COMPLETO do pedido
- * Usa sale_fee dos order_items + dados de payments
+ * Buscar preços/tarifas de um listing_type_id via /sites/MLB/listing_prices
+ * Retorna fixed_fee e financing_add_on_fee estimados
  */
-function extractFeesFromFullOrder(order: MLOrder): OrderFees {
+async function fetchListingPrices(
+  categoryId: string,
+  listingTypeId: string,
+  price: number
+): Promise<ListingPriceInfo | null> {
+  const cacheKey = `${categoryId}_${listingTypeId}_${Math.floor(price / 50) * 50}`;
+  
+  if (listingPricesCache.has(cacheKey)) {
+    return listingPricesCache.get(cacheKey)!;
+  }
+  
+  try {
+    // API pública, não precisa de auth
+    const url = `${ML_API_URL}/sites/MLB/listing_prices?category_id=${categoryId}&listing_type_id=${listingTypeId}&price=${price}`;
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      console.log(`[ML Sync] ⚠️ listing_prices indisponível para ${listingTypeId}: ${response.status}`);
+      return null;
+    }
+    
+    const data = await response.json();
+    
+    // Extrair tarifas do response
+    // Formato: { sale_fee_amount, currency_id, sale_fee_details: { fixed_fee, variable_fee, financing_add_on_fee } }
+    let fixedFee = 0;
+    let financingAddOnFee = 0;
+    let saleFeeAmount = data.sale_fee_amount || 0;
+    
+    if (data.sale_fee_details) {
+      fixedFee = data.sale_fee_details.fixed_fee || 0;
+      financingAddOnFee = data.sale_fee_details.financing_add_on_fee || 0;
+    }
+    
+    const result: ListingPriceInfo = {
+      fixed_fee: fixedFee,
+      financing_add_on_fee: financingAddOnFee,
+      sale_fee_pct: price > 0 ? (saleFeeAmount / price) : 0,
+    };
+    
+    listingPricesCache.set(cacheKey, result);
+    return result;
+  } catch (err) {
+    console.error(`[ML Sync] ❌ Erro ao buscar listing_prices:`, err);
+    return null;
+  }
+}
+
+/**
+ * Extrair taxas do payload COMPLETO do pedido
+ * Usa sale_fee dos order_items + dados de payments
+ * AGORA inclui estimativa de tarifa_fixa via listing_prices
+ */
+async function extractFeesFromFullOrder(
+  order: MLOrder,
+  usarListingPrices: boolean = true
+): Promise<OrderFees> {
   let comissao = 0;
   let tarifaFixa = 0;
   let tarifaFinanceira = 0;
   let origemFallback = false;
+  let origemListingPrices = false;
 
-  // 1. PRIORIDADE: Somar sale_fee de cada item (mais preciso)
+  // 1. PRIORIDADE: Somar sale_fee de cada item (mais preciso - é a COMISSÃO VARIÁVEL)
   let totalSaleFee = 0;
   for (const item of order.order_items || []) {
     if (item.sale_fee && item.sale_fee > 0) {
@@ -566,7 +634,7 @@ function extractFeesFromFullOrder(order: MLOrder): OrderFees {
     }
   }
 
-  // 2. Usar marketplace_fee dos payments como fallback
+  // 2. Usar marketplace_fee dos payments como fallback para comissão
   let totalMarketplaceFee = 0;
   let totalFinancingFee = 0;
   for (const payment of order.payments || []) {
@@ -577,7 +645,6 @@ function extractFeesFromFullOrder(order: MLOrder): OrderFees {
       if (payment.financing_fee && payment.financing_fee > 0) {
         totalFinancingFee += payment.financing_fee;
       } else {
-        // Estimar 5% para parcelados
         totalFinancingFee += (payment.transaction_amount || 0) * FINANCING_FEE_RATE;
       }
     }
@@ -586,18 +653,47 @@ function extractFeesFromFullOrder(order: MLOrder): OrderFees {
   // Usar sale_fee se disponível, senão marketplace_fee
   if (totalSaleFee > 0) {
     comissao = totalSaleFee;
-    console.log(`[ML Sync] ✓ Pedido ${order.id}: usando sale_fee dos items = R$${comissao.toFixed(2)}`);
   } else if (totalMarketplaceFee > 0) {
     comissao = totalMarketplaceFee;
   } else if (order.total_amount > 0) {
-    // Último fallback: estimar 14%
     const ESTIMATED_RATE = 0.14;
     comissao = Math.round(order.total_amount * ESTIMATED_RATE * 100) / 100;
     origemFallback = true;
-    console.log(`[ML Sync] ⚠️ Pedido ${order.id}: sale_fee/marketplace_fee=0, estimando 14% = R$${comissao.toFixed(2)}`);
+    console.log(`[ML Sync] ⚠️ Pedido ${order.id}: comissão estimada 14% = R$${comissao.toFixed(2)}`);
   }
 
   tarifaFinanceira = Math.round(totalFinancingFee * 100) / 100;
+
+  // 3. NOVO: Estimar tarifa_fixa via listing_prices se não temos do billing
+  if (usarListingPrices && order.order_items && order.order_items.length > 0) {
+    let totalFixedFee = 0;
+    let totalFinancingAddOn = 0;
+    
+    for (const item of order.order_items) {
+      const categoryId = item.item.category_id;
+      const listingTypeId = item.listing_type_id;
+      const itemPrice = item.unit_price * item.quantity;
+      
+      if (categoryId && listingTypeId) {
+        const priceInfo = await fetchListingPrices(categoryId, listingTypeId, itemPrice);
+        if (priceInfo) {
+          totalFixedFee += priceInfo.fixed_fee * item.quantity;
+          totalFinancingAddOn += priceInfo.financing_add_on_fee * item.quantity;
+          origemListingPrices = true;
+        }
+      }
+    }
+    
+    if (totalFixedFee > 0) {
+      tarifaFixa = Math.round(totalFixedFee * 100) / 100;
+      console.log(`[ML Sync] 📊 Pedido ${order.id}: tarifa_fixa estimada via listing_prices = R$${tarifaFixa.toFixed(2)}`);
+    }
+    
+    // Adicionar financing_add_on_fee à tarifa financeira se não tínhamos
+    if (totalFinancingAddOn > 0 && tarifaFinanceira === 0) {
+      tarifaFinanceira = Math.round(totalFinancingAddOn * 100) / 100;
+    }
+  }
 
   return {
     comissao,
@@ -605,6 +701,7 @@ function extractFeesFromFullOrder(order: MLOrder): OrderFees {
     tarifaFinanceira,
     freteVendedor: 0,
     origemFallback,
+    origemListingPrices,
   };
 }
 
@@ -715,6 +812,7 @@ Deno.serve(async (req) => {
   let billing_extraidos = 0;
   let eventos_criados = 0;
   let pedidos_com_sale_fee = 0;
+  let pedidos_com_listing_prices = 0;
   let timeout_reached = false;
   let batch_id: string | null = null;
   const orderIssues: Array<{ orderId: number; issues: string[] }> = [];
@@ -1099,6 +1197,7 @@ Deno.serve(async (req) => {
         let freteVendedorFromBilling = 0;
         let usouFallback = false;
         let usouSaleFee = false;
+        let usouListingPrices = false;
         
         const billingFees = feesMap.get(orderId);
         if (billingAvailable && billingFees && (billingFees.comissao > 0 || billingFees.tarifaFixa > 0)) {
@@ -1107,12 +1206,13 @@ Deno.serve(async (req) => {
           tarifaFinanceira = billingFees.tarifaFinanceira;
           freteVendedorFromBilling = billingFees.freteVendedor;
         } else {
-          // Usar novo extrator que prioriza sale_fee
-          const fees = extractFeesFromFullOrder(order);
+          // Usar novo extrator que prioriza sale_fee + listing_prices
+          const fees = await extractFeesFromFullOrder(order, true);
           comissao = fees.comissao;
           tarifaFixa = fees.tarifaFixa;
           tarifaFinanceira = fees.tarifaFinanceira;
           usouFallback = fees.origemFallback ?? false;
+          usouListingPrices = fees.origemListingPrices ?? false;
           
           // Verificar se veio de sale_fee
           let totalSaleFee = 0;
@@ -1124,6 +1224,9 @@ Deno.serve(async (req) => {
           if (totalSaleFee > 0) {
             usouSaleFee = true;
             pedidos_com_sale_fee++;
+          }
+          if (usouListingPrices) {
+            pedidos_com_listing_prices++;
           }
         }
 
@@ -1179,10 +1282,12 @@ Deno.serve(async (req) => {
           tarifaFinanceira: billingFees.tarifaFinanceira,
           freteVendedor: billingFees.freteVendedor,
         } : {
-          source: usouSaleFee ? "sale_fee_items" : "api_orders_fallback",
+          source: usouListingPrices ? "listing_prices" : (usouSaleFee ? "sale_fee_items" : "api_orders_fallback"),
           sale_fee_total: order.order_items?.reduce((sum, i) => sum + (i.sale_fee || 0) * i.quantity, 0) || 0,
           marketplace_fee_sum: order.payments?.reduce((sum, p) => sum + (p.marketplace_fee || 0), 0) || 0,
+          tarifa_fixa_estimada: usouListingPrices ? tarifaFixa : null,
           estimated: usouFallback,
+          from_listing_prices: usouListingPrices,
         };
 
         const transactionData = {
@@ -1252,7 +1357,15 @@ Deno.serve(async (req) => {
           metadados?: any;
         }> = [];
 
-        const origem = billingAvailable && billingFees ? "api_conciliacoes" : (usouSaleFee ? "sale_fee" : "api_orders");
+        // Determinar origem para eventos
+        let origemEventos = "api_orders";
+        if (billingAvailable && billingFees) {
+          origemEventos = "api_conciliacoes";
+        } else if (usouListingPrices) {
+          origemEventos = "estimado_listing_prices";
+        } else if (usouSaleFee) {
+          origemEventos = "sale_fee";
+        }
 
         if (comissao > 0) {
           eventosFinanceiros.push({
@@ -1265,7 +1378,7 @@ Deno.serve(async (req) => {
             data_evento: dataTransacao,
             valor: -comissao,
             descricao: `Comissão ML pedido #${order.id}`,
-            origem,
+            origem: origemEventos,
             metadados: usouFallback ? { fallback: true } : (usouSaleFee ? { from_sale_fee: true } : null),
           });
         }
@@ -1281,7 +1394,8 @@ Deno.serve(async (req) => {
             data_evento: dataTransacao,
             valor: -tarifaFixa,
             descricao: `Tarifa fixa pedido #${order.id}`,
-            origem,
+            origem: usouListingPrices ? "estimado_listing_prices" : origemEventos,
+            metadados: usouListingPrices ? { estimado: true, from_listing_prices: true } : null,
           });
         }
 
@@ -1296,7 +1410,7 @@ Deno.serve(async (req) => {
             data_evento: dataTransacao,
             valor: -tarifaFinanceira,
             descricao: `Tarifa financeira pedido #${order.id}`,
-            origem,
+            origem: origemEventos,
           });
         }
 
@@ -1425,8 +1539,9 @@ Deno.serve(async (req) => {
             itens_mapeados_automaticamente,
             eventos_criados,
             pedidos_com_sale_fee,
+            pedidos_com_listing_prices,
             timeout_reached,
-            version: "v3-full-payload",
+            version: "v4-listing-prices",
           },
         })
         .eq("id", batch_id);
@@ -1451,7 +1566,7 @@ Deno.serve(async (req) => {
       provider: "mercado_livre",
       tipo: "sync",
       status: timeout_reached ? "partial" : (registros_erro > 0 ? "partial" : "success"),
-      mensagem: `Sync V3 ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados | sale_fee: ${pedidos_com_sale_fee} | Eventos: ${eventos_criados}${timeout_reached ? ' | ⚠ Timeout' : ''}`,
+      mensagem: `Sync V4 ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados | sale_fee: ${pedidos_com_sale_fee} | listing_prices: ${pedidos_com_listing_prices} | Eventos: ${eventos_criados}${timeout_reached ? ' | ⚠ Timeout' : ''}`,
       registros_processados,
       registros_criados,
       registros_atualizados,
@@ -1462,6 +1577,7 @@ Deno.serve(async (req) => {
         total_order_ids: allOrderIds.length,
         total_orders_fetched: allOrders.length,
         pedidos_com_sale_fee,
+        pedidos_com_listing_prices,
         itens_mapeados_automaticamente,
         shipping_extraidos,
         shipping_falharam,
@@ -1469,7 +1585,7 @@ Deno.serve(async (req) => {
         eventos_criados,
         issues_count: orderIssues.length,
         timeout_reached,
-        version: "v3-full-payload",
+        version: "v4-listing-prices",
       },
     });
 
@@ -1477,6 +1593,7 @@ Deno.serve(async (req) => {
     console.log(`[ML Sync] ✅ Concluído em ${duracao_ms}ms ${timeout_reached ? '(parcial)' : ''}`);
     console.log(`[ML Sync]    ${registros_criados} novos, ${registros_atualizados} atualizados`);
     console.log(`[ML Sync]    Pedidos com sale_fee: ${pedidos_com_sale_fee}`);
+    console.log(`[ML Sync]    Pedidos com listing_prices: ${pedidos_com_listing_prices}`);
     console.log(`[ML Sync]    Eventos: ${eventos_criados}`);
     console.log(`[ML Sync]    Shipping: ${shipping_extraidos}✓ ${shipping_falharam}✗`);
     console.log(`[ML Sync]    Billing: ${billing_extraidos} pedidos`);
@@ -1494,6 +1611,7 @@ Deno.serve(async (req) => {
         itens_mapeados_automaticamente,
         eventos_criados,
         pedidos_com_sale_fee,
+        pedidos_com_listing_prices,
         shipping_extraidos,
         shipping_falharam,
         billing_extraidos,
