@@ -935,20 +935,43 @@ Deno.serve(async (req) => {
           frete_vendedor: freteVendedor,
         };
 
-        // UPSERT com constraint real uq_mkt_tx_key
+        // UPSERT com constraint parcial uq_mkt_venda_pedido para vendas
+        // Isso garante idempotência: mesmo pedido rodado várias vezes = 1 registro
         const { data: upsertedTx, error: upsertError } = await supabase
           .from("marketplace_transactions")
           .upsert(transactionData, {
-            onConflict: "uq_mkt_tx_key",
+            onConflict: "uq_mkt_venda_pedido", // Constraint parcial para vendas
             ignoreDuplicates: false,
           })
           .select()
           .single();
 
         if (upsertError) {
-          console.error(`[ML Sync] Erro ao upsert pedido ${order.id}:`, upsertError);
-          registros_erro++;
-          continue;
+          // Se falhou no uq_mkt_venda_pedido, tentar com uq_mkt_tx_key como fallback
+          console.warn(`[ML Sync] ⚠️ Fallback para uq_mkt_tx_key no pedido ${order.id}`);
+          const { data: fallbackTx, error: fallbackError } = await supabase
+            .from("marketplace_transactions")
+            .upsert(transactionData, {
+              onConflict: "uq_mkt_tx_key",
+              ignoreDuplicates: false,
+            })
+            .select()
+            .single();
+
+          if (fallbackError) {
+            console.error(`[ML Sync] Erro ao upsert pedido ${order.id}:`, fallbackError);
+            registros_erro++;
+            continue;
+          }
+
+          // Usar resultado do fallback
+          const wasCreatedFallback = fallbackTx && new Date(fallbackTx.criado_em).getTime() === new Date(fallbackTx.atualizado_em).getTime();
+          if (wasCreatedFallback) {
+            registros_criados++;
+          } else {
+            registros_atualizados++;
+          }
+          continue; // Pular para próximo pedido
         }
 
         const wasCreated = upsertedTx && new Date(upsertedTx.criado_em).getTime() === new Date(upsertedTx.atualizado_em).getTime();
