@@ -1,11 +1,13 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ModuleCard } from "@/components/ModuleCard";
 import { EtapaFormModal } from "./EtapaFormModal";
 import { ConferenciaImportacaoModal, ConferenciaData } from "./ConferenciaImportacaoModal";
 import { ChecklistImportJobsPanel } from "./ChecklistImportJobsPanel";
+import { useChecklistImportJobs } from "@/hooks/useChecklistImportJobs";
 import { ChecklistCanalComItens, ChecklistCanalItem, useChecklistsCanal, calcularProgressoChecklist, getStatusLabel, getStatusColor } from "@/hooks/useChecklistsCanal";
 import { getMesNome } from "@/lib/checklist-data";
 import { supabase } from "@/integrations/supabase/client";
@@ -96,6 +98,24 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
   const [conferenciaData, setConferenciaData] = useState<ConferenciaData | null>(null);
 
   const { atualizarEtapa, excluirEtapa, adicionarArquivo, removerArquivo, marcarArquivoProcessado } = useChecklistsCanal();
+  
+  // Hook para monitorar jobs de importação ativos
+  const { emAndamento } = useChecklistImportJobs({});
+  const hasActiveJobs = emAndamento.length > 0;
+  
+  // Aviso ao sair da página durante processamento
+  useEffect(() => {
+    if (hasActiveJobs) {
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        e.preventDefault();
+        e.returnValue = "Há processamentos em andamento. Se você sair, eles podem ser interrompidos.";
+        return e.returnValue;
+      };
+      
+      window.addEventListener("beforeunload", handleBeforeUnload);
+      return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    }
+  }, [hasActiveJobs]);
 
   const handleUploadClick = (itemId: string) => {
     setCurrentUploadItemId(itemId);
@@ -315,6 +335,18 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
 
   return (
     <div className="space-y-6">
+      {/* Aviso de processamento ativo */}
+      {hasActiveJobs && (
+        <Alert variant="default" className="border-warning/50 bg-warning/10">
+          <Loader2 className="h-4 w-4 animate-spin text-warning" />
+          <AlertTitle className="text-warning">Processamento em andamento</AlertTitle>
+          <AlertDescription>
+            Não saia desta página durante o processamento para evitar interrupções.
+            O progresso é exibido no painel abaixo.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Painel de Jobs de Importação em Background */}
       <ChecklistImportJobsPanel />
 
