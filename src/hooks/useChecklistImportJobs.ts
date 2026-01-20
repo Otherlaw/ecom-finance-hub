@@ -30,13 +30,15 @@ export interface ChecklistImportJob {
 }
 
 interface UseChecklistImportJobsParams {
+  empresaId?: string;
   checklistItemId?: string;
 }
 
 export function useChecklistImportJobs(params?: UseChecklistImportJobsParams) {
   const queryClient = useQueryClient();
   const { empresaAtiva } = useEmpresaAtiva();
-  const empresaId = empresaAtiva?.id;
+  // Permite override de empresaId via props (crítico para quando contexto diverge)
+  const empresaId = params?.empresaId ?? empresaAtiva?.id;
   const checklistItemId = params?.checklistItemId;
 
   // Query para buscar jobs

@@ -28,6 +28,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 interface ChecklistImportJobsPanelProps {
+  empresaId?: string;
   checklistItemId?: string;
 }
 
@@ -49,9 +50,10 @@ const FASE_PROGRESS: Record<ChecklistImportJob["fase"], number> = {
   finalizando: 95,
 };
 
-export function ChecklistImportJobsPanel({ checklistItemId }: ChecklistImportJobsPanelProps) {
+export function ChecklistImportJobsPanel({ empresaId, checklistItemId }: ChecklistImportJobsPanelProps) {
   const [isOpen, setIsOpen] = useState(true);
   const { emAndamento, historico, cancelarJob } = useChecklistImportJobs({
+    empresaId,
     checklistItemId,
   });
 
