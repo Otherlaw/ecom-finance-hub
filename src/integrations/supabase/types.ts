@@ -3346,6 +3346,31 @@ export type Database = {
       }
     }
     Views: {
+      mv_dashboard_metricas_diarias: {
+        Row: {
+          canal: string | null
+          data_local: string | null
+          empresa_id: string | null
+          pedidos_unicos: number | null
+          receita_bruta: number | null
+          receita_liquida: number | null
+          total_ads: number | null
+          total_frete_comprador: number | null
+          total_frete_vendedor: number | null
+          total_tarifas: number | null
+          total_taxas: number | null
+          total_transacoes: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_transactions_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vw_vendas_detalhadas: {
         Row: {
           anuncio_id: string | null
@@ -3414,6 +3439,14 @@ export type Database = {
           p_data_fim: string
           p_data_inicio: string
           p_empresa_id: string
+        }
+        Returns: Json
+      }
+      get_dashboard_metrics_fast: {
+        Args: {
+          p_data_fim?: string
+          p_data_inicio?: string
+          p_empresa_id?: string
         }
         Returns: Json
       }
@@ -3597,6 +3630,7 @@ export type Database = {
         }
         Returns: number
       }
+      refresh_dashboard_metricas: { Args: never; Returns: undefined }
       registrar_movimento_financeiro: {
         Args: {
           p_categoria_id?: string

@@ -39,21 +39,35 @@ export function useDashboardMetrics(
       // Passa null quando empresaId é undefined/"todas" para buscar todas as empresas
       const empresaParam = empresaId && empresaId !== "todas" ? empresaId : null;
 
-      // SIMPLIFICADO: Envia datas como strings DATE diretamente
-      // A RPC converte para TIMESTAMPTZ e aplica [inicio, fim_exclusivo)
-      const { data, error } = await supabase.rpc("get_dashboard_metrics", {
+      // Tenta usar a RPC otimizada (materialized view) primeiro
+      // Fallback para a RPC original se a fast não estiver disponível
+      let result;
+      
+      const { data: fastData, error: fastError } = await supabase.rpc("get_dashboard_metrics_fast", {
         p_empresa_id: empresaParam,
         p_data_inicio: periodoInicio,
         p_data_fim: periodoFim,
       });
 
-      if (error) {
-        console.error("Erro ao buscar métricas do dashboard:", error);
-        throw error;
+      if (!fastError && fastData) {
+        result = fastData;
+      } else {
+        // Fallback para RPC original
+        const { data, error } = await supabase.rpc("get_dashboard_metrics", {
+          p_empresa_id: empresaParam,
+          p_data_inicio: periodoInicio,
+          p_data_fim: periodoFim,
+        });
+        
+        if (error) {
+          console.error("Erro ao buscar métricas do dashboard:", error);
+          throw error;
+        }
+        result = data;
       }
 
       // RPC retorna JSONB diretamente
-      const metrics = data as unknown as DashboardMetrics | null;
+      const metrics = result as unknown as DashboardMetrics | null;
       
       if (!metrics) {
         return {
@@ -77,6 +91,7 @@ export function useDashboardMetrics(
       return metrics;
     },
     staleTime: 30 * 1000, // Cache por 30 segundos
+    placeholderData: (previousData) => previousData, // Mantém dados anteriores durante refetch
   });
 
   // Calcular métricas derivadas

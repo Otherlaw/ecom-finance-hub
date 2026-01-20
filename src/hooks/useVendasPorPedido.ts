@@ -111,6 +111,7 @@ export function useVendasPorPedido({
       } as ResumoPedidosAgregado;
     },
     staleTime: 30 * 1000,
+    placeholderData: (previousData) => previousData,
   });
 
   // Buscar contagem total via RPC separada
@@ -142,6 +143,7 @@ export function useVendasPorPedido({
       return Number(data) || 0;
     },
     staleTime: 60 * 1000,
+    placeholderData: (previousData) => previousData,
   });
 
   // Buscar pedidos paginados
@@ -206,6 +208,7 @@ export function useVendasPorPedido({
     },
     refetchInterval: 60 * 1000,
     refetchIntervalInBackground: false,
+    placeholderData: (previousData) => previousData, // Mantém dados durante refetch
   });
 
   const pedidos = pedidosData || [];
