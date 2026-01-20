@@ -74,11 +74,9 @@ export function useVendasPorPedido({
 }: UseVendasPorPedidoParams) {
   const empresaParam = empresaId && empresaId !== "todas" ? empresaId : null;
 
-  // Converter datas para UTC com ajuste BR (meia-noite BR = 03:00 UTC)
-  const dataInicioUTC = `${periodoInicio}T03:00:00.000Z`;
-  const dataFimDate = new Date(`${periodoFim}T03:00:00.000Z`);
-  dataFimDate.setDate(dataFimDate.getDate() + 1);
-  const dataFimUTC = dataFimDate.toISOString();
+  // PADRONIZADO: Envia strings DATE (YYYY-MM-DD) diretamente
+  // A RPC converte para TIMESTAMPTZ usando date_to_br_timestamptz internamente
+  // Isso garante consistência com Dashboard e outras telas
 
   // Buscar resumo agregado via RPC
   const { data: resumoAgregado, isLoading: isLoadingResumo } = useQuery({
@@ -86,8 +84,8 @@ export function useVendasPorPedido({
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_resumo", {
         p_empresa_id: empresaParam,
-        p_data_inicio: dataInicioUTC,
-        p_data_fim: dataFimUTC,
+        p_data_inicio: periodoInicio,
+        p_data_fim: periodoFim,
       });
 
       if (error) {
@@ -129,8 +127,8 @@ export function useVendasPorPedido({
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_count", {
         p_empresa_id: empresaParam,
-        p_data_inicio: dataInicioUTC,
-        p_data_fim: dataFimUTC,
+        p_data_inicio: periodoInicio,
+        p_data_fim: periodoFim,
         p_canal: canal || null,
         p_conta: conta || null,
         p_status: statusVenda || null,
@@ -168,8 +166,8 @@ export function useVendasPorPedido({
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido", {
         p_empresa_id: empresaParam,
-        p_data_inicio: dataInicioUTC,
-        p_data_fim: dataFimUTC,
+        p_data_inicio: periodoInicio,
+        p_data_fim: periodoFim,
         p_canal: canal || null,
         p_conta: conta || null,
         p_status: statusVenda || null,

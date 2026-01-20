@@ -13,7 +13,8 @@ import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { format, endOfMonth, subMonths, addDays } from "date-fns";
+import { format, endOfMonth, subMonths } from "date-fns";
+import { buildUtcRangeFromStrings } from "@/lib/dateRangeUtc";
 import { ptBR } from "date-fns/locale";
 import { DollarSign, TrendingUp, Percent, ShoppingCart, Package, CreditCard, BarChart3, PieChart, Download, Loader2, RefreshCw, HelpCircle, Target, Scale, Wallet, Activity, ImageIcon } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, Legend } from "recharts";
@@ -188,7 +189,8 @@ export default function Dashboard() {
   } = useQuery({
     queryKey: ["top-produtos-vendidos", empresaIdFiltro, periodoInicio, periodoFim],
     queryFn: async () => {
-      const periodoFimExclusivo = format(addDays(dateRange.to, 1), "yyyy-MM-dd");
+      // Usar helper centralizado para garantir consistência com Vendas
+      const { startUtcIso, endUtcIsoExclusive } = buildUtcRangeFromStrings(periodoInicio, periodoFim);
       
       let query = supabase.from("marketplace_transaction_items").select(`
           quantidade,
@@ -212,8 +214,8 @@ export default function Dashboard() {
             imagem_url
           )
         `)
-        .gte("transaction.data_transacao", periodoInicio)
-        .lt("transaction.data_transacao", periodoFimExclusivo)
+        .gte("transaction.data_transacao", startUtcIso)
+        .lt("transaction.data_transacao", endUtcIsoExclusive)
         .eq("transaction.tipo_lancamento", "credito");
       
       if (empresaIdFiltro) {
