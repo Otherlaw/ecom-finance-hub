@@ -2275,8 +2275,13 @@ export type Database = {
           origem_extrato: string | null
           outros_descontos: number | null
           pedido_id: string | null
+          raw_fees: Json | null
+          raw_order: Json | null
+          raw_shipping_costs: Json | null
           referencia_externa: string
           responsavel_id: string | null
+          seller_id: string | null
+          shipment_id: string | null
           status: string
           tarifas: number | null
           taxas: number | null
@@ -2307,8 +2312,13 @@ export type Database = {
           origem_extrato?: string | null
           outros_descontos?: number | null
           pedido_id?: string | null
+          raw_fees?: Json | null
+          raw_order?: Json | null
+          raw_shipping_costs?: Json | null
           referencia_externa: string
           responsavel_id?: string | null
+          seller_id?: string | null
+          shipment_id?: string | null
           status?: string
           tarifas?: number | null
           taxas?: number | null
@@ -2339,8 +2349,13 @@ export type Database = {
           origem_extrato?: string | null
           outros_descontos?: number | null
           pedido_id?: string | null
+          raw_fees?: Json | null
+          raw_order?: Json | null
+          raw_shipping_costs?: Json | null
           referencia_externa?: string
           responsavel_id?: string | null
+          seller_id?: string | null
+          shipment_id?: string | null
           status?: string
           tarifas?: number | null
           taxas?: number | null
