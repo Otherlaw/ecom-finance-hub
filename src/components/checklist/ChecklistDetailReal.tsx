@@ -197,78 +197,23 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
     setCurrentUploadItemId(null);
   };
 
-  const processarArquivoAutomaticamente = async (arquivoId: string, fileUrl: string, nomeArquivo: string) => {
-    setProcessingArquivoId(arquivoId);
-    
+  // Reprocessar arquivo que não foi processado ainda - agora usa background
+  const handleReprocessarArquivo = async (arquivo: { id: string; url: string; nome_arquivo: string }, itemId: string) => {
     try {
-      toast({ title: "Processando arquivo...", description: "Extraindo transações" });
-      
-      const resultado = await processarArquivoChecklist(
-        arquivoId,
-        fileUrl,
+      toast({ title: "Reprocessando...", description: "Processamento iniciado em segundo plano" });
+      await processarArquivoChecklistBackground(
+        arquivo.id,
+        arquivo.url,
         checklist.canal_id,
         checklist.empresa_id,
-        nomeArquivo
+        arquivo.nome_arquivo,
+        itemId
       );
-      
-      // Preparar dados para modal de conferência
-      const confData: ConferenciaData = {
-        nomeArquivo,
-        tipoArquivoDetectado: resultado.detalhes?.tipoArquivoDetectado || "desconhecido",
-        periodoDetectado: null, // Seria extraído da validação prévia
-        periodoEsperado: { mes: checklist.mes, ano: checklist.ano },
-        periodoCompativel: true,
-        estatisticas: {
-          totalLinhasArquivo: resultado.detalhes?.totalLinhasArquivo || 0,
-          totalTransacoesGeradas: resultado.detalhes?.totalTransacoesGeradas || 0,
-          transacoesImportadas: resultado.transacoesImportadas,
-          duplicatasIgnoradas: resultado.duplicatasIgnoradas,
-          transacoesComErro: resultado.transacoesComErro,
-        },
-        tiposMovimentacao: [],
-        amostraTransacoes: [],
-      };
-      
-      if (resultado.sucesso) {
-        const msg = resultado.duplicatasIgnoradas > 0
-          ? `${resultado.transacoesImportadas} transações importadas (${resultado.duplicatasIgnoradas} duplicatas ignoradas)`
-          : `${resultado.transacoesImportadas} transações importadas`;
-        
-        toast({ 
-          title: "Arquivo processado!", 
-          description: msg,
-          action: resultado.transacoesImportadas > 0 ? (
-            <Button variant="outline" size="sm" onClick={() => {
-              setConferenciaData(confData);
-              setShowConferenciaModal(true);
-            }}>
-              Ver detalhes
-            </Button>
-          ) : undefined,
-        });
-      } else {
-        toast({ 
-          title: "Erro ao processar arquivo", 
-          description: resultado.erros.join(", ") || "Não foi possível extrair transações",
-          variant: "destructive",
-        });
-      }
-      
       onRefresh();
     } catch (error) {
-      console.error("Erro ao processar arquivo:", error);
-      toast({ 
-        title: "Erro ao processar arquivo", 
-        description: error instanceof Error ? error.message : "Erro desconhecido",
-        variant: "destructive",
-      });
-    } finally {
-      setProcessingArquivoId(null);
+      console.error("Erro ao reprocessar:", error);
+      toast({ title: "Erro ao reprocessar", variant: "destructive" });
     }
-  };
-
-  const handleReprocessarArquivo = async (arquivo: { id: string; url: string; nome_arquivo: string }) => {
-    await processarArquivoAutomaticamente(arquivo.id, arquivo.url, arquivo.nome_arquivo);
   };
 
   const handleRemoveFile = async (arquivoId: string) => {
@@ -333,15 +278,6 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
 
   // Renderizar status de processamento do arquivo
   const renderArquivoStatus = (arquivo: { processado: boolean; transacoes_importadas: number; resultado_processamento: any }) => {
-    if (processingArquivoId === arquivo.resultado_processamento?.arquivoId) {
-      return (
-        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          Processando...
-        </span>
-      );
-    }
-    
     if (arquivo.processado) {
       if (arquivo.transacoes_importadas > 0) {
         return (
@@ -379,6 +315,9 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
 
   return (
     <div className="space-y-6">
+      {/* Painel de Jobs de Importação em Background */}
+      <ChecklistImportJobsPanel />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -532,14 +471,9 @@ export function ChecklistDetailReal({ checklist, onBack, onRefresh }: ChecklistD
                                       variant="ghost" 
                                       size="sm" 
                                       className="h-7 px-2 text-xs"
-                                      onClick={() => handleReprocessarArquivo(arquivo)}
-                                      disabled={processingArquivoId === arquivo.id}
+                                      onClick={() => handleReprocessarArquivo(arquivo, item.id)}
                                     >
-                                      {processingArquivoId === arquivo.id ? (
-                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                      ) : (
-                                        <RefreshCw className="h-3 w-3 mr-1" />
-                                      )}
+                                      <RefreshCw className="h-3 w-3 mr-1" />
                                       Processar
                                     </Button>
                                   )}
