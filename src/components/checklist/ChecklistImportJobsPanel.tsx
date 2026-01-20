@@ -53,6 +53,7 @@ const FASE_PROGRESS: Record<ChecklistImportJob["fase"], number> = {
 
 export function ChecklistImportJobsPanel({ empresaId, checklistItemId }: ChecklistImportJobsPanelProps) {
   const [isOpen, setIsOpen] = useState(true);
+  const [detailModalJob, setDetailModalJob] = useState<ChecklistImportJob | null>(null);
   const { emAndamento, historico, cancelarJob } = useChecklistImportJobs({
     empresaId,
     checklistItemId,
@@ -62,55 +63,74 @@ export function ChecklistImportJobsPanel({ empresaId, checklistItemId }: Checkli
   if (totalJobs === 0) return null;
 
   return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <Card className="mb-4 border-primary/20 bg-card/50">
-        <CollapsibleTrigger asChild>
-          <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="h-5 w-5 text-primary" />
-                <CardTitle className="text-base font-medium">
-                  Processamento de Arquivos
-                </CardTitle>
-                {emAndamento.length > 0 && (
-                  <Badge variant="secondary" className="animate-pulse">
-                    {emAndamento.length} em andamento
-                  </Badge>
-                )}
+    <>
+      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+        <Card className="mb-4 border-primary/20 bg-card/50">
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="h-5 w-5 text-primary" />
+                  <CardTitle className="text-base font-medium">
+                    Processamento de Arquivos
+                  </CardTitle>
+                  {emAndamento.length > 0 && (
+                    <Badge variant="secondary" className="animate-pulse">
+                      {emAndamento.length} em andamento
+                    </Badge>
+                  )}
+                </div>
+                <Button variant="ghost" size="sm">
+                  {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
               </div>
-              <Button variant="ghost" size="sm">
-                {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </Button>
-            </div>
-          </CardHeader>
-        </CollapsibleTrigger>
+            </CardHeader>
+          </CollapsibleTrigger>
 
-        <CollapsibleContent>
-          <CardContent className="space-y-4 pt-0">
-            {/* Jobs em andamento */}
-            {emAndamento.map((job) => (
-              <JobProgressCard 
-                key={job.id} 
-                job={job} 
-                onCancel={() => cancelarJob.mutate(job.id)} 
-              />
-            ))}
+          <CollapsibleContent>
+            <CardContent className="space-y-4 pt-0">
+              {/* Jobs em andamento */}
+              {emAndamento.map((job) => (
+                <JobProgressCard 
+                  key={job.id} 
+                  job={job} 
+                  onCancel={() => cancelarJob.mutate(job.id)} 
+                />
+              ))}
 
-            {/* Histórico recente */}
-            {historico.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium text-muted-foreground">
-                  Histórico recente
-                </h4>
-                {historico.slice(0, 3).map((job) => (
-                  <JobHistoryCard key={job.id} job={job} />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </CollapsibleContent>
-      </Card>
-    </Collapsible>
+              {/* Histórico recente */}
+              {historico.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-muted-foreground">
+                    Histórico recente
+                  </h4>
+                  {historico.slice(0, 3).map((job) => (
+                    <JobHistoryCard 
+                      key={job.id} 
+                      job={job} 
+                      onViewDetails={() => setDetailModalJob(job)}
+                    />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
+      {/* Modal de detalhes da importação */}
+      {detailModalJob && (
+        <ImportResultDetailModal
+          open={!!detailModalJob}
+          onOpenChange={(open) => !open && setDetailModalJob(null)}
+          nomeArquivo={detailModalJob.arquivo_nome}
+          canal={detailModalJob.canal}
+          status={detailModalJob.status === "concluido" ? "concluido" : "erro"}
+          mensagemErro={detailModalJob.mensagem_erro || undefined}
+          resultado={detailModalJob.resultado_processamento as any}
+        />
+      )}
+    </>
   );
 }
 
@@ -227,7 +247,13 @@ function JobProgressCard({
   );
 }
 
-function JobHistoryCard({ job }: { job: ChecklistImportJob }) {
+function JobHistoryCard({ 
+  job, 
+  onViewDetails 
+}: { 
+  job: ChecklistImportJob; 
+  onViewDetails: () => void;
+}) {
   const isSuccess = job.status === "concluido";
   const isCancelled = job.status === "cancelado";
 
@@ -262,6 +288,12 @@ function JobHistoryCard({ job }: { job: ChecklistImportJob }) {
             locale: ptBR 
           })}
         </span>
+        {isSuccess && (
+          <Button variant="ghost" size="sm" onClick={onViewDetails} className="h-7 px-2">
+            <Eye className="h-3 w-3 mr-1" />
+            Detalhes
+          </Button>
+        )}
       </div>
     </div>
   );

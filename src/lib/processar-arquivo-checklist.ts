@@ -549,12 +549,73 @@ export async function processarArquivoChecklist(
     
     console.log(`[processarArquivoChecklist] Resultado:`, resultadoInsercao);
     
-    // 6. Atualizar registro do arquivo
+    // 6. Calcular estatísticas detalhadas para o resultado
+    const porTipoLancamento: Record<string, { quantidade: number; valor_total: number }> = {};
+    const porTipoTransacao: Record<string, { quantidade: number; valor: number }> = {};
+    
+    for (const t of parseResult.transacoes) {
+      const tipoLanc = t.tipo_lancamento || "credito";
+      const tipoTrans = t.tipo_transacao || "outro";
+      
+      if (!porTipoLancamento[tipoLanc]) {
+        porTipoLancamento[tipoLanc] = { quantidade: 0, valor_total: 0 };
+      }
+      porTipoLancamento[tipoLanc].quantidade++;
+      porTipoLancamento[tipoLanc].valor_total += t.valor_liquido || 0;
+      
+      if (!porTipoTransacao[tipoTrans]) {
+        porTipoTransacao[tipoTrans] = { quantidade: 0, valor: 0 };
+      }
+      porTipoTransacao[tipoTrans].quantidade++;
+      porTipoTransacao[tipoTrans].valor += t.valor_liquido || 0;
+    }
+    
+    // Detectar período dos dados
+    const datas = parseResult.transacoes
+      .map(t => t.data_transacao)
+      .filter(d => d)
+      .map(d => new Date(d))
+      .filter(d => !isNaN(d.getTime()))
+      .sort((a, b) => a.getTime() - b.getTime());
+    
+    const periodoDetectado = datas.length > 0 ? {
+      data_inicio: datas[0].toISOString().split("T")[0],
+      data_fim: datas[datas.length - 1].toISOString().split("T")[0],
+    } : null;
+    
+    // Montar resultado enriquecido
     const resultadoParaArquivo = {
       tipo_arquivo: tipoRelatorio,
       estatisticas: parseResult.estatisticas,
       resultado: resultadoInsercao,
       processado_em: new Date().toISOString(),
+      // Novos campos detalhados
+      resumo: {
+        total_linhas_arquivo: parseResult.estatisticas.totalLinhasArquivo,
+        transacoes_importadas: resultadoInsercao.inseridas,
+        transacoes_duplicadas: resultadoInsercao.duplicatas,
+        transacoes_com_erro: resultadoInsercao.erros,
+      },
+      por_tipo_lancamento: porTipoLancamento,
+      por_tipo_transacao: porTipoTransacao,
+      periodo_dados: periodoDetectado,
+      proximos_passos: [
+        { 
+          acao: "Categorizar transações pendentes", 
+          pendentes: resultadoInsercao.inseridas, 
+          link: "/conciliacao?tab=marketplace" 
+        },
+        { 
+          acao: "Mapear SKUs não identificados", 
+          pendentes: 0, 
+          link: "/mapeamentos-marketplace" 
+        },
+        { 
+          acao: "Revisar fechamento mensal", 
+          pendentes: 0, 
+          link: "/checklist-fechamento" 
+        },
+      ],
     };
     
     const { error: updateError } = await supabase
@@ -563,6 +624,7 @@ export async function processarArquivoChecklist(
         processado: true,
         resultado_processamento: resultadoParaArquivo,
         transacoes_importadas: resultadoInsercao.inseridas,
+        periodo_detectado: periodoDetectado,
       })
       .eq("id", arquivoId);
     
