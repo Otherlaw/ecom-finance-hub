@@ -350,22 +350,36 @@ export default function Vendas() {
                   <div>
                     <CardTitle className="text-base">Pedidos do período</CardTitle>
                     <CardDescription>
-                      {totalRegistros} pedidos • Página {currentPage + 1} de {totalPaginas || 1}
+                      {empresaId 
+                        ? `${totalRegistros} pedidos • Página ${currentPage + 1} de ${totalPaginas || 1}`
+                        : "Selecione uma empresa para visualizar pedidos individuais"
+                      }
                     </CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <PedidosTable
-                  pedidos={pedidos}
-                  currentPage={currentPage}
-                  totalPaginas={totalPaginas}
-                  totalRegistros={totalRegistros}
-                  pageSize={pageSize}
-                  onPageChange={setCurrentPage}
-                  onAbrirMapeamento={handleAbrirMapeamentoLinha}
-                  isLoading={isFetching}
-                />
+                {empresaId ? (
+                  <PedidosTable
+                    pedidos={pedidos}
+                    currentPage={currentPage}
+                    totalPaginas={totalPaginas}
+                    totalRegistros={totalRegistros}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                    onAbrirMapeamento={handleAbrirMapeamentoLinha}
+                    isLoading={isFetching}
+                  />
+                ) : (
+                  <div className="py-12 text-center text-muted-foreground">
+                    <ShoppingBag className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                    <p className="font-medium">Selecione uma empresa</p>
+                    <p className="text-sm max-w-md mx-auto mt-1">
+                      A tabela de pedidos requer uma empresa específica para evitar duplicidade entre CNPJs.
+                      O modo consolidado ("Todas as empresas") mostra apenas os totais no dashboard acima.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </>
