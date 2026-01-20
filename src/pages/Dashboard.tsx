@@ -11,7 +11,6 @@ import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
 import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { useMemo, useState, useEffect } from "react";
-import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format, endOfMonth, subMonths } from "date-fns";
@@ -35,19 +34,7 @@ const formatNumber = (value: number): string => {
 export default function Dashboard() {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
-  
-  // CORRIGIDO: Default para empresa ativa do contexto (evita "todas" que causa duplicatas)
-  const [empresaSelecionada, setEmpresaSelecionada] = useState<string | null>(null);
-  
-  // Importar contexto de empresa
-  const { empresaAtiva, empresasDisponiveis, isLoading: loadingEmpresas } = useEmpresaAtiva();
-  
-  // Inicializar com empresa ativa quando disponível
-  useEffect(() => {
-    if (!empresaSelecionada && empresaAtiva?.id) {
-      setEmpresaSelecionada(empresaAtiva.id);
-    }
-  }, [empresaAtiva, empresaSelecionada]);
+  const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
   
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
@@ -58,8 +45,8 @@ export default function Dashboard() {
   const mes = format(dateRange.from, "MM");
   const ano = parseInt(format(dateRange.from, "yyyy"));
   
-  // ID da empresa para filtros (null = aguardando seleção)
-  const empresaIdFiltro = empresaSelecionada || undefined;
+  // ID da empresa para filtros (null = todas)
+  const empresaIdFiltro = empresaSelecionada !== "todas" ? empresaSelecionada : undefined;
 
   // Hooks de dados reais
   const {
@@ -408,19 +395,7 @@ export default function Dashboard() {
     }];
   }, [kpis, contasPagarResumo, contasReceberResumo, fluxoResumo, channelData]);
   return <MainLayout title="Dashboard Executivo" subtitle="Visão geral consolidada do seu e-commerce" actions={<div className="flex items-center gap-3 flex-wrap">
-          <EmpresaFilter 
-            value={empresaSelecionada || ""} 
-            onChange={(val) => {
-              // Não permitir "todas" para evitar soma de duplicatas
-              if (val === "todas" && empresasDisponiveis.length > 0) {
-                setEmpresaSelecionada(empresasDisponiveis[0].id);
-              } else if (val !== "todas") {
-                setEmpresaSelecionada(val);
-              }
-            }} 
-            showLabel={false}
-            hideAllOption={true}
-          />
+          <EmpresaFilter value={empresaSelecionada} onChange={setEmpresaSelecionada} showLabel={false} />
           <PeriodFilter selectedPeriod={selectedPeriod} onPeriodChange={handlePeriodChange} isLoading={isLoading} />
           <Button className="gap-2">
             <Download className="h-4 w-4" />

@@ -2766,48 +2766,6 @@ export type Database = {
           },
         ]
       }
-      pedidos_duplicados_entre_empresas: {
-        Row: {
-          atualizado_em: string | null
-          canal: string
-          criado_em: string | null
-          empresa_correta_id: string | null
-          empresas_afetadas: string[]
-          id: string
-          pedido_id: string
-          resolucao: string | null
-          status: string
-          total_duplicatas: number
-          valor_duplicado: number
-        }
-        Insert: {
-          atualizado_em?: string | null
-          canal: string
-          criado_em?: string | null
-          empresa_correta_id?: string | null
-          empresas_afetadas: string[]
-          id?: string
-          pedido_id: string
-          resolucao?: string | null
-          status?: string
-          total_duplicatas: number
-          valor_duplicado?: number
-        }
-        Update: {
-          atualizado_em?: string | null
-          canal?: string
-          criado_em?: string | null
-          empresa_correta_id?: string | null
-          empresas_afetadas?: string[]
-          id?: string
-          pedido_id?: string
-          resolucao?: string | null
-          status?: string
-          total_duplicatas?: number
-          valor_duplicado?: number
-        }
-        Relationships: []
-      }
       produto_import_jobs: {
         Row: {
           arquivo_nome: string

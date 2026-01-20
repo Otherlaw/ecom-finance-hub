@@ -11,8 +11,6 @@ interface EmpresaFilterProps {
   label?: string;
   className?: string;
   showLabel?: boolean;
-  /** Se true, não mostra a opção "Todas as empresas" (evita duplicatas) */
-  hideAllOption?: boolean;
 }
 
 /**
@@ -25,8 +23,7 @@ export function EmpresaFilter({
   onChange, 
   label = "Empresa", 
   className,
-  showLabel = true,
-  hideAllOption = false
+  showLabel = true 
 }: EmpresaFilterProps) {
   const { empresas, isLoading } = useEmpresas();
 
@@ -46,11 +43,9 @@ export function EmpresaFilter({
           <SelectValue placeholder="Selecionar empresa" />
         </SelectTrigger>
         <SelectContent>
-          {!hideAllOption && (
-            <SelectItem value="todas">
-              <span className="font-medium">Todas as empresas</span>
-            </SelectItem>
-          )}
+          <SelectItem value="todas">
+            <span className="font-medium">Todas as empresas</span>
+          </SelectItem>
           {empresas.map((empresa) => (
             <SelectItem key={empresa.id} value={empresa.id}>
               {empresa.nome_fantasia || empresa.razao_social}
