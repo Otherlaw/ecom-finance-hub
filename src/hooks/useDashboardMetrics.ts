@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { buildUtcRangeFromStrings } from "@/lib/dateRangeUtc";
 
 /**
  * Métricas agregadas do dashboard retornadas pela RPC
@@ -22,6 +21,9 @@ export interface DashboardMetrics {
  * Retorna dados agregados em uma única chamada ao invés de
  * carregar todas as transações e calcular no frontend.
  * 
+ * PADRONIZADO: Envia datas como strings DATE (YYYY-MM-DD).
+ * A RPC cuida do intervalo [inicio, fim_exclusivo) internamente.
+ * 
  * @param periodoInicio - Data de início no formato "yyyy-MM-dd"
  * @param periodoFim - Data de fim no formato "yyyy-MM-dd"
  * @param empresaId - ID da empresa ou undefined/null para todas as empresas
@@ -34,16 +36,15 @@ export function useDashboardMetrics(
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["dashboard-metrics", empresaId, periodoInicio, periodoFim],
     queryFn: async () => {
-      // Usar helper para converter datas locais para UTC consistente
-      const { startUtcIso, endUtcIsoExclusive } = buildUtcRangeFromStrings(periodoInicio, periodoFim);
-
       // Passa null quando empresaId é undefined/"todas" para buscar todas as empresas
       const empresaParam = empresaId && empresaId !== "todas" ? empresaId : null;
 
+      // SIMPLIFICADO: Envia datas como strings DATE diretamente
+      // A RPC converte para TIMESTAMPTZ e aplica [inicio, fim_exclusivo)
       const { data, error } = await supabase.rpc("get_dashboard_metrics", {
         p_empresa_id: empresaParam,
-        p_data_inicio: startUtcIso,
-        p_data_fim: endUtcIsoExclusive,
+        p_data_inicio: periodoInicio,
+        p_data_fim: periodoFim,
       });
 
       if (error) {
@@ -66,6 +67,11 @@ export function useDashboardMetrics(
           total_transacoes: 0,
           por_canal: {},
         } as DashboardMetrics;
+      }
+
+      // Log para debug de períodos
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Dashboard] Período: ${periodoInicio} a ${periodoFim} | Pedidos: ${metrics.pedidos_unicos} | Receita: R$ ${metrics.receita_bruta.toFixed(2)}`);
       }
 
       return metrics;

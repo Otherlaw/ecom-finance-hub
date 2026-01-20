@@ -3294,6 +3294,7 @@ export type Database = {
       }
     }
     Functions: {
+      date_to_br_timestamptz: { Args: { p_date: string }; Returns: string }
       get_dashboard_metrics: {
         Args: {
           p_data_fim: string

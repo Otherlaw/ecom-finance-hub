@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
+import { format } from "date-fns";
 
 export interface FechamentoMetrics {
   marketplace: {
@@ -41,26 +42,47 @@ const defaultMetrics: FechamentoMetrics = {
   por_canal: {},
 };
 
+/**
+ * Hook para buscar métricas de fechamento mensal via RPC.
+ * 
+ * PADRONIZADO: Envia datas como strings DATE (YYYY-MM-DD).
+ * A RPC cuida do intervalo [inicio, fim_exclusivo) internamente.
+ * 
+ * @param periodoInicio - Data de início do período
+ * @param periodoFim - Data de fim do período
+ */
 export function useFechamentoMetrics(periodoInicio: Date, periodoFim: Date) {
   const { empresaAtiva } = useEmpresaAtiva();
   const empresaId = empresaAtiva?.id;
   
+  // Converter para formato DATE (YYYY-MM-DD)
+  const dataInicioStr = format(periodoInicio, "yyyy-MM-dd");
+  const dataFimStr = format(periodoFim, "yyyy-MM-dd");
+  
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['fechamento-metrics', empresaId, periodoInicio.toISOString(), periodoFim.toISOString()],
+    queryKey: ['fechamento-metrics', empresaId, dataInicioStr, dataFimStr],
     queryFn: async (): Promise<FechamentoMetrics> => {
       if (!empresaId) {
         return defaultMetrics;
       }
       
+      // SIMPLIFICADO: Envia datas como strings DATE diretamente
+      // A RPC converte para TIMESTAMPTZ e aplica [inicio, fim_exclusivo)
       const { data, error } = await supabase.rpc('get_fechamento_metrics', {
         p_empresa_id: empresaId,
-        p_data_inicio: periodoInicio.toISOString(),
-        p_data_fim: periodoFim.toISOString(),
+        p_data_inicio: dataInicioStr,
+        p_data_fim: dataFimStr,
       });
       
       if (error) {
         console.error('Erro ao buscar métricas do fechamento:', error);
         throw error;
+      }
+      
+      // Log para debug de períodos
+      if (process.env.NODE_ENV === 'development') {
+        const parsed = data as unknown as FechamentoMetrics;
+        console.log(`[Fechamento] Período: ${dataInicioStr} a ${dataFimStr} | Transações: ${parsed?.marketplace?.total_transacoes || 0}`);
       }
       
       // Safely parse the JSON response
