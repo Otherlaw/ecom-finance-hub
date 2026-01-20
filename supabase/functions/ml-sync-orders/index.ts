@@ -90,10 +90,13 @@ interface RawShippingCosts {
 }
 
 // Estrutura para taxas extraídas da API de Conciliações
+// CORRIGIDO: Agora separamos comissão, tarifa_fixa e tarifa_financeira
 interface OrderFees {
-  taxas: number;      // CV - Custo de Venda (comissão ML)
-  tarifas: number;    // Taxa de parcelamento/financiamento
-  freteVendedor: number; // CXE - Custo de Envio Vendedor
+  comissao: number;        // CV - Custo de Venda (comissão ML)
+  tarifaFixa: number;      // Tarifa fixa por venda
+  tarifaFinanceira: number; // Taxa de parcelamento/financiamento
+  freteVendedor: number;   // CXE - Custo de Envio Vendedor
+  origemFallback?: boolean; // Indica se usou fallback
 }
 
 interface TokenState {
@@ -340,8 +343,8 @@ async function fetchShippingCosts(
 }
 
 /**
- * Buscar taxas detalhadas da API de Conciliações do ML
- * Se falhar (403/401), retorna mapa vazio - o fallback extractFeesFromOrder será usado
+ * CORRIGIDO: Buscar taxas detalhadas da API de Conciliações do ML
+ * Agora separa comissão, tarifa_fixa e tarifa_financeira corretamente
  */
 async function fetchBillingDetailsFromConciliation(
   supabase: any,
@@ -391,7 +394,6 @@ async function fetchBillingDetailsFromConciliation(
       
       for (const item of results) {
         // CORRIGIDO: Priorizar order_id sobre source_id para mapear corretamente
-        // source_id frequentemente é payment_id, que não casa com orderId usado depois
         const orderId = item.order_id ? String(item.order_id) : null;
         const paymentId = item.source_id ? String(item.source_id) : null;
         const primaryKey = orderId || paymentId || '';
@@ -399,16 +401,16 @@ async function fetchBillingDetailsFromConciliation(
         if (!primaryKey) continue;
         
         if (!feesMap.has(primaryKey)) {
-          feesMap.set(primaryKey, { taxas: 0, tarifas: 0, freteVendedor: 0 });
+          feesMap.set(primaryKey, { comissao: 0, tarifaFixa: 0, tarifaFinanceira: 0, freteVendedor: 0 });
         }
         const fees = feesMap.get(primaryKey)!;
         
         const detailType = (item.detail_type || item.fee_type || '').toUpperCase();
         const amount = Math.abs(item.total || item.amount || 0);
         
-        // Mapear tipos de taxa do ML para nossos campos
+        // CORRIGIDO: Mapear tipos de taxa do ML para campos separados
         switch (detailType) {
-          // Comissão ML (taxas)
+          // Comissão ML (custo de venda variável)
           case 'CV':
           case 'ML_FEE':
           case 'SALE_FEE':
@@ -416,9 +418,15 @@ async function fetchBillingDetailsFromConciliation(
           case 'FVF':
           case 'APPLICATION_FEE':
           case 'MERCADOPAGO_FEE':
-          case 'FIXED_FEE':
           case 'VARIABLE_FEE':
-            fees.taxas += amount;
+            fees.comissao += amount;
+            break;
+          
+          // Tarifa fixa por venda
+          case 'FIXED_FEE':
+          case 'TF':
+          case 'LISTING_FEE':
+            fees.tarifaFixa += amount;
             break;
             
           // Frete vendedor
@@ -431,13 +439,14 @@ async function fetchBillingDetailsFromConciliation(
             fees.freteVendedor += amount;
             break;
             
-          // Parcelamento/financiamento (tarifas)
+          // Parcelamento/financiamento
           case 'FINANCING_FEE':
           case 'INSTALLMENT_FEE':
           case 'FINANCING':
           case 'INTEREST':
           case 'INSTALLMENTS_FEE':
-            fees.tarifas += amount;
+          case 'MF':
+            fees.tarifaFinanceira += amount;
             break;
             
           default:
@@ -480,8 +489,8 @@ async function fetchBillingDetailsFromConciliation(
   return { feesMap, tokenState: currentTokenState, billingAvailable };
 }
 
-// Fallback robusto: Extrair taxas diretamente do pedido quando API de Conciliações falha
-// CORRIGIDO: Adiciona estimativa quando marketplace_fee vem zerado
+// CORRIGIDO: Fallback robusto quando API de Conciliações falha
+// Agora retorna estrutura com comissão separada
 function extractFeesFromOrder(order: MLOrder): OrderFees {
   let totalMarketplaceFee = 0;
   let totalFinancingFee = 0;
@@ -495,17 +504,20 @@ function extractFeesFromOrder(order: MLOrder): OrderFees {
   }
 
   // FALLBACK: Se marketplace_fee veio zerado mas tem valor, estimar comissão típica do ML
-  // Comissão típica ML varia de 11% a 19%, usando 14% como média conservadora
   const ESTIMATED_COMMISSION_RATE = 0.14;
+  let origemFallback = false;
   if (totalMarketplaceFee === 0 && order.total_amount > 0) {
     totalMarketplaceFee = Math.round(order.total_amount * ESTIMATED_COMMISSION_RATE * 100) / 100;
+    origemFallback = true;
     console.log(`[ML Sync] ⚠️ Pedido ${order.id}: marketplace_fee=0, estimando ${(ESTIMATED_COMMISSION_RATE * 100)}% = R$${totalMarketplaceFee.toFixed(2)}`);
   }
 
   return {
-    taxas: totalMarketplaceFee,
-    tarifas: Math.round(totalFinancingFee * 100) / 100,
-    freteVendedor: 0,
+    comissao: totalMarketplaceFee,
+    tarifaFixa: 0, // Não disponível no fallback
+    tarifaFinanceira: Math.round(totalFinancingFee * 100) / 100,
+    freteVendedor: 0, // Vem de shipping costs
+    origemFallback,
   };
 }
 
@@ -577,6 +589,7 @@ Deno.serve(async (req) => {
   let shipping_extraidos = 0;
   let shipping_falharam = 0;
   let billing_extraidos = 0;
+  let eventos_criados = 0;
   let timeout_reached = false;
   let batch_id: string | null = null;
 
@@ -721,8 +734,7 @@ Deno.serve(async (req) => {
     console.log(`[ML Sync] ✓ Retry automático em 401`);
     console.log(`[ML Sync] ✓ API Conciliações para taxas REAIS`);
     console.log(`[ML Sync] ✓ API /shipments/costs para FRETE VENDEDOR REAL`);
-    console.log(`[ML Sync] ✓ valor_liquido = valor_bruto - (taxas + tarifas)`);
-    console.log(`[ML Sync] ✓ Sistema de batches para rastreabilidade`);
+    console.log(`[ML Sync] ✓ Eventos separados: comissao, tarifa_fixa, tarifa_financeira, frete_vendedor`);
     console.log(`[ML Sync] ========================================`);
 
     // ========== CRIAR BATCH DE IMPORTAÇÃO ==========
@@ -742,7 +754,7 @@ Deno.serve(async (req) => {
         periodo_inicio: dateFrom.toISOString().split('T')[0],
         periodo_fim: dateTo.toISOString().split('T')[0],
         status: "processando",
-        metadados: { days_back, source: "ml-sync-orders" },
+        metadados: { days_back, source: "ml-sync-orders", version: "v2-eventos-separados" },
       })
       .select()
       .single();
@@ -904,27 +916,32 @@ Deno.serve(async (req) => {
         const valorBruto = order.total_amount;
         const buyerNickname = order.buyer?.nickname || null;
         
-        // ========== EXTRAIR TAXAS - PRIORIZAR API DE CONCILIAÇÕES ==========
+        // ========== EXTRAIR TAXAS - AGORA COM COMPONENTES SEPARADOS ==========
         const orderId = String(order.id);
-        let taxas = 0;
-        let tarifas = 0;
+        let comissao = 0;
+        let tarifaFixa = 0;
+        let tarifaFinanceira = 0;
         let freteVendedorFromBilling = 0;
+        let usouFallback = false;
         
         const billingFees = feesMap.get(orderId);
-        if (billingAvailable && billingFees && (billingFees.taxas > 0 || billingFees.tarifas > 0 || billingFees.freteVendedor > 0)) {
+        if (billingAvailable && billingFees && (billingFees.comissao > 0 || billingFees.tarifaFixa > 0 || billingFees.tarifaFinanceira > 0 || billingFees.freteVendedor > 0)) {
           // Usar dados da API de Conciliações (mais precisos)
-          taxas = billingFees.taxas;
-          tarifas = billingFees.tarifas;
+          comissao = billingFees.comissao;
+          tarifaFixa = billingFees.tarifaFixa;
+          tarifaFinanceira = billingFees.tarifaFinanceira;
           freteVendedorFromBilling = billingFees.freteVendedor;
         } else {
           // Fallback robusto: usar marketplace_fee do order + estimar parcelamento
           const fees = extractFeesFromOrder(order);
-          taxas = fees.taxas;
-          tarifas = fees.tarifas;
+          comissao = fees.comissao;
+          tarifaFixa = fees.tarifaFixa;
+          tarifaFinanceira = fees.tarifaFinanceira;
+          usouFallback = fees.origemFallback ?? false;
           
           // Log apenas se não tiver nenhuma taxa (para investigar)
-          if (taxas === 0 && valorBruto > 0) {
-            console.log(`[ML Sync] ⚠️ Pedido ${order.id}: marketplace_fee=0, valor_bruto=${valorBruto}`);
+          if (comissao === 0 && valorBruto > 0) {
+            console.log(`[ML Sync] ⚠️ Pedido ${order.id}: comissao=0, valor_bruto=${valorBruto}`);
           }
         }
 
@@ -945,86 +962,74 @@ Deno.serve(async (req) => {
           }
         }
 
-        // ========== CALCULAR VALORES FINAIS (PADRONIZADO) ==========
-        // REGRA: valor_liquido = valor_bruto - (taxas + tarifas)
-        // NÃO descontar frete_vendedor, imposto, ads, CMV no valor_liquido
-        // Esses são descontados apenas na margem de contribuição (MC) na UI
-        const valorLiquido = valorBruto - taxas - tarifas;
+        // ========== CALCULAR VALORES FINAIS (COMPATIBILIDADE) ==========
+        // Para manter compatibilidade com campos legados:
+        // - taxas = comissao + tarifa_fixa (campos legados combinados)
+        // - tarifas = tarifa_financeira (campo legado)
+        const taxasLegado = comissao + tarifaFixa;
+        const tarifasLegado = tarifaFinanceira;
+        
+        // valor_liquido = valor_bruto - taxas - tarifas (sem frete vendedor)
+        const valorLiquido = valorBruto - taxasLegado - tarifasLegado;
 
         const dataTransacao = order.date_closed || order.date_created;
 
-        // Calcular quantidade total de itens (soma das quantidades, não apenas count)
+        // Calcular quantidade total de itens
         const qtdItens = order.order_items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1;
 
-        // ========== DETERMINAR STATUS_ENRIQUECIMENTO ==========
-        // Se não conseguimos obter um componente, gravar NULL e marcar como pendente
-        // Valores são NULL quando: API indisponível, dados ainda não processados, etc.
-        let statusEnriquecimento = "completo";
-        const camposPendentes: string[] = [];
+        // Determinar status de enriquecimento
+        const taxasFoiEstimada = usouFallback;
+        const fretePendente = freteVendedor === 0 && ordersWithShipping.some(o => o.id === order.id);
         
-        // Taxas (comissão): se billingAvailable=false E marketplace_fee foi estimado
-        const taxasFoiEstimada = !billingAvailable && !billingFees && taxas > 0 && 
-          (order.payments?.every(p => (p.marketplace_fee || 0) === 0) || false);
-        if (taxasFoiEstimada) {
-          camposPendentes.push("taxas_estimadas");
-        }
-        
-        // Frete vendedor: se não temos dados de shipping costs
-        const fretePendente = order.shipping?.id && !shippingCosts;
-        if (fretePendente) {
-          camposPendentes.push("frete");
-        }
-        
-        if (camposPendentes.length > 0) {
-          statusEnriquecimento = `pendente_${camposPendentes.join("_")}`;
+        let statusEnriquecimento: string = "completo";
+        if (taxasFoiEstimada && fretePendente) {
+          statusEnriquecimento = "pendente_fees_frete";
+        } else if (taxasFoiEstimada) {
+          statusEnriquecimento = "pendente_fees";
+        } else if (fretePendente) {
+          statusEnriquecimento = "pendente_frete";
         }
 
-        // ========== PREPARAR RAW_ORDER PARA AUDITORIA ==========
-        // Salvar campos principais do pedido para debug (sem dados sensíveis)
+        // Payload resumido do pedido para auditoria
         const rawOrder = {
-          id: order.id,
+          order_id: order.id,
           status: order.status,
-          date_created: order.date_created,
           date_closed: order.date_closed,
           total_amount: order.total_amount,
           paid_amount: order.paid_amount,
-          currency_id: order.currency_id,
           buyer_id: order.buyer?.id,
-          buyer_nickname: order.buyer?.nickname,
-          seller_id: order.seller?.id,
-          tags: order.tags,
           payments_count: order.payments?.length || 0,
           items_count: order.order_items?.length || 0,
-          shipping_id: order.shipping?.id,
-          shipping_logistic_type: order.shipping?.logistic_type,
+          tags: order.tags,
         };
 
-        // ========== PREPARAR RAW_FEES PARA AUDITORIA ==========
+        // ========== PREPARAR RAW_FEES PARA AUDITORIA (AGORA COM COMPONENTES SEPARADOS) ==========
         const rawFees = billingFees ? {
           source: "api_conciliacoes",
-          taxas: billingFees.taxas,
-          tarifas: billingFees.tarifas,
+          comissao: billingFees.comissao,
+          tarifaFixa: billingFees.tarifaFixa,
+          tarifaFinanceira: billingFees.tarifaFinanceira,
           freteVendedor: billingFees.freteVendedor,
         } : {
           source: "api_orders_fallback",
           marketplace_fee_sum: order.payments?.reduce((sum, p) => sum + (p.marketplace_fee || 0), 0) || 0,
-          estimated: taxas > 0 && order.payments?.every(p => (p.marketplace_fee || 0) === 0),
+          estimated: usouFallback,
         };
 
         const transactionData = {
           empresa_id,
           canal: "Mercado Livre",
-          conta_nome: contaNome, // Nome da conta do vendedor
-          seller_id: tokenState.user_id_provider, // ID do vendedor
-          shipment_id: order.shipping?.id ? String(order.shipping.id) : null, // ID do envio
+          conta_nome: contaNome,
+          seller_id: tokenState.user_id_provider,
+          shipment_id: order.shipping?.id ? String(order.shipping.id) : null,
           data_transacao: dataTransacao,
           descricao: `Venda #${order.id}${buyerNickname ? ` - ${buyerNickname}` : ''}`,
           tipo_lancamento: "credito",
           tipo_transacao: "venda",
           valor_bruto: valorBruto,
           valor_liquido: valorLiquido,
-          taxas: taxasFoiEstimada ? null : taxas, // NULL se foi estimado, para indicar pendente
-          tarifas: tarifas,
+          taxas: taxasFoiEstimada ? null : taxasLegado, // NULL se foi estimado
+          tarifas: tarifasLegado,
           outros_descontos: 0,
           referencia_externa: String(order.id),
           pedido_id: String(order.id),
@@ -1032,21 +1037,20 @@ Deno.serve(async (req) => {
           status: order.status === "paid" ? "importado" : "pendente",
           tipo_envio: tipoEnvio,
           frete_comprador: freteComprador,
-          frete_vendedor: fretePendente ? null : freteVendedor, // NULL se pendente de shipping costs
-          raw_order: rawOrder, // Payload do pedido para auditoria
-          raw_fees: rawFees, // Taxas brutas para auditoria
+          frete_vendedor: fretePendente ? null : freteVendedor,
+          raw_order: rawOrder,
+          raw_fees: rawFees,
           raw_shipping_costs: shippingCosts ? {
             logistic_type: shippingCosts.logistic_type,
             sender_cost: shippingCosts.sender_cost,
             receiver_cost: shippingCosts.receiver_cost,
             raw_senders: shippingCosts.raw_senders,
             raw_receiver: shippingCosts.raw_receiver,
-          } : null, // Custos de envio brutos
-          status_enriquecimento: statusEnriquecimento, // Status do enriquecimento de dados
+          } : null,
+          status_enriquecimento: statusEnriquecimento,
         };
 
-        // UPSERT usando colunas do índice único uq_mkt_tx_key
-        // (empresa_id, canal, referencia_externa, tipo_transacao, tipo_lancamento)
+        // UPSERT usando constraint uq_mkt_tx_key
         const { data: upsertedTx, error: upsertError } = await supabase
           .from("marketplace_transactions")
           .upsert(transactionData, {
@@ -1064,47 +1068,70 @@ Deno.serve(async (req) => {
 
         const wasCreated = upsertedTx && new Date(upsertedTx.criado_em).getTime() === new Date(upsertedTx.atualizado_em).getTime();
 
-        // ========== GRAVAR EVENTOS FINANCEIROS NA NOVA TABELA ==========
-        // Eventos são gravados com UPSERT idempotente por event_id
+        // ========== GRAVAR EVENTOS FINANCEIROS SEPARADOS ==========
+        // CORRIGIDO: Agora cria 1 evento por tipo (comissao, tarifa_fixa, tarifa_financeira, frete_vendedor)
         const eventosFinanceiros: Array<{
           empresa_id: string;
           canal: string;
           event_id: string;
           pedido_id: string;
+          conta_nome: string | null;
           tipo_evento: string;
           data_evento: string;
           valor: number;
           descricao: string;
           origem: string;
+          metadados?: any;
         }> = [];
 
-        // Evento: Comissão (taxas = CV)
-        if (taxas > 0) {
+        const origem = billingAvailable && billingFees ? "api_conciliacoes" : "api_orders";
+
+        // Evento: Comissão (CV - custo de venda variável)
+        if (comissao > 0) {
           eventosFinanceiros.push({
             empresa_id,
             canal: "Mercado Livre",
-            event_id: `${order.id}_comissao`,
+            event_id: `order_${order.id}_comissao`,
             pedido_id: String(order.id),
+            conta_nome: contaNome,
             tipo_evento: "comissao",
             data_evento: dataTransacao,
-            valor: -taxas, // Custo = valor negativo
+            valor: -comissao,
             descricao: `Comissão ML pedido #${order.id}`,
-            origem: billingAvailable && billingFees ? "api_conciliacoes" : "api_orders",
+            origem,
+            metadados: usouFallback ? { fallback: true } : null,
           });
         }
 
-        // Evento: Tarifa Fixa / Financiamento
-        if (tarifas > 0) {
+        // Evento: Tarifa Fixa (TF)
+        if (tarifaFixa > 0) {
           eventosFinanceiros.push({
             empresa_id,
             canal: "Mercado Livre",
-            event_id: `${order.id}_tarifa`,
+            event_id: `order_${order.id}_tarifa_fixa`,
             pedido_id: String(order.id),
+            conta_nome: contaNome,
+            tipo_evento: "tarifa_fixa",
+            data_evento: dataTransacao,
+            valor: -tarifaFixa,
+            descricao: `Tarifa fixa pedido #${order.id}`,
+            origem,
+          });
+        }
+
+        // Evento: Tarifa Financeira (financiamento/parcelamento)
+        if (tarifaFinanceira > 0) {
+          eventosFinanceiros.push({
+            empresa_id,
+            canal: "Mercado Livre",
+            event_id: `order_${order.id}_tarifa_financeira`,
+            pedido_id: String(order.id),
+            conta_nome: contaNome,
             tipo_evento: "tarifa_financeira",
             data_evento: dataTransacao,
-            valor: -tarifas,
-            descricao: `Tarifa/financiamento pedido #${order.id}`,
-            origem: billingAvailable && billingFees ? "api_conciliacoes" : "api_orders",
+            valor: -tarifaFinanceira,
+            descricao: `Tarifa financeira pedido #${order.id}`,
+            origem,
           });
         }
 
@@ -1113,8 +1140,9 @@ Deno.serve(async (req) => {
           eventosFinanceiros.push({
             empresa_id,
             canal: "Mercado Livre",
-            event_id: `${order.id}_frete_vendedor`,
+            event_id: `order_${order.id}_frete_vendedor`,
             pedido_id: String(order.id),
+            conta_nome: contaNome,
             tipo_evento: "frete_vendedor",
             data_evento: dataTransacao,
             valor: -freteVendedor,
@@ -1128,17 +1156,18 @@ Deno.serve(async (req) => {
           eventosFinanceiros.push({
             empresa_id,
             canal: "Mercado Livre",
-            event_id: `${order.id}_frete_comprador`,
+            event_id: `order_${order.id}_frete_comprador`,
             pedido_id: String(order.id),
+            conta_nome: contaNome,
             tipo_evento: "frete_comprador",
             data_evento: dataTransacao,
-            valor: freteComprador, // Receita = valor positivo
+            valor: freteComprador,
             descricao: `Frete comprador pedido #${order.id}`,
             origem: "api_shipping_costs",
           });
         }
 
-        // UPSERT eventos financeiros usando colunas da constraint única
+        // UPSERT eventos financeiros usando constraint única
         if (eventosFinanceiros.length > 0) {
           const { error: eventsError } = await supabase
             .from("marketplace_financial_events")
@@ -1149,6 +1178,8 @@ Deno.serve(async (req) => {
 
           if (eventsError) {
             console.error(`[ML Sync] Erro ao salvar eventos financeiros pedido ${order.id}:`, eventsError);
+          } else {
+            eventos_criados += eventosFinanceiros.length;
           }
         }
         
@@ -1159,8 +1190,6 @@ Deno.serve(async (req) => {
         }
 
         // ========== SINCRONIZAR ITENS - DELETE + INSERT SEMPRE ==========
-        // Idempotente: remove itens existentes e insere novamente
-        // Garante que a quantidade e mapeamentos estejam sempre corretos
         if (upsertedTx && order.order_items && order.order_items.length > 0) {
           // 1. Deletar itens existentes desta transação
           const { error: deleteError } = await supabase
@@ -1202,7 +1231,6 @@ Deno.serve(async (req) => {
             console.error(`[ML Sync] Erro ao inserir itens do pedido ${order.id}:`, insertError);
           }
         } else if (upsertedTx && (!order.order_items || order.order_items.length === 0)) {
-          // Pedido sem itens - apenas logar
           console.log(`[ML Sync] ⚠️ Pedido ${order.id} sem order_items`);
         }
       } catch (err) {
@@ -1227,7 +1255,9 @@ Deno.serve(async (req) => {
             shipping_extraidos,
             billing_extraidos,
             itens_mapeados_automaticamente,
+            eventos_criados,
             timeout_reached,
+            version: "v2-eventos-separados",
           },
         })
         .eq("id", batch_id);
@@ -1252,7 +1282,7 @@ Deno.serve(async (req) => {
       provider: "mercado_livre",
       tipo: "sync",
       status: timeout_reached ? "partial" : (registros_erro > 0 ? "partial" : "success"),
-      mensagem: `Sync ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados | Ship: ${shipping_extraidos}✓ | Billing: ${billing_extraidos} pedidos${timeout_reached ? ' | ⚠ Timeout' : ''}`,
+      mensagem: `Sync ${days_back} dias: ${registros_criados} novos, ${registros_atualizados} atualizados | Eventos: ${eventos_criados} | Ship: ${shipping_extraidos}✓ | Billing: ${billing_extraidos}${timeout_reached ? ' | ⚠ Timeout' : ''}`,
       registros_processados,
       registros_criados,
       registros_atualizados,
@@ -1265,7 +1295,9 @@ Deno.serve(async (req) => {
         shipping_extraidos,
         shipping_falharam,
         billing_extraidos,
+        eventos_criados,
         timeout_reached,
+        version: "v2-eventos-separados",
         otimizado: true,
         token_auto_refresh: true,
         api_conciliacoes: true,
@@ -1277,6 +1309,7 @@ Deno.serve(async (req) => {
     console.log(`[ML Sync] ========================================`);
     console.log(`[ML Sync] ✅ Concluído em ${duracao_ms}ms ${timeout_reached ? '(parcial)' : ''}`);
     console.log(`[ML Sync]    ${registros_criados} novos, ${registros_atualizados} atualizados`);
+    console.log(`[ML Sync]    Eventos: ${eventos_criados} (comissao, tarifa_fixa, tarifa_financeira, frete_vendedor)`);
     console.log(`[ML Sync]    Shipping: ${shipping_extraidos}✓ ${shipping_falharam}✗`);
     console.log(`[ML Sync]    Billing (Conciliações): ${billing_extraidos} pedidos com taxas`);
     console.log(`[ML Sync]    ${itens_mapeados_automaticamente} itens mapeados`);
@@ -1291,6 +1324,7 @@ Deno.serve(async (req) => {
         registros_atualizados,
         registros_erro,
         itens_mapeados_automaticamente,
+        eventos_criados,
         shipping_extraidos,
         shipping_falharam,
         billing_extraidos,
