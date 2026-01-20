@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { buildUtcRangeFromStrings } from "@/lib/dateRangeUtc";
 
 /**
  * Tipo para transações paginadas com CMV agregado
@@ -97,11 +98,10 @@ export function useVendasPaginadas({
   // Passa null para RPC quando empresaId é undefined/"todas" para buscar todas
   const empresaParam = empresaId && empresaId !== "todas" ? empresaId : null;
 
-  // Converter datas para UTC com ajuste BR (meia-noite BR = 03:00 UTC)
-  const dataInicioUTC = `${periodoInicio}T03:00:00.000Z`;
-  const dataFimDate = new Date(`${periodoFim}T03:00:00.000Z`);
-  dataFimDate.setDate(dataFimDate.getDate() + 1);
-  const dataFimUTC = dataFimDate.toISOString();
+  // Usa helper centralizado para conversão UTC (meia-noite BR = 03:00 UTC)
+  // Garante consistência com Dashboard e outras telas
+  const { startUtcIso: dataInicioUTC, endUtcIsoExclusive: dataFimUTC } = 
+    buildUtcRangeFromStrings(periodoInicio, periodoFim);
 
   // Buscar resumo agregado via RPC (uma chamada para todas as métricas)
   const { data: resumoAgregado, isLoading: isLoadingResumo } = useQuery({
