@@ -3584,6 +3584,25 @@ export type Database = {
         }
         Returns: Json
       }
+      get_top_produtos_vendidos: {
+        Args: {
+          p_data_fim: string
+          p_data_inicio: string
+          p_empresa_id: string
+          p_limite?: number
+        }
+        Returns: {
+          custo_unitario: number
+          por_canal: Json
+          produto_id: string
+          produto_imagem_url: string
+          produto_nome: string
+          produto_sku: string
+          qtd_total: number
+          total_ads: number
+          total_faturado: number
+        }[]
+      }
       get_vendas_com_cmv: {
         Args: {
           p_canal?: string

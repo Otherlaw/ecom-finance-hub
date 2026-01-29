@@ -163,7 +163,7 @@ export default function Dashboard() {
     }));
   }, [agregado]);
 
-  // Query para Top 10 produtos mais vendidos (incluindo custo_ads)
+  // Query para Top 10 produtos mais vendidos - usa RPC otimizada no banco
   // IMPORTANTE: Requer empresa específica para evitar mistura de dados entre CNPJs
   const {
     data: topProdutosRaw = [],
@@ -176,37 +176,12 @@ export default function Dashboard() {
         return [];
       }
       
-      // Usar helper centralizado para garantir consistência com Vendas
-      const { startUtcIso, endUtcIsoExclusive } = buildUtcRangeFromStrings(periodoInicio, periodoFim);
-      
-      const { data, error } = await supabase
-        .from("marketplace_transaction_items")
-        .select(`
-          quantidade,
-          preco_total,
-          sku_marketplace,
-          descricao_item,
-          produto_id,
-          transaction:marketplace_transactions!inner(
-            id,
-            canal,
-            data_transacao,
-            tipo_lancamento,
-            custo_ads,
-            empresa_id
-          ),
-          produto:produtos(
-            id,
-            nome,
-            sku,
-            custo_medio,
-            imagem_url
-          )
-        `)
-        .gte("transaction.data_transacao", startUtcIso)
-        .lt("transaction.data_transacao", endUtcIsoExclusive)
-        .eq("transaction.tipo_lancamento", "credito")
-        .eq("transaction.empresa_id", empresaIdFiltro);
+      const { data, error } = await supabase.rpc("get_top_produtos_vendidos", {
+        p_empresa_id: empresaIdFiltro,
+        p_data_inicio: periodoInicio,
+        p_data_fim: periodoFim,
+        p_limite: 10
+      });
       
       if (error) {
         console.error("Erro ao buscar top produtos:", error);
@@ -218,69 +193,37 @@ export default function Dashboard() {
     enabled: !!periodoInicio && !!periodoFim && !!empresaIdFiltro
   });
 
-  // Processar dados para Top 10 produtos com preço médio e ads
+  // Processar dados para Top 10 produtos - dados já vêm agregados da RPC
   const topProdutosProcessados = useMemo(() => {
-    const porProduto = new Map<string, {
-      id: string;
-      nome: string;
-      sku: string;
-      custoUnitario: number;
-      imagemUrl: string | null;
-      qtdTotal: number;
-      totalFaturado: number;
-      totalAds: number;
-      porCanal: Record<string, number>;
-      transactionIds: Set<string>;
-    }>();
-    topProdutosRaw.forEach((item: any) => {
-      const produtoId = item.produto_id || item.sku_marketplace || "sem-mapeamento";
-      const produto = item.produto;
-      const canal = item.transaction?.canal || "Outros";
-      const quantidade = Number(item.quantidade) || 0;
-      const precoTotal = Number(item.preco_total) || 0;
-      const transactionId = item.transaction?.id;
-      const custoAds = Number(item.transaction?.custo_ads) || 0;
-      if (!porProduto.has(produtoId)) {
-        porProduto.set(produtoId, {
-          id: produtoId,
-          nome: produto?.nome || item.descricao_item || item.sku_marketplace || "Produto não mapeado",
-          sku: produto?.sku || item.sku_marketplace || "-",
-          custoUnitario: Number(produto?.custo_medio) || 0,
-          imagemUrl: produto?.imagem_url || null,
-          qtdTotal: 0,
-          totalFaturado: 0,
-          totalAds: 0,
-          porCanal: {},
-          transactionIds: new Set()
-        });
-      }
-      const produtoAgregado = porProduto.get(produtoId)!;
-      produtoAgregado.qtdTotal += quantidade;
-      produtoAgregado.totalFaturado += precoTotal;
-      produtoAgregado.porCanal[canal] = (produtoAgregado.porCanal[canal] || 0) + quantidade;
-
-      // Somar ads apenas uma vez por transação
-      if (transactionId && !produtoAgregado.transactionIds.has(transactionId)) {
-        produtoAgregado.transactionIds.add(transactionId);
-        produtoAgregado.totalAds += custoAds;
-      }
+    const faturamentoTotal = topProdutosRaw.reduce(
+      (sum: number, p: any) => sum + Number(p.total_faturado || 0), 0
+    );
+    
+    return topProdutosRaw.map((p: any) => {
+      const custoUnitario = Number(p.custo_unitario) || 0;
+      const qtdTotal = Number(p.qtd_total) || 0;
+      const totalFaturado = Number(p.total_faturado) || 0;
+      const totalAds = Number(p.total_ads) || 0;
+      const cmv = custoUnitario * qtdTotal;
+      const lucro = totalFaturado - cmv - totalAds;
+      const margem = totalFaturado > 0 ? (lucro / totalFaturado) * 100 : 0;
+      
+      return {
+        id: p.produto_id,
+        nome: p.produto_nome,
+        sku: p.produto_sku,
+        custoUnitario,
+        imagemUrl: p.produto_imagem_url,
+        qtdTotal,
+        totalFaturado,
+        totalAds,
+        porCanal: p.por_canal || {},
+        precoMedio: qtdTotal > 0 ? totalFaturado / qtdTotal : 0,
+        lucro,
+        margem,
+        representatividade: faturamentoTotal > 0 ? (totalFaturado / faturamentoTotal) * 100 : 0
+      };
     });
-    const faturamentoTotal = [...porProduto.values()].reduce((sum, p) => sum + p.totalFaturado, 0);
-    return [...porProduto.values()].map(p => ({
-      id: p.id,
-      nome: p.nome,
-      sku: p.sku,
-      custoUnitario: p.custoUnitario,
-      imagemUrl: p.imagemUrl,
-      qtdTotal: p.qtdTotal,
-      totalFaturado: p.totalFaturado,
-      totalAds: p.totalAds,
-      porCanal: p.porCanal,
-      precoMedio: p.qtdTotal > 0 ? p.totalFaturado / p.qtdTotal : 0,
-      lucro: p.totalFaturado - p.custoUnitario * p.qtdTotal - p.totalAds,
-      margem: p.totalFaturado > 0 ? (p.totalFaturado - p.custoUnitario * p.qtdTotal - p.totalAds) / p.totalFaturado * 100 : 0,
-      representatividade: faturamentoTotal > 0 ? p.totalFaturado / faturamentoTotal * 100 : 0
-    })).sort((a, b) => b.totalFaturado - a.totalFaturado).slice(0, 10);
   }, [topProdutosRaw]);
 
   // Indicadores de saúde financeira expandidos
@@ -515,7 +458,7 @@ export default function Dashboard() {
                                   const canalAbrev = canal === "Mercado Livre" ? "ML" : canal === "Shopee" ? "SH" : canal === "Shein" ? "SN" : canal === "TikTok" ? "TT" : canal.substring(0, 3);
                                   return (
                                     <Badge key={canal} variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-normal" title={canal}>
-                                      {canalAbrev}: {qtd}
+                                      {canalAbrev}: {Number(qtd)}
                                     </Badge>
                                   );
                                 })}
