@@ -545,20 +545,40 @@ export function PedidosTableRow({
                       )}
                     </TableCell>
                     <TableCell>
-                      <span className="text-xs font-mono text-muted-foreground">
-                        {item.sku_marketplace || "—"}
-                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-mono text-muted-foreground">
+                          {item.sku_marketplace || "—"}
+                        </span>
+                        {item.anuncio_id && item.anuncio_id !== item.sku_marketplace && (
+                          <span className="text-[10px] font-mono text-muted-foreground/70">
+                            {item.anuncio_id}
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
                         {item.produto_sku ? (
-                          <span className="text-xs font-mono text-foreground">
-                            {item.produto_sku}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-mono text-foreground">
+                              {item.produto_sku}
+                            </span>
+                            {/* Botão remapear para itens já mapeados */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAbrirCmvModal(item);
+                              }}
+                              className="text-[10px] text-muted-foreground hover:text-primary transition"
+                              title="Remapear produto"
+                            >
+                              <Link2 className="h-3 w-3" />
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
-                        {/* Botão mapear: sempre aparece se não tem produto_id */}
+                        {/* Botão mapear: aparece se não tem produto_id */}
                         {item.sem_produto && (
                           <button
                             onClick={(e) => {
@@ -570,7 +590,7 @@ export function PedidosTableRow({
                                        hover:bg-amber-500/20 transition w-fit"
                           >
                             <Link2 className="h-3 w-3" />
-                            Mapear
+                            Mapear SKU
                           </button>
                         )}
                       </div>
