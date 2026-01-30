@@ -96,16 +96,14 @@ export function PedidosTable({
   const handleExport = () => {
     const headers = [
       "Canal",
-      "Conta",
+      "Empresa",
       "Pedido",
       "Data",
       "Tipo Envio",
       "Qtd Itens",
       "Valor Produto",
       "Comissão",
-      "Tarifa",
       "Frete Vendedor",
-      "ADS",
       "Impostos",
       "CMV",
       "MC R$",
@@ -118,19 +116,17 @@ export function PedidosTable({
 
       return [
         p.canal,
-        p.conta_nome || "",
+        p.empresa_nome_fantasia || p.conta_nome || "",
         p.pedido_id || "",
         format(new Date(p.data_pedido), "dd/MM/yyyy HH:mm"),
         p.tipo_envio || "",
         p.qtd_itens,
         p.valor_produto.toFixed(2),
-        p.comissao_total.toFixed(2),
-        p.tarifa_fixa_total.toFixed(2),
-        p.frete_vendedor_total.toFixed(2),
-        p.ads_total.toFixed(2),
+        p.comissao_total?.toFixed(2) ?? "",
+        p.frete_vendedor_total?.toFixed(2) ?? "",
         p.impostos_total.toFixed(2),
-        p.cmv_total.toFixed(2),
-        p.margem_contribuicao.toFixed(2),
+        p.cmv_total?.toFixed(2) ?? "",
+        p.margem_contribuicao?.toFixed(2) ?? "",
         margemPercent.toFixed(1),
         p.status,
       ];
@@ -176,7 +172,7 @@ export function PedidosTable({
             <TableRow>
               <TableHead className="w-[30px]"></TableHead>
               <TableHead className="w-[80px]">Canal</TableHead>
-              <TableHead className="w-[100px]">Conta</TableHead>
+              <TableHead className="w-[120px]">Empresa</TableHead>
               <TableHead className="w-[110px]">Nº Pedido</TableHead>
               <TableHead
                 className="w-[80px] cursor-pointer hover:text-foreground"
@@ -211,21 +207,8 @@ export function PedidosTable({
                   </TooltipContent>
                 </Tooltip>
               </TableHead>
-              <TableHead className="w-[80px] text-right">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="flex items-center justify-end gap-1 cursor-help">
-                      Tarifa
-                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">Tarifa fixa + financiamento</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TableHead>
               <TableHead className="w-[80px] text-right">Frete V.</TableHead>
-              <TableHead className="w-[70px] text-right">ADS</TableHead>
+              <TableHead className="w-[70px] text-right">Impostos</TableHead>
               <TableHead className="w-[70px] text-right">Impostos</TableHead>
               <TableHead className="w-[70px] text-right">CMV</TableHead>
               <TableHead

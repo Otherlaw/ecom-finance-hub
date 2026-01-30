@@ -3684,6 +3684,7 @@ export type Database = {
           data_pedido: string
           data_repasse: string
           empresa_id: string
+          empresa_nome_fantasia: string
           frete_vendedor_total: number
           impostos_total: number
           margem_contribuicao: number
@@ -3691,7 +3692,6 @@ export type Database = {
           pedido_id: string
           qtd_itens: number
           status: string
-          status_enriquecimento: string
           tarifa_fixa_total: number
           tem_cmv: boolean
           tipo_envio: string
