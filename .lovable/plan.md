@@ -1,263 +1,142 @@
 
-# Plano: Isolamento Multi-Tenant Completo (Sem Admin Global, Sem Mock)
 
-## Contexto do Negócio
+# Plano: Integração de CMV com Tabela de Mapeamento MLB SKU
 
-Você quer comercializar o sistema onde:
-- Cada cliente pagante = 1 conta de usuário
-- Cada cliente pode cadastrar várias empresas
-- Cada cliente pode convidar colaboradores às suas empresas
-- Clientes distintos JAMAIS compartilham dados
+## Resumo Executivo
+
+O cálculo de CMV na tela de Vendas não está utilizando a tabela `produto_marketplace_map`, que é a tabela correta de mapeamento entre SKUs do marketplace e produtos internos. Isso faz com que 13.272 itens (43% do total) que já têm mapeamento criado fiquem sem CMV calculado.
 
 ---
 
-## Problemas Identificados
+## Diagnóstico
 
-| Problema | Local | Impacto |
-|----------|-------|---------|
-| **ICMS Devido = R$ 45.000 (mock)** | `src/pages/ICMS.tsx` linha 34 | Mostra valor fictício para todos |
-| **Cartão mock criado automaticamente** | `src/hooks/useCartoes.ts` + `src/lib/mock-cartao.ts` | Cria "Cartão Corporativo Exchange (Mock)" para novos usuários |
-| **Alertas do assistente são mock** | `src/hooks/useAssistantEngine.ts` + `src/lib/assistant-data.ts` | Mostra alertas de "Exchange", "Ecom Club" para todos |
-| **CNPJ zerado no cadastro** | `handle_new_user()` usa placeholder `00.000.000/0000-00` | CNPJ não é salvo corretamente |
-| **Página Usuários restrita** | `src/pages/Usuarios.tsx` | Mostra "Acesso Restrito" - correto! Mas precisa mostrar colaboradores da empresa do cliente |
-| **Botões Configurações/Marketplace não funcionam** | `src/pages/Empresas.tsx` | `DropdownMenuItem` sem `onClick` |
-| **Integrações com config só para admin** | RLS de `integracao_config` | Só admin global pode ler/escrever, bloqueando clientes |
-| **RPCs ainda podem vazar dados** | `get_dashboard_kpis_period` etc. | Se usuário não tem empresas, recebe dados de admin |
+**Dados reais do banco:**
 
----
+| Situação | Quantidade | Percentual |
+|----------|-----------|------------|
+| Itens com `produto_id` direto | 14.744 | 47,8% |
+| Itens com mapeamento em `produto_marketplace_map` (sem `produto_id` no item) | 13.272 | 43% |
+| Itens sem nenhum mapeamento | 2.826 | 9,2% |
+| SKUs únicos sem mapeamento | 157 | - |
 
-## Solução em 6 Partes
-
-### Parte 1: Remover Todos os Dados Mock
-
-**Arquivos a modificar:**
-
-1. **`src/pages/ICMS.tsx`**
-   - Remover `const ICMS_DEVIDO_MOCK = 45000;`
-   - Calcular ICMS devido real a partir de vendas ou mostrar "Não configurado"
-
-2. **`src/hooks/useCartoes.ts`**
-   - Remover lógica de criação de mock
-   - Se não há cartões, retornar lista vazia
-
-3. **`src/lib/mock-cartao.ts`**
-   - Remover arquivo ou manter apenas utilitários sem criação automática
-
-4. **`src/hooks/useAssistantEngine.ts`**
-   - Substituir `generateMockAlerts()` por lista vazia
-   - Alertas reais virão de análise futura do banco
-
-5. **`src/lib/assistant-data.ts`**
-   - Remover `mockEmpresas` e `generateMockAlerts`
-   - Manter apenas tipos e configurações
+**Problema principal:**
+A RPC `get_vendas_por_pedido` faz fallback para `produtos.sku = sku_marketplace`, ignorando completamente a tabela `produto_marketplace_map`. Isso é incorreto pois:
+- A tabela de mapeamento pode ter SKUs diferentes entre marketplace e interno (4 casos confirmados)
+- 13.272 itens já mapeados não estão sendo reconhecidos
 
 ---
 
-### Parte 2: Corrigir CNPJ no Cadastro
+## Solução Proposta
 
-O trigger `handle_new_user()` cria empresa com CNPJ placeholder. Precisamos:
+### 1. Atualizar RPCs para usar `produto_marketplace_map`
 
-1. **Manter placeholder** (já está assim)
-2. **Forçar preenchimento no onboarding** - o passo "Completar Dados da Empresa" já existe, mas não valida CNPJ
-
-**Modificação em `src/pages/Empresas.tsx`:**
-- Na listagem, destacar empresas com CNPJ placeholder
-- Mostrar badge "Completar dados" quando CNPJ = `00.000.000/0000-00`
-
----
-
-### Parte 3: Transformar Página Usuários em "Colaboradores da Empresa"
-
-Em vez de mostrar TODOS os usuários do sistema (comportamento de admin global), mostrar apenas:
-- Colaboradores vinculados às empresas do usuário logado
-- Permitir convidar novos colaboradores
-
-**Modificações:**
-
-1. **`src/hooks/useUsuarios.ts`**
-   - Buscar apenas `user_empresas` das empresas que o usuário tem acesso
-   - Fazer join com `profiles` para obter nome/email
-
-2. **`src/pages/Usuarios.tsx`**
-   - Remover lógica de "admin global"
-   - Mostrar colaboradores por empresa
-   - Permitir convidar para empresa específica
-
----
-
-### Parte 4: Corrigir RLS de `integracao_config` e `integracao_tokens`
-
-Atualmente só admin pode acessar. Clientes precisam gerenciar suas integrações.
-
-**Migração SQL:**
-
-```sql
--- Remover policies antigas de admin-only
-DROP POLICY IF EXISTS "Only admins can read integracao_config" ON integracao_config;
-DROP POLICY IF EXISTS "Only admins can insert integracao_config" ON integracao_config;
-DROP POLICY IF EXISTS "Only admins can update integracao_config" ON integracao_config;
-DROP POLICY IF EXISTS "Only admins can delete integracao_config" ON integracao_config;
-
--- Criar policies baseadas em empresa
-CREATE POLICY "Users can read own integracao_config"
-ON integracao_config FOR SELECT
-TO authenticated
-USING (user_has_empresa_access(empresa_id));
-
-CREATE POLICY "Users can insert own integracao_config"
-ON integracao_config FOR INSERT
-TO authenticated
-WITH CHECK (user_has_empresa_access(empresa_id));
-
-CREATE POLICY "Users can update own integracao_config"
-ON integracao_config FOR UPDATE
-TO authenticated
-USING (user_has_empresa_access(empresa_id));
-
-CREATE POLICY "Users can delete own integracao_config"
-ON integracao_config FOR DELETE
-TO authenticated
-USING (user_has_empresa_access(empresa_id));
-
--- Mesma lógica para integracao_tokens
-DROP POLICY IF EXISTS "Only admins can read integracao_tokens" ON integracao_tokens;
-DROP POLICY IF EXISTS "Only admins can insert integracao_tokens" ON integracao_tokens;
-DROP POLICY IF EXISTS "Only admins can update integracao_tokens" ON integracao_tokens;
-DROP POLICY IF EXISTS "Only admins can delete integracao_tokens" ON integracao_tokens;
-
-CREATE POLICY "Users can read own integracao_tokens"
-ON integracao_tokens FOR SELECT
-TO authenticated
-USING (user_has_empresa_access(empresa_id));
-
-CREATE POLICY "Users can insert own integracao_tokens"
-ON integracao_tokens FOR INSERT
-TO authenticated
-WITH CHECK (user_has_empresa_access(empresa_id));
-
-CREATE POLICY "Users can update own integracao_tokens"
-ON integracao_tokens FOR UPDATE
-TO authenticated
-USING (user_has_empresa_access(empresa_id));
-
-CREATE POLICY "Users can delete own integracao_tokens"
-ON integracao_tokens FOR DELETE
-TO authenticated
-USING (user_has_empresa_access(empresa_id));
-```
-
----
-
-### Parte 5: Implementar Botões de Configurações e Marketplace
-
-**Modificação em `src/pages/Empresas.tsx`:**
-
-```tsx
-<DropdownMenuItem onClick={() => navigate(`/empresas/${empresa.id}/configuracoes`)}>
-  <Settings className="h-4 w-4 mr-2" />
-  Configurações
-</DropdownMenuItem>
-<DropdownMenuItem onClick={() => navigate(`/integracoes?empresa=${empresa.id}`)}>
-  <Store className="h-4 w-4 mr-2" />
-  Marketplaces
-</DropdownMenuItem>
-```
-
----
-
-### Parte 6: Remover Conceito de Admin Global
-
-**Modificações:**
-
-1. **Trigger `handle_new_user()`** - Remover lógica que dá `admin` ao primeiro usuário
-2. **RPCs** - Remover fallback `has_role(auth.uid(), 'admin')` 
-3. **Frontend** - Remover `isAdmin` de `useAuth.ts` ou sempre retornar `false`
-
----
-
-## Arquivos a Modificar
-
-| Arquivo | Ação |
-|---------|------|
-| `supabase/migrations/*_fix_tenant_isolation.sql` | RLS de integrações + remover admin do trigger |
-| `src/pages/ICMS.tsx` | Remover mock ICMS devido |
-| `src/hooks/useCartoes.ts` | Remover criação de mock |
-| `src/lib/mock-cartao.ts` | Remover ou esvaziar |
-| `src/hooks/useAssistantEngine.ts` | Remover mock alerts |
-| `src/lib/assistant-data.ts` | Remover mockEmpresas e generateMockAlerts |
-| `src/hooks/useUsuarios.ts` | Buscar colaboradores das empresas do usuário |
-| `src/pages/Usuarios.tsx` | Mostrar colaboradores por empresa |
-| `src/pages/Empresas.tsx` | Adicionar onClick aos botões + badge CNPJ incompleto |
-| `src/hooks/useAuth.ts` | Remover/desabilitar isAdmin |
-
----
-
-## Resultado Esperado
-
-| Cenário | Antes | Depois |
-|---------|-------|--------|
-| Novo usuário `cliente_a@email.com` | Vê dados mock de outras empresas | Vê apenas sua empresa vazia |
-| Página ICMS | R$ 45.000 devido (fictício) | "Configure o ICMS devido" ou cálculo real |
-| Página Cartões | Cartão mock "Exchange" | Lista vazia |
-| Página Usuários | "Acesso Restrito" | Colaboradores das suas empresas |
-| Assistente | Alertas de "Ecom Club" | Lista vazia (sem alertas) |
-| Integrações | Não consegue salvar config | Consegue conectar Mercado Livre |
-| Botão Configurações | Nada acontece | Navega para configurações da empresa |
-
----
-
-## Seção Técnica: Arquitetura Multi-Tenant Final
+Modificar `get_vendas_por_pedido` e `get_vendas_por_pedido_resumo` para seguir esta hierarquia de CMV:
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│                     Cliente A                            │
-│    (usuario: cliente_a@email.com)                       │
-│                                                         │
-│    ┌──────────────┐  ┌──────────────┐                   │
-│    │  Empresa 1   │  │  Empresa 2   │                   │
-│    │  (CNPJ xxx)  │  │  (CNPJ yyy)  │                   │
-│    └──────┬───────┘  └──────┬───────┘                   │
-│           │                  │                           │
-│    ┌──────┴───────────┬─────┴────┐                      │
-│    │ Colaborador 1    │ Colaborador 2                   │
-│    │ (vendas@emp1)    │ (fin@emp2)                      │
-│    └──────────────────┴──────────┘                      │
-└─────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────┐
-│                     Cliente B                            │
-│    (usuario: cliente_b@email.com)                       │
-│    ✗ Não vê NADA do Cliente A                           │
-│    ┌──────────────┐                                     │
-│    │  Empresa 3   │                                     │
-│    │  (CNPJ zzz)  │                                     │
-│    └──────────────┘                                     │
-└─────────────────────────────────────────────────────────┘
-
-Regras:
-• user_empresas define acesso (user_id → empresa_id → role)
-• RLS usa user_has_empresa_access(empresa_id)
-• RPCs usam get_user_empresa_ids() para filtrar
-• Não existe "admin global" - cada cliente é dono apenas do seu espaço
+1) produto_id direto no item (prioridade absoluta)
+2) produto_marketplace_map (mapeamento MLB SKU -> produto_id)
+3) produtos.sku = sku_marketplace (fallback por SKU igual)
+4) sku_costs (custo manual por SKU)
+5) 0 (sem custo)
 ```
 
+### 2. Migrar itens existentes
+
+Criar migração que preenche `produto_id` em `marketplace_transaction_items` para todos os itens que têm mapeamento na tabela `produto_marketplace_map`:
+
+```sql
+UPDATE marketplace_transaction_items mti
+SET produto_id = pmm.produto_id
+FROM produto_marketplace_map pmm
+JOIN marketplace_transactions mt ON mt.id = mti.transaction_id
+WHERE mti.sku_marketplace = pmm.sku_marketplace
+  AND mt.empresa_id = pmm.empresa_id
+  AND mti.produto_id IS NULL;
+```
+
+### 3. Sincronizar automaticamente novos mapeamentos
+
+Quando um mapeamento é criado/atualizado em `produto_marketplace_map`, propagar automaticamente para os itens históricos via trigger ou hook no frontend.
+
+### 4. Ajustar modal de mapeamento
+
+Garantir que ao clicar "Vincular a produto existente":
+1. Atualiza `marketplace_transaction_items.produto_id` no item atual
+2. Cria/atualiza entrada em `produto_marketplace_map`
+3. Propaga para itens históricos com mesmo SKU
+
 ---
 
-## Riscos e Mitigações
+## Detalhamento Técnico
 
-| Risco | Mitigação |
-|-------|-----------|
-| Clientes podem perder dados durante migração | Não deletamos dados, apenas ajustamos acesso |
-| Funcionalidades que dependiam de admin param de funcionar | Identificar e adaptar cada uma |
-| Edge functions podem continuar usando admin | Usar Service Role apenas para operações específicas, não para leitura geral |
+### Arquivo: Nova migração SQL
+
+```sql
+-- 1. Função auxiliar para resolver produto_id via mapeamento
+CREATE OR REPLACE FUNCTION get_produto_id_from_mapping(
+  p_sku_marketplace TEXT,
+  p_empresa_id UUID
+)
+RETURNS UUID
+LANGUAGE sql STABLE AS $$
+  SELECT produto_id 
+  FROM produto_marketplace_map 
+  WHERE sku_marketplace = p_sku_marketplace 
+    AND empresa_id = p_empresa_id 
+    AND ativo = true
+  LIMIT 1;
+$$;
+
+-- 2. Atualizar get_vendas_por_pedido com nova hierarquia
+-- Hierarquia: produto_id -> pmm.produto_id -> sku match -> sku_costs -> 0
+```
+
+### Arquivo: `MapearCmvModal.tsx`
+
+Modificar `handleVincularProduto` para:
+1. Criar/atualizar entrada em `produto_marketplace_map` ANTES de atualizar o item
+2. Atualizar o item atual com `produto_id`
+3. Chamar RPC para propagar para itens históricos
+
+### Arquivo: `useVendaItens.ts`
+
+Ajustar hierarquia de custo para considerar mapeamento:
+1. `produto_id` direto -> custo do produto
+2. Buscar em `produto_marketplace_map` -> custo do produto mapeado
+3. `sku_costs` -> custo manual
+4. Fallback 0
 
 ---
 
-## Ordem de Implementação
+## Sequência de Implementação
 
-1. **Migração SQL** - Corrigir RLS de integrações e trigger
-2. **Remover mocks** - ICMS, Cartões, Alertas
-3. **Corrigir Empresas.tsx** - Botões e badge CNPJ
-4. **Refatorar Usuarios.tsx** - Mostrar colaboradores
-5. **Desabilitar isAdmin** - useAuth.ts
+1. **Criar migração de dados** - Preencher `produto_id` nos 13.272 itens que já têm mapeamento
+2. **Atualizar RPC `get_vendas_por_pedido`** - Incluir lookup em `produto_marketplace_map`
+3. **Atualizar RPC `get_vendas_por_pedido_resumo`** - Mesma lógica
+4. **Ajustar `MapearCmvModal`** - Criar mapeamento + atualizar item + propagar
+5. **Ajustar `useVendaItens`** - Considerar mapeamento no hook de itens expandidos
+
+---
+
+## Impacto Esperado
+
+Após implementação:
+- Os 13.272 itens com mapeamento existente passarão a ter CMV calculado
+- Novos mapeamentos serão refletidos imediatamente
+- O botão "Mapear" aparecerá apenas para os ~2.826 itens (157 SKUs) realmente sem mapeamento
+
+---
+
+## Validação
+
+Após implementação, executar:
+
+```sql
+SELECT 
+  SUM(CASE WHEN cmv_total > 0 THEN 1 ELSE 0 END) as pedidos_com_cmv,
+  SUM(CASE WHEN cmv_total = 0 OR cmv_total IS NULL THEN 1 ELSE 0 END) as pedidos_sem_cmv
+FROM get_vendas_por_pedido(NULL, CURRENT_DATE - 30, CURRENT_DATE);
+```
+
+Resultado esperado: redução significativa de pedidos sem CMV.
 
