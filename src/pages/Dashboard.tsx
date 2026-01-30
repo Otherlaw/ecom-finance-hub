@@ -163,21 +163,15 @@ export default function Dashboard() {
     }));
   }, [agregado]);
 
-  // Query para Top 10 produtos mais vendidos - usa RPC otimizada no banco
-  // IMPORTANTE: Requer empresa específica para evitar mistura de dados entre CNPJs
+  // Query para Top 10 produtos mais vendidos - suporta consolidado e individual
   const {
     data: topProdutosRaw = [],
     isLoading: isTopProdutosLoading
   } = useQuery({
     queryKey: ["top-produtos-vendidos", empresaIdFiltro, periodoInicio, periodoFim],
     queryFn: async () => {
-      // Requer empresa selecionada para evitar mistura de dados
-      if (!empresaIdFiltro) {
-        return [];
-      }
-      
       const { data, error } = await supabase.rpc("get_top_produtos_vendidos", {
-        p_empresa_id: empresaIdFiltro,
+        p_empresa_id: empresaIdFiltro || null,  // NULL = consolidado
         p_data_inicio: periodoInicio,
         p_data_fim: periodoFim,
         p_limite: 10
@@ -189,8 +183,8 @@ export default function Dashboard() {
       }
       return data || [];
     },
-    // Só busca se tiver empresa selecionada
-    enabled: !!periodoInicio && !!periodoFim && !!empresaIdFiltro
+    // Funciona para consolidado e individual
+    enabled: !!periodoInicio && !!periodoFim
   });
 
   // Processar dados para Top 10 produtos - dados já vêm agregados da RPC
@@ -400,14 +394,12 @@ export default function Dashboard() {
 
           {/* Top 10 Produtos Mais Vendidos */}
           <div className="mt-6 my-[22px]">
-            <ModuleCard title="Top 10 Produtos Mais Vendidos" description={empresaIdFiltro ? "No período selecionado" : "Selecione uma empresa para visualizar"} icon={Package}>
-              {!empresaIdFiltro ? (
-                <div className="py-8 text-center text-muted-foreground">
-                  <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p className="font-medium">Selecione uma empresa</p>
-                  <p className="text-sm">O Top 10 Produtos requer uma empresa específica para evitar mistura de dados entre CNPJs.</p>
-                </div>
-              ) : isTopProdutosLoading ? (
+            <ModuleCard 
+              title="Top 10 Produtos Mais Vendidos" 
+              description={empresaIdFiltro ? "Filtrando por empresa" : "Visão consolidada (todas as empresas)"} 
+              icon={Package}
+            >
+              {isTopProdutosLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-primary mr-2" />
                   <span className="text-muted-foreground">Carregando produtos...</span>
