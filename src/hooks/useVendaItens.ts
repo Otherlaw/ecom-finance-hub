@@ -34,7 +34,8 @@ export function useVendaItens(transactionId: string | null) {
     queryFn: async () => {
       if (!transactionId) return [];
 
-      const { data, error } = await supabase
+      // Buscar itens da transação
+      const { data: itemsData, error: itemsError } = await supabase
         .from("marketplace_transaction_items")
         .select(`
           id,
@@ -55,16 +56,61 @@ export function useVendaItens(transactionId: string | null) {
         `)
         .eq("transaction_id", transactionId);
 
-      if (error) {
-        console.error("Erro ao buscar itens da venda:", error);
-        throw error;
+      if (itemsError) {
+        console.error("Erro ao buscar itens da venda:", itemsError);
+        throw itemsError;
       }
 
-      // Transformar dados
-      const itensTransformados: VendaItem[] = (data || []).map((item: any) => {
+      if (!itemsData || itemsData.length === 0) return [];
+
+      // Buscar empresa_id da transação para lookup de sku_costs
+      const { data: txData } = await supabase
+        .from("marketplace_transactions")
+        .select("empresa_id")
+        .eq("id", transactionId)
+        .single();
+
+      const empresaId = txData?.empresa_id;
+
+      // Coletar SKUs sem produto_id para buscar custos fallback
+      const skusSemProduto = itemsData
+        .filter((item: any) => !item.produto_id && item.sku_marketplace)
+        .map((item: any) => item.sku_marketplace);
+
+      // Buscar custos da tabela sku_costs para fallback
+      let skuCostsMap: Record<string, number> = {};
+      if (skusSemProduto.length > 0 && empresaId) {
+        const { data: skuCosts } = await supabase
+          .from("sku_costs")
+          .select("sku, custo_unitario")
+          .eq("empresa_id", empresaId)
+          .in("sku", skusSemProduto);
+
+        if (skuCosts) {
+          skuCostsMap = skuCosts.reduce((acc: Record<string, number>, sc: any) => {
+            acc[sc.sku] = sc.custo_unitario || 0;
+            return acc;
+          }, {});
+        }
+      }
+
+      // Transformar dados com hierarquia de custo: produto_id > sku_costs
+      const itensTransformados: VendaItem[] = (itemsData || []).map((item: any) => {
         const produto = item.produto;
-        const custoMedio = produto?.custo_medio || 0;
         const quantidade = item.quantidade || 1;
+        
+        // Hierarquia de custo: produto vinculado > sku_costs > 0
+        let custoMedio = 0;
+        if (produto?.custo_medio && produto.custo_medio > 0) {
+          custoMedio = produto.custo_medio;
+        } else if (item.sku_marketplace && skuCostsMap[item.sku_marketplace]) {
+          custoMedio = skuCostsMap[item.sku_marketplace];
+        }
+
+        // sem_custo só é true se não tem custo de nenhuma fonte
+        const semCusto = custoMedio === 0;
+        // sem_produto só se não tem produto_id
+        const semProduto = !item.produto_id;
 
         return {
           id: item.id,
@@ -80,8 +126,8 @@ export function useVendaItens(transactionId: string | null) {
           produto_nome: produto?.nome || null,
           custo_medio: custoMedio,
           custo_total: custoMedio * quantidade,
-          sem_produto: !item.produto_id,
-          sem_custo: custoMedio === 0,
+          sem_produto: semProduto,
+          sem_custo: semCusto,
         };
       });
 
