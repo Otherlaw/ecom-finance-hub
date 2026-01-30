@@ -484,8 +484,14 @@ export function PedidosTableRow({
               {/* Header dos itens */}
               <TableRow className="bg-muted/10">
                 <TableCell></TableCell>
-                <TableCell colSpan={3} className="text-xs font-medium text-muted-foreground">
-                  SKU / Produto
+                <TableCell className="text-xs font-medium text-muted-foreground">
+                  SKU Marketplace
+                </TableCell>
+                <TableCell className="text-xs font-medium text-muted-foreground">
+                  SKU Produto
+                </TableCell>
+                <TableCell className="text-xs font-medium text-muted-foreground">
+                  Descrição
                 </TableCell>
                 <TableCell className="text-xs font-medium text-muted-foreground text-center">
                   Qtd
@@ -502,7 +508,7 @@ export function PedidosTableRow({
                 <TableCell className="text-xs font-medium text-muted-foreground text-right">
                   CMV Total
                 </TableCell>
-                <TableCell colSpan={7} className="text-xs font-medium text-muted-foreground text-right">
+                <TableCell colSpan={5} className="text-xs font-medium text-muted-foreground text-right">
                   Margem
                 </TableCell>
               </TableRow>
@@ -538,14 +544,20 @@ export function PedidosTableRow({
                         </Tooltip>
                       )}
                     </TableCell>
-                    <TableCell colSpan={3}>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-xs font-mono text-muted-foreground">
-                          {item.produto_sku || item.sku_marketplace || "—"}
-                        </span>
-                        <span className="text-xs truncate max-w-[200px]">
-                          {item.produto_nome || item.descricao_item || "Produto não identificado"}
-                        </span>
+                    <TableCell>
+                      <span className="text-xs font-mono text-muted-foreground">
+                        {item.sku_marketplace || "—"}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        {item.produto_sku ? (
+                          <span className="text-xs font-mono text-foreground">
+                            {item.produto_sku}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                         {/* Botão mapear: sempre aparece se não tem produto_id */}
                         {item.sem_produto && (
                           <button
@@ -555,16 +567,23 @@ export function PedidosTableRow({
                             }}
                             className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full
                                        bg-amber-500/10 text-amber-600 border border-amber-300
-                                       hover:bg-amber-500/20 transition w-fit mt-1"
+                                       hover:bg-amber-500/20 transition w-fit"
                           >
                             <Link2 className="h-3 w-3" />
-                            Mapear produto
+                            Mapear
                           </button>
                         )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs truncate max-w-[180px]">
+                          {item.produto_nome || item.descricao_item || "Produto não identificado"}
+                        </span>
                         {/* Alerta: produto mapeado mas sem custo */}
                         {!item.sem_produto && item.sem_custo && (
-                          <span className="text-[10px] text-amber-600 mt-1">
-                            ⚠ Produto sem custo cadastrado
+                          <span className="text-[10px] text-amber-600">
+                            ⚠ Sem custo cadastrado
                           </span>
                         )}
                       </div>
@@ -592,7 +611,7 @@ export function PedidosTableRow({
                         formatCurrency(itemCusto)
                       )}
                     </TableCell>
-                    <TableCell colSpan={7} className={cn("text-right text-xs font-medium", item.sem_custo ? "text-muted-foreground" : itemMargemColor)}>
+                    <TableCell colSpan={5} className={cn("text-right text-xs font-medium", item.sem_custo ? "text-muted-foreground" : itemMargemColor)}>
                       {item.sem_custo ? (
                         "—"
                       ) : (
