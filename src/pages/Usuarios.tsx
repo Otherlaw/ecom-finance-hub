@@ -14,18 +14,21 @@ import {
   Loader2,
   AlertTriangle,
   ShieldAlert,
+  Trash2,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useUsuarios, Usuario, RoleType } from "@/hooks/useUsuarios";
 import { EditarUsuarioModal } from "@/components/usuarios/EditarUsuarioModal";
 import { ConvidarUsuarioModal } from "@/components/usuarios/ConvidarUsuarioModal";
+import { ExcluirUsuarioModal } from "@/components/usuarios/ExcluirUsuarioModal";
 import { useAuth } from "@/hooks/useAuth";
 
 const roleLabels: Record<RoleType, { label: string; color: string }> = {
@@ -36,10 +39,11 @@ const roleLabels: Record<RoleType, { label: string; color: string }> = {
 };
 
 export default function Usuarios() {
-  const { usuarios, isLoading } = useUsuarios();
-  const { isAdmin, loading: authLoading } = useAuth();
+  const { usuarios, isLoading, excluirUsuario } = useUsuarios();
+  const { isAdmin, loading: authLoading, user } = useAuth();
   const [editando, setEditando] = useState<Usuario | null>(null);
   const [showConvidar, setShowConvidar] = useState(false);
+  const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
 
   const getInitials = (nome: string | null, email: string) => {
     if (nome) {
@@ -51,6 +55,19 @@ export default function Usuarios() {
   const temProblemaAcesso = (user: Usuario) => {
     // Usuário sem empresas vinculadas ou com role operador (não tem acesso financeiro)
     return user.empresas.length === 0 || user.role === "operador";
+  };
+
+  const handleConfirmDelete = () => {
+    if (usuarioParaExcluir) {
+      excluirUsuario.mutate(usuarioParaExcluir.id, {
+        onSuccess: () => setUsuarioParaExcluir(null),
+      });
+    }
+  };
+
+  // Verifica se pode excluir o usuário (não pode excluir a si mesmo)
+  const podeExcluir = (usuario: Usuario) => {
+    return user?.id !== usuario.id;
   };
 
   // Verificar permissão de admin
@@ -168,6 +185,18 @@ export default function Usuarios() {
                           <UserCog className="h-4 w-4 mr-2" />
                           Editar Perfil e Empresas
                         </DropdownMenuItem>
+                        {podeExcluir(user) && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setUsuarioParaExcluir(user)}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Excluir Usuário
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -304,6 +333,15 @@ export default function Usuarios() {
       <ConvidarUsuarioModal
         open={showConvidar}
         onOpenChange={setShowConvidar}
+      />
+
+      {/* Modal de Exclusão */}
+      <ExcluirUsuarioModal
+        usuario={usuarioParaExcluir}
+        open={!!usuarioParaExcluir}
+        onOpenChange={(open) => !open && setUsuarioParaExcluir(null)}
+        onConfirm={handleConfirmDelete}
+        isLoading={excluirUsuario.isPending}
       />
     </MainLayout>
   );
