@@ -468,10 +468,14 @@ export function PedidosTableRow({
             </TableRow>
           ) : itens.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={12} className="bg-muted/10">
-                <div className="flex items-center justify-center py-4 text-muted-foreground">
-                  <Package className="h-4 w-4 mr-2" />
-                  <span className="text-sm">Nenhum item encontrado para este pedido</span>
+              <TableCell colSpan={14} className="bg-muted/10">
+                <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2">
+                  <Package className="h-8 w-8 opacity-50" />
+                  <span className="text-sm font-medium">Itens pendentes de sincronização</span>
+                  <p className="text-xs text-center max-w-sm">
+                    Os itens deste pedido ainda não foram sincronizados da API. 
+                    Aguarde a próxima sincronização automática ou importe o relatório do canal.
+                  </p>
                 </div>
               </TableCell>
             </TableRow>
