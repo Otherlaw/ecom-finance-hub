@@ -30,8 +30,8 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
-// Mock ICMS devido (futuramente virá de integração fiscal)
-const ICMS_DEVIDO_MOCK = 45000;
+// ICMS devido será calculado dinamicamente ou configurado pelo usuário
+// Por padrão, mostra 0 até que o usuário configure
 
 export default function ICMS() {
   const { openChat } = useAssistantChatContext();
@@ -103,6 +103,9 @@ export default function ICMS() {
   const totalNaoCompensaveis = useMemo(() => 
     creditosNaoCompensaveis.reduce((sum, c) => sum + Number(c.valor_credito), 0), [creditosNaoCompensaveis]);
 
+  // ICMS devido será configurado futuramente - por enquanto 0
+  const icmsDevido = 0;
+
   // Get resumos per empresa (only regime normal)
   const resumosEmpresa = useMemo(() => {
     const empresasNormais = (empresas ?? []).filter(e => canUseICMSCredit(e.regime_tributario as any));
@@ -111,21 +114,21 @@ export default function ICMS() {
         c.empresa_id === emp.id && c.tipo_credito === 'compensavel' && c.status_credito === 'ativo'
       );
       const total = creditosEmp.reduce((sum, c) => sum + Number(c.valor_credito), 0);
-      const icmsDebito = ICMS_DEVIDO_MOCK / empresasNormais.length;
-      const saldo = total - icmsDebito;
-      const percentual = icmsDebito > 0 ? (total / icmsDebito) * 100 : 100;
+      const icmsDebitoEmpresa = empresasNormais.length > 0 ? icmsDevido / empresasNormais.length : 0;
+      const saldo = total - icmsDebitoEmpresa;
+      const percentual = icmsDebitoEmpresa > 0 ? (total / icmsDebitoEmpresa) * 100 : 100;
       
       return {
         empresaId: emp.id,
         empresaNome: emp.razao_social,
         regimeTributario: emp.regime_tributario,
         creditosBrutos: total,
-        icmsDebito,
+        icmsDebito: icmsDebitoEmpresa,
         saldoICMS: saldo,
         percentualCobertura: percentual,
       };
     });
-  }, [creditos, empresas]);
+  }, [creditos, empresas, icmsDevido]);
 
   // Recommendation
   const recommendation = useMemo(() => {
@@ -134,10 +137,10 @@ export default function ICMS() {
       ? creditos.filter(c => c.tipo_credito === 'compensavel' && c.status_credito === 'ativo')
           .reduce((s, c) => s + Number(c.valor_credito), 0)
       : totalCompensaveis;
-    return calculateRecommendation(ICMS_DEVIDO_MOCK, creditosParaCalculo, totalNaoCompensaveis, 8);
-  }, [isSimples, empresaFilter, creditos, totalCompensaveis, totalNaoCompensaveis]);
+    return calculateRecommendation(icmsDevido, creditosParaCalculo, totalNaoCompensaveis, 8);
+  }, [isSimples, empresaFilter, creditos, totalCompensaveis, totalNaoCompensaveis, icmsDevido]);
 
-  const saldoProjetado = canUseCredits ? totalCompensaveis - ICMS_DEVIDO_MOCK : 0;
+  const saldoProjetado = canUseCredits ? totalCompensaveis - icmsDevido : 0;
   const saldoNegativo = canUseCredits && saldoProjetado < 0;
 
   // Handlers
@@ -188,7 +191,7 @@ export default function ICMS() {
       dadosAdicionais: {
         creditosCompensaveis: formatCurrency(totalCompensaveis),
         creditosNaoCompensaveis: formatCurrency(totalNaoCompensaveis),
-        icmsDevido: formatCurrency(ICMS_DEVIDO_MOCK),
+        icmsDevido: formatCurrency(icmsDevido),
         saldoProjetado: formatCurrency(saldoProjetado),
         empresaSimples: isSimples,
       },
@@ -342,9 +345,9 @@ export default function ICMS() {
         />
         <KPICard 
           title="ICMS Devido" 
-          value={formatCurrency(canUseCredits ? ICMS_DEVIDO_MOCK : 0)} 
+          value={formatCurrency(canUseCredits ? icmsDevido : 0)} 
           icon={TrendingDown} 
-          iconColor={isSimples ? "text-muted-foreground" : "text-destructive"} 
+          iconColor={isSimples ? "text-muted-foreground" : "text-destructive"}
           trend={isSimples ? "neutral" : "down"}
         />
         <KPICard 

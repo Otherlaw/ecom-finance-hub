@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ensureMockCardExists, ensureDefaultCompanyAndUser } from "@/lib/mock-cartao";
 
 export const useCartoes = () => {
   const queryClient = useQueryClient();
@@ -9,9 +8,6 @@ export const useCartoes = () => {
   const { data: cartoes, isLoading } = useQuery({
     queryKey: ["cartoes"],
     queryFn: async () => {
-      // Garantir que existe empresa e responsável padrão antes de buscar
-      await ensureDefaultCompanyAndUser();
-      
       const { data, error } = await supabase
         .from("credit_cards")
         .select(`
@@ -22,26 +18,7 @@ export const useCartoes = () => {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-
-      // Se não houver cartões, criar o mock
-      if (!data || data.length === 0) {
-        const mockCard = await ensureMockCardExists();
-        if (mockCard) {
-          // Recarregar dados após criar mock
-          const { data: refreshedData, error: refreshError } = await supabase
-            .from("credit_cards")
-            .select(`
-              *,
-              empresa:empresas(id, razao_social, nome_fantasia, cnpj),
-              responsavel:responsaveis(id, nome)
-            `)
-            .order("created_at", { ascending: false });
-          
-          if (!refreshError) return refreshedData;
-        }
-      }
-
-      return data;
+      return data ?? [];
     },
   });
 
@@ -112,6 +89,7 @@ export const useCartoes = () => {
     deleteCartao,
   };
 };
+
 export const useFaturas = (cartaoId?: string) => {
   const queryClient = useQueryClient();
 
