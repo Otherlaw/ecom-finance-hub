@@ -209,7 +209,6 @@ export function PedidosTable({
               </TableHead>
               <TableHead className="w-[80px] text-right">Frete V.</TableHead>
               <TableHead className="w-[70px] text-right">Impostos</TableHead>
-              <TableHead className="w-[70px] text-right">Impostos</TableHead>
               <TableHead className="w-[70px] text-right">CMV</TableHead>
               <TableHead
                 className="w-[100px] text-right cursor-pointer hover:text-foreground"
