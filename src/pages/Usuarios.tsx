@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { ModuleCard } from "@/components/ModuleCard";
 import { Button } from "@/components/ui/button";
@@ -10,76 +10,98 @@ import {
   MoreVertical,
   Check,
   Clock,
-  UserCog,
   Loader2,
-  AlertTriangle,
-  ShieldAlert,
   Trash2,
+  Building2,
+  Filter,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useUsuarios, Usuario, RoleType } from "@/hooks/useUsuarios";
-import { EditarUsuarioModal } from "@/components/usuarios/EditarUsuarioModal";
+import { useColaboradores, Colaborador, ROLES_LABELS } from "@/hooks/useColaboradores";
 import { ConvidarUsuarioModal } from "@/components/usuarios/ConvidarUsuarioModal";
-import { ExcluirUsuarioModal } from "@/components/usuarios/ExcluirUsuarioModal";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserEmpresas } from "@/hooks/useUserEmpresas";
+import { useEmpresas } from "@/hooks/useEmpresas";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
-const roleLabels: Record<RoleType, { label: string; color: string }> = {
-  admin: { label: "Administrador", color: "bg-primary/10 text-primary border-primary/20" },
-  financeiro: { label: "Financeiro", color: "bg-info/10 text-info border-info/20" },
-  socio: { label: "Sócio", color: "bg-success/10 text-success border-success/20" },
-  operador: { label: "Operador", color: "bg-warning/10 text-warning border-warning/20" },
+const roleColors: Record<string, string> = {
+  dono: "bg-primary/10 text-primary border-primary/20",
+  admin: "bg-info/10 text-info border-info/20",
+  financeiro: "bg-success/10 text-success border-success/20",
+  operador: "bg-warning/10 text-warning border-warning/20",
 };
 
 export default function Usuarios() {
-  const { usuarios, isLoading, excluirUsuario } = useUsuarios();
-  const { isAdmin, loading: authLoading, user } = useAuth();
-  const [editando, setEditando] = useState<Usuario | null>(null);
+  const { user } = useAuth();
+  const { userEmpresas } = useUserEmpresas();
+  const { empresas } = useEmpresas();
   const [showConvidar, setShowConvidar] = useState(false);
-  const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
+  const [colaboradorParaRemover, setColaboradorParaRemover] = useState<Colaborador | null>(null);
+  const [empresaSelecionada, setEmpresaSelecionada] = useState<string>("");
 
-  const getInitials = (nome: string | null, email: string) => {
+  // Empresas que o usuário é dono ou admin (pode gerenciar colaboradores)
+  const empresasGerenciaveis = useMemo(() => {
+    if (!userEmpresas || !empresas) return [];
+    const gerenciaveis = userEmpresas
+      .filter(ue => ue.role_na_empresa === "dono" || ue.role_na_empresa === "admin")
+      .map(ue => ue.empresa_id);
+    return empresas.filter(e => gerenciaveis.includes(e.id));
+  }, [userEmpresas, empresas]);
+
+  // Selecionar primeira empresa automaticamente
+  const empresaIdAtual = empresaSelecionada || empresasGerenciaveis[0]?.id || "";
+  
+  const { colaboradores, isLoading, removerColaborador } = useColaboradores(empresaIdAtual);
+
+  const empresaAtual = empresas?.find(e => e.id === empresaIdAtual);
+
+  const getInitials = (nome: string | null | undefined, email: string | null | undefined) => {
     if (nome) {
       return nome.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
     }
-    return email.slice(0, 2).toUpperCase();
+    if (email) {
+      return email.slice(0, 2).toUpperCase();
+    }
+    return "??";
   };
 
-  const temProblemaAcesso = (user: Usuario) => {
-    // Usuário sem empresas vinculadas ou com role operador (não tem acesso financeiro)
-    return user.empresas.length === 0 || user.role === "operador";
-  };
-
-  const handleConfirmDelete = () => {
-    if (usuarioParaExcluir) {
-      excluirUsuario.mutate(usuarioParaExcluir.id, {
-        onSuccess: () => setUsuarioParaExcluir(null),
+  const handleConfirmRemover = () => {
+    if (colaboradorParaRemover) {
+      removerColaborador.mutate(colaboradorParaRemover.id, {
+        onSuccess: () => setColaboradorParaRemover(null),
       });
     }
   };
 
-  // Verifica se pode excluir o usuário (não pode excluir a si mesmo)
-  const podeExcluir = (usuario: Usuario) => {
-    return user?.id !== usuario.id;
+  // Verificar se pode remover o colaborador (não pode remover a si mesmo, não pode remover dono)
+  const podeRemover = (colaborador: Colaborador) => {
+    return user?.id !== colaborador.user_id && colaborador.role_na_empresa !== "dono";
   };
 
-  // Verificar permissão de admin
-  if (!authLoading && !isAdmin) {
+  if (empresasGerenciaveis.length === 0) {
     return (
-      <MainLayout title="Usuários" subtitle="Gerenciamento de acessos e permissões">
+      <MainLayout title="Colaboradores" subtitle="Gerencie o acesso da equipe às suas empresas">
         <div className="flex flex-col items-center justify-center py-20">
-          <ShieldAlert className="h-16 w-16 text-muted-foreground mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Acesso Restrito</h2>
+          <Users className="h-16 w-16 text-muted-foreground mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Nenhuma empresa para gerenciar</h2>
           <p className="text-muted-foreground text-center max-w-md">
-            Apenas administradores podem gerenciar usuários do sistema.
-            Entre em contato com um administrador se precisar de alterações no seu perfil.
+            Você precisa ser dono ou administrador de uma empresa para gerenciar colaboradores.
           </p>
         </div>
       </MainLayout>
@@ -88,18 +110,40 @@ export default function Usuarios() {
 
   return (
     <MainLayout
-      title="Usuários"
-      subtitle="Gerenciamento de acessos e permissões"
+      title="Colaboradores"
+      subtitle="Gerencie o acesso da equipe às suas empresas"
       actions={
         <Button className="gap-2" onClick={() => setShowConvidar(true)}>
           <Plus className="h-4 w-4" />
-          Convidar Usuário
+          Convidar Colaborador
         </Button>
       }
     >
+      {/* Filtro por empresa */}
+      <div className="mb-6 p-4 rounded-lg bg-secondary/30 border">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium text-sm">Empresa:</span>
+          </div>
+          <Select value={empresaIdAtual} onValueChange={setEmpresaSelecionada}>
+            <SelectTrigger className="w-64">
+              <SelectValue placeholder="Selecione uma empresa" />
+            </SelectTrigger>
+            <SelectContent>
+              {empresasGerenciaveis.map((emp) => (
+                <SelectItem key={emp.id} value={emp.id}>
+                  {emp.nome_fantasia || emp.razao_social}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       <ModuleCard
-        title="Usuários do Sistema"
-        description="Controle de acesso"
+        title={`Colaboradores - ${empresaAtual?.nome_fantasia || empresaAtual?.razao_social || "Empresa"}`}
+        description="Equipe com acesso à empresa selecionada"
         icon={Users}
         noPadding
       >
@@ -107,98 +151,69 @@ export default function Usuarios() {
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        ) : usuarios.length === 0 ? (
+        ) : colaboradores.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <Users className="h-12 w-12 mb-4 opacity-50" />
-            <p>Nenhum usuário encontrado</p>
+            <p className="mb-2">Nenhum colaborador encontrado</p>
+            <p className="text-sm text-center max-w-md">
+              Convide colaboradores clicando em "Convidar Colaborador".
+            </p>
           </div>
         ) : (
           <Table>
             <TableHeader>
               <TableRow className="bg-secondary/30">
-                <TableHead>Usuário</TableHead>
+                <TableHead>Colaborador</TableHead>
                 <TableHead>Perfil</TableHead>
-                <TableHead>Empresas</TableHead>
-                <TableHead className="text-center">Status</TableHead>
                 <TableHead className="text-center">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {usuarios.map((user) => (
-                <TableRow key={user.id}>
+              {colaboradores.map((colaborador) => (
+                <TableRow key={colaborador.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <Avatar className="h-9 w-9">
                         <AvatarFallback className="bg-primary/10 text-primary">
-                          {getInitials(user.nome, user.email)}
+                          {getInitials(colaborador.profile?.nome, colaborador.profile?.email)}
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="font-medium">{user.nome || "Sem nome"}</p>
-                        <p className="text-sm text-muted-foreground">{user.email}</p>
+                        <p className="font-medium">{colaborador.profile?.nome || "Sem nome"}</p>
+                        <p className="text-sm text-muted-foreground">{colaborador.profile?.email || ""}</p>
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={roleLabels[user.role].color}>
-                      <Shield className="h-3 w-3 mr-1" />
-                      {roleLabels[user.role].label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {user.empresas.length === 0 ? (
-                        <span className="text-sm text-muted-foreground italic">
-                          Nenhuma empresa
-                        </span>
-                      ) : (
-                        user.empresas.map((emp) => (
-                          <Badge key={emp.id} variant="outline" className="text-xs">
-                            {emp.razao_social}
-                          </Badge>
-                        ))
+                      {user?.id === colaborador.user_id && (
+                        <Badge variant="outline" className="text-xs">Você</Badge>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-center">
-                    {temProblemaAcesso(user) ? (
-                      <Badge className="bg-warning/10 text-warning border-warning/20">
-                        <AlertTriangle className="h-3 w-3 mr-1" />
-                        Sem Acesso Financeiro
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-success/10 text-success border-success/20">
-                        <Check className="h-3 w-3 mr-1" />
-                        Ativo
-                      </Badge>
-                    )}
+                  <TableCell>
+                    <Badge className={roleColors[colaborador.role_na_empresa] || ""}>
+                      <Shield className="h-3 w-3 mr-1" />
+                      {ROLES_LABELS[colaborador.role_na_empresa] || colaborador.role_na_empresa}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-center">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setEditando(user)}>
-                          <UserCog className="h-4 w-4 mr-2" />
-                          Editar Perfil e Empresas
-                        </DropdownMenuItem>
-                        {podeExcluir(user) && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => setUsuarioParaExcluir(user)}
-                              className="text-destructive focus:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Excluir Usuário
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {podeRemover(colaborador) ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => setColaboradorParaRemover(colaborador)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Remover acesso
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">-</span>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -207,7 +222,7 @@ export default function Usuarios() {
         )}
       </ModuleCard>
 
-      {/* Permissões */}
+      {/* Níveis de Permissão */}
       <div className="mt-6">
         <ModuleCard title="Níveis de Permissão" description="O que cada perfil pode acessar" icon={Shield}>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -216,82 +231,40 @@ export default function Usuarios() {
                 <div className="p-2 rounded-lg bg-primary/10">
                   <Shield className="h-5 w-5 text-primary" />
                 </div>
-                <h4 className="font-semibold">Administrador</h4>
+                <h4 className="font-semibold">Proprietário</h4>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Acesso total ao sistema
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Gerenciar usuários
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Configurar empresas
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Editar todos os dados
-                </li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-success" />Acesso total à empresa</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-success" />Gerenciar colaboradores</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-success" />Configurar integrações</li>
               </ul>
             </div>
-
             <div className="p-6 rounded-xl border border-info/20 bg-info/5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg bg-info/10">
                   <Shield className="h-5 w-5 text-info" />
                 </div>
-                <h4 className="font-semibold">Financeiro</h4>
+                <h4 className="font-semibold">Administrador</h4>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Fechamento mensal
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Relatórios e DRE
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Fluxo de caixa
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Importar OFX/CSV
-                </li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-success" />Gerenciar colaboradores</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-success" />Configurar integrações</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-success" />Importar dados</li>
               </ul>
             </div>
-
             <div className="p-6 rounded-xl border border-success/20 bg-success/5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg bg-success/10">
                   <Shield className="h-5 w-5 text-success" />
                 </div>
-                <h4 className="font-semibold">Sócio</h4>
+                <h4 className="font-semibold">Financeiro</h4>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Dashboard executivo
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  KPIs e projeções
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Relatórios (leitura)
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" />
-                  Importar dados
-                </li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-success" />Fechamento mensal</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-success" />Relatórios e DRE</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-success" />Fluxo de caixa</li>
               </ul>
             </div>
-
             <div className="p-6 rounded-xl border border-warning/20 bg-warning/5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg bg-warning/10">
@@ -300,49 +273,37 @@ export default function Usuarios() {
                 <h4 className="font-semibold">Operador</h4>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  Acesso limitado
-                </li>
-                <li className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  Sem acesso financeiro
-                </li>
-                <li className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  Não pode importar OFX
-                </li>
-                <li className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  Visualização básica
-                </li>
+                <li className="flex items-center gap-2"><Clock className="h-4 w-4 text-muted-foreground" />Acesso limitado</li>
+                <li className="flex items-center gap-2"><Clock className="h-4 w-4 text-muted-foreground" />Sem acesso financeiro</li>
+                <li className="flex items-center gap-2"><Clock className="h-4 w-4 text-muted-foreground" />Visualização básica</li>
               </ul>
             </div>
           </div>
         </ModuleCard>
       </div>
 
-      {/* Modal de Edição */}
-      <EditarUsuarioModal
-        usuario={editando}
-        open={!!editando}
-        onOpenChange={(open) => !open && setEditando(null)}
-      />
+      <ConvidarUsuarioModal open={showConvidar} onOpenChange={setShowConvidar} />
 
-      {/* Modal de Convidar */}
-      <ConvidarUsuarioModal
-        open={showConvidar}
-        onOpenChange={setShowConvidar}
-      />
-
-      {/* Modal de Exclusão */}
-      <ExcluirUsuarioModal
-        usuario={usuarioParaExcluir}
-        open={!!usuarioParaExcluir}
-        onOpenChange={(open) => !open && setUsuarioParaExcluir(null)}
-        onConfirm={handleConfirmDelete}
-        isLoading={excluirUsuario.isPending}
-      />
+      <AlertDialog open={!!colaboradorParaRemover} onOpenChange={(open) => !open && setColaboradorParaRemover(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover colaborador</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja remover o acesso de{" "}
+              <strong>{colaboradorParaRemover?.profile?.nome || colaboradorParaRemover?.profile?.email}</strong>?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmRemover}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </MainLayout>
   );
 }

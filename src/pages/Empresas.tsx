@@ -64,7 +64,6 @@ export default function Empresas() {
   const navigate = useNavigate();
   const { empresas, isLoading, deleteEmpresa } = useEmpresas();
   const { tokens, isLoading: loadingIntegracoes } = useIntegracoes({});
-  const { isAdmin } = useAuth();
   const { userEmpresas, isLoading: loadingUserEmpresas } = useUserEmpresas();
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [editingEmpresa, setEditingEmpresa] = useState<any | null>(null);
@@ -73,14 +72,16 @@ export default function Empresas() {
   const [colaboradoresModalOpen, setColaboradoresModalOpen] = useState(false);
   const [selectedEmpresaForColabs, setSelectedEmpresaForColabs] = useState<any | null>(null);
 
-  // Filtrar empresas: admins veem todas, outros veem apenas as vinculadas
+  // Placeholder CNPJ para empresas incompletas
+  const CNPJ_PLACEHOLDER = "00.000.000/0000-00";
+
+  // Filtrar empresas: mostrar apenas as vinculadas ao usuário
   const empresasFiltradas = useMemo(() => {
     if (!empresas) return [];
-    if (isAdmin) return empresas;
     
     const userEmpresaIds = userEmpresas?.map(ue => ue.empresa_id) || [];
     return empresas.filter(e => userEmpresaIds.includes(e.id));
-  }, [empresas, isAdmin, userEmpresas]);
+  }, [empresas, userEmpresas]);
 
   const handleEdit = (empresa: any) => {
     setEditingEmpresa(empresa);
@@ -178,6 +179,12 @@ export default function Empresas() {
                               {empresa.razao_social}
                             </span>
                           )}
+                          {empresa.cnpj === CNPJ_PLACEHOLDER && (
+                            <Badge className="ml-2 bg-warning/10 text-warning border-warning/20">
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              Completar dados
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     </TableCell>
@@ -231,11 +238,11 @@ export default function Empresas() {
                             <Edit className="h-4 w-4 mr-2" />
                             Editar
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => navigate(`/configuracoes?empresa=${empresa.id}`)}>
                             <Settings className="h-4 w-4 mr-2" />
                             Configurações
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => navigate(`/integracoes?empresa=${empresa.id}`)}>
                             <Store className="h-4 w-4 mr-2" />
                             Marketplaces
                           </DropdownMenuItem>

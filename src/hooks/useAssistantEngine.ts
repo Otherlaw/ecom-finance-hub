@@ -3,7 +3,6 @@ import {
   AssistantAlert, 
   AssistantConfig, 
   AlertStatus,
-  generateMockAlerts 
 } from '@/lib/assistant-data';
 
 interface UseAssistantEngineReturn {
@@ -33,6 +32,7 @@ const DEFAULT_CONFIG: AssistantConfig = {
 };
 
 export function useAssistantEngine(): UseAssistantEngineReturn {
+  // Iniciar com listas vazias - sem dados mock
   const [alerts, setAlerts] = useState<AssistantAlert[]>([]);
   const [newAlerts, setNewAlerts] = useState<AssistantAlert[]>([]);
   const [config, setConfig] = useState<AssistantConfig>(DEFAULT_CONFIG);
@@ -42,16 +42,13 @@ export function useAssistantEngine(): UseAssistantEngineReturn {
   
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Inicializar com dados mock
+  // Inicializar sem dados mock
   useEffect(() => {
     if (!initialized) {
-      const mockAlerts = generateMockAlerts();
-      setAlerts(mockAlerts);
-      
-      // Simular alguns alertas novos para demonstração
-      const recentAlerts = mockAlerts.filter(a => a.status === 'novo').slice(0, 2);
-      setNewAlerts(recentAlerts);
-      
+      // Alertas reais virão de análise futura do banco
+      // Por enquanto, começar vazio
+      setAlerts([]);
+      setNewAlerts([]);
       setInitialized(true);
       setLastAnalysis(new Date());
     }
@@ -64,26 +61,25 @@ export function useAssistantEngine(): UseAssistantEngineReturn {
     return new Date() < config.silenciadoAte;
   }, [config.silenciado, config.silenciadoAte]);
 
-  // Executar análise
+  // Executar análise (futuramente consultará dados reais)
   const runAnalysis = useCallback(() => {
     if (isSilenced() || !config.alertasAtivos) return;
 
     setIsAnalyzing(true);
 
-    // Simular análise (em produção, isso consultaria os dados reais)
+    // Simular análise - em produção, consultará dados reais do banco
     setTimeout(() => {
       setIsAnalyzing(false);
       setLastAnalysis(new Date());
       
-      // Em uma implementação real, aqui seria feita a análise:
+      // TODO: Implementar análise real:
       // - Verificar créditos de ICMS vs débitos
       // - Verificar checklists pendentes
       // - Analisar fluxo de caixa
       // - Detectar pagamentos duplicados
       // - Verificar NFs com problemas
-      // - etc.
       
-      console.log('[Assis.Fin] Análise concluída às', new Date().toLocaleTimeString());
+      console.log('[Fin] Análise concluída às', new Date().toLocaleTimeString());
     }, 1500);
   }, [isSilenced, config.alertasAtivos]);
 
