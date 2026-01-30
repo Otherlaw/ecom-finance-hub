@@ -3542,6 +3542,10 @@ export type Database = {
         Returns: Json
       }
       date_to_br_timestamptz: { Args: { p_date: string }; Returns: string }
+      delete_empresa_cascade: {
+        Args: { p_empresa_id: string }
+        Returns: undefined
+      }
       get_dashboard_kpis_period: {
         Args: {
           p_data_fim: string

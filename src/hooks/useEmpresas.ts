@@ -83,15 +83,16 @@ export const useEmpresas = () => {
 
   const deleteEmpresa = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("empresas")
-        .delete()
-        .eq("id", id);
+      // Usar RPC que faz cascade seguro (limpa FKs antes de excluir)
+      const { error } = await supabase.rpc("delete_empresa_cascade", {
+        p_empresa_id: id
+      });
 
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["empresas"] });
+      queryClient.invalidateQueries({ queryKey: ["user-empresas"] });
       toast.success("Empresa excluída com sucesso!");
     },
     onError: (error: any) => {
