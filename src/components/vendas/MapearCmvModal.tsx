@@ -132,11 +132,45 @@ export function MapearCmvModal({
       return;
     }
 
+    if (!item.sku_marketplace) {
+      toast.error("SKU do marketplace não disponível para mapeamento");
+      return;
+    }
+
     setSalvando(true);
-    console.log("[CMV] Iniciando vinculação:", { itemId: item.id, produtoId: selectedProduto.id });
+    console.log("[CMV] Iniciando vinculação com mapeamento:", { 
+      itemId: item.id, 
+      produtoId: selectedProduto.id,
+      skuMarketplace: item.sku_marketplace,
+      empresaId,
+      canal
+    });
 
     try {
-      // ATUALIZAÇÃO DIRETA: preencher produto_id no item específico
+      // PASSO 1: Criar/atualizar entrada em produto_marketplace_map
+      // O trigger sync_mapping_to_transaction_items propagará automaticamente
+      const { error: mappingError } = await supabase
+        .from("produto_marketplace_map")
+        .upsert({
+          empresa_id: empresaId,
+          produto_id: selectedProduto.id,
+          canal: canal,
+          sku_marketplace: item.sku_marketplace,
+          nome_anuncio: item.descricao_item || null,
+          mapeado_automaticamente: false,
+          ativo: true,
+        }, {
+          onConflict: "empresa_id,canal,sku_marketplace",
+        });
+
+      if (mappingError) {
+        console.error("[CMV] Erro ao criar mapeamento:", mappingError);
+        throw mappingError;
+      }
+
+      console.log("[CMV] Mapeamento criado/atualizado em produto_marketplace_map");
+
+      // PASSO 2: Atualizar o item atual diretamente (garantia imediata)
       const { data: updateData, error: updateError } = await supabase
         .from("marketplace_transaction_items")
         .update({ produto_id: selectedProduto.id })
@@ -144,13 +178,14 @@ export function MapearCmvModal({
         .select("id, produto_id");
 
       if (updateError) {
-        console.error("[CMV] Erro no UPDATE:", updateError);
+        console.error("[CMV] Erro no UPDATE do item:", updateError);
         throw updateError;
       }
 
-      console.log("[CMV] UPDATE bem-sucedido:", updateData);
+      console.log("[CMV] Item atualizado:", updateData);
 
-      // Se tiver SKU, também atualizar os demais itens com o mesmo SKU via RPC
+      // PASSO 3: O trigger já propagou para itens históricos automaticamente
+      // Mas vamos chamar a RPC como backup para garantir consistência
       if (item.sku_marketplace) {
         const { data: rpcData, error: rpcError } = await supabase.rpc("mapear_sku_para_produto", {
           p_empresa_id: empresaId,
@@ -160,13 +195,13 @@ export function MapearCmvModal({
         });
         
         if (rpcError) {
-          console.warn("[CMV] RPC falhou (não bloqueante):", rpcError);
+          console.warn("[CMV] RPC backup falhou (não bloqueante):", rpcError);
         } else {
-          console.log("[CMV] RPC atualizou", rpcData, "itens adicionais");
+          console.log("[CMV] RPC propagou para", rpcData, "itens adicionais");
         }
       }
 
-      toast.success("Produto vinculado com sucesso!");
+      toast.success("Produto vinculado e mapeamento criado com sucesso!");
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {

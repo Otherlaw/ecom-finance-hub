@@ -3589,6 +3589,10 @@ export type Database = {
         }
         Returns: Json
       }
+      get_produto_id_from_mapping: {
+        Args: { p_empresa_id: string; p_sku_marketplace: string }
+        Returns: string
+      }
       get_top_produtos_vendidos: {
         Args: {
           p_data_fim: string
