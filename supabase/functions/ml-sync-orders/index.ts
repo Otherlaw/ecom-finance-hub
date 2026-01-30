@@ -1260,7 +1260,7 @@ Deno.serve(async (req) => {
 
         const dataTransacao = order.date_closed || order.date_created;
 
-        // Raw order para auditoria
+        // Raw order para auditoria (incluindo order_items para fallback de mapeamento)
         const rawOrder = {
           id: order.id,
           status: order.status,
@@ -1272,6 +1272,19 @@ Deno.serve(async (req) => {
           payments_count: order.payments?.length || 0,
           items_count: order.order_items?.length || 0,
           tags: order.tags,
+          // Incluir order_items para permitir fallback de mapeamento quando itens não persistem
+          order_items: (order.order_items || []).map((oi) => ({
+            item: {
+              id: oi.item.id,
+              title: oi.item.title,
+              seller_sku: oi.item.seller_sku || null,
+              seller_custom_field: oi.item.seller_custom_field || null,
+              variation_id: oi.item.variation_id || null,
+            },
+            quantity: oi.quantity,
+            unit_price: oi.unit_price,
+            sale_fee: oi.sale_fee || null,
+          })),
         };
 
         // Raw fees para auditoria
