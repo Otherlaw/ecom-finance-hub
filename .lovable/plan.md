@@ -1,206 +1,245 @@
 
-# Plano: Corrigir Isolamento de Dados Entre Usuários/Empresas
+# Plano: Isolamento Multi-Tenant Completo (Sem Admin Global, Sem Mock)
 
-## Problema Crítico
+## Contexto do Negócio
 
-O usuário `savio_apache_10@hotmail.com` está vendo dados de outras empresas (Exchange, Inpari, Ecom Club) porque:
-
-1. **RPCs com SECURITY DEFINER** não validam acesso do usuário quando `empresa_id = NULL`
-2. **Políticas RLS duplicadas** estão criando conflitos - múltiplas policies para o mesmo comando são combinadas com OR
-3. **A página Usuários mostra TODOS os usuários** porque o hook `useUsuarios` não filtra por empresa do usuário
-
-## Dados Atuais
-
-| Usuário | Role Global | Empresas Vinculadas |
-|---------|-------------|---------------------|
-| eusaviosantoss@gmail.com | admin | Ecom Club, Exchange, Inpari |
-| savio_apache_10@hotmail.com | operador | Empresa de Empresa Teste |
-| financeiro.exkidsecommerce@outlook.com | financeiro | Ecom Club, Exchange, Inpari |
-| exchangeecommerce@outlook.com | operador | Ecom Club, Exchange, Inpari |
-
-O problema é que `savio_apache_10` só deveria ver "Empresa de Empresa Teste", mas está vendo dados das outras empresas.
+Você quer comercializar o sistema onde:
+- Cada cliente pagante = 1 conta de usuário
+- Cada cliente pode cadastrar várias empresas
+- Cada cliente pode convidar colaboradores às suas empresas
+- Clientes distintos JAMAIS compartilham dados
 
 ---
 
-## Solução
+## Problemas Identificados
 
-### Parte 1: Limpar Políticas RLS Duplicadas
+| Problema | Local | Impacto |
+|----------|-------|---------|
+| **ICMS Devido = R$ 45.000 (mock)** | `src/pages/ICMS.tsx` linha 34 | Mostra valor fictício para todos |
+| **Cartão mock criado automaticamente** | `src/hooks/useCartoes.ts` + `src/lib/mock-cartao.ts` | Cria "Cartão Corporativo Exchange (Mock)" para novos usuários |
+| **Alertas do assistente são mock** | `src/hooks/useAssistantEngine.ts` + `src/lib/assistant-data.ts` | Mostra alertas de "Exchange", "Ecom Club" para todos |
+| **CNPJ zerado no cadastro** | `handle_new_user()` usa placeholder `00.000.000/0000-00` | CNPJ não é salvo corretamente |
+| **Página Usuários restrita** | `src/pages/Usuarios.tsx` | Mostra "Acesso Restrito" - correto! Mas precisa mostrar colaboradores da empresa do cliente |
+| **Botões Configurações/Marketplace não funcionam** | `src/pages/Empresas.tsx` | `DropdownMenuItem` sem `onClick` |
+| **Integrações com config só para admin** | RLS de `integracao_config` | Só admin global pode ler/escrever, bloqueando clientes |
+| **RPCs ainda podem vazar dados** | `get_dashboard_kpis_period` etc. | Se usuário não tem empresas, recebe dados de admin |
 
-Remover policies duplicadas que estão causando conflitos:
+---
+
+## Solução em 6 Partes
+
+### Parte 1: Remover Todos os Dados Mock
+
+**Arquivos a modificar:**
+
+1. **`src/pages/ICMS.tsx`**
+   - Remover `const ICMS_DEVIDO_MOCK = 45000;`
+   - Calcular ICMS devido real a partir de vendas ou mostrar "Não configurado"
+
+2. **`src/hooks/useCartoes.ts`**
+   - Remover lógica de criação de mock
+   - Se não há cartões, retornar lista vazia
+
+3. **`src/lib/mock-cartao.ts`**
+   - Remover arquivo ou manter apenas utilitários sem criação automática
+
+4. **`src/hooks/useAssistantEngine.ts`**
+   - Substituir `generateMockAlerts()` por lista vazia
+   - Alertas reais virão de análise futura do banco
+
+5. **`src/lib/assistant-data.ts`**
+   - Remover `mockEmpresas` e `generateMockAlerts`
+   - Manter apenas tipos e configurações
+
+---
+
+### Parte 2: Corrigir CNPJ no Cadastro
+
+O trigger `handle_new_user()` cria empresa com CNPJ placeholder. Precisamos:
+
+1. **Manter placeholder** (já está assim)
+2. **Forçar preenchimento no onboarding** - o passo "Completar Dados da Empresa" já existe, mas não valida CNPJ
+
+**Modificação em `src/pages/Empresas.tsx`:**
+- Na listagem, destacar empresas com CNPJ placeholder
+- Mostrar badge "Completar dados" quando CNPJ = `00.000.000/0000-00`
+
+---
+
+### Parte 3: Transformar Página Usuários em "Colaboradores da Empresa"
+
+Em vez de mostrar TODOS os usuários do sistema (comportamento de admin global), mostrar apenas:
+- Colaboradores vinculados às empresas do usuário logado
+- Permitir convidar novos colaboradores
+
+**Modificações:**
+
+1. **`src/hooks/useUsuarios.ts`**
+   - Buscar apenas `user_empresas` das empresas que o usuário tem acesso
+   - Fazer join com `profiles` para obter nome/email
+
+2. **`src/pages/Usuarios.tsx`**
+   - Remover lógica de "admin global"
+   - Mostrar colaboradores por empresa
+   - Permitir convidar para empresa específica
+
+---
+
+### Parte 4: Corrigir RLS de `integracao_config` e `integracao_tokens`
+
+Atualmente só admin pode acessar. Clientes precisam gerenciar suas integrações.
+
+**Migração SQL:**
 
 ```sql
--- Remover duplicatas de empresas
-DROP POLICY IF EXISTS "empresas_delete_owner" ON empresas;
-DROP POLICY IF EXISTS "empresas_select_own" ON empresas;
-DROP POLICY IF EXISTS "empresas_update_owner" ON empresas;
-DROP POLICY IF EXISTS "empresas_insert_authenticated" ON empresas;
+-- Remover policies antigas de admin-only
+DROP POLICY IF EXISTS "Only admins can read integracao_config" ON integracao_config;
+DROP POLICY IF EXISTS "Only admins can insert integracao_config" ON integracao_config;
+DROP POLICY IF EXISTS "Only admins can update integracao_config" ON integracao_config;
+DROP POLICY IF EXISTS "Only admins can delete integracao_config" ON integracao_config;
 
--- Remover duplicatas de profiles
-DROP POLICY IF EXISTS "Admins can view all profiles" ON profiles;  -- duplicata de "Admins can read all profiles"
+-- Criar policies baseadas em empresa
+CREATE POLICY "Users can read own integracao_config"
+ON integracao_config FOR SELECT
+TO authenticated
+USING (user_has_empresa_access(empresa_id));
 
--- Remover duplicatas de user_empresas
-DROP POLICY IF EXISTS "user_empresas_select_own" ON user_empresas;
-DROP POLICY IF EXISTS "user_empresas_delete_owner" ON user_empresas;
-DROP POLICY IF EXISTS "user_empresas_insert_via_trigger" ON user_empresas;
-```
+CREATE POLICY "Users can insert own integracao_config"
+ON integracao_config FOR INSERT
+TO authenticated
+WITH CHECK (user_has_empresa_access(empresa_id));
 
-### Parte 2: Corrigir Policy de INSERT em empresas
+CREATE POLICY "Users can update own integracao_config"
+ON integracao_config FOR UPDATE
+TO authenticated
+USING (user_has_empresa_access(empresa_id));
 
-A policy `empresas_insert` tem `with_check: true` (sempre permite), isso precisa ser corrigido:
+CREATE POLICY "Users can delete own integracao_config"
+ON integracao_config FOR DELETE
+TO authenticated
+USING (user_has_empresa_access(empresa_id));
 
-```sql
--- Remover policy permissiva
-DROP POLICY IF EXISTS "empresas_insert" ON empresas;
+-- Mesma lógica para integracao_tokens
+DROP POLICY IF EXISTS "Only admins can read integracao_tokens" ON integracao_tokens;
+DROP POLICY IF EXISTS "Only admins can insert integracao_tokens" ON integracao_tokens;
+DROP POLICY IF EXISTS "Only admins can update integracao_tokens" ON integracao_tokens;
+DROP POLICY IF EXISTS "Only admins can delete integracao_tokens" ON integracao_tokens;
 
--- A policy "empresas_insert_authenticated" já valida created_by = auth.uid()
-```
+CREATE POLICY "Users can read own integracao_tokens"
+ON integracao_tokens FOR SELECT
+TO authenticated
+USING (user_has_empresa_access(empresa_id));
 
-### Parte 3: Criar função `get_user_empresa_ids()`
+CREATE POLICY "Users can insert own integracao_tokens"
+ON integracao_tokens FOR INSERT
+TO authenticated
+WITH CHECK (user_has_empresa_access(empresa_id));
 
-Criar função auxiliar que retorna apenas IDs das empresas que o usuário tem acesso:
+CREATE POLICY "Users can update own integracao_tokens"
+ON integracao_tokens FOR UPDATE
+TO authenticated
+USING (user_has_empresa_access(empresa_id));
 
-```sql
-CREATE OR REPLACE FUNCTION public.get_user_empresa_ids()
-RETURNS uuid[]
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $$
-  SELECT COALESCE(
-    ARRAY_AGG(ue.empresa_id),
-    ARRAY[]::uuid[]
-  )
-  FROM user_empresas ue
-  WHERE ue.user_id = auth.uid();
-$$;
-```
-
-### Parte 4: Corrigir RPCs de Dashboard/Vendas
-
-Atualizar as RPCs para validar acesso quando `p_empresa_id = NULL`:
-
-```sql
--- Exemplo de lógica corrigida:
--- Em vez de:
-AND (p_empresa_id IS NULL OR mt.empresa_id = p_empresa_id)
-
--- Usar:
-AND (
-  CASE 
-    WHEN p_empresa_id IS NOT NULL THEN 
-      mt.empresa_id = p_empresa_id 
-      AND (public.has_role(auth.uid(), 'admin') OR p_empresa_id = ANY(public.get_user_empresa_ids()))
-    ELSE 
-      mt.empresa_id = ANY(public.get_user_empresa_ids())
-      OR public.has_role(auth.uid(), 'admin')
-  END
-)
-```
-
-RPCs a corrigir:
-- `get_vendas_por_pedido`
-- `get_vendas_por_pedido_resumo`
-- `get_dashboard_kpis_period`
-- `get_top_produtos_vendidos`
-
-### Parte 5: Restringir página Usuários para admins globais
-
-O hook `useUsuarios` busca **todos os profiles** do sistema. Isso só faz sentido para admins globais. A página já verifica `isAdmin`, mas o hook não:
-
-```typescript
-// src/hooks/useUsuarios.ts
-// Adicionar verificação de admin antes de buscar
-const { isAdmin } = useAuth();
-
-const { data: usuarios, isLoading } = useQuery({
-  queryKey: ["usuarios"],
-  queryFn: async () => {
-    if (!isAdmin) {
-      // Não-admins não deveriam acessar esta página
-      return [];
-    }
-    // ... resto da query
-  },
-  enabled: isAdmin, // Só executa se for admin
-});
-```
-
-### Parte 6: Restringir página Empresas para mostrar apenas empresas do usuário
-
-Para não-admins, a página Empresas deve mostrar apenas empresas vinculadas:
-
-```typescript
-// src/pages/Empresas.tsx
-// O RLS já deveria filtrar, mas vamos garantir no frontend também
-const { userEmpresas } = useUserEmpresas();
-const { isAdmin } = useAuth();
-
-const empresasFiltradas = isAdmin 
-  ? empresas 
-  : empresas?.filter(e => userEmpresas.some(ue => ue.empresa_id === e.id));
+CREATE POLICY "Users can delete own integracao_tokens"
+ON integracao_tokens FOR DELETE
+TO authenticated
+USING (user_has_empresa_access(empresa_id));
 ```
 
 ---
 
-## Arquivos que Serão Modificados
+### Parte 5: Implementar Botões de Configurações e Marketplace
 
-| Arquivo/Migração | Ação |
-|------------------|------|
-| `supabase/migrations/*_fix_rls_duplicates.sql` | Limpar policies duplicadas |
-| `supabase/migrations/*_fix_rpcs_user_filter.sql` | Corrigir RPCs para validar acesso |
-| `src/hooks/useUsuarios.ts` | Restringir acesso a admins |
-| `src/pages/Empresas.tsx` | Garantir filtro no frontend |
+**Modificação em `src/pages/Empresas.tsx`:**
+
+```tsx
+<DropdownMenuItem onClick={() => navigate(`/empresas/${empresa.id}/configuracoes`)}>
+  <Settings className="h-4 w-4 mr-2" />
+  Configurações
+</DropdownMenuItem>
+<DropdownMenuItem onClick={() => navigate(`/integracoes?empresa=${empresa.id}`)}>
+  <Store className="h-4 w-4 mr-2" />
+  Marketplaces
+</DropdownMenuItem>
+```
+
+---
+
+### Parte 6: Remover Conceito de Admin Global
+
+**Modificações:**
+
+1. **Trigger `handle_new_user()`** - Remover lógica que dá `admin` ao primeiro usuário
+2. **RPCs** - Remover fallback `has_role(auth.uid(), 'admin')` 
+3. **Frontend** - Remover `isAdmin` de `useAuth.ts` ou sempre retornar `false`
+
+---
+
+## Arquivos a Modificar
+
+| Arquivo | Ação |
+|---------|------|
+| `supabase/migrations/*_fix_tenant_isolation.sql` | RLS de integrações + remover admin do trigger |
+| `src/pages/ICMS.tsx` | Remover mock ICMS devido |
+| `src/hooks/useCartoes.ts` | Remover criação de mock |
+| `src/lib/mock-cartao.ts` | Remover ou esvaziar |
+| `src/hooks/useAssistantEngine.ts` | Remover mock alerts |
+| `src/lib/assistant-data.ts` | Remover mockEmpresas e generateMockAlerts |
+| `src/hooks/useUsuarios.ts` | Buscar colaboradores das empresas do usuário |
+| `src/pages/Usuarios.tsx` | Mostrar colaboradores por empresa |
+| `src/pages/Empresas.tsx` | Adicionar onClick aos botões + badge CNPJ incompleto |
+| `src/hooks/useAuth.ts` | Remover/desabilitar isAdmin |
 
 ---
 
 ## Resultado Esperado
 
-Após as correções:
-
-| Usuário | Verá na Página Empresas | Verá na Página Usuários |
-|---------|-------------------------|-------------------------|
-| eusaviosantoss (admin) | Todas as 4 empresas | Todos os 4 usuários |
-| savio_apache_10 (operador) | Apenas "Empresa de Empresa Teste" | ❌ Sem acesso (só admins) |
-| financeiro.exkidsecommerce | Ecom Club, Exchange, Inpari | ❌ Sem acesso |
+| Cenário | Antes | Depois |
+|---------|-------|--------|
+| Novo usuário `cliente_a@email.com` | Vê dados mock de outras empresas | Vê apenas sua empresa vazia |
+| Página ICMS | R$ 45.000 devido (fictício) | "Configure o ICMS devido" ou cálculo real |
+| Página Cartões | Cartão mock "Exchange" | Lista vazia |
+| Página Usuários | "Acesso Restrito" | Colaboradores das suas empresas |
+| Assistente | Alertas de "Ecom Club" | Lista vazia (sem alertas) |
+| Integrações | Não consegue salvar config | Consegue conectar Mercado Livre |
+| Botão Configurações | Nada acontece | Navega para configurações da empresa |
 
 ---
 
-## Seção Técnica: Arquitetura de Segurança Multi-Tenant
-
-O sistema deve seguir esta hierarquia de acesso:
+## Seção Técnica: Arquitetura Multi-Tenant Final
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
-│                    Admin Global                          │
-│    (user_roles.role = 'admin')                          │
-│    → Acesso total a todas empresas e usuários           │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│                 Dono da Empresa                          │
-│    (user_empresas.role_na_empresa = 'dono')             │
-│    → Acesso total à sua(s) empresa(s)                   │
-│    → Pode gerenciar colaboradores da empresa            │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│            Admin/Financeiro da Empresa                   │
-│    (user_empresas.role_na_empresa IN ('admin','fin'))   │
-│    → Acesso a dados financeiros da empresa              │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│                    Operador                              │
-│    (user_empresas.role_na_empresa = 'operador')         │
-│    → Acesso limitado/visualização básica                │
+│                     Cliente A                            │
+│    (usuario: cliente_a@email.com)                       │
+│                                                         │
+│    ┌──────────────┐  ┌──────────────┐                   │
+│    │  Empresa 1   │  │  Empresa 2   │                   │
+│    │  (CNPJ xxx)  │  │  (CNPJ yyy)  │                   │
+│    └──────┬───────┘  └──────┬───────┘                   │
+│           │                  │                           │
+│    ┌──────┴───────────┬─────┴────┐                      │
+│    │ Colaborador 1    │ Colaborador 2                   │
+│    │ (vendas@emp1)    │ (fin@emp2)                      │
+│    └──────────────────┴──────────┘                      │
 └─────────────────────────────────────────────────────────┘
-```
 
-As policies RLS garantem que:
-1. Usuários só veem empresas às quais estão vinculados via `user_empresas`
-2. Admins globais podem ver tudo para fins de gerenciamento
-3. RPCs respeitam o mesmo padrão via `get_user_empresa_ids()`
+┌─────────────────────────────────────────────────────────┐
+│                     Cliente B                            │
+│    (usuario: cliente_b@email.com)                       │
+│    ✗ Não vê NADA do Cliente A                           │
+│    ┌──────────────┐                                     │
+│    │  Empresa 3   │                                     │
+│    │  (CNPJ zzz)  │                                     │
+│    └──────────────┘                                     │
+└─────────────────────────────────────────────────────────┘
+
+Regras:
+• user_empresas define acesso (user_id → empresa_id → role)
+• RLS usa user_has_empresa_access(empresa_id)
+• RPCs usam get_user_empresa_ids() para filtrar
+• Não existe "admin global" - cada cliente é dono apenas do seu espaço
+```
 
 ---
 
@@ -208,6 +247,17 @@ As policies RLS garantem que:
 
 | Risco | Mitigação |
 |-------|-----------|
-| Quebrar acesso de admin global | Manter verificação `has_role(auth.uid(), 'admin')` em todas as policies |
-| Performance com subquery em RPCs | Função `get_user_empresa_ids()` é cached (STABLE) |
-| Usuário perder acesso durante migração | Executar em uma única transação |
+| Clientes podem perder dados durante migração | Não deletamos dados, apenas ajustamos acesso |
+| Funcionalidades que dependiam de admin param de funcionar | Identificar e adaptar cada uma |
+| Edge functions podem continuar usando admin | Usar Service Role apenas para operações específicas, não para leitura geral |
+
+---
+
+## Ordem de Implementação
+
+1. **Migração SQL** - Corrigir RLS de integrações e trigger
+2. **Remover mocks** - ICMS, Cartões, Alertas
+3. **Corrigir Empresas.tsx** - Botões e badge CNPJ
+4. **Refatorar Usuarios.tsx** - Mostrar colaboradores
+5. **Desabilitar isAdmin** - useAuth.ts
+
