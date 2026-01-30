@@ -1,382 +1,206 @@
 
+# Plano: Corrigir Isolamento de Dados Entre Usuários/Empresas
 
-# Plano: Corrigir Vendas "Sumindo" (Erro `sku_marketplace_mappings` não existe)
+## Problema Crítico
 
-## Problema Raiz Identificado
+O usuário `savio_apache_10@hotmail.com` está vendo dados de outras empresas (Exchange, Inpari, Ecom Club) porque:
 
-O console mostra o erro:
-```
-relation "sku_marketplace_mappings" does not exist
-```
+1. **RPCs com SECURITY DEFINER** não validam acesso do usuário quando `empresa_id = NULL`
+2. **Políticas RLS duplicadas** estão criando conflitos - múltiplas policies para o mesmo comando são combinadas com OR
+3. **A página Usuários mostra TODOS os usuários** porque o hook `useUsuarios` não filtra por empresa do usuário
 
-As RPCs `get_vendas_por_pedido` e `get_vendas_por_pedido_resumo` referenciam uma **tabela que não existe** (`sku_marketplace_mappings`). As tabelas corretas são:
-- `sku_costs` - para custos por SKU sem mapeamento de produto
-- `produto_marketplace_map` - para mapeamento SKU -> produto
+## Dados Atuais
 
-As RPCs `get_dashboard_kpis_period` e `get_top_produtos_vendidos` já estão **corretas** (usam `sku_costs`), por isso o Dashboard mostra dados enquanto a página Vendas falha.
+| Usuário | Role Global | Empresas Vinculadas |
+|---------|-------------|---------------------|
+| eusaviosantoss@gmail.com | admin | Ecom Club, Exchange, Inpari |
+| savio_apache_10@hotmail.com | operador | Empresa de Empresa Teste |
+| financeiro.exkidsecommerce@outlook.com | financeiro | Ecom Club, Exchange, Inpari |
+| exchangeecommerce@outlook.com | operador | Ecom Club, Exchange, Inpari |
 
----
-
-## Diagnóstico Detalhado
-
-| RPC | Status | Problema |
-|-----|--------|----------|
-| `get_vendas_por_pedido` | QUEBRADA | Linhas 349-365 referenciam `sku_marketplace_mappings` |
-| `get_vendas_por_pedido_resumo` | QUEBRADA | Linhas 500-508 referenciam `sku_marketplace_mappings` |
-| `get_vendas_por_pedido_count` | OK | Não usa mapeamento, só conta |
-| `get_dashboard_kpis_period` | OK | Usa `sku_costs` corretamente |
-| `get_top_produtos_vendidos` | OK | Usa `sku_costs` corretamente |
+O problema é que `savio_apache_10` só deveria ver "Empresa de Empresa Teste", mas está vendo dados das outras empresas.
 
 ---
 
 ## Solução
 
-Atualizar as duas RPCs quebradas para usar o padrão de fallback correto:
+### Parte 1: Limpar Políticas RLS Duplicadas
 
-```text
-Prioridade de custo:
-1. produtos.custo_medio (via produto_id)
-2. produtos.custo_medio (via SKU = sku_marketplace)
-3. sku_costs.custo_unitario (fallback)
-4. 0 (se nenhum custo encontrado)
-```
-
----
-
-## Implementação
-
-### Migração SQL Corrigida
+Remover policies duplicadas que estão causando conflitos:
 
 ```sql
--- ===========================================
--- RPC: get_vendas_por_pedido (CORRIGIDA)
--- ===========================================
-CREATE OR REPLACE FUNCTION public.get_vendas_por_pedido(
-  p_empresa_id uuid DEFAULT NULL,
-  p_data_inicio date DEFAULT (CURRENT_DATE - INTERVAL '30 days')::date,
-  p_data_fim date DEFAULT CURRENT_DATE,
-  p_canal text DEFAULT NULL,
-  p_conta text DEFAULT NULL,
-  p_status text DEFAULT NULL,
-  p_limit integer DEFAULT 50,
-  p_offset integer DEFAULT 0
-)
-RETURNS TABLE(
-  pedido_id text,
-  empresa_id uuid,
-  canal text,
-  conta_nome text,
-  status_transacao text,
-  data_transacao timestamptz,
-  data_repasse date,
-  valor_produto numeric,
-  valor_liquido numeric,
-  comissao numeric,
-  tarifa_fixa numeric,
-  frete_vendedor numeric,
-  custo_ads numeric,
-  imposto_calculado numeric,
-  qtd_itens numeric,
-  cmv_total numeric,
-  tem_cmv boolean,
-  margem_contribuicao numeric,
-  status_enriquecimento text
-)
-LANGUAGE plpgsql
+-- Remover duplicatas de empresas
+DROP POLICY IF EXISTS "empresas_delete_owner" ON empresas;
+DROP POLICY IF EXISTS "empresas_select_own" ON empresas;
+DROP POLICY IF EXISTS "empresas_update_owner" ON empresas;
+DROP POLICY IF EXISTS "empresas_insert_authenticated" ON empresas;
+
+-- Remover duplicatas de profiles
+DROP POLICY IF EXISTS "Admins can view all profiles" ON profiles;  -- duplicata de "Admins can read all profiles"
+
+-- Remover duplicatas de user_empresas
+DROP POLICY IF EXISTS "user_empresas_select_own" ON user_empresas;
+DROP POLICY IF EXISTS "user_empresas_delete_owner" ON user_empresas;
+DROP POLICY IF EXISTS "user_empresas_insert_via_trigger" ON user_empresas;
+```
+
+### Parte 2: Corrigir Policy de INSERT em empresas
+
+A policy `empresas_insert` tem `with_check: true` (sempre permite), isso precisa ser corrigido:
+
+```sql
+-- Remover policy permissiva
+DROP POLICY IF EXISTS "empresas_insert" ON empresas;
+
+-- A policy "empresas_insert_authenticated" já valida created_by = auth.uid()
+```
+
+### Parte 3: Criar função `get_user_empresa_ids()`
+
+Criar função auxiliar que retorna apenas IDs das empresas que o usuário tem acesso:
+
+```sql
+CREATE OR REPLACE FUNCTION public.get_user_empresa_ids()
+RETURNS uuid[]
+LANGUAGE sql
+STABLE
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
-DECLARE
-  v_start_ts timestamptz;
-  v_end_ts timestamptz;
-BEGIN
-  v_start_ts := (p_data_inicio::text || ' 00:00:00')::timestamp AT TIME ZONE 'America/Sao_Paulo';
-  v_end_ts := ((p_data_fim + INTERVAL '1 day')::date::text || ' 00:00:00')::timestamp AT TIME ZONE 'America/Sao_Paulo';
-
-  RETURN QUERY
-  WITH pedidos_agregados AS (
-    SELECT DISTINCT ON (mt.pedido_id)
-      mt.pedido_id,
-      mt.id as transaction_id,
-      mt.empresa_id,
-      mt.canal,
-      mt.conta_nome,
-      mt.status,
-      mt.data_transacao,
-      mt.data_repasse,
-      mt.valor_bruto,
-      mt.valor_liquido,
-      mt.taxas,
-      mt.tarifas,
-      mt.frete_vendedor as frete_vend,
-      mt.custo_ads as ads,
-      mt.status_enriquecimento
-    FROM marketplace_transactions mt
-    WHERE mt.pedido_id IS NOT NULL
-      AND mt.tipo_lancamento = 'credito'
-      AND mt.data_transacao >= v_start_ts
-      AND mt.data_transacao < v_end_ts
-      AND (p_empresa_id IS NULL OR mt.empresa_id = p_empresa_id)
-      AND (p_canal IS NULL OR mt.canal ILIKE '%' || p_canal || '%')
-      AND (p_conta IS NULL OR mt.conta_nome ILIKE '%' || p_conta || '%')
-      AND (p_status IS NULL OR mt.status ILIKE '%' || p_status || '%')
-    ORDER BY mt.pedido_id, mt.data_transacao DESC
-  ),
-  pedidos_com_calculo AS (
-    SELECT 
-      pa.*,
-      -- Quantidade de itens
-      COALESCE((
-        SELECT SUM(COALESCE(mti.quantidade, 1))
-        FROM marketplace_transaction_items mti
-        WHERE mti.transaction_id = pa.transaction_id
-      ), 1) as qtd_itens_calc,
-      -- CMV com fallback: produto_id -> SKU produto -> sku_costs -> 0
-      COALESCE((
-        SELECT SUM(
-          COALESCE(mti.quantidade, 1) * COALESCE(
-            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.id = mti.produto_id), 0),
-            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.sku = mti.sku_marketplace AND p.empresa_id = pa.empresa_id LIMIT 1), 0),
-            NULLIF((SELECT sc.custo_unitario FROM sku_costs sc WHERE sc.sku = mti.sku_marketplace AND sc.empresa_id = pa.empresa_id LIMIT 1), 0),
-            0
-          )
-        )
-        FROM marketplace_transaction_items mti
-        WHERE mti.transaction_id = pa.transaction_id
-      ), 0) as cmv_calculado,
-      -- Flag tem_cmv: true se TODOS os itens tem custo
-      COALESCE((
-        SELECT bool_and(
-          COALESCE(
-            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.id = mti.produto_id), 0),
-            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.sku = mti.sku_marketplace AND p.empresa_id = pa.empresa_id LIMIT 1), 0),
-            NULLIF((SELECT sc.custo_unitario FROM sku_costs sc WHERE sc.sku = mti.sku_marketplace AND sc.empresa_id = pa.empresa_id LIMIT 1), 0)
-          ) IS NOT NULL
-        )
-        FROM marketplace_transaction_items mti
-        WHERE mti.transaction_id = pa.transaction_id
-      ), false) as tem_cmv_calc
-    FROM pedidos_agregados pa
-  ),
-  eventos_por_pedido AS (
-    SELECT
-      fe.pedido_id,
-      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'comissao' THEN ABS(fe.valor) ELSE 0 END), 0) as comissao_evt,
-      COALESCE(SUM(CASE WHEN fe.tipo_evento IN ('tarifa_fixa', 'tarifa_financeira', 'tarifa_frete_gratis') THEN ABS(fe.valor) ELSE 0 END), 0) as tarifa_evt,
-      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'frete_vendedor' THEN ABS(fe.valor) ELSE 0 END), 0) as frete_evt,
-      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'ads' THEN ABS(fe.valor) ELSE 0 END), 0) as ads_evt
-    FROM marketplace_financial_events fe
-    WHERE fe.pedido_id IN (SELECT pcc.pedido_id FROM pedidos_com_calculo pcc)
-      AND (p_empresa_id IS NULL OR fe.empresa_id = p_empresa_id)
-    GROUP BY fe.pedido_id
+  SELECT COALESCE(
+    ARRAY_AGG(ue.empresa_id),
+    ARRAY[]::uuid[]
   )
-  SELECT
-    pcc.pedido_id::text,
-    pcc.empresa_id,
-    pcc.canal::text,
-    pcc.conta_nome::text,
-    pcc.status::text as status_transacao,
-    pcc.data_transacao,
-    pcc.data_repasse::date,
-    pcc.valor_bruto::numeric as valor_produto,
-    pcc.valor_liquido::numeric,
-    COALESCE(NULLIF(ep.comissao_evt, 0), pcc.taxas)::numeric as comissao,
-    COALESCE(NULLIF(ep.tarifa_evt, 0), pcc.tarifas)::numeric as tarifa_fixa,
-    COALESCE(NULLIF(ep.frete_evt, 0), pcc.frete_vend)::numeric as frete_vendedor,
-    COALESCE(NULLIF(ep.ads_evt, 0), pcc.ads)::numeric as custo_ads,
-    ROUND(pcc.valor_bruto * 0.06, 2)::numeric as imposto_calculado,
-    pcc.qtd_itens_calc::numeric as qtd_itens,
-    pcc.cmv_calculado::numeric as cmv_total,
-    pcc.tem_cmv_calc as tem_cmv,
-    CASE 
-      WHEN pcc.tem_cmv_calc THEN
-        (pcc.valor_bruto 
-         - COALESCE(NULLIF(ep.comissao_evt, 0), pcc.taxas)
-         - COALESCE(NULLIF(ep.tarifa_evt, 0), pcc.tarifas)
-         - COALESCE(NULLIF(ep.frete_evt, 0), pcc.frete_vend)
-         - COALESCE(NULLIF(ep.ads_evt, 0), pcc.ads)
-         - ROUND(pcc.valor_bruto * 0.06, 2)
-         - pcc.cmv_calculado
-        )::numeric
-      ELSE NULL
-    END as margem_contribuicao,
-    pcc.status_enriquecimento::text
-  FROM pedidos_com_calculo pcc
-  LEFT JOIN eventos_por_pedido ep ON ep.pedido_id = pcc.pedido_id
-  ORDER BY pcc.data_transacao DESC
-  LIMIT p_limit
-  OFFSET p_offset;
-END;
+  FROM user_empresas ue
+  WHERE ue.user_id = auth.uid();
 $$;
+```
 
--- ===========================================
--- RPC: get_vendas_por_pedido_resumo (CORRIGIDA)
--- ===========================================
-CREATE OR REPLACE FUNCTION public.get_vendas_por_pedido_resumo(
-  p_empresa_id uuid DEFAULT NULL,
-  p_data_inicio date DEFAULT (CURRENT_DATE - INTERVAL '30 days')::date,
-  p_data_fim date DEFAULT CURRENT_DATE,
-  p_canal text DEFAULT NULL,
-  p_conta text DEFAULT NULL,
-  p_status text DEFAULT NULL
-)
-RETURNS TABLE(
-  total_pedidos bigint,
-  total_itens numeric,
-  valor_produto_total numeric,
-  valor_liquido_total numeric,
-  comissao_total numeric,
-  tarifa_fixa_total numeric,
-  frete_vendedor_total numeric,
-  ads_total numeric,
-  impostos_total numeric,
-  cmv_total numeric,
-  margem_contribuicao_total numeric,
-  pedidos_com_cmv bigint,
-  pedidos_sem_cmv bigint
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $$
-DECLARE
-  v_start_ts timestamptz;
-  v_end_ts timestamptz;
-BEGIN
-  v_start_ts := (p_data_inicio::text || ' 00:00:00')::timestamp AT TIME ZONE 'America/Sao_Paulo';
-  v_end_ts := ((p_data_fim + INTERVAL '1 day')::date::text || ' 00:00:00')::timestamp AT TIME ZONE 'America/Sao_Paulo';
+### Parte 4: Corrigir RPCs de Dashboard/Vendas
 
-  RETURN QUERY
-  WITH pedidos_base AS (
-    SELECT DISTINCT ON (mt.pedido_id)
-      mt.pedido_id,
-      mt.id as transaction_id,
-      mt.empresa_id,
-      mt.valor_bruto,
-      mt.valor_liquido,
-      mt.taxas,
-      mt.tarifas,
-      mt.frete_vendedor,
-      mt.custo_ads
-    FROM marketplace_transactions mt
-    WHERE mt.pedido_id IS NOT NULL
-      AND mt.tipo_lancamento = 'credito'
-      AND mt.data_transacao >= v_start_ts
-      AND mt.data_transacao < v_end_ts
-      AND (p_empresa_id IS NULL OR mt.empresa_id = p_empresa_id)
-      AND (p_canal IS NULL OR mt.canal ILIKE '%' || p_canal || '%')
-      AND (p_conta IS NULL OR mt.conta_nome ILIKE '%' || p_conta || '%')
-      AND (p_status IS NULL OR mt.status ILIKE '%' || p_status || '%')
-    ORDER BY mt.pedido_id, mt.data_transacao DESC
-  ),
-  pedidos_com_itens AS (
-    SELECT 
-      pb.*,
-      COALESCE((
-        SELECT SUM(COALESCE(mti.quantidade, 1))
-        FROM marketplace_transaction_items mti
-        WHERE mti.transaction_id = pb.transaction_id
-      ), 1) as qtd_itens,
-      -- CMV com fallback: produto_id -> SKU produto -> sku_costs -> 0
-      COALESCE((
-        SELECT SUM(
-          COALESCE(mti.quantidade, 1) * COALESCE(
-            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.id = mti.produto_id), 0),
-            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.sku = mti.sku_marketplace AND p.empresa_id = pb.empresa_id LIMIT 1), 0),
-            NULLIF((SELECT sc.custo_unitario FROM sku_costs sc WHERE sc.sku = mti.sku_marketplace AND sc.empresa_id = pb.empresa_id LIMIT 1), 0),
-            0
-          )
-        )
-        FROM marketplace_transaction_items mti
-        WHERE mti.transaction_id = pb.transaction_id
-      ), 0) as cmv_calculado,
-      -- Flag tem_cmv
-      COALESCE((
-        SELECT bool_and(
-          COALESCE(
-            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.id = mti.produto_id), 0),
-            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.sku = mti.sku_marketplace AND p.empresa_id = pb.empresa_id LIMIT 1), 0),
-            NULLIF((SELECT sc.custo_unitario FROM sku_costs sc WHERE sc.sku = mti.sku_marketplace AND sc.empresa_id = pb.empresa_id LIMIT 1), 0)
-          ) IS NOT NULL
-        )
-        FROM marketplace_transaction_items mti
-        WHERE mti.transaction_id = pb.transaction_id
-      ), false) as tem_cmv_flag
-    FROM pedidos_base pb
-  ),
-  eventos_por_pedido AS (
-    SELECT
-      fe.pedido_id,
-      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'comissao' THEN ABS(fe.valor) ELSE 0 END), 0) as comissao_evt,
-      COALESCE(SUM(CASE WHEN fe.tipo_evento IN ('tarifa_fixa', 'tarifa_financeira', 'tarifa_frete_gratis') THEN ABS(fe.valor) ELSE 0 END), 0) as tarifa_evt,
-      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'frete_vendedor' THEN ABS(fe.valor) ELSE 0 END), 0) as frete_evt,
-      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'ads' THEN ABS(fe.valor) ELSE 0 END), 0) as ads_evt
-    FROM marketplace_financial_events fe
-    WHERE fe.pedido_id IN (SELECT pedido_id FROM pedidos_base)
-      AND (p_empresa_id IS NULL OR fe.empresa_id = p_empresa_id)
-    GROUP BY fe.pedido_id
-  )
-  SELECT
-    COUNT(*)::bigint as total_pedidos,
-    COALESCE(SUM(pci.qtd_itens), 0)::numeric as total_itens,
-    COALESCE(SUM(pci.valor_bruto), 0)::numeric as valor_produto_total,
-    COALESCE(SUM(pci.valor_liquido), 0)::numeric as valor_liquido_total,
-    COALESCE(SUM(COALESCE(NULLIF(ep.comissao_evt, 0), pci.taxas)), 0)::numeric as comissao_total,
-    COALESCE(SUM(COALESCE(NULLIF(ep.tarifa_evt, 0), pci.tarifas)), 0)::numeric as tarifa_fixa_total,
-    COALESCE(SUM(COALESCE(NULLIF(ep.frete_evt, 0), pci.frete_vendedor)), 0)::numeric as frete_vendedor_total,
-    COALESCE(SUM(COALESCE(NULLIF(ep.ads_evt, 0), pci.custo_ads)), 0)::numeric as ads_total,
-    ROUND(COALESCE(SUM(pci.valor_bruto), 0) * 0.06, 2)::numeric as impostos_total,
-    COALESCE(SUM(pci.cmv_calculado), 0)::numeric as cmv_total,
-    (COALESCE(SUM(pci.valor_bruto), 0) 
-     - COALESCE(SUM(COALESCE(NULLIF(ep.comissao_evt, 0), pci.taxas)), 0)
-     - COALESCE(SUM(COALESCE(NULLIF(ep.tarifa_evt, 0), pci.tarifas)), 0)
-     - COALESCE(SUM(COALESCE(NULLIF(ep.frete_evt, 0), pci.frete_vendedor)), 0)
-     - COALESCE(SUM(COALESCE(NULLIF(ep.ads_evt, 0), pci.custo_ads)), 0)
-     - ROUND(COALESCE(SUM(pci.valor_bruto), 0) * 0.06, 2)
-     - COALESCE(SUM(pci.cmv_calculado), 0)
-    )::numeric as margem_contribuicao_total,
-    COUNT(*) FILTER (WHERE pci.tem_cmv_flag = true)::bigint as pedidos_com_cmv,
-    COUNT(*) FILTER (WHERE pci.tem_cmv_flag = false)::bigint as pedidos_sem_cmv
-  FROM pedidos_com_itens pci
-  LEFT JOIN eventos_por_pedido ep ON ep.pedido_id = pci.pedido_id;
-END;
-$$;
+Atualizar as RPCs para validar acesso quando `p_empresa_id = NULL`:
+
+```sql
+-- Exemplo de lógica corrigida:
+-- Em vez de:
+AND (p_empresa_id IS NULL OR mt.empresa_id = p_empresa_id)
+
+-- Usar:
+AND (
+  CASE 
+    WHEN p_empresa_id IS NOT NULL THEN 
+      mt.empresa_id = p_empresa_id 
+      AND (public.has_role(auth.uid(), 'admin') OR p_empresa_id = ANY(public.get_user_empresa_ids()))
+    ELSE 
+      mt.empresa_id = ANY(public.get_user_empresa_ids())
+      OR public.has_role(auth.uid(), 'admin')
+  END
+)
+```
+
+RPCs a corrigir:
+- `get_vendas_por_pedido`
+- `get_vendas_por_pedido_resumo`
+- `get_dashboard_kpis_period`
+- `get_top_produtos_vendidos`
+
+### Parte 5: Restringir página Usuários para admins globais
+
+O hook `useUsuarios` busca **todos os profiles** do sistema. Isso só faz sentido para admins globais. A página já verifica `isAdmin`, mas o hook não:
+
+```typescript
+// src/hooks/useUsuarios.ts
+// Adicionar verificação de admin antes de buscar
+const { isAdmin } = useAuth();
+
+const { data: usuarios, isLoading } = useQuery({
+  queryKey: ["usuarios"],
+  queryFn: async () => {
+    if (!isAdmin) {
+      // Não-admins não deveriam acessar esta página
+      return [];
+    }
+    // ... resto da query
+  },
+  enabled: isAdmin, // Só executa se for admin
+});
+```
+
+### Parte 6: Restringir página Empresas para mostrar apenas empresas do usuário
+
+Para não-admins, a página Empresas deve mostrar apenas empresas vinculadas:
+
+```typescript
+// src/pages/Empresas.tsx
+// O RLS já deveria filtrar, mas vamos garantir no frontend também
+const { userEmpresas } = useUserEmpresas();
+const { isAdmin } = useAuth();
+
+const empresasFiltradas = isAdmin 
+  ? empresas 
+  : empresas?.filter(e => userEmpresas.some(ue => ue.empresa_id === e.id));
 ```
 
 ---
 
 ## Arquivos que Serão Modificados
 
-| Arquivo | Ação |
-|---------|------|
-| `supabase/migrations/*_fix_vendas_rpcs_sku_mappings.sql` | Criar migração com RPCs corrigidas |
+| Arquivo/Migração | Ação |
+|------------------|------|
+| `supabase/migrations/*_fix_rls_duplicates.sql` | Limpar policies duplicadas |
+| `supabase/migrations/*_fix_rpcs_user_filter.sql` | Corrigir RPCs para validar acesso |
+| `src/hooks/useUsuarios.ts` | Restringir acesso a admins |
+| `src/pages/Empresas.tsx` | Garantir filtro no frontend |
 
 ---
 
 ## Resultado Esperado
 
-1. A página **Vendas** voltará a funcionar sem erros
-2. **Dashboard** e **Vendas** usarão o mesmo padrão de fallback para CMV
-3. Vendas sem mapeamento **continuarão aparecendo** (CMV = 0)
-4. O resumo mostrará contagem de `pedidos_com_cmv` vs `pedidos_sem_cmv`
+Após as correções:
+
+| Usuário | Verá na Página Empresas | Verá na Página Usuários |
+|---------|-------------------------|-------------------------|
+| eusaviosantoss (admin) | Todas as 4 empresas | Todos os 4 usuários |
+| savio_apache_10 (operador) | Apenas "Empresa de Empresa Teste" | ❌ Sem acesso (só admins) |
+| financeiro.exkidsecommerce | Ecom Club, Exchange, Inpari | ❌ Sem acesso |
 
 ---
 
-## Seção Técnica: Lógica de Fallback para CMV
+## Seção Técnica: Arquitetura de Segurança Multi-Tenant
 
-A nova lógica segue esta ordem de prioridade:
+O sistema deve seguir esta hierarquia de acesso:
 
 ```text
-1. produtos.custo_medio via produto_id
-   ↓ (se NULL ou 0)
-2. produtos.custo_medio via SKU = sku_marketplace
-   ↓ (se NULL ou 0)  
-3. sku_costs.custo_unitario
-   ↓ (se NULL ou 0)
-4. 0 (custo não disponível, venda aparece, CMV = 0)
+┌─────────────────────────────────────────────────────────┐
+│                    Admin Global                          │
+│    (user_roles.role = 'admin')                          │
+│    → Acesso total a todas empresas e usuários           │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│                 Dono da Empresa                          │
+│    (user_empresas.role_na_empresa = 'dono')             │
+│    → Acesso total à sua(s) empresa(s)                   │
+│    → Pode gerenciar colaboradores da empresa            │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│            Admin/Financeiro da Empresa                   │
+│    (user_empresas.role_na_empresa IN ('admin','fin'))   │
+│    → Acesso a dados financeiros da empresa              │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│                    Operador                              │
+│    (user_empresas.role_na_empresa = 'operador')         │
+│    → Acesso limitado/visualização básica                │
+└─────────────────────────────────────────────────────────┘
 ```
 
-A flag `tem_cmv` indica se TODOS os itens do pedido têm custo calculado. Se `tem_cmv = false`, a margem de contribuição retorna `NULL` para evitar distorções.
+As policies RLS garantem que:
+1. Usuários só veem empresas às quais estão vinculados via `user_empresas`
+2. Admins globais podem ver tudo para fins de gerenciamento
+3. RPCs respeitam o mesmo padrão via `get_user_empresa_ids()`
 
 ---
 
@@ -384,6 +208,6 @@ A flag `tem_cmv` indica se TODOS os itens do pedido têm custo calculado. Se `te
 
 | Risco | Mitigação |
 |-------|-----------|
-| Subqueries podem ser lentas em volume alto | Índices já existem em `produtos(id)`, `produtos(sku, empresa_id)`, `sku_costs(sku, empresa_id)` |
-| Margem NULL pode confundir | UI já trata NULL mostrando "—" com tooltip explicativo |
-
+| Quebrar acesso de admin global | Manter verificação `has_role(auth.uid(), 'admin')` em todas as policies |
+| Performance com subquery em RPCs | Função `get_user_empresa_ids()` é cached (STABLE) |
+| Usuário perder acesso durante migração | Executar em uma única transação |
