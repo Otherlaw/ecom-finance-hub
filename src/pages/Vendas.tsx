@@ -65,15 +65,6 @@ export default function Vendas() {
     empresaId,
     busca: buscaPedido,
   });
-    page: currentPage,
-    pageSize,
-    periodoInicio: format(dateRange.from, "yyyy-MM-dd"),
-    periodoFim: format(dateRange.to, "yyyy-MM-dd"),
-    canal: canal !== "todos" ? canal : undefined,
-    conta: conta || undefined,
-    statusVenda: statusVenda !== "todos" ? statusVenda : undefined,
-    empresaId,
-  });
 
   // Hook antigo apenas para métricas por tipo de envio (dashboard)
   const { metricasPorTipoEnvio } = useVendasPaginadas({
