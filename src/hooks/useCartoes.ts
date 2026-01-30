@@ -1,13 +1,20 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 
-export const useCartoes = () => {
+export const useCartoes = (empresaIdOverride?: string) => {
   const queryClient = useQueryClient();
+  const { empresaAtiva } = useEmpresaAtiva();
+  
+  // Usa empresaIdOverride se fornecido, senão usa empresaAtiva
+  const empresaId = empresaIdOverride || empresaAtiva?.id;
 
   const { data: cartoes, isLoading } = useQuery({
-    queryKey: ["cartoes"],
+    queryKey: ["cartoes", empresaId],
     queryFn: async () => {
+      if (!empresaId) return [];
+      
       const { data, error } = await supabase
         .from("credit_cards")
         .select(`
@@ -15,18 +22,22 @@ export const useCartoes = () => {
           empresa:empresas(id, razao_social, nome_fantasia, cnpj),
           responsavel:responsaveis(id, nome)
         `)
+        .eq("empresa_id", empresaId)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
       return data ?? [];
     },
+    enabled: !!empresaId,
   });
 
   const createCartao = useMutation({
     mutationFn: async (cartao: any) => {
+      if (!empresaId) throw new Error("Empresa não selecionada");
+      
       const { data, error } = await supabase
         .from("credit_cards")
-        .insert(cartao)
+        .insert({ ...cartao, empresa_id: empresaId })
         .select()
         .single();
 
@@ -34,7 +45,7 @@ export const useCartoes = () => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cartoes"] });
+      queryClient.invalidateQueries({ queryKey: ["cartoes", empresaId] });
       toast.success("Cartão cadastrado com sucesso!");
     },
     onError: (error: any) => {
@@ -44,10 +55,13 @@ export const useCartoes = () => {
 
   const updateCartao = useMutation({
     mutationFn: async ({ id, ...cartao }: any) => {
+      if (!empresaId) throw new Error("Empresa não selecionada");
+      
       const { data, error } = await supabase
         .from("credit_cards")
         .update(cartao)
         .eq("id", id)
+        .eq("empresa_id", empresaId)
         .select()
         .single();
 
@@ -55,7 +69,7 @@ export const useCartoes = () => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cartoes"] });
+      queryClient.invalidateQueries({ queryKey: ["cartoes", empresaId] });
       toast.success("Cartão atualizado com sucesso!");
     },
     onError: (error: any) => {
@@ -65,15 +79,18 @@ export const useCartoes = () => {
 
   const deleteCartao = useMutation({
     mutationFn: async (id: string) => {
+      if (!empresaId) throw new Error("Empresa não selecionada");
+      
       const { error } = await supabase
         .from("credit_cards")
         .delete()
-        .eq("id", id);
+        .eq("id", id)
+        .eq("empresa_id", empresaId);
 
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cartoes"] });
+      queryClient.invalidateQueries({ queryKey: ["cartoes", empresaId] });
       toast.success("Cartão excluído com sucesso!");
     },
     onError: (error: any) => {
@@ -87,6 +104,7 @@ export const useCartoes = () => {
     createCartao,
     updateCartao,
     deleteCartao,
+    empresaId,
   };
 };
 

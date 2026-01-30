@@ -17,6 +17,7 @@ import { ICMSCalculatorModal } from "@/components/icms/ICMSCalculatorModal";
 import { ICMSRecommendationModal } from "@/components/icms/ICMSRecommendationModal";
 import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useCreditosICMS, CreditoICMSDB, CreditoICMSInsert } from "@/hooks/useCreditosICMS";
 import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
@@ -42,8 +43,7 @@ export default function ICMS() {
   const [editingCredit, setEditingCredit] = useState<CreditoICMSDB | null>(null);
   const [deletingCreditId, setDeletingCreditId] = useState<string | null>(null);
   
-  // Filters
-  const [empresaFilter, setEmpresaFilter] = useState<string>("todas");
+  // Filters (empresa é filtrada pelo contexto EmpresaAtiva)
   const [tipoFilter, setTipoFilter] = useState<string>("todos");
   const [origemFilter, setOrigemFilter] = useState<string>("todas");
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("year");
@@ -54,8 +54,11 @@ export default function ICMS() {
     setDateRange(range);
   };
 
-  // Hooks
+  // Hooks - usar empresaAtiva como filtro obrigatório
+  const { empresaAtiva } = useEmpresaAtiva();
   const { empresas, isLoading: empresasLoading } = useEmpresas();
+  
+  // Filtra créditos pela empresa ativa
   const { 
     creditos, 
     isLoading: creditosLoading, 
@@ -64,22 +67,21 @@ export default function ICMS() {
     createMultipleCreditos,
     updateCredito,
     deleteCredito
-  } = useCreditosICMS();
+  } = useCreditosICMS(empresaAtiva?.id);
 
   const isLoading = empresasLoading || creditosLoading;
 
+  // Busca empresa completa com regime_tributario do hook useEmpresas
   const selectedEmpresa = useMemo(() => {
-    if (empresaFilter === "todas") return null;
-    return (empresas ?? []).find(e => e.id === empresaFilter);
-  }, [empresaFilter, empresas]);
+    if (!empresaAtiva?.id) return null;
+    return (empresas ?? []).find(e => e.id === empresaAtiva.id);
+  }, [empresaAtiva, empresas]);
 
   const isSimples = selectedEmpresa?.regime_tributario === 'simples_nacional';
   const canUseCredits = selectedEmpresa ? canUseICMSCredit(selectedEmpresa.regime_tributario as any) : true;
-
-  // Filter creditos
+  // Filter creditos (empresa já foi filtrada pelo hook, agora só filtra tipo/origem/período)
   const filteredCreditos = useMemo(() => {
     return (creditos ?? []).filter(c => {
-      const matchEmpresa = empresaFilter === "todas" || c.empresa_id === empresaFilter;
       const matchTipo = tipoFilter === "todos" || c.tipo_credito === tipoFilter;
       const matchOrigem = origemFilter === "todas" || c.origem_credito === origemFilter;
       
@@ -87,9 +89,9 @@ export default function ICMS() {
       const dataLancamento = new Date(c.data_lancamento);
       const matchPeriodo = dataLancamento >= dateRange.from && dataLancamento <= dateRange.to;
       
-      return matchEmpresa && matchTipo && matchOrigem && matchPeriodo && c.status_credito === 'ativo';
+      return matchTipo && matchOrigem && matchPeriodo && c.status_credito === 'ativo';
     });
-  }, [creditos, empresaFilter, tipoFilter, origemFilter, dateRange]);
+  }, [creditos, tipoFilter, origemFilter, dateRange]);
 
   // Separate compensable and non-compensable
   const creditosCompensaveis = useMemo(() => 
@@ -133,12 +135,10 @@ export default function ICMS() {
   // Recommendation
   const recommendation = useMemo(() => {
     if (isSimples) return null;
-    const creditosParaCalculo = empresaFilter === "todas" 
-      ? creditos.filter(c => c.tipo_credito === 'compensavel' && c.status_credito === 'ativo')
-          .reduce((s, c) => s + Number(c.valor_credito), 0)
-      : totalCompensaveis;
+    // Usa apenas créditos da empresa ativa (já filtrados pelo hook)
+    const creditosParaCalculo = totalCompensaveis;
     return calculateRecommendation(icmsDevido, creditosParaCalculo, totalNaoCompensaveis, 8);
-  }, [isSimples, empresaFilter, creditos, totalCompensaveis, totalNaoCompensaveis, icmsDevido]);
+  }, [isSimples, totalCompensaveis, totalNaoCompensaveis, icmsDevido]);
 
   const saldoProjetado = canUseCredits ? totalCompensaveis - icmsDevido : 0;
   const saldoNegativo = canUseCredits && saldoProjetado < 0;
@@ -256,19 +256,13 @@ export default function ICMS() {
             <Filter className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium text-sm">Filtros:</span>
           </div>
-          <Select value={empresaFilter} onValueChange={setEmpresaFilter}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Empresa" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todas">Todas as empresas</SelectItem>
-              {empresas.map((emp) => (
-                <SelectItem key={emp.id} value={emp.id}>
-                  {emp.razao_social}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Empresa é selecionada pelo seletor global no header */}
+          {empresaAtiva && (
+            <Badge variant="outline" className="text-sm">
+              <Building2 className="h-3 w-3 mr-1" />
+              {empresaAtiva.razao_social}
+            </Badge>
+          )}
           <Select value={tipoFilter} onValueChange={setTipoFilter}>
             <SelectTrigger className="w-48">
               <SelectValue placeholder="Tipo de Crédito" />
@@ -359,55 +353,7 @@ export default function ICMS() {
         />
       </div>
 
-      {/* Resumos por Empresa (Regime Normal) */}
-      {empresaFilter === "todas" && resumosEmpresa.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Building2 className="h-5 w-5" />
-            Resumo por Empresa (Regime Normal)
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {resumosEmpresa.map((resumo) => (
-              <div key={resumo.empresaId} className="p-4 rounded-xl border bg-card">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">{resumo.empresaNome}</span>
-                    <Badge variant="outline" className={`${REGIME_TRIBUTARIO_CONFIG[resumo.regimeTributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.bgColor} ${REGIME_TRIBUTARIO_CONFIG[resumo.regimeTributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.color} border text-xs`}>
-                      {REGIME_TRIBUTARIO_CONFIG[resumo.regimeTributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.shortLabel}
-                    </Badge>
-                  </div>
-                  <Badge variant={resumo.saldoICMS >= 0 ? "default" : "destructive"} className={resumo.saldoICMS >= 0 ? "bg-success/10 text-success border-success/20" : ""}>
-                    {resumo.saldoICMS >= 0 ? "OK" : "Insuficiente"}
-                  </Badge>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-sm">
-                  <div>
-                    <p className="text-muted-foreground">Créditos Brutos</p>
-                    <p className="font-medium text-success">{formatCurrency(resumo.creditosBrutos)}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">ICMS Débito</p>
-                    <p className="font-medium text-destructive">{formatCurrency(resumo.icmsDebito)}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Saldo</p>
-                    <p className={`font-medium ${resumo.saldoICMS >= 0 ? "text-success" : "text-destructive"}`}>
-                      {formatCurrency(resumo.saldoICMS)}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span>Cobertura</span>
-                    <span>{Math.min(resumo.percentualCobertura, 100).toFixed(0)}%</span>
-                  </div>
-                  <Progress value={Math.min(resumo.percentualCobertura, 100)} className="h-2" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Seção de resumos por empresa foi removida - agora mostramos apenas a empresa ativa */}
 
       {/* Créditos Compensáveis */}
       <div className="mb-6">
