@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { format } from "date-fns";
 import { MainLayout } from "@/components/MainLayout";
 import { useVendasPorPedido, PedidoAgregado, ResumoPedidosAgregado } from "@/hooks/useVendasPorPedido";
@@ -13,11 +13,25 @@ import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/
 import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw, Wand2 } from "lucide-react";
+import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw, Wand2, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { VendaItem } from "@/hooks/useVendaItens";
+
+// Hook simples para debounce
+function useDebouncedValue(value: string, delay: number): string {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  
+  return debouncedValue;
+}
+
 
 export default function Vendas() {
   // Estados do filtro de período
@@ -34,6 +48,10 @@ export default function Vendas() {
   const [conta, setConta] = useState<string>("");
   const [statusVenda, setStatusVenda] = useState<string>("todos");
   const [considerarFreteComprador, setConsiderarFreteComprador] = useState(true);
+  
+  // Filtro de busca
+  const [termoBusca, setTermoBusca] = useState("");
+  const buscaDebounced = useDebouncedValue(termoBusca, 400);
 
   const [showMappingModal, setShowMappingModal] = useState(false);
   const [skuParaMapear, setSkuParaMapear] = useState<string | null>(null);
@@ -61,6 +79,7 @@ export default function Vendas() {
     conta: conta || undefined,
     statusVenda: statusVenda !== "todos" ? statusVenda : undefined,
     empresaId,
+    busca: buscaDebounced, // Filtro de busca
   });
 
   // Hook antigo apenas para métricas por tipo de envio (dashboard)
@@ -240,8 +259,8 @@ export default function Vendas() {
       }
     >
       <div className="flex flex-col gap-6 p-6">
-        {/* Filtro de empresa */}
-        <div className="flex items-center gap-4">
+        {/* Filtros: empresa + busca */}
+        <div className="flex items-center gap-4 flex-wrap">
           <EmpresaFilter
             value={empresaSelecionada}
             onChange={(val) => {
@@ -249,6 +268,30 @@ export default function Vendas() {
               setCurrentPage(0);
             }}
           />
+          
+          {/* Campo de busca */}
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por pedido, SKU ou descrição..."
+              value={termoBusca}
+              onChange={(e) => {
+                setTermoBusca(e.target.value);
+                setCurrentPage(0);
+              }}
+              className="pl-9 pr-8"
+            />
+            {termoBusca && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
+                onClick={() => setTermoBusca("")}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Header */}

@@ -126,14 +126,15 @@ export function useVendasPaginadas({
   });
 
   // Buscar métricas por tipo de envio (Full, Flex, Coleta) via RPC
+  // CORRIGIDO: Usa DATE em vez de TIMESTAMPTZ para consistência
   const { data: metricasPorTipoEnvio, isLoading: isLoadingMetricasTipo } = useQuery({
     queryKey: ["vendas-metricas-tipo-envio", empresaParam, periodoInicio, periodoFim],
     queryFn: async () => {
-      // Cast necessário pois os types do Supabase podem não estar atualizados ainda
+      // RPC agora aceita DATE, não TIMESTAMPTZ
       const { data, error } = await (supabase.rpc as any)("get_vendas_resumo_por_tipo_envio", {
         p_empresa_id: empresaParam,
-        p_data_inicio: dataInicioUTC,
-        p_data_fim: dataFimUTC,
+        p_data_inicio: periodoInicio,  // DATE string YYYY-MM-DD
+        p_data_fim: periodoFim,        // DATE string YYYY-MM-DD
       });
 
       if (error) {
