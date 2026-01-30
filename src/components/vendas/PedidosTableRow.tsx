@@ -24,7 +24,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MapearCmvModal } from "./MapearCmvModal";
-import { NovoMapeamentoModal } from "@/components/mapeamentos/NovoMapeamentoModal";
+import { MapearItensPedidoModal } from "./MapearItensPedidoModal";
 
 interface PedidosTableRowProps {
   pedido: PedidoAgregado;
@@ -510,9 +510,24 @@ export function PedidosTableRow({
             </TableRow>
           ) : (
             <>
-              {/* Header dos itens */}
+              {/* Header dos itens com botão de mapeamento em lote */}
               <TableRow className="bg-muted/10">
-                <TableCell></TableCell>
+                <TableCell>
+                  {itens.some(i => i.sem_produto) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMapeamentoManual(true);
+                      }}
+                      className="text-[10px] h-6 px-2 bg-amber-500/10 border-amber-300 text-amber-600 hover:bg-amber-500/20"
+                    >
+                      <Link2 className="h-3 w-3 mr-1" />
+                      Mapear Todos
+                    </Button>
+                  )}
+                </TableCell>
                 <TableCell className="text-xs font-medium text-muted-foreground">
                   SKU Marketplace
                 </TableCell>
@@ -692,14 +707,17 @@ export function PedidosTableRow({
         />
       )}
 
-      {/* Modal de mapeamento manual (quando não há itens sincronizados) */}
+      {/* Modal de mapeamento de itens do pedido */}
       {showMapeamentoManual && (
-        <NovoMapeamentoModal
+        <MapearItensPedidoModal
           open={showMapeamentoManual}
           onOpenChange={setShowMapeamentoManual}
           empresaId={pedido.empresa_id}
+          pedidoId={pedido.pedido_id}
+          canal={pedido.canal}
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ["vendas-por-pedido"] });
+            queryClient.invalidateQueries({ queryKey: ["venda-itens"] });
           }}
         />
       )}
