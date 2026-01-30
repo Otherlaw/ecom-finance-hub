@@ -1,174 +1,389 @@
 
 
-# Plano: Corrigir Exclusão de Empresa + Adicionar Exclusão de Usuário
+# Plano: Corrigir Vendas "Sumindo" (Erro `sku_marketplace_mappings` não existe)
 
-## Problema Atual
+## Problema Raiz Identificado
 
-| Situação | Causa |
-|----------|-------|
-| Erro "Sem permissão para excluir empresa" | A RPC `delete_empresa_cascade` verifica apenas se você é dono/admin **daquela empresa específica** via `user_empresas`. Você quer excluir a "EMPRESA FICTICIA" de `savio_apache_10@hotmail.com`, mas você não está vinculado a ela. |
-| Seu role global (admin) não está sendo respeitado | A RPC não consulta `user_roles` para verificar se você é admin global. |
-| Não existe opção de excluir usuário | O sistema não tem essa funcionalidade implementada. |
+O console mostra o erro:
+```
+relation "sku_marketplace_mappings" does not exist
+```
+
+As RPCs `get_vendas_por_pedido` e `get_vendas_por_pedido_resumo` referenciam uma **tabela que não existe** (`sku_marketplace_mappings`). As tabelas corretas são:
+- `sku_costs` - para custos por SKU sem mapeamento de produto
+- `produto_marketplace_map` - para mapeamento SKU -> produto
+
+As RPCs `get_dashboard_kpis_period` e `get_top_produtos_vendidos` já estão **corretas** (usam `sku_costs`), por isso o Dashboard mostra dados enquanto a página Vendas falha.
+
+---
+
+## Diagnóstico Detalhado
+
+| RPC | Status | Problema |
+|-----|--------|----------|
+| `get_vendas_por_pedido` | QUEBRADA | Linhas 349-365 referenciam `sku_marketplace_mappings` |
+| `get_vendas_por_pedido_resumo` | QUEBRADA | Linhas 500-508 referenciam `sku_marketplace_mappings` |
+| `get_vendas_por_pedido_count` | OK | Não usa mapeamento, só conta |
+| `get_dashboard_kpis_period` | OK | Usa `sku_costs` corretamente |
+| `get_top_produtos_vendidos` | OK | Usa `sku_costs` corretamente |
 
 ---
 
 ## Solução
 
-### Parte 1: Corrigir RPC `delete_empresa_cascade`
+Atualizar as duas RPCs quebradas para usar o padrão de fallback correto:
 
-Atualizar a função para aceitar exclusão por **admins globais** (verificando `has_role(auth.uid(), 'admin')`), além dos donos da empresa.
-
-**Migração SQL:**
-```sql
-CREATE OR REPLACE FUNCTION public.delete_empresa_cascade(p_empresa_id uuid)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $$
-BEGIN
-  -- Verificar se usuário é dono/admin da empresa OU admin global
-  IF NOT EXISTS (
-    SELECT 1 FROM user_empresas 
-    WHERE empresa_id = p_empresa_id 
-      AND user_id = auth.uid()
-      AND role_na_empresa IN ('dono', 'admin')
-  ) AND NOT public.has_role(auth.uid(), 'admin') THEN
-    RAISE EXCEPTION 'Sem permissão para excluir esta empresa';
-  END IF;
-
-  -- [resto da função permanece igual]
-  UPDATE profiles SET empresa_padrao_id = NULL WHERE empresa_padrao_id = p_empresa_id;
-  UPDATE onboarding_status SET empresa_id = NULL, empresa_criada = false WHERE empresa_id = p_empresa_id;
-  DELETE FROM user_empresas WHERE empresa_id = p_empresa_id;
-  DELETE FROM empresas WHERE id = p_empresa_id;
-END;
-$$;
+```text
+Prioridade de custo:
+1. produtos.custo_medio (via produto_id)
+2. produtos.custo_medio (via SKU = sku_marketplace)
+3. sku_costs.custo_unitario (fallback)
+4. 0 (se nenhum custo encontrado)
 ```
 
 ---
 
-### Parte 2: Criar RPC `delete_user_cascade` (Exclusão de Usuário + Empresa)
+## Implementação
 
-Criar função que:
-1. Verifica se o chamador é admin global
-2. Exclui vínculos do usuário (`user_empresas`, `user_roles`, `onboarding_status`)
-3. Exclui empresas onde o usuário era o **único dono** (se não houver outros membros)
-4. Remove o profile
-5. Deleta o usuário do Auth via Admin API (edge function)
+### Migração SQL Corrigida
 
-**Migração SQL (parte que pode ser feita no banco):**
 ```sql
-CREATE OR REPLACE FUNCTION public.delete_user_cascade(p_user_id uuid)
-RETURNS jsonb
+-- ===========================================
+-- RPC: get_vendas_por_pedido (CORRIGIDA)
+-- ===========================================
+CREATE OR REPLACE FUNCTION public.get_vendas_por_pedido(
+  p_empresa_id uuid DEFAULT NULL,
+  p_data_inicio date DEFAULT (CURRENT_DATE - INTERVAL '30 days')::date,
+  p_data_fim date DEFAULT CURRENT_DATE,
+  p_canal text DEFAULT NULL,
+  p_conta text DEFAULT NULL,
+  p_status text DEFAULT NULL,
+  p_limit integer DEFAULT 50,
+  p_offset integer DEFAULT 0
+)
+RETURNS TABLE(
+  pedido_id text,
+  empresa_id uuid,
+  canal text,
+  conta_nome text,
+  status_transacao text,
+  data_transacao timestamptz,
+  data_repasse date,
+  valor_produto numeric,
+  valor_liquido numeric,
+  comissao numeric,
+  tarifa_fixa numeric,
+  frete_vendedor numeric,
+  custo_ads numeric,
+  imposto_calculado numeric,
+  qtd_itens numeric,
+  cmv_total numeric,
+  tem_cmv boolean,
+  margem_contribuicao numeric,
+  status_enriquecimento text
+)
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
-  v_empresas_deletadas uuid[];
-  v_empresa_id uuid;
+  v_start_ts timestamptz;
+  v_end_ts timestamptz;
 BEGIN
-  -- Apenas admins globais podem excluir usuários
-  IF NOT public.has_role(auth.uid(), 'admin') THEN
-    RAISE EXCEPTION 'Apenas administradores podem excluir usuários';
-  END IF;
+  v_start_ts := (p_data_inicio::text || ' 00:00:00')::timestamp AT TIME ZONE 'America/Sao_Paulo';
+  v_end_ts := ((p_data_fim + INTERVAL '1 day')::date::text || ' 00:00:00')::timestamp AT TIME ZONE 'America/Sao_Paulo';
 
-  -- 1. Buscar empresas onde este usuário é o ÚNICO membro
-  SELECT ARRAY_AGG(empresa_id) INTO v_empresas_deletadas
-  FROM (
-    SELECT ue.empresa_id
-    FROM user_empresas ue
-    WHERE ue.user_id = p_user_id
-      AND NOT EXISTS (
-        SELECT 1 FROM user_empresas ue2 
-        WHERE ue2.empresa_id = ue.empresa_id 
-          AND ue2.user_id != p_user_id
-      )
-  ) sub;
+  RETURN QUERY
+  WITH pedidos_agregados AS (
+    SELECT DISTINCT ON (mt.pedido_id)
+      mt.pedido_id,
+      mt.id as transaction_id,
+      mt.empresa_id,
+      mt.canal,
+      mt.conta_nome,
+      mt.status,
+      mt.data_transacao,
+      mt.data_repasse,
+      mt.valor_bruto,
+      mt.valor_liquido,
+      mt.taxas,
+      mt.tarifas,
+      mt.frete_vendedor as frete_vend,
+      mt.custo_ads as ads,
+      mt.status_enriquecimento
+    FROM marketplace_transactions mt
+    WHERE mt.pedido_id IS NOT NULL
+      AND mt.tipo_lancamento = 'credito'
+      AND mt.data_transacao >= v_start_ts
+      AND mt.data_transacao < v_end_ts
+      AND (p_empresa_id IS NULL OR mt.empresa_id = p_empresa_id)
+      AND (p_canal IS NULL OR mt.canal ILIKE '%' || p_canal || '%')
+      AND (p_conta IS NULL OR mt.conta_nome ILIKE '%' || p_conta || '%')
+      AND (p_status IS NULL OR mt.status ILIKE '%' || p_status || '%')
+    ORDER BY mt.pedido_id, mt.data_transacao DESC
+  ),
+  pedidos_com_calculo AS (
+    SELECT 
+      pa.*,
+      -- Quantidade de itens
+      COALESCE((
+        SELECT SUM(COALESCE(mti.quantidade, 1))
+        FROM marketplace_transaction_items mti
+        WHERE mti.transaction_id = pa.transaction_id
+      ), 1) as qtd_itens_calc,
+      -- CMV com fallback: produto_id -> SKU produto -> sku_costs -> 0
+      COALESCE((
+        SELECT SUM(
+          COALESCE(mti.quantidade, 1) * COALESCE(
+            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.id = mti.produto_id), 0),
+            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.sku = mti.sku_marketplace AND p.empresa_id = pa.empresa_id LIMIT 1), 0),
+            NULLIF((SELECT sc.custo_unitario FROM sku_costs sc WHERE sc.sku = mti.sku_marketplace AND sc.empresa_id = pa.empresa_id LIMIT 1), 0),
+            0
+          )
+        )
+        FROM marketplace_transaction_items mti
+        WHERE mti.transaction_id = pa.transaction_id
+      ), 0) as cmv_calculado,
+      -- Flag tem_cmv: true se TODOS os itens tem custo
+      COALESCE((
+        SELECT bool_and(
+          COALESCE(
+            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.id = mti.produto_id), 0),
+            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.sku = mti.sku_marketplace AND p.empresa_id = pa.empresa_id LIMIT 1), 0),
+            NULLIF((SELECT sc.custo_unitario FROM sku_costs sc WHERE sc.sku = mti.sku_marketplace AND sc.empresa_id = pa.empresa_id LIMIT 1), 0)
+          ) IS NOT NULL
+        )
+        FROM marketplace_transaction_items mti
+        WHERE mti.transaction_id = pa.transaction_id
+      ), false) as tem_cmv_calc
+    FROM pedidos_agregados pa
+  ),
+  eventos_por_pedido AS (
+    SELECT
+      fe.pedido_id,
+      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'comissao' THEN ABS(fe.valor) ELSE 0 END), 0) as comissao_evt,
+      COALESCE(SUM(CASE WHEN fe.tipo_evento IN ('tarifa_fixa', 'tarifa_financeira', 'tarifa_frete_gratis') THEN ABS(fe.valor) ELSE 0 END), 0) as tarifa_evt,
+      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'frete_vendedor' THEN ABS(fe.valor) ELSE 0 END), 0) as frete_evt,
+      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'ads' THEN ABS(fe.valor) ELSE 0 END), 0) as ads_evt
+    FROM marketplace_financial_events fe
+    WHERE fe.pedido_id IN (SELECT pcc.pedido_id FROM pedidos_com_calculo pcc)
+      AND (p_empresa_id IS NULL OR fe.empresa_id = p_empresa_id)
+    GROUP BY fe.pedido_id
+  )
+  SELECT
+    pcc.pedido_id::text,
+    pcc.empresa_id,
+    pcc.canal::text,
+    pcc.conta_nome::text,
+    pcc.status::text as status_transacao,
+    pcc.data_transacao,
+    pcc.data_repasse::date,
+    pcc.valor_bruto::numeric as valor_produto,
+    pcc.valor_liquido::numeric,
+    COALESCE(NULLIF(ep.comissao_evt, 0), pcc.taxas)::numeric as comissao,
+    COALESCE(NULLIF(ep.tarifa_evt, 0), pcc.tarifas)::numeric as tarifa_fixa,
+    COALESCE(NULLIF(ep.frete_evt, 0), pcc.frete_vend)::numeric as frete_vendedor,
+    COALESCE(NULLIF(ep.ads_evt, 0), pcc.ads)::numeric as custo_ads,
+    ROUND(pcc.valor_bruto * 0.06, 2)::numeric as imposto_calculado,
+    pcc.qtd_itens_calc::numeric as qtd_itens,
+    pcc.cmv_calculado::numeric as cmv_total,
+    pcc.tem_cmv_calc as tem_cmv,
+    CASE 
+      WHEN pcc.tem_cmv_calc THEN
+        (pcc.valor_bruto 
+         - COALESCE(NULLIF(ep.comissao_evt, 0), pcc.taxas)
+         - COALESCE(NULLIF(ep.tarifa_evt, 0), pcc.tarifas)
+         - COALESCE(NULLIF(ep.frete_evt, 0), pcc.frete_vend)
+         - COALESCE(NULLIF(ep.ads_evt, 0), pcc.ads)
+         - ROUND(pcc.valor_bruto * 0.06, 2)
+         - pcc.cmv_calculado
+        )::numeric
+      ELSE NULL
+    END as margem_contribuicao,
+    pcc.status_enriquecimento::text
+  FROM pedidos_com_calculo pcc
+  LEFT JOIN eventos_por_pedido ep ON ep.pedido_id = pcc.pedido_id
+  ORDER BY pcc.data_transacao DESC
+  LIMIT p_limit
+  OFFSET p_offset;
+END;
+$$;
 
-  -- 2. Limpar vínculos do usuário
-  DELETE FROM user_empresas WHERE user_id = p_user_id;
-  DELETE FROM user_roles WHERE user_id = p_user_id;
-  DELETE FROM onboarding_status WHERE user_id = p_user_id;
+-- ===========================================
+-- RPC: get_vendas_por_pedido_resumo (CORRIGIDA)
+-- ===========================================
+CREATE OR REPLACE FUNCTION public.get_vendas_por_pedido_resumo(
+  p_empresa_id uuid DEFAULT NULL,
+  p_data_inicio date DEFAULT (CURRENT_DATE - INTERVAL '30 days')::date,
+  p_data_fim date DEFAULT CURRENT_DATE,
+  p_canal text DEFAULT NULL,
+  p_conta text DEFAULT NULL,
+  p_status text DEFAULT NULL
+)
+RETURNS TABLE(
+  total_pedidos bigint,
+  total_itens numeric,
+  valor_produto_total numeric,
+  valor_liquido_total numeric,
+  comissao_total numeric,
+  tarifa_fixa_total numeric,
+  frete_vendedor_total numeric,
+  ads_total numeric,
+  impostos_total numeric,
+  cmv_total numeric,
+  margem_contribuicao_total numeric,
+  pedidos_com_cmv bigint,
+  pedidos_sem_cmv bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_start_ts timestamptz;
+  v_end_ts timestamptz;
+BEGIN
+  v_start_ts := (p_data_inicio::text || ' 00:00:00')::timestamp AT TIME ZONE 'America/Sao_Paulo';
+  v_end_ts := ((p_data_fim + INTERVAL '1 day')::date::text || ' 00:00:00')::timestamp AT TIME ZONE 'America/Sao_Paulo';
 
-  -- 3. Limpar profiles que referenciam empresas a serem deletadas
-  IF v_empresas_deletadas IS NOT NULL THEN
-    UPDATE profiles 
-    SET empresa_padrao_id = NULL 
-    WHERE empresa_padrao_id = ANY(v_empresas_deletadas);
-    
-    UPDATE onboarding_status 
-    SET empresa_id = NULL, empresa_criada = false 
-    WHERE empresa_id = ANY(v_empresas_deletadas);
-    
-    -- Deletar empresas órfãs
-    DELETE FROM empresas WHERE id = ANY(v_empresas_deletadas);
-  END IF;
-
-  -- 4. Deletar profile do usuário
-  DELETE FROM profiles WHERE id = p_user_id;
-
-  RETURN jsonb_build_object(
-    'success', true,
-    'user_id', p_user_id,
-    'empresas_deletadas', COALESCE(v_empresas_deletadas, ARRAY[]::uuid[])
-  );
+  RETURN QUERY
+  WITH pedidos_base AS (
+    SELECT DISTINCT ON (mt.pedido_id)
+      mt.pedido_id,
+      mt.id as transaction_id,
+      mt.empresa_id,
+      mt.valor_bruto,
+      mt.valor_liquido,
+      mt.taxas,
+      mt.tarifas,
+      mt.frete_vendedor,
+      mt.custo_ads
+    FROM marketplace_transactions mt
+    WHERE mt.pedido_id IS NOT NULL
+      AND mt.tipo_lancamento = 'credito'
+      AND mt.data_transacao >= v_start_ts
+      AND mt.data_transacao < v_end_ts
+      AND (p_empresa_id IS NULL OR mt.empresa_id = p_empresa_id)
+      AND (p_canal IS NULL OR mt.canal ILIKE '%' || p_canal || '%')
+      AND (p_conta IS NULL OR mt.conta_nome ILIKE '%' || p_conta || '%')
+      AND (p_status IS NULL OR mt.status ILIKE '%' || p_status || '%')
+    ORDER BY mt.pedido_id, mt.data_transacao DESC
+  ),
+  pedidos_com_itens AS (
+    SELECT 
+      pb.*,
+      COALESCE((
+        SELECT SUM(COALESCE(mti.quantidade, 1))
+        FROM marketplace_transaction_items mti
+        WHERE mti.transaction_id = pb.transaction_id
+      ), 1) as qtd_itens,
+      -- CMV com fallback: produto_id -> SKU produto -> sku_costs -> 0
+      COALESCE((
+        SELECT SUM(
+          COALESCE(mti.quantidade, 1) * COALESCE(
+            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.id = mti.produto_id), 0),
+            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.sku = mti.sku_marketplace AND p.empresa_id = pb.empresa_id LIMIT 1), 0),
+            NULLIF((SELECT sc.custo_unitario FROM sku_costs sc WHERE sc.sku = mti.sku_marketplace AND sc.empresa_id = pb.empresa_id LIMIT 1), 0),
+            0
+          )
+        )
+        FROM marketplace_transaction_items mti
+        WHERE mti.transaction_id = pb.transaction_id
+      ), 0) as cmv_calculado,
+      -- Flag tem_cmv
+      COALESCE((
+        SELECT bool_and(
+          COALESCE(
+            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.id = mti.produto_id), 0),
+            NULLIF((SELECT p.custo_medio FROM produtos p WHERE p.sku = mti.sku_marketplace AND p.empresa_id = pb.empresa_id LIMIT 1), 0),
+            NULLIF((SELECT sc.custo_unitario FROM sku_costs sc WHERE sc.sku = mti.sku_marketplace AND sc.empresa_id = pb.empresa_id LIMIT 1), 0)
+          ) IS NOT NULL
+        )
+        FROM marketplace_transaction_items mti
+        WHERE mti.transaction_id = pb.transaction_id
+      ), false) as tem_cmv_flag
+    FROM pedidos_base pb
+  ),
+  eventos_por_pedido AS (
+    SELECT
+      fe.pedido_id,
+      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'comissao' THEN ABS(fe.valor) ELSE 0 END), 0) as comissao_evt,
+      COALESCE(SUM(CASE WHEN fe.tipo_evento IN ('tarifa_fixa', 'tarifa_financeira', 'tarifa_frete_gratis') THEN ABS(fe.valor) ELSE 0 END), 0) as tarifa_evt,
+      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'frete_vendedor' THEN ABS(fe.valor) ELSE 0 END), 0) as frete_evt,
+      COALESCE(SUM(CASE WHEN fe.tipo_evento = 'ads' THEN ABS(fe.valor) ELSE 0 END), 0) as ads_evt
+    FROM marketplace_financial_events fe
+    WHERE fe.pedido_id IN (SELECT pedido_id FROM pedidos_base)
+      AND (p_empresa_id IS NULL OR fe.empresa_id = p_empresa_id)
+    GROUP BY fe.pedido_id
+  )
+  SELECT
+    COUNT(*)::bigint as total_pedidos,
+    COALESCE(SUM(pci.qtd_itens), 0)::numeric as total_itens,
+    COALESCE(SUM(pci.valor_bruto), 0)::numeric as valor_produto_total,
+    COALESCE(SUM(pci.valor_liquido), 0)::numeric as valor_liquido_total,
+    COALESCE(SUM(COALESCE(NULLIF(ep.comissao_evt, 0), pci.taxas)), 0)::numeric as comissao_total,
+    COALESCE(SUM(COALESCE(NULLIF(ep.tarifa_evt, 0), pci.tarifas)), 0)::numeric as tarifa_fixa_total,
+    COALESCE(SUM(COALESCE(NULLIF(ep.frete_evt, 0), pci.frete_vendedor)), 0)::numeric as frete_vendedor_total,
+    COALESCE(SUM(COALESCE(NULLIF(ep.ads_evt, 0), pci.custo_ads)), 0)::numeric as ads_total,
+    ROUND(COALESCE(SUM(pci.valor_bruto), 0) * 0.06, 2)::numeric as impostos_total,
+    COALESCE(SUM(pci.cmv_calculado), 0)::numeric as cmv_total,
+    (COALESCE(SUM(pci.valor_bruto), 0) 
+     - COALESCE(SUM(COALESCE(NULLIF(ep.comissao_evt, 0), pci.taxas)), 0)
+     - COALESCE(SUM(COALESCE(NULLIF(ep.tarifa_evt, 0), pci.tarifas)), 0)
+     - COALESCE(SUM(COALESCE(NULLIF(ep.frete_evt, 0), pci.frete_vendedor)), 0)
+     - COALESCE(SUM(COALESCE(NULLIF(ep.ads_evt, 0), pci.custo_ads)), 0)
+     - ROUND(COALESCE(SUM(pci.valor_bruto), 0) * 0.06, 2)
+     - COALESCE(SUM(pci.cmv_calculado), 0)
+    )::numeric as margem_contribuicao_total,
+    COUNT(*) FILTER (WHERE pci.tem_cmv_flag = true)::bigint as pedidos_com_cmv,
+    COUNT(*) FILTER (WHERE pci.tem_cmv_flag = false)::bigint as pedidos_sem_cmv
+  FROM pedidos_com_itens pci
+  LEFT JOIN eventos_por_pedido ep ON ep.pedido_id = pci.pedido_id;
 END;
 $$;
 ```
 
-**Edge Function `delete-auth-user`** (para deletar do Supabase Auth):
-A RPC acima limpa dados do banco, mas não remove o usuário do Auth. Para isso, criaremos uma edge function que:
-1. Chama a RPC `delete_user_cascade`
-2. Usa `supabase.auth.admin.deleteUser()` para remover do Auth
-
 ---
 
-### Parte 3: Adicionar UI para Exclusão de Usuário
+## Arquivos que Serão Modificados
 
-Atualizar `src/pages/Usuarios.tsx` para incluir opção "Excluir Usuário" no menu de ações (apenas para admins).
-
-**Mudanças no DropdownMenu:**
-```tsx
-<DropdownMenuItem 
-  onClick={() => handleDeleteUser(user)}
-  className="text-destructive"
->
-  <Trash2 className="h-4 w-4 mr-2" />
-  Excluir Usuário
-</DropdownMenuItem>
-```
-
-**Modal de confirmação** com alerta explicando que:
-- O usuário será removido permanentemente
-- Empresas exclusivas dele serão excluídas
-- Dados vinculados serão perdidos
-
----
-
-## Arquivos que Serão Modificados/Criados
-
-| Arquivo | Alteração |
-|---------|-----------|
-| `supabase/migrations/*_fix_delete_empresa_admin.sql` | Corrigir RPC para respeitar admin global |
-| `supabase/migrations/*_add_delete_user_cascade.sql` | Criar RPC de exclusão de usuário |
-| `supabase/functions/delete-auth-user/index.ts` | Edge function para deletar do Auth |
-| `src/hooks/useUsuarios.ts` | Adicionar mutation `deleteUser` |
-| `src/pages/Usuarios.tsx` | Adicionar botão + modal de exclusão |
+| Arquivo | Ação |
+|---------|------|
+| `supabase/migrations/*_fix_vendas_rpcs_sku_mappings.sql` | Criar migração com RPCs corrigidas |
 
 ---
 
 ## Resultado Esperado
 
-1. Você conseguirá excluir a "EMPRESA FICTICIA" (como admin global)
-2. Você terá opção de excluir o usuário `savio_apache_10@hotmail.com`
-3. Ao excluir o usuário, a empresa dele será automaticamente removida (já que ele é o único membro)
+1. A página **Vendas** voltará a funcionar sem erros
+2. **Dashboard** e **Vendas** usarão o mesmo padrão de fallback para CMV
+3. Vendas sem mapeamento **continuarão aparecendo** (CMV = 0)
+4. O resumo mostrará contagem de `pedidos_com_cmv` vs `pedidos_sem_cmv`
 
 ---
 
-## Riscos
+## Seção Técnica: Lógica de Fallback para CMV
 
-- **Exclusão irreversível**: Usuário e dados associados serão permanentemente perdidos
-- **Cascata**: Se outros usuários estiverem vinculados à mesma empresa, ela NÃO será excluída automaticamente
+A nova lógica segue esta ordem de prioridade:
+
+```text
+1. produtos.custo_medio via produto_id
+   ↓ (se NULL ou 0)
+2. produtos.custo_medio via SKU = sku_marketplace
+   ↓ (se NULL ou 0)  
+3. sku_costs.custo_unitario
+   ↓ (se NULL ou 0)
+4. 0 (custo não disponível, venda aparece, CMV = 0)
+```
+
+A flag `tem_cmv` indica se TODOS os itens do pedido têm custo calculado. Se `tem_cmv = false`, a margem de contribuição retorna `NULL` para evitar distorções.
+
+---
+
+## Riscos e Mitigações
+
+| Risco | Mitigação |
+|-------|-----------|
+| Subqueries podem ser lentas em volume alto | Índices já existem em `produtos(id)`, `produtos(sku, empresa_id)`, `sku_costs(sku, empresa_id)` |
+| Margem NULL pode confundir | UI já trata NULL mostrando "—" com tooltip explicativo |
 
