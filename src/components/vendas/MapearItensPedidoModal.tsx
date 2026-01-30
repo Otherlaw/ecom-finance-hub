@@ -4,7 +4,7 @@
  * Permite criar mapeamento com as informações vindas da API
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link2, Package, Check, AlertTriangle, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +37,7 @@ import { useMarketplaceSkuMappings } from "@/hooks/useMarketplaceSkuMappings";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { extractMlDraftItemsFromRawOrder } from "@/lib/marketplace-raw-order";
 
 interface ItemPendente {
   id: string;
@@ -48,6 +49,10 @@ interface ItemPendente {
   preco_unitario: number;
   produto_id: string | null;
 }
+
+type ItemPendenteComOrigem = ItemPendente & {
+  origem: "itens_sincronizados" | "rascunho_raw_order";
+};
 
 interface MapearItensPedidoModalProps {
   open: boolean;
@@ -83,14 +88,18 @@ export function MapearItensPedidoModal({
     queryKey: ["itens-pendentes-mapeamento", pedidoId, empresaId],
     queryFn: async () => {
       // Primeiro buscar a transaction_id
-      const { data: txData } = await supabase
+      const { data: txData, error: txError } = await supabase
         .from("marketplace_transactions")
-        .select("id")
+        .select("id, raw_order")
         .eq("pedido_id", pedidoId)
         .eq("empresa_id", empresaId)
         .eq("tipo_transacao", "venda")
         .limit(1)
-        .single();
+        .maybeSingle();
+
+      if (txError) {
+        console.error("Erro ao buscar transação do pedido:", txError);
+      }
 
       if (!txData) return [];
 
@@ -105,13 +114,36 @@ export function MapearItensPedidoModal({
         return [];
       }
 
-      return (itens || []) as ItemPendente[];
+      const itensPersistidos = ((itens || []) as ItemPendente[]).map((i) => ({
+        ...i,
+        origem: "itens_sincronizados" as const,
+      }));
+
+      // Fallback: se ainda não existem itens persistidos, tenta montar um rascunho
+      // a partir do payload bruto (raw_order) para o usuário conseguir mapear com contexto.
+      if (itensPersistidos.length === 0 && txData.raw_order) {
+        const draft = extractMlDraftItemsFromRawOrder(txData.raw_order).map((d, idx) => ({
+          id: `draft-${txData.id}-${idx}`,
+          sku_marketplace: d.sku_marketplace,
+          anuncio_id: d.anuncio_id,
+          variante_id: d.variante_id,
+          descricao_item: d.descricao_item,
+          quantidade: d.quantidade,
+          preco_unitario: d.preco_unitario,
+          produto_id: null,
+          origem: "rascunho_raw_order" as const,
+        }));
+
+        if (draft.length > 0) return draft;
+      }
+
+      return itensPersistidos;
     },
     enabled: open && !!pedidoId && !!empresaId,
   });
 
   // Separar itens mapeados e não mapeados
-  const itensNaoMapeados = itensPendentes.filter(i => !i.produto_id && i.sku_marketplace);
+  const itensNaoMapeados = (itensPendentes as ItemPendenteComOrigem[]).filter(i => !i.produto_id && i.sku_marketplace);
   const itensMapeados = itensPendentes.filter(i => i.produto_id);
 
   const handleSelectProduto = (itemId: string, produtoId: string) => {
@@ -146,14 +178,23 @@ export function MapearItensPedidoModal({
           mapeadoAutomaticamente: false,
         });
 
-        // Atualizar o item diretamente também
-        await supabase
-          .from("marketplace_transaction_items")
-          .update({ produto_id: produtoId })
-          .eq("id", itemId);
+        // Se o item já existe em marketplace_transaction_items, atualiza diretamente.
+        // Se for rascunho (draft-*), apenas salva o mapeamento: um trigger/backfill
+        // deve propagar quando os itens sincronizarem.
+        if (!itemId.startsWith("draft-")) {
+          await supabase
+            .from("marketplace_transaction_items")
+            .update({ produto_id: produtoId })
+            .eq("id", itemId);
+        }
       }
 
-      toast.success(`${mapeamentosParaSalvar.length} mapeamento(s) criado(s) com sucesso!`);
+      const usouRascunho = (itensPendentes as ItemPendenteComOrigem[]).some((i) => i.origem === "rascunho_raw_order");
+      toast.success(
+        usouRascunho
+          ? `${mapeamentosParaSalvar.length} mapeamento(s) salvos. Os itens serão vinculados automaticamente quando sincronizarem.`
+          : `${mapeamentosParaSalvar.length} mapeamento(s) criado(s) com sucesso!`
+      );
       
       // Invalidar queries para atualizar a UI
       queryClient.invalidateQueries({ queryKey: ["vendas-por-pedido"] });
@@ -200,7 +241,7 @@ export function MapearItensPedidoModal({
               <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
               <p className="font-medium">Nenhum item encontrado</p>
               <p className="text-sm mt-1">
-                Os itens deste pedido ainda não foram sincronizados da API.
+                Este pedido ainda não trouxe itens suficientes para mapear.
               </p>
             </div>
           ) : (
@@ -214,6 +255,12 @@ export function MapearItensPedidoModal({
                       Itens pendentes de mapeamento ({itensNaoMapeados.length})
                     </span>
                   </div>
+
+                  {(itensPendentes as ItemPendenteComOrigem[]).some((i) => i.origem === "rascunho_raw_order") && (
+                    <p className="text-xs text-muted-foreground">
+                      Mostrando rascunho do pedido (título/variação/SKU) para você mapear agora.
+                    </p>
+                  )}
                   
                   {itensNaoMapeados.map((item) => (
                     <div
