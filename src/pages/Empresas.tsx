@@ -18,6 +18,8 @@ import {
   Loader2,
   Trash2,
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useUserEmpresas } from "@/hooks/useUserEmpresas";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   DropdownMenu,
@@ -62,12 +64,23 @@ export default function Empresas() {
   const navigate = useNavigate();
   const { empresas, isLoading, deleteEmpresa } = useEmpresas();
   const { tokens, isLoading: loadingIntegracoes } = useIntegracoes({});
+  const { isAdmin } = useAuth();
+  const { userEmpresas, isLoading: loadingUserEmpresas } = useUserEmpresas();
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [editingEmpresa, setEditingEmpresa] = useState<any | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [empresaToDelete, setEmpresaToDelete] = useState<any | null>(null);
   const [colaboradoresModalOpen, setColaboradoresModalOpen] = useState(false);
   const [selectedEmpresaForColabs, setSelectedEmpresaForColabs] = useState<any | null>(null);
+
+  // Filtrar empresas: admins veem todas, outros veem apenas as vinculadas
+  const empresasFiltradas = useMemo(() => {
+    if (!empresas) return [];
+    if (isAdmin) return empresas;
+    
+    const userEmpresaIds = userEmpresas?.map(ue => ue.empresa_id) || [];
+    return empresas.filter(e => userEmpresaIds.includes(e.id));
+  }, [empresas, isAdmin, userEmpresas]);
 
   const handleEdit = (empresa: any) => {
     setEditingEmpresa(empresa);
@@ -119,12 +132,12 @@ export default function Empresas() {
         icon={Building2}
         noPadding
       >
-        {isLoading ? (
+        {isLoading || loadingUserEmpresas ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             <span className="ml-2 text-muted-foreground">Carregando empresas...</span>
           </div>
-        ) : !empresas || empresas.length === 0 ? (
+        ) : !empresasFiltradas || empresasFiltradas.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <Building2 className="h-12 w-12 text-muted-foreground/50 mb-4" />
             <p className="text-muted-foreground mb-4">Nenhuma empresa cadastrada ainda.</p>
@@ -145,7 +158,7 @@ export default function Empresas() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {empresas.map((empresa) => {
+              {empresasFiltradas.map((empresa) => {
                 const regimeConfig = getRegimeConfig(empresa.regime_tributario);
                 const usesICMS = canUseICMSCredit(empresa.regime_tributario as RegimeTributario);
 
@@ -261,13 +274,13 @@ export default function Empresas() {
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : !empresas || empresas.length === 0 ? (
+          ) : !empresasFiltradas || empresasFiltradas.length === 0 ? (
             <p className="text-muted-foreground text-center py-8">
               Cadastre uma empresa para visualizar integrações
             </p>
           ) : (
             <div className="space-y-6">
-              {empresas.map((empresa) => {
+              {empresasFiltradas.map((empresa) => {
                 const integracoesEmpresa = tokens?.filter(t => t.empresa_id === empresa.id) || [];
                 
                 return (
