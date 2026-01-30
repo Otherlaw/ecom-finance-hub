@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 export interface PedidoAgregado {
   pedido_id: string;
   empresa_id: string;
+  empresa_nome_fantasia: string | null;  // Nome fantasia da empresa
   canal: string;
   conta_nome: string | null;
   data_pedido: string;
@@ -202,6 +203,7 @@ export function useVendasPorPedido({
       const pedidos: PedidoAgregado[] = (data || []).map((p: any) => ({
         pedido_id: p.pedido_id,
         empresa_id: p.empresa_id,
+        empresa_nome_fantasia: p.empresa_nome_fantasia || null,
         canal: p.canal,
         conta_nome: p.conta_nome,
         data_pedido: p.data_pedido,

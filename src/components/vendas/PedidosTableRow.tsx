@@ -203,16 +203,14 @@ export function PedidosTableRow({
             {pedido.canal}
           </Badge>
         </TableCell>
-        <TableCell className="text-xs text-muted-foreground truncate max-w-[100px]">
-          {pedido.conta_nome ? (
-            pedido.conta_nome
-          ) : (
+        <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">
+          {pedido.empresa_nome_fantasia || pedido.conta_nome || (
             <Tooltip>
               <TooltipTrigger>
                 <span className="text-muted-foreground">—</span>
               </TooltipTrigger>
               <TooltipContent>
-                <p className="text-xs">Conta não identificada na sincronização</p>
+                <p className="text-xs">Empresa não identificada</p>
               </TooltipContent>
             </Tooltip>
           )}
@@ -272,29 +270,6 @@ export function PedidosTableRow({
           )}
         </TableCell>
         <TableCell className="text-right text-xs text-destructive/80">
-          {pedido.tarifa_fixa_total === null || pedido.tarifa_fixa_total === undefined ? (
-            <Tooltip>
-              <TooltipTrigger>
-                <span className="text-muted-foreground">—</span>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Pendente de enriquecimento. Re-sincronize para obter.</p>
-              </TooltipContent>
-            </Tooltip>
-          ) : pedido.tarifa_fixa_total > 0 ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>{formatCurrency(pedido.tarifa_fixa_total)}</span>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Tarifa fixa + financiamento</p>
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </TableCell>
-        <TableCell className="text-right text-xs text-destructive/80">
           {pedido.frete_vendedor_total === null || pedido.frete_vendedor_total === undefined ? (
             <Tooltip>
               <TooltipTrigger>
@@ -306,15 +281,6 @@ export function PedidosTableRow({
             </Tooltip>
           ) : pedido.frete_vendedor_total > 0 ? (
             formatCurrency(pedido.frete_vendedor_total)
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </TableCell>
-        <TableCell className="text-right text-xs">
-          {pedido.ads_total > 0 ? (
-            <span className="text-purple-600">
-              {formatCurrency(pedido.ads_total)}
-            </span>
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
@@ -382,11 +348,11 @@ export function PedidosTableRow({
         <>
           {/* Resumo financeiro do pedido */}
           <TableRow className="bg-muted/20 border-l-4 border-l-primary/30">
-            <TableCell colSpan={16}>
+            <TableCell colSpan={12}>
               <div className="py-3 px-4">
                 <p className="text-sm font-medium mb-3">Resumo do Pedido #{pedido.pedido_id}</p>
                 
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 text-xs">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 text-xs">
                   <div className="space-y-1">
                     <p className="text-muted-foreground">Receita Bruta</p>
                     <p className="font-medium text-foreground">{formatCurrency(pedido.valor_produto)}</p>
@@ -418,30 +384,6 @@ export function PedidosTableRow({
                   
                   <div className="space-y-1">
                     <p className="text-muted-foreground flex items-center gap-1">
-                      Tarifa/Financ.
-                      {(pedido.tarifa_fixa_total === null || pedido.tarifa_fixa_total === undefined) && (
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <HelpCircle className="h-3 w-3 text-amber-500" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="text-xs">Pendente de enriquecimento</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                    </p>
-                    <p className="font-medium text-destructive">
-                      {pedido.tarifa_fixa_total === null || pedido.tarifa_fixa_total === undefined
-                        ? <span className="text-muted-foreground">—</span>
-                        : pedido.tarifa_fixa_total > 0 
-                          ? `-${formatCurrency(pedido.tarifa_fixa_total)}`
-                          : <span className="text-muted-foreground">—</span>
-                      }
-                    </p>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground flex items-center gap-1">
                       Frete Vendedor
                       {(pedido.frete_vendedor_total === null || pedido.frete_vendedor_total === undefined) && (
                         <Tooltip>
@@ -460,16 +402,6 @@ export function PedidosTableRow({
                         : pedido.frete_vendedor_total > 0 
                           ? `-${formatCurrency(pedido.frete_vendedor_total)}`
                           : <span className="text-muted-foreground">—</span>
-                      }
-                    </p>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">ADS</p>
-                    <p className="font-medium text-purple-600">
-                      {pedido.ads_total > 0 
-                        ? `-${formatCurrency(pedido.ads_total)}`
-                        : "—"
                       }
                     </p>
                   </div>
@@ -527,7 +459,7 @@ export function PedidosTableRow({
           {/* Lista de itens */}
           {isLoadingItens ? (
             <TableRow>
-              <TableCell colSpan={16} className="bg-muted/10">
+              <TableCell colSpan={12} className="bg-muted/10">
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
                   <span className="text-sm text-muted-foreground">Carregando itens...</span>
@@ -536,7 +468,7 @@ export function PedidosTableRow({
             </TableRow>
           ) : itens.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={16} className="bg-muted/10">
+              <TableCell colSpan={12} className="bg-muted/10">
                 <div className="flex items-center justify-center py-4 text-muted-foreground">
                   <Package className="h-4 w-4 mr-2" />
                   <span className="text-sm">Nenhum item encontrado para este pedido</span>

@@ -81,9 +81,10 @@ export function VendasDashboard({
   const metricasLookup = transformarMetricasPorTipo(metricasPorTipo);
 
   // Calcular margens considerando ou não frete do comprador
-  const calcularMargem = (valorLiquido: number, cmv: number, freteVendedor: number, custoAds: number, freteComprador: number, valorBruto: number) => {
+  // Nota: Tarifa e ADS já estão incluídos na comissão, não subtrair separadamente
+  const calcularMargem = (valorLiquido: number, cmv: number, freteVendedor: number, freteComprador: number, valorBruto: number) => {
     const imposto = valorBruto * (aliquotaImposto / 100);
-    let margemRs = valorLiquido - cmv - freteVendedor - custoAds - imposto;
+    let margemRs = valorLiquido - cmv - freteVendedor - imposto;
     if (considerarFreteComprador) {
       margemRs += freteComprador;
     }
@@ -93,13 +94,13 @@ export function VendasDashboard({
       margemPercent
     };
   };
-  const margemGeral = calcularMargem(resumo.totalFaturamentoLiquido, resumo.totalCMV, resumo.totalFreteVendedor, resumo.totalCustoAds, resumo.totalFreteComprador, resumo.totalFaturamentoBruto);
+  const margemGeral = calcularMargem(resumo.totalFaturamentoLiquido, resumo.totalCMV, resumo.totalFreteVendedor, resumo.totalFreteComprador, resumo.totalFaturamentoBruto);
 
   // Frete líquido (comprador - vendedor)
   const freteLiquido = resumo.totalFreteComprador - resumo.totalFreteVendedor;
   return <div className="space-y-4">
-      {/* Cards principais - 6 colunas para separar comissão e tarifa */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+      {/* Cards principais - 4 colunas (removido tarifa e ads separados) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Vendas Aprovadas */}
         <Card>
           <CardHeader className="pb-2">
@@ -137,7 +138,7 @@ export function VendasDashboard({
           </CardContent>
         </Card>
 
-        {/* Comissão */}
+        {/* Comissão (inclui comissão + tarifas) */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -147,49 +148,10 @@ export function VendasDashboard({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-500">
-              {formatCurrency(resumo.totalTaxas)}
+              {formatCurrency(resumo.totalTaxas + resumo.totalTarifas)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {(resumo.totalTaxas / resumo.totalFaturamentoBruto * 100 || 0).toFixed(1)}% do faturamento
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Tarifa de Venda (fixa + financeira) */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Calculator className="h-4 w-4 text-orange-500" />
-              Tarifa Fixa
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-500">
-              {formatCurrency(resumo.totalTarifas)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Tarifa fixa + financeira
-            </p>
-            {resumo.totalCustoAds > 0 && <p className="text-xs text-purple-500 mt-0.5">
-                + ADS: {formatCurrency(resumo.totalCustoAds)}
-              </p>}
-          </CardContent>
-        </Card>
-
-        {/* Frete Vendedor */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Truck className="h-4 w-4 text-blue-500" />
-              Frete Vendedor
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-500">
-              {formatCurrency(resumo.totalFreteVendedor)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Custo de envio pago por você
+              {((resumo.totalTaxas + resumo.totalTarifas) / resumo.totalFaturamentoBruto * 100 || 0).toFixed(1)}% do faturamento
             </p>
           </CardContent>
         </Card>
@@ -214,7 +176,6 @@ export function VendasDashboard({
       </div>
 
       {/* Checkbox considerar frete */}
-      
 
       {/* Alerta de vendas aguardando classificação */}
       {(() => {
@@ -290,7 +251,8 @@ function TipoEnvioCard({
     purple: "text-purple-500 bg-purple-500/10"
   };
   const imposto = metricas.valorBruto * (aliquotaImposto / 100);
-  let margem = metricas.valorLiquido - metricas.cmv - metricas.freteVendedor - metricas.custoAds - imposto;
+  // Nota: Não subtrair custoAds separadamente, está incluso nas tarifas
+  let margem = metricas.valorLiquido - metricas.cmv - metricas.freteVendedor - imposto;
   if (considerarFreteComprador) {
     margem += metricas.freteComprador;
   }
