@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAuth } from "./useAuth";
 
 export type RoleType = "admin" | "financeiro" | "socio" | "operador";
 
@@ -15,11 +16,18 @@ export interface Usuario {
 
 export function useUsuarios() {
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
 
-  // Buscar todos os usuários com roles e empresas
+  // Buscar usuários - APENAS para admins globais
   const { data: usuarios, isLoading } = useQuery({
     queryKey: ["usuarios"],
     queryFn: async () => {
+      // Verificação de segurança: apenas admins podem listar todos os usuários
+      if (!isAdmin) {
+        console.warn("Tentativa de acesso à lista de usuários sem permissão de admin");
+        return [];
+      }
+
       // Buscar todos os profiles
       const { data: profiles, error: profilesError } = await supabase
         .from("profiles")

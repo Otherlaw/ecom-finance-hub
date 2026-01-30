@@ -3608,6 +3608,7 @@ export type Database = {
           total_faturado: number
         }[]
       }
+      get_user_empresa_ids: { Args: never; Returns: string[] }
       get_vendas_com_cmv: {
         Args: {
           p_canal?: string
