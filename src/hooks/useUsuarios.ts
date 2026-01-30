@@ -159,10 +159,41 @@ export function useUsuarios() {
     },
   });
 
+  // Excluir usuário (admin global apenas)
+  const excluirUsuario = useMutation({
+    mutationFn: async (userId: string) => {
+      const { data, error } = await supabase.functions.invoke("delete-auth-user", {
+        body: { user_id: userId },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["usuarios"] });
+      queryClient.invalidateQueries({ queryKey: ["empresas"] });
+      queryClient.invalidateQueries({ queryKey: ["user-empresas"] });
+
+      const empresasExcluidas = data?.empresas_deletadas?.length || 0;
+      const msg = empresasExcluidas > 0
+        ? `Usuário e ${empresasExcluidas} empresa(s) excluídos com sucesso`
+        : "Usuário excluído com sucesso";
+      
+      toast.success(msg);
+    },
+    onError: (error: Error) => {
+      console.error("Erro ao excluir usuário:", error);
+      toast.error("Erro ao excluir usuário: " + error.message);
+    },
+  });
+
   return {
     usuarios: usuarios ?? [],
     isLoading,
     atualizarRole,
     atualizarEmpresas,
+    excluirUsuario,
   };
 }
