@@ -187,7 +187,8 @@ export function PedidosTableRow({
       <TableRow
         className={cn(
           "cursor-pointer hover:bg-muted/50",
-          expanded && "bg-muted/30"
+          expanded && "bg-muted/30",
+          semCMV && "bg-amber-500/5 hover:bg-amber-500/10"
         )}
         onClick={handleToggleExpand}
       >
@@ -292,34 +293,45 @@ export function PedidosTableRow({
             <span className="text-muted-foreground">—</span>
           )}
         </TableCell>
-        <TableCell className="text-right text-xs">
+        <TableCell className="text-right text-xs" onClick={(e) => e.stopPropagation()}>
           {cmvTotal > 0 ? (
             <span className="text-orange-600">{formatCurrency(cmvTotal)}</span>
           ) : semCMV ? (
             <Tooltip>
-              <TooltipTrigger>
-                <AlertTriangle className="h-3 w-3 text-amber-500 inline" />
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleToggleExpand}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+                             bg-amber-500/10 text-amber-600 border border-amber-300
+                             hover:bg-amber-500/20 transition text-[10px] font-medium"
+                >
+                  <Link2 className="h-3 w-3" />
+                  Mapear
+                </button>
               </TooltipTrigger>
               <TooltipContent>
-                <p className="text-xs">Custo não cadastrado</p>
+                <p className="text-xs">Clique para expandir e mapear os produtos</p>
               </TooltipContent>
             </Tooltip>
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
         </TableCell>
-        <TableCell className={cn("text-right text-xs font-medium", margemColor)}>
+        <TableCell className={cn("text-right text-xs font-medium", margemColor)} onClick={(e) => e.stopPropagation()}>
           {semCMV ? (
             <Tooltip>
-              <TooltipTrigger>
-                <div className="flex items-center justify-end gap-1">
-                  <AlertTriangle className="h-3 w-3 text-amber-500" />
-                  <span className="text-muted-foreground">Sem CMV</span>
-                </div>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleToggleExpand}
+                  className="flex items-center justify-end gap-1 text-amber-500 hover:text-amber-600"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  <span className="text-xs">Pendente</span>
+                </button>
               </TooltipTrigger>
               <TooltipContent>
                 <p className="text-xs">
-                  MC não pode ser calculada pois os produtos não têm custo cadastrado.
+                  Expanda o pedido para mapear os produtos e calcular a margem
                 </p>
               </TooltipContent>
             </Tooltip>
