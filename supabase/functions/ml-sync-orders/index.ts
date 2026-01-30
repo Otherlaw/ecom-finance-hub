@@ -1456,6 +1456,28 @@ Deno.serve(async (req) => {
 
         // ========== SINCRONIZAR ITENS ==========
         if (upsertedTx && order.order_items && order.order_items.length > 0) {
+          // ========== PRESERVAR MAPEAMENTOS EXISTENTES ==========
+          // Buscar mapeamentos diretos que foram feitos no item (produto_id)
+          // para não perder quando deletar e reinserir
+          const { data: itensExistentes } = await supabase
+            .from("marketplace_transaction_items")
+            .select("sku_marketplace, anuncio_id, produto_id")
+            .eq("transaction_id", upsertedTx.id);
+
+          // Criar mapa de mapeamentos existentes por SKU e por anuncio_id
+          const mapeamentoDiretoMap = new Map<string, string>();
+          itensExistentes?.forEach((item) => {
+            if (item.produto_id) {
+              // Priorizar SKU como chave, mas também mapear por anuncio_id
+              if (item.sku_marketplace) {
+                mapeamentoDiretoMap.set(`sku:${item.sku_marketplace}`, item.produto_id);
+              }
+              if (item.anuncio_id) {
+                mapeamentoDiretoMap.set(`anuncio:${item.anuncio_id}`, item.produto_id);
+              }
+            }
+          });
+
           // Deletar itens existentes
           const { error: deleteError } = await supabase
             .from("marketplace_transaction_items")
@@ -1466,11 +1488,20 @@ Deno.serve(async (req) => {
             console.error(`[ML Sync] Erro ao deletar itens do pedido ${order.id}:`, deleteError);
           }
 
-          // Inserir itens com dados completos
+          // Inserir itens com dados completos, preservando mapeamentos
           const itensParaInserir = order.order_items.map((item) => {
             // PRIORIDADE: seller_custom_field > seller_sku > item.id
             const skuMarketplace = item.item.seller_custom_field || item.item.seller_sku || item.item.id;
-            const produtoId = mapeamentoMap.get(skuMarketplace) || null;
+            
+            // HIERARQUIA DE RESOLUÇÃO DE produto_id:
+            // 1. Mapeamento direto preservado do item anterior (por SKU)
+            // 2. Mapeamento direto preservado do item anterior (por anuncio_id)
+            // 3. Mapeamento da tabela produto_marketplace_map
+            // 4. null
+            let produtoId = mapeamentoDiretoMap.get(`sku:${skuMarketplace}`) 
+                         || mapeamentoDiretoMap.get(`anuncio:${item.item.id}`)
+                         || mapeamentoMap.get(skuMarketplace) 
+                         || null;
 
             if (produtoId) {
               itens_mapeados_automaticamente++;
