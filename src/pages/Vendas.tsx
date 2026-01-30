@@ -269,19 +269,6 @@ export default function Vendas() {
             </div>
           </div>
 
-          {/* Botões de ação */}
-          <div className="flex items-center gap-2">
-            {empresaId && <>
-                <Button variant="outline" size="sm" onClick={handleReprocessarIncompletas} disabled={reprocessando}>
-                  {reprocessando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
-                  Ressincronizar ML
-                </Button>
-                <Button variant="outline" size="sm" onClick={handleReprocessarMapeamentos} disabled={reprocessarMapeamentos.isPending}>
-                  {reprocessarMapeamentos.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                  Reprocessar Mapeamentos
-                </Button>
-              </>}
-          </div>
         </div>
 
         {/* Alerta de SKUs pendentes */}
