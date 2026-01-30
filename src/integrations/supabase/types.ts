@@ -3661,6 +3661,7 @@ export type Database = {
       }
       get_vendas_por_pedido: {
         Args: {
+          p_busca?: string
           p_canal?: string
           p_conta?: string
           p_data_fim?: string
@@ -3696,6 +3697,7 @@ export type Database = {
       }
       get_vendas_por_pedido_count: {
         Args: {
+          p_busca?: string
           p_canal?: string
           p_conta?: string
           p_data_fim?: string
@@ -3707,12 +3709,9 @@ export type Database = {
       }
       get_vendas_por_pedido_resumo: {
         Args: {
-          p_canal?: string
-          p_conta?: string
           p_data_fim?: string
           p_data_inicio?: string
           p_empresa_id?: string
-          p_status?: string
         }
         Returns: {
           ads_total: number
@@ -3728,6 +3727,25 @@ export type Database = {
           total_pedidos: number
           valor_liquido_total: number
           valor_produto_total: number
+        }[]
+      }
+      get_vendas_por_tipo_envio_dashboard: {
+        Args: {
+          p_data_fim?: string
+          p_data_inicio?: string
+          p_empresa_id?: string
+        }
+        Returns: {
+          ads_total: number
+          cmv_total: number
+          comissao_total: number
+          frete_vendedor_total: number
+          qtd_itens: number
+          qtd_pedidos: number
+          tarifa_fixa_total: number
+          tipo_envio: string
+          valor_bruto: number
+          valor_liquido: number
         }[]
       }
       get_vendas_resumo: {
@@ -3753,9 +3771,9 @@ export type Database = {
       }
       get_vendas_resumo_por_tipo_envio: {
         Args: {
-          p_data_fim: string
-          p_data_inicio: string
-          p_empresa_id: string
+          p_data_fim?: string
+          p_data_inicio?: string
+          p_empresa_id?: string
         }
         Returns: {
           cmv_total: number
@@ -3771,7 +3789,9 @@ export type Database = {
           valor_liquido: number
         }[]
       }
-      has_financial_access: { Args: { _user_id: string }; Returns: boolean }
+      has_financial_access:
+        | { Args: never; Returns: boolean }
+        | { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

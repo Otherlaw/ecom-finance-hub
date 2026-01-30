@@ -118,8 +118,8 @@ export function VendasDashboard({
 
   return (
     <div className="space-y-4">
-      {/* Cards principais */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Cards principais - 6 colunas para separar comissão e tarifa */}
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         {/* Vendas Aprovadas */}
         <Card>
           <CardHeader className="pb-2">
@@ -157,20 +157,38 @@ export function VendasDashboard({
           </CardContent>
         </Card>
 
-        {/* Tarifa de Venda */}
+        {/* Comissão */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Calculator className="h-4 w-4 text-red-500" />
-              Tarifa de Venda
+              <Percent className="h-4 w-4 text-red-500" />
+              Comissão ML
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-500">
-              {formatCurrency(resumo.totalTarifas + resumo.totalTaxas)}
+              {formatCurrency(resumo.totalTaxas)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {((resumo.totalTarifas + resumo.totalTaxas) / resumo.totalFaturamentoBruto * 100 || 0).toFixed(1)}% do faturamento
+              {((resumo.totalTaxas) / resumo.totalFaturamentoBruto * 100 || 0).toFixed(1)}% do faturamento
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Tarifa de Venda (fixa + financeira) */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Calculator className="h-4 w-4 text-orange-500" />
+              Tarifa Fixa
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-500">
+              {formatCurrency(resumo.totalTarifas)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Tarifa fixa + financeira
             </p>
             {resumo.totalCustoAds > 0 && (
               <p className="text-xs text-purple-500 mt-0.5">
