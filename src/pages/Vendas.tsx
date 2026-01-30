@@ -23,16 +23,12 @@ import { VendaItem } from "@/hooks/useVendaItens";
 // Hook simples para debounce
 function useDebouncedValue(value: string, delay: number): string {
   const [debouncedValue, setDebouncedValue] = useState(value);
-  
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedValue(value), delay);
     return () => clearTimeout(timer);
   }, [value, delay]);
-  
   return debouncedValue;
 }
-
-
 export default function Vendas() {
   // Estados do filtro de período
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
@@ -48,11 +44,10 @@ export default function Vendas() {
   const [conta, setConta] = useState<string>("");
   const [statusVenda, setStatusVenda] = useState<string>("todos");
   const [considerarFreteComprador, setConsiderarFreteComprador] = useState(true);
-  
+
   // Filtro de busca
   const [termoBusca, setTermoBusca] = useState("");
   const buscaDebounced = useDebouncedValue(termoBusca, 400);
-
   const [showMappingModal, setShowMappingModal] = useState(false);
   const [skuParaMapear, setSkuParaMapear] = useState<string | null>(null);
 
@@ -69,7 +64,7 @@ export default function Vendas() {
     contasDisponiveis,
     isLoading,
     isFetching,
-    dataUpdatedAt,
+    dataUpdatedAt
   } = useVendasPorPedido({
     page: currentPage,
     pageSize,
@@ -79,25 +74,34 @@ export default function Vendas() {
     conta: conta || undefined,
     statusVenda: statusVenda !== "todos" ? statusVenda : undefined,
     empresaId,
-    busca: buscaDebounced, // Filtro de busca
+    busca: buscaDebounced // Filtro de busca
   });
 
   // Hook antigo apenas para métricas por tipo de envio (dashboard)
-  const { metricasPorTipoEnvio } = useVendasPaginadas({
+  const {
+    metricasPorTipoEnvio
+  } = useVendasPaginadas({
     page: 0,
     pageSize: 1,
     periodoInicio: format(dateRange.from, "yyyy-MM-dd"),
     periodoFim: format(dateRange.to, "yyyy-MM-dd"),
-    empresaId,
+    empresaId
   });
 
   // Combina loading inicial + refetch
   const carregando = isLoading;
-
-  const { resumo: resumoPendentes, reprocessarMapeamentos } = useVendasPendentes({ empresaId });
+  const {
+    resumo: resumoPendentes,
+    reprocessarMapeamentos
+  } = useVendasPendentes({
+    empresaId
+  });
 
   // Hook de categorização automática
-  const { reprocessarAntigas, isProcessing: isAutoCategorizando } = useMarketplaceAutoCategorizacao();
+  const {
+    reprocessarAntigas,
+    isProcessing: isAutoCategorizando
+  } = useMarketplaceAutoCategorizacao();
 
   // Handler para categorização automática
   const handleCategorizarAutomatico = async () => {
@@ -105,9 +109,10 @@ export default function Vendas() {
       toast.error("Nenhuma empresa selecionada");
       return;
     }
-
     try {
-      await reprocessarAntigas.mutateAsync({ empresaId });
+      await reprocessarAntigas.mutateAsync({
+        empresaId
+      });
     } catch (error) {
       console.error("Erro na categorização automática:", error);
     }
@@ -119,7 +124,6 @@ export default function Vendas() {
     setDateRange(range);
     setCurrentPage(0);
   };
-
   const handleReprocessarMapeamentos = async () => {
     if (!empresaId) {
       toast.error("Nenhuma empresa selecionada");
@@ -130,22 +134,24 @@ export default function Vendas() {
 
   // Estado e handler para reprocessar vendas incompletas
   const [reprocessando, setReprocessando] = useState(false);
-
   const handleReprocessarIncompletas = async () => {
     if (!empresaId) {
       toast.error("Nenhuma empresa selecionada");
       return;
     }
-
     setReprocessando(true);
     try {
-      const { data, error } = await supabase.functions.invoke("ml-sync-orders", {
-        body: { empresa_id: empresaId, days_back: 7 },
+      const {
+        data,
+        error
+      } = await supabase.functions.invoke("ml-sync-orders", {
+        body: {
+          empresa_id: empresaId,
+          days_back: 7
+        }
       });
-
       if (error) {
         let mensagemErro = "Erro ao reprocessar vendas";
-
         try {
           const errorBody = error.context?.body ? JSON.parse(error.context.body) : null;
           if (errorBody?.error) {
@@ -154,7 +160,6 @@ export default function Vendas() {
         } catch {
           // Fallback
         }
-
         if (mensagemErro.includes("integração") || mensagemErro.includes("Integrações")) {
           toast.error(mensagemErro, {
             duration: 8000,
@@ -168,7 +173,6 @@ export default function Vendas() {
         }
         return;
       }
-
       if (data?.error) {
         toast.error(data.error, {
           duration: 8000,
@@ -179,10 +183,7 @@ export default function Vendas() {
         });
         return;
       }
-
-      toast.success(
-        `Sincronização concluída: ${data.registros_criados} novos, ${data.registros_atualizados} atualizados${data.partial ? " (parcial)" : ""}`
-      );
+      toast.success(`Sincronização concluída: ${data.registros_criados} novos, ${data.registros_atualizados} atualizados${data.partial ? " (parcial)" : ""}`);
     } catch (err) {
       console.error("Erro ao reprocessar:", err);
       const mensagem = err instanceof Error ? err.message : "Erro ao reprocessar vendas";
@@ -191,7 +192,6 @@ export default function Vendas() {
       setReprocessando(false);
     }
   };
-
   const handleAbrirMapeamentoLinha = (pedido: PedidoAgregado, item?: VendaItem) => {
     setSkuParaMapear(item?.sku_marketplace || null);
     setShowMappingModal(true);
@@ -208,19 +208,16 @@ export default function Vendas() {
     totalTarifas: resumoAgregado.tarifa_fixa_total,
     totalTaxas: resumoAgregado.comissao_total,
     totalOutrosDescontos: 0,
-    totalFreteComprador: 0, // Não incluído na agregação por pedido
+    totalFreteComprador: 0,
+    // Não incluído na agregação por pedido
     totalFreteVendedor: resumoAgregado.frete_vendedor_total,
     totalCustoAds: resumoAgregado.ads_total,
     totalImpostoVenda: resumoAgregado.impostos_total,
     margemContribuicao: resumoAgregado.margem_contribuicao_total,
-    margemContribuicaoPercent: resumoAgregado.valor_produto_total > 0
-      ? (resumoAgregado.margem_contribuicao_total / resumoAgregado.valor_produto_total) * 100
-      : 0,
-    ticketMedio: resumoAgregado.total_pedidos > 0
-      ? resumoAgregado.valor_produto_total / resumoAgregado.total_pedidos
-      : 0,
+    margemContribuicaoPercent: resumoAgregado.valor_produto_total > 0 ? resumoAgregado.margem_contribuicao_total / resumoAgregado.valor_produto_total * 100 : 0,
+    ticketMedio: resumoAgregado.total_pedidos > 0 ? resumoAgregado.valor_produto_total / resumoAgregado.total_pedidos : 0,
     qtdTransacoes: resumoAgregado.total_pedidos,
-    qtdItens: resumoAgregado.total_itens,
+    qtdItens: resumoAgregado.total_itens
   } : {
     totalFaturamentoBruto: 0,
     totalFaturamentoLiquido: 0,
@@ -236,7 +233,7 @@ export default function Vendas() {
     margemContribuicaoPercent: 0,
     ticketMedio: 0,
     qtdTransacoes: 0,
-    qtdItens: 0,
+    qtdItens: 0
   };
 
   // Adaptar consistência (valores não disponíveis na agregação por pedido)
@@ -244,53 +241,27 @@ export default function Vendas() {
     totalNaoConciliadas: 0,
     totalSemCusto: 0,
     totalSemProduto: 0,
-    totalSemCategoria: 0,
+    totalSemCategoria: 0
   };
-
-  return (
-    <MainLayout
-      title="Vendas"
-      actions={
-        <PeriodFilter
-          selectedPeriod={selectedPeriod}
-          onPeriodChange={handlePeriodChange}
-          isLoading={carregando || isFetching}
-        />
-      }
-    >
+  return <MainLayout title="Vendas" actions={<PeriodFilter selectedPeriod={selectedPeriod} onPeriodChange={handlePeriodChange} isLoading={carregando || isFetching} />}>
       <div className="flex flex-col gap-6 p-6">
         {/* Filtros: empresa + busca */}
         <div className="flex items-center gap-4 flex-wrap">
-          <EmpresaFilter
-            value={empresaSelecionada}
-            onChange={(val) => {
-              setEmpresaSelecionada(val);
-              setCurrentPage(0);
-            }}
-          />
+          <EmpresaFilter value={empresaSelecionada} onChange={val => {
+          setEmpresaSelecionada(val);
+          setCurrentPage(0);
+        }} />
           
           {/* Campo de busca */}
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por pedido, SKU ou descrição..."
-              value={termoBusca}
-              onChange={(e) => {
-                setTermoBusca(e.target.value);
-                setCurrentPage(0);
-              }}
-              className="pl-9 pr-8"
-            />
-            {termoBusca && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
-                onClick={() => setTermoBusca("")}
-              >
+            <Input placeholder="Buscar por pedido, SKU ou descrição..." value={termoBusca} onChange={e => {
+            setTermoBusca(e.target.value);
+            setCurrentPage(0);
+          }} className="pl-9 pr-8" />
+            {termoBusca && <Button variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6" onClick={() => setTermoBusca("")}>
                 <X className="h-3 w-3" />
-              </Button>
-            )}
+              </Button>}
           </div>
         </div>
 
@@ -314,77 +285,27 @@ export default function Vendas() {
 
           {/* Botões de ação */}
           <div className="flex items-center gap-2">
-            {empresaId && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleReprocessarIncompletas}
-                  disabled={reprocessando}
-                >
-                  {reprocessando ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <RotateCcw className="h-4 w-4 mr-2" />
-                  )}
+            {empresaId && <>
+                <Button variant="outline" size="sm" onClick={handleReprocessarIncompletas} disabled={reprocessando}>
+                  {reprocessando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
                   Ressincronizar ML
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleReprocessarMapeamentos}
-                  disabled={reprocessarMapeamentos.isPending}
-                >
-                  {reprocessarMapeamentos.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                  )}
+                <Button variant="outline" size="sm" onClick={handleReprocessarMapeamentos} disabled={reprocessarMapeamentos.isPending}>
+                  {reprocessarMapeamentos.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
                   Reprocessar Mapeamentos
                 </Button>
-              </>
-            )}
+              </>}
           </div>
         </div>
 
         {/* Alerta de SKUs pendentes */}
-        {resumoPendentes.totalSkusPendentes > 0 && (
-          <Alert variant="destructive" className="bg-warning/10 border-warning text-warning-foreground">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle className="font-semibold">
-              {resumoPendentes.totalSkusPendentes} SKUs pendentes de mapeamento
-            </AlertTitle>
-            <AlertDescription className="flex items-center justify-between">
-              <span>
-                {resumoPendentes.totalVendasAfetadas} vendas sem CMV calculado
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowMappingModal(true)}
-                className="ml-4"
-              >
-                <Link2 className="h-4 w-4 mr-1" />
-                Mapear Agora
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
+        {resumoPendentes.totalSkusPendentes > 0}
 
-        {carregando ? (
-          <div className="flex items-center justify-center py-12">
+        {carregando ? <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <>
+          </div> : <>
             {/* Dashboard de métricas */}
-            <VendasDashboard
-              resumo={resumoAdaptado}
-              metricasPorTipo={metricasPorTipoEnvio}
-              aliquotaImposto={aliquotaImposto}
-              considerarFreteComprador={considerarFreteComprador}
-              onConsiderarFreteChange={setConsiderarFreteComprador}
-            />
+            <VendasDashboard resumo={resumoAdaptado} metricasPorTipo={metricasPorTipoEnvio} aliquotaImposto={aliquotaImposto} considerarFreteComprador={considerarFreteComprador} onConsiderarFreteChange={setConsiderarFreteComprador} />
 
             {/* Tabela de pedidos (1 linha por pedido) */}
             <Card>
@@ -393,54 +314,29 @@ export default function Vendas() {
                   <div>
                     <CardTitle className="text-base">Pedidos do período</CardTitle>
                     <CardDescription>
-                      {empresaId 
-                        ? `${totalRegistros} pedidos • Página ${currentPage + 1} de ${totalPaginas || 1}`
-                        : "Selecione uma empresa para visualizar pedidos individuais"
-                      }
+                      {empresaId ? `${totalRegistros} pedidos • Página ${currentPage + 1} de ${totalPaginas || 1}` : "Selecione uma empresa para visualizar pedidos individuais"}
                     </CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                {empresaId ? (
-                  <PedidosTable
-                    pedidos={pedidos}
-                    currentPage={currentPage}
-                    totalPaginas={totalPaginas}
-                    totalRegistros={totalRegistros}
-                    pageSize={pageSize}
-                    onPageChange={setCurrentPage}
-                    onAbrirMapeamento={handleAbrirMapeamentoLinha}
-                    isLoading={isFetching}
-                  />
-                ) : (
-                  <div className="py-12 text-center text-muted-foreground">
+                {empresaId ? <PedidosTable pedidos={pedidos} currentPage={currentPage} totalPaginas={totalPaginas} totalRegistros={totalRegistros} pageSize={pageSize} onPageChange={setCurrentPage} onAbrirMapeamento={handleAbrirMapeamentoLinha} isLoading={isFetching} /> : <div className="py-12 text-center text-muted-foreground">
                     <ShoppingBag className="h-10 w-10 mx-auto mb-3 opacity-50" />
                     <p className="font-medium">Selecione uma empresa</p>
                     <p className="text-sm max-w-md mx-auto mt-1">
                       A tabela de pedidos requer uma empresa específica para evitar duplicidade entre CNPJs.
                       O modo consolidado ("Todas as empresas") mostra apenas os totais no dashboard acima.
                     </p>
-                  </div>
-                )}
+                  </div>}
               </CardContent>
             </Card>
-          </>
-        )}
+          </>}
       </div>
 
       {/* Modal de mapeamento */}
-      {empresaId && (
-        <VendasProductMappingModal
-          open={showMappingModal}
-          onOpenChange={(open) => {
-            setShowMappingModal(open);
-            if (!open) setSkuParaMapear(null);
-          }}
-          empresaId={empresaId}
-          skuFiltro={skuParaMapear}
-        />
-      )}
-    </MainLayout>
-  );
+      {empresaId && <VendasProductMappingModal open={showMappingModal} onOpenChange={open => {
+      setShowMappingModal(open);
+      if (!open) setSkuParaMapear(null);
+    }} empresaId={empresaId} skuFiltro={skuParaMapear} />}
+    </MainLayout>;
 }
