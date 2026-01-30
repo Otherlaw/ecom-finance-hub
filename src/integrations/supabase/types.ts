@@ -3544,9 +3544,9 @@ export type Database = {
       date_to_br_timestamptz: { Args: { p_date: string }; Returns: string }
       get_dashboard_kpis_period: {
         Args: {
-          p_data_fim?: string
-          p_data_inicio?: string
-          p_empresa_id?: string
+          p_data_fim: string
+          p_data_inicio: string
+          p_empresa_id: string
         }
         Returns: Json
       }
