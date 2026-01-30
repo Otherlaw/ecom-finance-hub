@@ -245,25 +245,11 @@ export default function Vendas() {
   };
   return <MainLayout title="Vendas" actions={<PeriodFilter selectedPeriod={selectedPeriod} onPeriodChange={handlePeriodChange} isLoading={carregando || isFetching} />}>
       <div className="flex flex-col gap-6 p-6">
-        {/* Filtros: empresa + busca */}
-        <div className="flex items-center gap-4 flex-wrap">
-          <EmpresaFilter value={empresaSelecionada} onChange={val => {
+        {/* Filtro de empresa */}
+        <EmpresaFilter value={empresaSelecionada} onChange={val => {
           setEmpresaSelecionada(val);
           setCurrentPage(0);
         }} />
-          
-          {/* Campo de busca */}
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Buscar por pedido, SKU ou descrição..." value={termoBusca} onChange={e => {
-            setTermoBusca(e.target.value);
-            setCurrentPage(0);
-          }} className="pl-9 pr-8" />
-            {termoBusca && <Button variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6" onClick={() => setTermoBusca("")}>
-                <X className="h-3 w-3" />
-              </Button>}
-          </div>
-        </div>
 
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -306,6 +292,30 @@ export default function Vendas() {
           </div> : <>
             {/* Dashboard de métricas */}
             <VendasDashboard resumo={resumoAdaptado} metricasPorTipo={metricasPorTipoEnvio} aliquotaImposto={aliquotaImposto} considerarFreteComprador={considerarFreteComprador} onConsiderarFreteChange={setConsiderarFreteComprador} />
+
+            {/* Campo de busca */}
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="Buscar por pedido, SKU ou descrição..." 
+                value={termoBusca} 
+                onChange={e => {
+                  setTermoBusca(e.target.value);
+                  setCurrentPage(0);
+                }} 
+                className="pl-9 pr-8" 
+              />
+              {termoBusca && (
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6" 
+                  onClick={() => setTermoBusca("")}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
 
             {/* Tabela de pedidos (1 linha por pedido) */}
             <Card>
