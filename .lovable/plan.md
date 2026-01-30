@@ -1,142 +1,125 @@
 
+# Plano: Simplificação do Dashboard de Vendas e Melhoria de UX
 
-# Plano: Integração de CMV com Tabela de Mapeamento MLB SKU
+## Resumo das Alterações
 
-## Resumo Executivo
+O usuário solicitou duas mudanças na tela de Vendas:
 
-O cálculo de CMV na tela de Vendas não está utilizando a tabela `produto_marketplace_map`, que é a tabela correta de mapeamento entre SKUs do marketplace e produtos internos. Isso faz com que 13.272 itens (43% do total) que já têm mapeamento criado fiquem sem CMV calculado.
-
----
-
-## Diagnóstico
-
-**Dados reais do banco:**
-
-| Situação | Quantidade | Percentual |
-|----------|-----------|------------|
-| Itens com `produto_id` direto | 14.744 | 47,8% |
-| Itens com mapeamento em `produto_marketplace_map` (sem `produto_id` no item) | 13.272 | 43% |
-| Itens sem nenhum mapeamento | 2.826 | 9,2% |
-| SKUs únicos sem mapeamento | 157 | - |
-
-**Problema principal:**
-A RPC `get_vendas_por_pedido` faz fallback para `produtos.sku = sku_marketplace`, ignorando completamente a tabela `produto_marketplace_map`. Isso é incorreto pois:
-- A tabela de mapeamento pode ter SKUs diferentes entre marketplace e interno (4 casos confirmados)
-- 13.272 itens já mapeados não estão sendo reconhecidos
+1. **Remover custos de ADS e tarifa dos cálculos** - A comissão já engloba comissão + taxa fixa juntas, então não é necessário mostrar separadamente
+2. **Mostrar nome fantasia da empresa na coluna "Conta"** - Em vez de mostrar o identificador técnico (ex: "EXDECORLTDA"), exibir o nome amigável (ex: "Inpari Distribuição")
 
 ---
 
-## Solução Proposta
+## Alterações Propostas
 
-### 1. Atualizar RPCs para usar `produto_marketplace_map`
+### 1. Simplificar Dashboard de Vendas (VendasDashboard.tsx)
 
-Modificar `get_vendas_por_pedido` e `get_vendas_por_pedido_resumo` para seguir esta hierarquia de CMV:
+**Antes:** 6 cards (Vendas, Custo & Imposto, Comissão ML, Tarifa Fixa, Frete Vendedor, Margem)
 
-```text
-1) produto_id direto no item (prioridade absoluta)
-2) produto_marketplace_map (mapeamento MLB SKU -> produto_id)
-3) produtos.sku = sku_marketplace (fallback por SKU igual)
-4) sku_costs (custo manual por SKU)
-5) 0 (sem custo)
-```
+**Depois:** 4 cards principais:
+- **Vendas Aprovadas** - mantém igual
+- **Custo & Imposto** - CMV + Imposto (sem ads)
+- **Comissão** - engloba comissão + tarifa (unificado)
+- **Frete Vendedor** - mantém igual
+- **Margem de Contribuição** - recalculada sem separar ads/tarifa
 
-### 2. Migrar itens existentes
+**Ajustes nos cálculos de margem:**
+- Remover `custoAds` do cálculo de margem
+- Não exibir separadamente "Tarifa Fixa"
+- A comissão já inclui tudo junto (comissão + tarifa)
 
-Criar migração que preenche `produto_id` em `marketplace_transaction_items` para todos os itens que têm mapeamento na tabela `produto_marketplace_map`:
+### 2. Simplificar Cards por Tipo de Envio
 
-```sql
-UPDATE marketplace_transaction_items mti
-SET produto_id = pmm.produto_id
-FROM produto_marketplace_map pmm
-JOIN marketplace_transactions mt ON mt.id = mti.transaction_id
-WHERE mti.sku_marketplace = pmm.sku_marketplace
-  AND mt.empresa_id = pmm.empresa_id
-  AND mti.produto_id IS NULL;
-```
+Remover linha de ADS e ajustar cálculo de margem para não subtrair ads separadamente.
 
-### 3. Sincronizar automaticamente novos mapeamentos
+### 3. Remover Colunas Tarifa e ADS da Tabela de Pedidos
 
-Quando um mapeamento é criado/atualizado em `produto_marketplace_map`, propagar automaticamente para os itens históricos via trigger ou hook no frontend.
+**Arquivos:** `PedidosTable.tsx` e `PedidosTableRow.tsx`
 
-### 4. Ajustar modal de mapeamento
+- Remover coluna "Tarifa" do header e rows
+- Remover coluna "ADS" do header e rows  
+- Ajustar exportação CSV para não incluir esses campos
 
-Garantir que ao clicar "Vincular a produto existente":
-1. Atualiza `marketplace_transaction_items.produto_id` no item atual
-2. Cria/atualiza entrada em `produto_marketplace_map`
-3. Propaga para itens históricos com mesmo SKU
+### 4. Mostrar Nome Fantasia da Empresa na Coluna "Conta"
+
+**Problema atual:** A coluna "Conta" mostra `conta_nome` que é um identificador técnico do marketplace (ex: "EXDECORLTDA")
+
+**Solução:** Como cada transação já tem `empresa_id`, podemos buscar o `nome_fantasia` da empresa correspondente via join.
+
+**Opções de implementação:**
+1. **Alterar RPC `get_vendas_por_pedido`** - Fazer join com tabela `empresas` e retornar `nome_fantasia` junto com os dados do pedido
+2. **Lookup no frontend** - Manter dados como estão e fazer lookup via hook `useEmpresas`
+
+**Recomendação:** Opção 1 (RPC) é mais eficiente e garante consistência. Adicionar campo `empresa_nome_fantasia` no retorno da RPC.
 
 ---
 
 ## Detalhamento Técnico
 
-### Arquivo: Nova migração SQL
+### Arquivo: `src/components/vendas/VendasDashboard.tsx`
 
-```sql
--- 1. Função auxiliar para resolver produto_id via mapeamento
-CREATE OR REPLACE FUNCTION get_produto_id_from_mapping(
-  p_sku_marketplace TEXT,
-  p_empresa_id UUID
-)
-RETURNS UUID
-LANGUAGE sql STABLE AS $$
-  SELECT produto_id 
-  FROM produto_marketplace_map 
-  WHERE sku_marketplace = p_sku_marketplace 
-    AND empresa_id = p_empresa_id 
-    AND ativo = true
-  LIMIT 1;
-$$;
-
--- 2. Atualizar get_vendas_por_pedido com nova hierarquia
--- Hierarquia: produto_id -> pmm.produto_id -> sku match -> sku_costs -> 0
+```
+Alterações:
+- Mudar grid de 6 para 4 colunas principais
+- Remover card "Tarifa Fixa"
+- Remover exibição de ADS no card de tarifas
+- Ajustar função calcularMargem para não subtrair custoAds
+- Ajustar TipoEnvioCard para não mostrar/calcular ads
 ```
 
-### Arquivo: `MapearCmvModal.tsx`
+### Arquivo: `src/components/vendas/PedidosTable.tsx`
 
-Modificar `handleVincularProduto` para:
-1. Criar/atualizar entrada em `produto_marketplace_map` ANTES de atualizar o item
-2. Atualizar o item atual com `produto_id`
-3. Chamar RPC para propagar para itens históricos
+```
+Alterações:
+- Remover colunas "Tarifa" e "ADS" do TableHeader
+- Atualizar array de headers na exportação CSV
+- Remover campos tarifa e ads do mapeamento de rows na exportação
+```
 
-### Arquivo: `useVendaItens.ts`
+### Arquivo: `src/components/vendas/PedidosTableRow.tsx`
 
-Ajustar hierarquia de custo para considerar mapeamento:
-1. `produto_id` direto -> custo do produto
-2. Buscar em `produto_marketplace_map` -> custo do produto mapeado
-3. `sku_costs` -> custo manual
-4. Fallback 0
+```
+Alterações:
+- Remover TableCell de tarifa_fixa_total
+- Remover TableCell de ads_total
+- Remover linhas correspondentes na área expandida (resumo)
+- Alterar coluna "Conta" para usar empresa_nome_fantasia (quando disponível via RPC)
+```
+
+### Arquivo: `src/pages/Vendas.tsx`
+
+```
+Alterações:
+- Remover totalTarifas e totalCustoAds do resumoAdaptado (ou zerar)
+- Simplificar props passadas para VendasDashboard
+```
+
+### Migração SQL (RPC)
+
+```sql
+-- Atualizar get_vendas_por_pedido para retornar nome_fantasia
+-- Adicionar LEFT JOIN com empresas
+-- Incluir e.nome_fantasia AS empresa_nome_fantasia no SELECT
+```
+
+---
+
+## Impacto Visual
+
+| Antes | Depois |
+|-------|--------|
+| 6 cards no dashboard | 4 cards (mais limpo) |
+| Tarifa e ADS separados | Tudo incluso na comissão |
+| Conta: "EXDECORLTDA" | Conta: "Inpari Distribuição" |
+| Tabela com 15 colunas | Tabela com 13 colunas |
 
 ---
 
 ## Sequência de Implementação
 
-1. **Criar migração de dados** - Preencher `produto_id` nos 13.272 itens que já têm mapeamento
-2. **Atualizar RPC `get_vendas_por_pedido`** - Incluir lookup em `produto_marketplace_map`
-3. **Atualizar RPC `get_vendas_por_pedido_resumo`** - Mesma lógica
-4. **Ajustar `MapearCmvModal`** - Criar mapeamento + atualizar item + propagar
-5. **Ajustar `useVendaItens`** - Considerar mapeamento no hook de itens expandidos
-
----
-
-## Impacto Esperado
-
-Após implementação:
-- Os 13.272 itens com mapeamento existente passarão a ter CMV calculado
-- Novos mapeamentos serão refletidos imediatamente
-- O botão "Mapear" aparecerá apenas para os ~2.826 itens (157 SKUs) realmente sem mapeamento
-
----
-
-## Validação
-
-Após implementação, executar:
-
-```sql
-SELECT 
-  SUM(CASE WHEN cmv_total > 0 THEN 1 ELSE 0 END) as pedidos_com_cmv,
-  SUM(CASE WHEN cmv_total = 0 OR cmv_total IS NULL THEN 1 ELSE 0 END) as pedidos_sem_cmv
-FROM get_vendas_por_pedido(NULL, CURRENT_DATE - 30, CURRENT_DATE);
-```
-
-Resultado esperado: redução significativa de pedidos sem CMV.
-
+1. Criar migração SQL para ajustar RPC `get_vendas_por_pedido` (adicionar nome_fantasia)
+2. Atualizar `useVendasPorPedido.ts` para mapear novo campo
+3. Atualizar `VendasDashboard.tsx` (remover tarifa e ads)
+4. Atualizar `PedidosTable.tsx` (remover colunas)
+5. Atualizar `PedidosTableRow.tsx` (remover células, usar nome fantasia)
+6. Atualizar `Vendas.tsx` (simplificar resumo)
