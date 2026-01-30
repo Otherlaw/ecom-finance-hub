@@ -14,8 +14,7 @@ import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw, Wand2, Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { VendaItem } from "@/hooks/useVendaItens";
@@ -35,7 +34,6 @@ export default function Vendas() {
   const [conta, setConta] = useState<string>("");
   const [statusVenda, setStatusVenda] = useState<string>("todos");
   const [considerarFreteComprador, setConsiderarFreteComprador] = useState(true);
-  const [buscaPedido, setBuscaPedido] = useState<string>("");
 
   const [showMappingModal, setShowMappingModal] = useState(false);
   const [skuParaMapear, setSkuParaMapear] = useState<string | null>(null);
@@ -63,7 +61,6 @@ export default function Vendas() {
     conta: conta || undefined,
     statusVenda: statusVenda !== "todos" ? statusVenda : undefined,
     empresaId,
-    busca: buscaPedido,
   });
 
   // Hook antigo apenas para métricas por tipo de envio (dashboard)
@@ -243,8 +240,8 @@ export default function Vendas() {
       }
     >
       <div className="flex flex-col gap-6 p-6">
-        {/* Filtro de empresa e busca */}
-        <div className="flex items-center gap-4 flex-wrap">
+        {/* Filtro de empresa */}
+        <div className="flex items-center gap-4">
           <EmpresaFilter
             value={empresaSelecionada}
             onChange={(val) => {
@@ -252,18 +249,6 @@ export default function Vendas() {
               setCurrentPage(0);
             }}
           />
-          <div className="relative w-64">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar pedido, SKU..."
-              value={buscaPedido}
-              onChange={(e) => {
-                setBuscaPedido(e.target.value);
-                setCurrentPage(0);
-              }}
-              className="pl-8 h-9"
-            />
-          </div>
         </div>
 
         {/* Header */}

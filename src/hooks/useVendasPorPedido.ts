@@ -59,7 +59,6 @@ interface UseVendasPorPedidoParams {
   conta?: string;
   statusVenda?: string;
   empresaId?: string | null;
-  busca?: string; // NOVO: filtro de busca por pedido_id, SKU ou descrição
 }
 
 /**
@@ -75,10 +74,8 @@ export function useVendasPorPedido({
   conta,
   statusVenda,
   empresaId,
-  busca,
 }: UseVendasPorPedidoParams) {
   const empresaParam = empresaId && empresaId !== "todas" ? empresaId : null;
-  const buscaParam = busca && busca.trim() !== "" ? busca.trim() : null;
 
   // PADRONIZADO: Envia strings DATE (YYYY-MM-DD) diretamente
   // A RPC converte para TIMESTAMPTZ usando date_to_br_timestamptz internamente
@@ -137,7 +134,6 @@ export function useVendasPorPedido({
       canal,
       conta,
       statusVenda,
-      buscaParam,
     ],
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_count", {
@@ -147,7 +143,6 @@ export function useVendasPorPedido({
         p_canal: canal || null,
         p_conta: conta || null,
         p_status: statusVenda || null,
-        p_busca: buscaParam,
       });
 
       if (error) {
@@ -177,7 +172,6 @@ export function useVendasPorPedido({
       canal,
       conta,
       statusVenda,
-      buscaParam,
       page,
       pageSize,
     ],
@@ -189,7 +183,6 @@ export function useVendasPorPedido({
         p_canal: canal || null,
         p_conta: conta || null,
         p_status: statusVenda || null,
-        p_busca: buscaParam,
         p_limit: pageSize,
         p_offset: page * pageSize,
       });
