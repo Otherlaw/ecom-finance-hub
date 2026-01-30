@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Link2, Search, Trash2, Package, Store, AlertCircle, Check } from "lucide-react";
+import { Link2, Search, Trash2, Package, Store, AlertCircle, Check, Plus } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ import {
 import { useMarketplaceSkuMappings, MarketplaceSkuMapping } from "@/hooks/useMarketplaceSkuMappings";
 import { useProdutos } from "@/hooks/useProdutos";
 import { useEmpresas } from "@/hooks/useEmpresas";
+import { NovoMapeamentoModal } from "@/components/mapeamentos/NovoMapeamentoModal";
 import { toast } from "sonner";
 
 const CANAIS_MARKETPLACE = [
@@ -49,11 +50,12 @@ export default function MapeamentosMarketplace() {
   const [canalFilter, setCanalFilter] = useState<string>("todos");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [searchTerm, setSearchTerm] = useState("");
+  const [showNovoModal, setShowNovoModal] = useState(false);
 
   const [editingMapping, setEditingMapping] = useState<MarketplaceSkuMapping | null>(null);
   const [selectedProdutoId, setSelectedProdutoId] = useState<string>("");
 
-  const { mappings, isLoading, criarOuAtualizarMapping, removerMapping } = useMarketplaceSkuMappings({
+  const { mappings, isLoading, refetch, criarOuAtualizarMapping, removerMapping } = useMarketplaceSkuMappings({
     empresaId: empresaId || undefined,
     canal: canalFilter !== "todos" ? canalFilter : undefined,
   });
@@ -134,6 +136,10 @@ export default function MapeamentosMarketplace() {
                 Vincule os códigos de anúncio do marketplace aos produtos internos
               </p>
             </div>
+            <Button onClick={() => setShowNovoModal(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Novo Mapeamento
+            </Button>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
@@ -378,6 +384,14 @@ export default function MapeamentosMarketplace() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de novo mapeamento manual */}
+      <NovoMapeamentoModal
+        open={showNovoModal}
+        onOpenChange={setShowNovoModal}
+        empresaId={empresaId}
+        onSuccess={() => refetch()}
+      />
     </div>
   );
 }
