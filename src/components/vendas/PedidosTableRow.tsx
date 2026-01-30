@@ -611,11 +611,11 @@ export function PedidosTableRow({
                           {item.produto_nome || item.descricao_item || "Produto não identificado"}
                         </span>
                         {/* Botão mapear: sempre aparece se não tem produto_id */}
-                        {item.sem_produto && onAbrirMapeamento && (
+                        {item.sem_produto && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              onAbrirMapeamento(pedido, item);
+                              handleAbrirCmvModal(item);
                             }}
                             className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full
                                        bg-amber-500/10 text-amber-600 border border-amber-300
@@ -674,6 +674,18 @@ export function PedidosTableRow({
             </>
           )}
         </>
+      )}
+
+      {/* Modal de mapeamento de CMV */}
+      {showCmvModal && itemParaMapear && transactionId && (
+        <MapearCmvModal
+          open={showCmvModal}
+          onOpenChange={setShowCmvModal}
+          empresaId={transactionId.empresa_id}
+          item={itemParaMapear}
+          canal={pedido.canal}
+          onSuccess={handleCmvSalvo}
+        />
       )}
     </>
   );

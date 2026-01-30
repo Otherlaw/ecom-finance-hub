@@ -126,24 +126,27 @@ export function MapearCmvModal({
       return;
     }
 
-    if (!item.sku_marketplace) {
-      toast.error("SKU não disponível para este item");
-      return;
-    }
-
     setSalvando(true);
 
     try {
-      // Criar mapeamento via RPC
-      const { error } = await supabase.rpc("mapear_sku_para_produto", {
-        p_empresa_id: empresaId,
-        p_produto_id: selectedProduto.id,
-        p_canal: canal,
-        p_sku_marketplace: item.sku_marketplace,
-        p_nome_anuncio: item.descricao_item || null,
-      });
+      // Estratégia: sempre atualizar o item específico diretamente primeiro
+      // Isso garante que o produto_id seja preenchido imediatamente
+      const { error: updateError } = await supabase
+        .from("marketplace_transaction_items")
+        .update({ produto_id: selectedProduto.id })
+        .eq("id", item.id);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
+
+      // Se tiver SKU, também atualizar os demais itens com o mesmo SKU via RPC
+      if (item.sku_marketplace) {
+        await supabase.rpc("mapear_sku_para_produto", {
+          p_empresa_id: empresaId,
+          p_produto_id: selectedProduto.id,
+          p_canal: canal,
+          p_sku_marketplace: item.sku_marketplace,
+        });
+      }
 
       toast.success("Produto vinculado com sucesso!");
       onOpenChange(false);
