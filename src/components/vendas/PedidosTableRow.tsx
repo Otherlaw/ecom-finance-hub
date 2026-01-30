@@ -4,6 +4,7 @@ import { PedidoAgregado } from "@/hooks/useVendasPorPedido";
 import { useVendaItens, VendaItem } from "@/hooks/useVendaItens";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MapearCmvModal } from "./MapearCmvModal";
+import { NovoMapeamentoModal } from "@/components/mapeamentos/NovoMapeamentoModal";
 
 interface PedidosTableRowProps {
   pedido: PedidoAgregado;
@@ -120,6 +122,7 @@ export function PedidosTableRow({
 }: PedidosTableRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [showCmvModal, setShowCmvModal] = useState(false);
+  const [showMapeamentoManual, setShowMapeamentoManual] = useState(false);
   const [itemParaMapear, setItemParaMapear] = useState<VendaItem | null>(null);
   const queryClient = useQueryClient();
   
@@ -481,13 +484,27 @@ export function PedidosTableRow({
           ) : itens.length === 0 ? (
             <TableRow>
               <TableCell colSpan={14} className="bg-muted/10">
-                <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2">
+                <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-3">
                   <Package className="h-8 w-8 opacity-50" />
                   <span className="text-sm font-medium">Itens pendentes de sincronização</span>
                   <p className="text-xs text-center max-w-sm">
                     Os itens deste pedido ainda não foram sincronizados da API. 
                     Aguarde a próxima sincronização automática ou importe o relatório do canal.
                   </p>
+                  <div className="flex gap-2 mt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMapeamentoManual(true);
+                      }}
+                      className="text-xs"
+                    >
+                      <Link2 className="h-3 w-3 mr-1" />
+                      Criar Mapeamento Manual
+                    </Button>
+                  </div>
                 </div>
               </TableCell>
             </TableRow>
@@ -672,6 +689,18 @@ export function PedidosTableRow({
           item={itemParaMapear}
           canal={pedido.canal}
           onSuccess={handleCmvSalvo}
+        />
+      )}
+
+      {/* Modal de mapeamento manual (quando não há itens sincronizados) */}
+      {showMapeamentoManual && (
+        <NovoMapeamentoModal
+          open={showMapeamentoManual}
+          onOpenChange={setShowMapeamentoManual}
+          empresaId={pedido.empresa_id}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ["vendas-por-pedido"] });
+          }}
         />
       )}
     </>
