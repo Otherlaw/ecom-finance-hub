@@ -126,34 +126,52 @@ export function MapearCmvModal({
       return;
     }
 
+    if (!item.id) {
+      toast.error("ID do item não disponível");
+      console.error("[CMV] Item sem ID:", item);
+      return;
+    }
+
     setSalvando(true);
+    console.log("[CMV] Iniciando vinculação:", { itemId: item.id, produtoId: selectedProduto.id });
 
     try {
-      // Estratégia: sempre atualizar o item específico diretamente primeiro
-      // Isso garante que o produto_id seja preenchido imediatamente
-      const { error: updateError } = await supabase
+      // ATUALIZAÇÃO DIRETA: preencher produto_id no item específico
+      const { data: updateData, error: updateError } = await supabase
         .from("marketplace_transaction_items")
         .update({ produto_id: selectedProduto.id })
-        .eq("id", item.id);
+        .eq("id", item.id)
+        .select("id, produto_id");
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error("[CMV] Erro no UPDATE:", updateError);
+        throw updateError;
+      }
+
+      console.log("[CMV] UPDATE bem-sucedido:", updateData);
 
       // Se tiver SKU, também atualizar os demais itens com o mesmo SKU via RPC
       if (item.sku_marketplace) {
-        await supabase.rpc("mapear_sku_para_produto", {
+        const { data: rpcData, error: rpcError } = await supabase.rpc("mapear_sku_para_produto", {
           p_empresa_id: empresaId,
           p_produto_id: selectedProduto.id,
           p_canal: canal,
           p_sku_marketplace: item.sku_marketplace,
         });
+        
+        if (rpcError) {
+          console.warn("[CMV] RPC falhou (não bloqueante):", rpcError);
+        } else {
+          console.log("[CMV] RPC atualizou", rpcData, "itens adicionais");
+        }
       }
 
       toast.success("Produto vinculado com sucesso!");
       onOpenChange(false);
       onSuccess?.();
-    } catch (error) {
-      console.error("Erro ao vincular produto:", error);
-      toast.error("Erro ao vincular produto");
+    } catch (error: any) {
+      console.error("[CMV] Erro ao vincular produto:", error);
+      toast.error(`Erro ao vincular: ${error?.message || "Erro desconhecido"}`);
     } finally {
       setSalvando(false);
     }
