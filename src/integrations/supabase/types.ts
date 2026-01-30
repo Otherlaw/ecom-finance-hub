@@ -3670,24 +3670,26 @@ export type Database = {
           p_status?: string
         }
         Returns: {
+          ads_total: number
           canal: string
           cmv_total: number
-          comissao: number
+          comissao_total: number
           conta_nome: string
-          custo_ads: number
+          data_pedido: string
           data_repasse: string
-          data_transacao: string
           empresa_id: string
-          frete_vendedor: number
-          imposto_calculado: number
+          frete_vendedor_total: number
+          impostos_total: number
           margem_contribuicao: number
+          outros_descontos_total: number
           pedido_id: string
           qtd_itens: number
+          status: string
           status_enriquecimento: string
-          status_transacao: string
-          tarifa_fixa: number
+          tarifa_fixa_total: number
           tem_cmv: boolean
-          valor_liquido: number
+          tipo_envio: string
+          valor_liquido_calculado: number
           valor_produto: number
         }[]
       }
@@ -3718,6 +3720,8 @@ export type Database = {
           frete_vendedor_total: number
           impostos_total: number
           margem_contribuicao_total: number
+          pedidos_com_cmv: number
+          pedidos_sem_cmv: number
           tarifa_fixa_total: number
           total_itens: number
           total_pedidos: number
