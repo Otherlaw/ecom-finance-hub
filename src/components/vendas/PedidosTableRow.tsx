@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { format } from "date-fns";
-import { utcToBrasilia } from "@/lib/dateRangeUtc";
+import { formatInBrasilia } from "@/lib/dateRangeUtc";
 import { PedidoAgregado } from "@/hooks/useVendasPorPedido";
 import { useVendaItens, VendaItem } from "@/hooks/useVendaItens";
 import { TableCell, TableRow } from "@/components/ui/table";
@@ -225,9 +224,9 @@ export function PedidosTableRow({
         </TableCell>
         <TableCell className="text-xs">
           <div>
-            {format(utcToBrasilia(pedido.data_pedido), "dd/MM/yy")}
+            {formatInBrasilia(pedido.data_pedido, "dd/MM/yy")}
             <span className="block text-[10px] text-muted-foreground">
-              {format(utcToBrasilia(pedido.data_pedido), "HH:mm")}
+              {formatInBrasilia(pedido.data_pedido, "HH:mm")}
             </span>
           </div>
         </TableCell>

@@ -12,6 +12,7 @@
  */
 
 import { startOfDay, addDays, format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 
 export interface DateRange {
   from: Date;
@@ -109,36 +110,25 @@ export function formatDateRangeForRpc(dateRange: DateRange): { periodoInicio: st
  * @returns Date object representando o horário de Brasília
  */
 export function utcToBrasilia(isoString: string): Date {
-  // Normalizar formato para ISO padrão (substituir espaço por T se necessário)
-  const normalized = isoString.includes('T') ? isoString : isoString.replace(' ', 'T');
-  
-  // Verificar se já tem offset
-  const hasOffset = /[+-]\d{2}:\d{2}$/.test(normalized) || normalized.endsWith('Z');
-  
-  // Se não tem offset, adicionar +00:00 para indicar UTC
-  const withOffset = hasOffset ? normalized : normalized + '+00:00';
-  
-  // Parsear o timestamp
+  // Mantemos a função por compatibilidade, mas sem “subtrair 3h na mão”.
+  // Ela apenas parseia a string como Date (UTC/offset-aware).
+  // Para exibição consistente em Brasília, prefira `formatInBrasilia`.
+
+  const normalized = isoString.includes("T") ? isoString : isoString.replace(" ", "T");
+  const hasOffset = /[+-]\d{2}:\d{2}$/.test(normalized) || normalized.endsWith("Z");
+  const withOffset = hasOffset ? normalized : normalized + "+00:00";
+  return new Date(withOffset);
+}
+
+/**
+ * Formata um timestamp ISO SEM depender do timezone do navegador.
+ * Sempre renderiza em America/Sao_Paulo (Brasília, UTC-3).
+ */
+export function formatInBrasilia(isoString: string, pattern: string): string {
+  const normalized = isoString.includes("T") ? isoString : isoString.replace(" ", "T");
+  const hasOffset = /[+-]\d{2}:\d{2}$/.test(normalized) || normalized.endsWith("Z");
+  const withOffset = hasOffset ? normalized : normalized + "+00:00";
   const date = new Date(withOffset);
-  
-  // Obter os componentes em UTC
-  const utcYear = date.getUTCFullYear();
-  const utcMonth = date.getUTCMonth();
-  const utcDay = date.getUTCDate();
-  const utcHours = date.getUTCHours();
-  const utcMinutes = date.getUTCMinutes();
-  const utcSeconds = date.getUTCSeconds();
-  
-  // Aplicar offset de Brasília (UTC-3)
-  // Criar nova data com os valores ajustados
-  const brasiliaDate = new Date(Date.UTC(
-    utcYear,
-    utcMonth,
-    utcDay,
-    utcHours - 3, // Subtrair 3 horas do UTC
-    utcMinutes,
-    utcSeconds
-  ));
-  
-  return brasiliaDate;
+
+  return formatInTimeZone(date, "America/Sao_Paulo", pattern);
 }
