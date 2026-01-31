@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { format, parseISO } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
+import { format } from "date-fns";
+import { utcToBrasilia } from "@/lib/dateRangeUtc";
 import { PedidoAgregado } from "@/hooks/useVendasPorPedido";
 import { useVendaItens, VendaItem } from "@/hooks/useVendaItens";
 import { TableCell, TableRow } from "@/components/ui/table";
@@ -225,9 +225,9 @@ export function PedidosTableRow({
         </TableCell>
         <TableCell className="text-xs">
           <div>
-            {format(toZonedTime(parseISO(pedido.data_pedido), "America/Sao_Paulo"), "dd/MM/yy")}
+            {format(utcToBrasilia(pedido.data_pedido), "dd/MM/yy")}
             <span className="block text-[10px] text-muted-foreground">
-              {format(toZonedTime(parseISO(pedido.data_pedido), "America/Sao_Paulo"), "HH:mm")}
+              {format(utcToBrasilia(pedido.data_pedido), "HH:mm")}
             </span>
           </div>
         </TableCell>

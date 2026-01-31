@@ -94,3 +94,30 @@ export function formatDateRangeForRpc(dateRange: DateRange): { periodoInicio: st
     periodoFim: format(dateRange.to, "yyyy-MM-dd"),
   };
 }
+
+/**
+ * Converte um timestamp UTC/ISO para horário de Brasília (UTC-3).
+ * 
+ * IMPORTANTE: São Paulo NÃO usa mais horário de verão desde 2019.
+ * Portanto, usamos offset fixo de -3 horas.
+ * 
+ * @param isoString - String ISO do timestamp (ex: "2026-01-30T23:47:18+00:00" ou "2026-01-30 23:47:18+00")
+ * @returns Date object ajustado para horário de Brasília
+ * 
+ * Exemplo:
+ * - Input: "2026-01-30T23:47:18+00:00" (UTC)
+ * - Output: Date representando "2026-01-30T20:47:18" (Brasília)
+ */
+export function utcToBrasilia(isoString: string): Date {
+  // Normalizar formato para ISO padrão (substituir espaço por T se necessário)
+  const normalized = isoString.includes('T') ? isoString : isoString.replace(' ', 'T');
+  
+  // Parsear como UTC
+  const utcDate = new Date(normalized);
+  
+  // Subtrair 3 horas (Brasília = UTC-3)
+  // Usamos getTime() para evitar problemas com DST do navegador
+  const brasiliaMs = utcDate.getTime() - (3 * 60 * 60 * 1000);
+  
+  return new Date(brasiliaMs);
+}
