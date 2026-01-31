@@ -3549,9 +3549,9 @@ export type Database = {
       delete_user_cascade: { Args: { p_user_id: string }; Returns: Json }
       get_dashboard_kpis_period: {
         Args: {
-          p_data_fim: string
-          p_data_inicio: string
-          p_empresa_id: string
+          p_data_fim?: string
+          p_data_inicio?: string
+          p_empresa_id?: string
         }
         Returns: Json
       }
