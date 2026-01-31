@@ -2,10 +2,11 @@
  * Modal para mapear itens de um pedido específico
  * Mostra os itens já sincronizados que ainda não têm produto vinculado
  * Permite criar mapeamento com as informações vindas da API
+ * Permite criar produto rapidamente sem sair da tela
  */
 
 import { useState } from "react";
-import { Link2, Package, Check, AlertTriangle, Loader2, Search } from "lucide-react";
+import { Link2, Package, Check, AlertTriangle, Loader2, Search, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -38,6 +39,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { extractMlDraftItemsFromRawOrder } from "@/lib/marketplace-raw-order";
+import { CriarProdutoRapidoForm } from "./CriarProdutoRapidoForm";
 
 interface ItemPendente {
   id: string;
@@ -75,6 +77,10 @@ export function MapearItensPedidoModal({
   const [mapeamentos, setMapeamentos] = useState<Record<string, string>>({});
   const [salvando, setSalvando] = useState(false);
   const [popoverAberto, setPopoverAberto] = useState<string | null>(null);
+  // Estado para controlar qual item está em modo "criar produto"
+  const [criandoProdutoParaItem, setCriandoProdutoParaItem] = useState<string | null>(null);
+  // Produtos criados durante a sessão (para atualizar lista local)
+  const [produtosCriados, setProdutosCriados] = useState<Produto[]>([]);
 
   const { produtos, isLoading: loadingProdutos } = useProdutos({ 
     empresaId, 
@@ -214,7 +220,26 @@ export function MapearItensPedidoModal({
   const getProdutoSelecionado = (itemId: string) => {
     const produtoId = mapeamentos[itemId];
     if (!produtoId) return null;
+    // Verificar primeiro nos produtos criados durante a sessão
+    const produtoCriado = produtosCriados.find(p => p.id === produtoId);
+    if (produtoCriado) return produtoCriado;
     return produtos.find(p => p.id === produtoId);
+  };
+
+  // Combinar produtos existentes com os criados durante a sessão
+  const todosProdutos = [...produtosCriados, ...produtos.filter(
+    p => !produtosCriados.some(pc => pc.id === p.id)
+  )];
+
+  const handleProdutoCriado = (itemId: string, produto: Produto) => {
+    // Adicionar à lista de produtos criados
+    setProdutosCriados(prev => [...prev, produto]);
+    // Selecionar automaticamente
+    setMapeamentos(prev => ({ ...prev, [itemId]: produto.id }));
+    // Fechar modo de criação
+    setCriandoProdutoParaItem(null);
+    // Invalidar query de produtos para atualizar lista
+    queryClient.invalidateQueries({ queryKey: ["produtos"] });
   };
 
   return (
@@ -294,75 +319,103 @@ export function MapearItensPedidoModal({
                         </p>
                       </div>
 
-                      {/* Seletor de produto */}
+                      {/* Seletor de produto OU formulário de criação */}
                       <div className="space-y-2">
-                        <label className="text-xs font-medium text-muted-foreground">
-                          Vincular ao produto:
-                        </label>
-                        <Popover 
-                          open={popoverAberto === item.id} 
-                          onOpenChange={(open) => setPopoverAberto(open ? item.id : null)}
-                        >
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              className="w-full justify-between"
-                            >
-                              {getProdutoSelecionado(item.id) ? (
-                                <div className="flex items-center gap-2 truncate">
-                                  <Package className="h-4 w-4 text-muted-foreground shrink-0" />
-                                  <span className="truncate">{getProdutoSelecionado(item.id)?.nome}</span>
-                                  <span className="text-xs text-muted-foreground font-mono shrink-0">
-                                    ({getProdutoSelecionado(item.id)?.sku})
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground">Selecionar produto...</span>
-                              )}
-                              <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-[400px] p-0" align="start">
-                            <Command>
-                              <CommandInput placeholder="Buscar por nome ou SKU..." />
-                              <CommandList>
-                                {loadingProdutos ? (
-                                  <div className="p-4 text-center text-sm text-muted-foreground">
-                                    Carregando produtos...
-                                  </div>
-                                ) : produtos.length === 0 ? (
-                                  <CommandEmpty>Nenhum produto encontrado</CommandEmpty>
-                                ) : (
-                                  <CommandGroup>
-                                    {produtos.map((produto) => (
-                                      <CommandItem
-                                        key={produto.id}
-                                        value={`${produto.sku} ${produto.nome}`}
-                                        onSelect={() => handleSelectProduto(item.id, produto.id)}
-                                      >
-                                        <Check
-                                          className={cn(
-                                            "mr-2 h-4 w-4",
-                                            mapeamentos[item.id] === produto.id
-                                              ? "opacity-100"
-                                              : "opacity-0"
-                                          )}
-                                        />
-                                        <div className="flex flex-col">
-                                          <span className="font-medium">{produto.nome}</span>
-                                          <span className="text-xs text-muted-foreground">
-                                            SKU: {produto.sku} • Custo: {(produto.custo_medio || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                                          </span>
+                        {criandoProdutoParaItem === item.id ? (
+                          // Formulário de criação rápida
+                          <CriarProdutoRapidoForm
+                            empresaId={empresaId}
+                            skuSugerido={item.sku_marketplace}
+                            nomeSugerido={item.descricao_item}
+                            precoSugerido={item.preco_unitario}
+                            onCancel={() => setCriandoProdutoParaItem(null)}
+                            onSuccess={(produto) => handleProdutoCriado(item.id, produto)}
+                          />
+                        ) : (
+                          // Seletor de produto existente
+                          <>
+                            <label className="text-xs font-medium text-muted-foreground">
+                              Vincular ao produto:
+                            </label>
+                            <div className="flex gap-2">
+                              <Popover 
+                                open={popoverAberto === item.id} 
+                                onOpenChange={(open) => setPopoverAberto(open ? item.id : null)}
+                              >
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    role="combobox"
+                                    className="flex-1 justify-between"
+                                  >
+                                    {getProdutoSelecionado(item.id) ? (
+                                      <div className="flex items-center gap-2 truncate">
+                                        <Package className="h-4 w-4 text-muted-foreground shrink-0" />
+                                        <span className="truncate">{getProdutoSelecionado(item.id)?.nome}</span>
+                                        <span className="text-xs text-muted-foreground font-mono shrink-0">
+                                          ({getProdutoSelecionado(item.id)?.sku})
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-muted-foreground">Selecionar produto...</span>
+                                    )}
+                                    <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[400px] p-0" align="start">
+                                  <Command>
+                                    <CommandInput placeholder="Buscar por nome ou SKU..." />
+                                    <CommandList>
+                                      {loadingProdutos ? (
+                                        <div className="p-4 text-center text-sm text-muted-foreground">
+                                          Carregando produtos...
                                         </div>
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
-                                )}
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
+                                      ) : todosProdutos.length === 0 ? (
+                                        <CommandEmpty>Nenhum produto encontrado</CommandEmpty>
+                                      ) : (
+                                        <CommandGroup>
+                                          {todosProdutos.map((produto) => (
+                                            <CommandItem
+                                              key={produto.id}
+                                              value={`${produto.sku} ${produto.nome}`}
+                                              onSelect={() => handleSelectProduto(item.id, produto.id)}
+                                            >
+                                              <Check
+                                                className={cn(
+                                                  "mr-2 h-4 w-4",
+                                                  mapeamentos[item.id] === produto.id
+                                                    ? "opacity-100"
+                                                    : "opacity-0"
+                                                )}
+                                              />
+                                              <div className="flex flex-col">
+                                                <span className="font-medium">{produto.nome}</span>
+                                                <span className="text-xs text-muted-foreground">
+                                                  SKU: {produto.sku} • Custo: {(produto.custo_medio || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                                                </span>
+                                              </div>
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      )}
+                                    </CommandList>
+                                  </Command>
+                                </PopoverContent>
+                              </Popover>
+                              
+                              {/* Botão para criar produto */}
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="icon"
+                                title="Criar produto"
+                                onClick={() => setCriandoProdutoParaItem(item.id)}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}
