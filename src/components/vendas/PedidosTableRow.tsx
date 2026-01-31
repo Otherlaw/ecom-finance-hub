@@ -220,7 +220,16 @@ export function PedidosTableRow({
           )}
         </TableCell>
         <TableCell className="text-xs font-mono text-muted-foreground">
-          {pedido.pedido_id || "-"}
+          {pedido.pedido_id ? (
+            <Tooltip>
+              <TooltipTrigger>
+                <span>...{pedido.pedido_id.slice(-8)}</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs font-mono">{pedido.pedido_id}</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : "-"}
         </TableCell>
         <TableCell className="text-xs">
           <div>
