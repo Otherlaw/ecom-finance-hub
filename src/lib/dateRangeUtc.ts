@@ -96,28 +96,49 @@ export function formatDateRangeForRpc(dateRange: DateRange): { periodoInicio: st
 }
 
 /**
- * Converte um timestamp UTC/ISO para horário de Brasília (UTC-3).
+ * Converte um timestamp ISO para exibição em horário de Brasília (UTC-3).
  * 
  * IMPORTANTE: São Paulo NÃO usa mais horário de verão desde 2019.
  * Portanto, usamos offset fixo de -3 horas.
  * 
- * @param isoString - String ISO do timestamp (ex: "2026-01-30T23:47:18+00:00" ou "2026-01-30 23:47:18+00")
- * @returns Date object ajustado para horário de Brasília
+ * Esta função interpreta o timestamp corretamente:
+ * - Se já tem offset (+00:00 ou Z), usa esse offset
+ * - Se não tem offset, assume UTC
  * 
- * Exemplo:
- * - Input: "2026-01-30T23:47:18+00:00" (UTC)
- * - Output: Date representando "2026-01-30T20:47:18" (Brasília)
+ * @param isoString - String ISO do timestamp
+ * @returns Date object representando o horário de Brasília
  */
 export function utcToBrasilia(isoString: string): Date {
   // Normalizar formato para ISO padrão (substituir espaço por T se necessário)
   const normalized = isoString.includes('T') ? isoString : isoString.replace(' ', 'T');
   
-  // Parsear como UTC
-  const utcDate = new Date(normalized);
+  // Verificar se já tem offset
+  const hasOffset = /[+-]\d{2}:\d{2}$/.test(normalized) || normalized.endsWith('Z');
   
-  // Subtrair 3 horas (Brasília = UTC-3)
-  // Usamos getTime() para evitar problemas com DST do navegador
-  const brasiliaMs = utcDate.getTime() - (3 * 60 * 60 * 1000);
+  // Se não tem offset, adicionar +00:00 para indicar UTC
+  const withOffset = hasOffset ? normalized : normalized + '+00:00';
   
-  return new Date(brasiliaMs);
+  // Parsear o timestamp
+  const date = new Date(withOffset);
+  
+  // Obter os componentes em UTC
+  const utcYear = date.getUTCFullYear();
+  const utcMonth = date.getUTCMonth();
+  const utcDay = date.getUTCDate();
+  const utcHours = date.getUTCHours();
+  const utcMinutes = date.getUTCMinutes();
+  const utcSeconds = date.getUTCSeconds();
+  
+  // Aplicar offset de Brasília (UTC-3)
+  // Criar nova data com os valores ajustados
+  const brasiliaDate = new Date(Date.UTC(
+    utcYear,
+    utcMonth,
+    utcDay,
+    utcHours - 3, // Subtrair 3 horas do UTC
+    utcMinutes,
+    utcSeconds
+  ));
+  
+  return brasiliaDate;
 }
