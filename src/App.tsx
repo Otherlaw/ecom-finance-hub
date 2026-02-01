@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { EmpresaProvider } from "./contexts/EmpresaContext";
+import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import Fechamento from "./pages/Fechamento";
 import FluxoCaixa from "./pages/FluxoCaixa";
@@ -40,6 +41,8 @@ import Planos from "./pages/Planos";
 import Integracoes from "./pages/Integracoes";
 import PatrimonioImobilizado from "./pages/PatrimonioImobilizado";
 import Vendas from "./pages/Vendas";
+import Recursos from "./pages/Recursos";
+import Ajuda from "./pages/Ajuda";
 import NotFound from "./pages/NotFound";
 import { AssistantWidget } from "./components/assistant/AssistantWidget";
 import { AssistantChatProvider } from "./contexts/AssistantChatContext";
@@ -55,11 +58,14 @@ const App = () => (
         <EmpresaProvider>
           <AssistantChatProvider>
             <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<Landing />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/vendas" element={<Vendas />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/perfil" element={<Perfil />} />
             <Route path="/planos" element={<Planos />} />
+            <Route path="/recursos" element={<Recursos />} />
+            <Route path="/ajuda" element={<Ajuda />} />
             <Route path="/fechamento" element={<Fechamento />} />
             <Route path="/fluxo-caixa" element={<FluxoCaixa />} />
             <Route path="/dre" element={<DRE />} />
