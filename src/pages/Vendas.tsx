@@ -10,13 +10,14 @@ import { VendasDashboard } from "@/components/vendas/VendasDashboard";
 import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
 import { PedidosTable } from "@/components/vendas/PedidosTable";
 import { VendasProductMappingModal } from "@/components/vendas/VendasProductMappingModal";
+import { AtualizarCustosSkuModal } from "@/components/vendas/AtualizarCustosSkuModal";
 import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
 import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw, Wand2, Search, X } from "lucide-react";
+import { Loader2, ShoppingBag, AlertTriangle, Link2, RefreshCw, RotateCcw, Wand2, Search, X, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { VendaItem } from "@/hooks/useVendaItens";
@@ -50,6 +51,7 @@ export default function Vendas() {
   const [termoBusca, setTermoBusca] = useState("");
   const buscaDebounced = useDebouncedValue(termoBusca, 400);
   const [showMappingModal, setShowMappingModal] = useState(false);
+  const [showAtualizarCustosModal, setShowAtualizarCustosModal] = useState(false);
   const [skuParaMapear, setSkuParaMapear] = useState<string | null>(null);
 
   // ID da empresa para filtros (undefined = todas)
@@ -285,7 +287,18 @@ export default function Vendas() {
               </p>
             </div>
           </div>
-
+          
+          {/* Botão de atualizar custos */}
+          {empresaId && (
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowAtualizarCustosModal(true)}
+            >
+              <Settings2 className="h-4 w-4 mr-2" />
+              Atualizar Custos de SKU
+            </Button>
+          )}
         </div>
 
         {/* Alerta de SKUs pendentes */}
@@ -348,9 +361,23 @@ export default function Vendas() {
       </div>
 
       {/* Modal de mapeamento */}
-      {empresaId && <VendasProductMappingModal open={showMappingModal} onOpenChange={open => {
-      setShowMappingModal(open);
-      if (!open) setSkuParaMapear(null);
-    }} empresaId={empresaId} skuFiltro={skuParaMapear} />}
+      {empresaId && (
+        <>
+          <VendasProductMappingModal 
+            open={showMappingModal} 
+            onOpenChange={open => {
+              setShowMappingModal(open);
+              if (!open) setSkuParaMapear(null);
+            }} 
+            empresaId={empresaId} 
+            skuFiltro={skuParaMapear} 
+          />
+          <AtualizarCustosSkuModal
+            open={showAtualizarCustosModal}
+            onOpenChange={setShowAtualizarCustosModal}
+            empresaId={empresaId}
+          />
+        </>
+      )}
     </MainLayout>;
 }
