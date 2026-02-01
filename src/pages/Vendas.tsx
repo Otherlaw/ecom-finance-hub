@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { format } from "date-fns";
 import { MainLayout } from "@/components/MainLayout";
 import { useVendasPorPedido, PedidoAgregado, ResumoPedidosAgregado } from "@/hooks/useVendasPorPedido";
@@ -11,6 +11,7 @@ import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
 import { PedidosTable } from "@/components/vendas/PedidosTable";
 import { VendasProductMappingModal } from "@/components/vendas/VendasProductMappingModal";
 import { AtualizarCustosSkuModal } from "@/components/vendas/AtualizarCustosSkuModal";
+import { VendasFiltrosAvancados, FiltrosVendas } from "@/components/vendas/VendasFiltrosAvancados";
 import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
 import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,8 +32,9 @@ function useDebouncedValue(value: string, delay: number): string {
   }, [value, delay]);
   return debouncedValue;
 }
+
 export default function Vendas() {
-  // Estados do filtro de período
+  // Estados do filtro de período (do header)
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
   const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
@@ -41,13 +43,24 @@ export default function Vendas() {
   const [currentPage, setCurrentPage] = useState(0);
   const [pageSize] = useState(50);
 
-  // Estados de filtros simples
-  const [canal, setCanal] = useState<string>("todos");
-  const [conta, setConta] = useState<string>("");
-  const [statusVenda, setStatusVenda] = useState<string>("todos");
+  // Estados de filtros avançados
+  const [filtrosAvancados, setFiltrosAvancados] = useState<FiltrosVendas>({
+    dataInicio: undefined,
+    dataFim: undefined,
+    pedidoId: "",
+    sku: "",
+    statusVenda: "todos",
+    canal: "todos",
+    tipoEnvio: "todos",
+    temCusto: "todos",
+    conta: "",
+  });
+  
+  // Estados aplicados (só atualizam ao clicar em Buscar)
+  const [filtrosAplicados, setFiltrosAplicados] = useState<FiltrosVendas>(filtrosAvancados);
   const [considerarFreteComprador, setConsiderarFreteComprador] = useState(true);
 
-  // Filtro de busca
+  // Filtro de busca rápida (abaixo dos filtros avançados)
   const [termoBusca, setTermoBusca] = useState("");
   const buscaDebounced = useDebouncedValue(termoBusca, 400);
   const [showMappingModal, setShowMappingModal] = useState(false);
@@ -56,6 +69,29 @@ export default function Vendas() {
 
   // ID da empresa para filtros (undefined = todas)
   const empresaId = empresaSelecionada !== "todas" ? empresaSelecionada : undefined;
+
+  // Determina o período a usar: filtros avançados sobrescrevem o período do header se definidos
+  const periodoEfetivo = useMemo(() => {
+    if (filtrosAplicados.dataInicio && filtrosAplicados.dataFim) {
+      return {
+        inicio: format(filtrosAplicados.dataInicio, "yyyy-MM-dd"),
+        fim: format(filtrosAplicados.dataFim, "yyyy-MM-dd"),
+      };
+    }
+    return {
+      inicio: format(dateRange.from, "yyyy-MM-dd"),
+      fim: format(dateRange.to, "yyyy-MM-dd"),
+    };
+  }, [filtrosAplicados.dataInicio, filtrosAplicados.dataFim, dateRange]);
+
+  // Combina busca rápida com filtros avançados
+  const buscaCombinada = useMemo(() => {
+    const partes: string[] = [];
+    if (buscaDebounced) partes.push(buscaDebounced);
+    if (filtrosAplicados.pedidoId) partes.push(filtrosAplicados.pedidoId);
+    if (filtrosAplicados.sku) partes.push(filtrosAplicados.sku);
+    return partes.join(" ") || undefined;
+  }, [buscaDebounced, filtrosAplicados.pedidoId, filtrosAplicados.sku]);
 
   // Hook de vendas por pedido (agregado - 1 linha por pedido)
   const {
@@ -71,13 +107,13 @@ export default function Vendas() {
   } = useVendasPorPedido({
     page: currentPage,
     pageSize,
-    periodoInicio: format(dateRange.from, "yyyy-MM-dd"),
-    periodoFim: format(dateRange.to, "yyyy-MM-dd"),
-    canal: canal !== "todos" ? canal : undefined,
-    conta: conta || undefined,
-    statusVenda: statusVenda !== "todos" ? statusVenda : undefined,
+    periodoInicio: periodoEfetivo.inicio,
+    periodoFim: periodoEfetivo.fim,
+    canal: filtrosAplicados.canal !== "todos" ? filtrosAplicados.canal : undefined,
+    conta: filtrosAplicados.conta || undefined,
+    statusVenda: filtrosAplicados.statusVenda !== "todos" ? filtrosAplicados.statusVenda : undefined,
     empresaId,
-    busca: buscaDebounced // Filtro de busca
+    busca: buscaCombinada
   });
 
   // Hook antigo apenas para métricas por tipo de envio (dashboard)
@@ -141,8 +177,39 @@ export default function Vendas() {
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
     setDateRange(range);
+    // Limpa datas dos filtros avançados quando muda o período do header
+    setFiltrosAvancados(prev => ({ ...prev, dataInicio: undefined, dataFim: undefined }));
+    setFiltrosAplicados(prev => ({ ...prev, dataInicio: undefined, dataFim: undefined }));
     setCurrentPage(0);
   };
+
+  // Handlers para filtros avançados
+  const handleFiltrosChange = useCallback((novosFiltros: FiltrosVendas) => {
+    setFiltrosAvancados(novosFiltros);
+  }, []);
+
+  const handleBuscarFiltros = useCallback(() => {
+    setFiltrosAplicados(filtrosAvancados);
+    setCurrentPage(0);
+  }, [filtrosAvancados]);
+
+  const handleLimparFiltros = useCallback(() => {
+    const filtrosLimpos: FiltrosVendas = {
+      dataInicio: undefined,
+      dataFim: undefined,
+      pedidoId: "",
+      sku: "",
+      statusVenda: "todos",
+      canal: "todos",
+      tipoEnvio: "todos",
+      temCusto: "todos",
+      conta: "",
+    };
+    setFiltrosAvancados(filtrosLimpos);
+    setFiltrosAplicados(filtrosLimpos);
+    setCurrentPage(0);
+  }, []);
+
   const handleReprocessarMapeamentos = async () => {
     if (!empresaId) {
       toast.error("Nenhuma empresa selecionada");
@@ -310,11 +377,22 @@ export default function Vendas() {
             {/* Dashboard de métricas */}
             <VendasDashboard resumo={resumoAdaptado} metricasPorTipo={metricasPorTipoEnvio} aliquotaImposto={aliquotaImposto} considerarFreteComprador={considerarFreteComprador} onConsiderarFreteChange={setConsiderarFreteComprador} variacoes={variacoes} labelComparacao={labelComparacao} />
 
-            {/* Campo de busca */}
+            {/* Painel de Filtros Avançados */}
+            <VendasFiltrosAvancados
+              filtros={filtrosAvancados}
+              onFiltrosChange={handleFiltrosChange}
+              onBuscar={handleBuscarFiltros}
+              onLimpar={handleLimparFiltros}
+              canaisDisponiveis={canaisDisponiveis}
+              contasDisponiveis={contasDisponiveis}
+              isLoading={isFetching}
+            />
+
+            {/* Campo de busca rápida */}
             <div className="relative max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input 
-                placeholder="Buscar por pedido, SKU ou descrição..." 
+                placeholder="Busca rápida por pedido, SKU ou descrição..." 
                 value={termoBusca} 
                 onChange={e => {
                   setTermoBusca(e.target.value);
