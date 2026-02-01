@@ -5,6 +5,7 @@ import { useVendasPorPedido, PedidoAgregado, ResumoPedidosAgregado } from "@/hoo
 import { useVendasPaginadas } from "@/hooks/useVendasPaginadas";
 import { useVendasPendentes } from "@/hooks/useVendasPendentes";
 import { useMarketplaceAutoCategorizacao } from "@/hooks/useMarketplaceAutoCategorizacao";
+import { useVendasComparativo, calcularVariacoesVendas } from "@/hooks/useVendasComparativo";
 import { VendasDashboard } from "@/components/vendas/VendasDashboard";
 import { VendasConsistencia } from "@/components/vendas/VendasConsistencia";
 import { PedidosTable } from "@/components/vendas/PedidosTable";
@@ -87,6 +88,22 @@ export default function Vendas() {
     periodoFim: format(dateRange.to, "yyyy-MM-dd"),
     empresaId
   });
+
+  // Hook de comparativo com período anterior
+  const {
+    resumoAnterior,
+    labelComparacao,
+    isLoadingAnterior
+  } = useVendasComparativo({
+    periodoInicio: format(dateRange.from, "yyyy-MM-dd"),
+    periodoFim: format(dateRange.to, "yyyy-MM-dd"),
+    empresaId
+  });
+
+  // Calcular variações
+  const variacoes = useMemo(() => {
+    return calcularVariacoesVendas(resumoAgregado || null, resumoAnterior);
+  }, [resumoAgregado, resumoAnterior]);
 
   // Combina loading inicial + refetch
   const carregando = isLoading;
@@ -278,7 +295,7 @@ export default function Vendas() {
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div> : <>
             {/* Dashboard de métricas */}
-            <VendasDashboard resumo={resumoAdaptado} metricasPorTipo={metricasPorTipoEnvio} aliquotaImposto={aliquotaImposto} considerarFreteComprador={considerarFreteComprador} onConsiderarFreteChange={setConsiderarFreteComprador} />
+            <VendasDashboard resumo={resumoAdaptado} metricasPorTipo={metricasPorTipoEnvio} aliquotaImposto={aliquotaImposto} considerarFreteComprador={considerarFreteComprador} onConsiderarFreteChange={setConsiderarFreteComprador} variacoes={variacoes} labelComparacao={labelComparacao} />
 
             {/* Campo de busca */}
             <div className="relative max-w-md">
