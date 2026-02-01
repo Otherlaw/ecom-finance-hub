@@ -53,7 +53,7 @@ export function OnboardingWizard({ open, onOpenChange }: OnboardingWizardProps) 
     try {
       await finalizarOnboarding();
       onOpenChange(false);
-      navigate("/dashboard");
+      navigate("/");
     } catch (error) {
       console.error("Erro ao finalizar onboarding:", error);
     } finally {

@@ -4,7 +4,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { EmpresaProvider } from "./contexts/EmpresaContext";
-import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import Fechamento from "./pages/Fechamento";
 import FluxoCaixa from "./pages/FluxoCaixa";
@@ -56,8 +55,7 @@ const App = () => (
         <EmpresaProvider>
           <AssistantChatProvider>
             <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/" element={<Dashboard />} />
             <Route path="/vendas" element={<Vendas />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/perfil" element={<Perfil />} />
