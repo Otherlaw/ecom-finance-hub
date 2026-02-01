@@ -49,8 +49,11 @@ export function PublicHeader() {
 
         {/* CTA */}
         <div className="flex items-center gap-3">
-          <Button asChild variant="default" size="sm">
+          <Button asChild variant="ghost" size="sm">
             <Link to="/auth">Entrar</Link>
+          </Button>
+          <Button asChild variant="default" size="sm">
+            <Link to="/auth?tab=cadastro">Cadastrar</Link>
           </Button>
         </div>
       </div>
