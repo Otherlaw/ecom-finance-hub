@@ -8,11 +8,11 @@ export function PublicFooter() {
           {/* Brand */}
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden">
                 <img
-                  src="/lovable-uploads/8b500e39-461b-4657-8aad-acb0ee7422e1.png"
+                  src="/lovable-uploads/logo-ecom-finance-icon.png"
                   alt="Ecom Finance"
-                  className="w-5 h-5 object-contain"
+                  className="w-8 h-8 object-cover"
                 />
               </div>
               <span className="font-bold text-sm">ECOM FINANCE</span>
