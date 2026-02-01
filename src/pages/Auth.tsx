@@ -58,7 +58,7 @@ export default function Auth() {
   // Redirecionar se já autenticado
   useEffect(() => {
     if (isAuthenticated && !authLoading) {
-      navigate("/");
+      navigate("/dashboard");
     }
   }, [isAuthenticated, authLoading, navigate]);
   const handleCnpjChange = (value: string) => {
@@ -75,7 +75,7 @@ export default function Auth() {
     try {
       await signIn(loginEmail, loginPassword);
       toast.success("Login realizado com sucesso!");
-      navigate("/");
+      navigate("/dashboard");
     } catch (error: any) {
       toast.error(error.message || "Erro ao fazer login");
     } finally {
