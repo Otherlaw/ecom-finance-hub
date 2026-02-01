@@ -16,11 +16,11 @@ export function PublicHeader() {
       <div className="container flex h-16 items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden">
             <img
-              src="/lovable-uploads/8b500e39-461b-4657-8aad-acb0ee7422e1.png"
+              src="/lovable-uploads/logo-ecom-finance-icon.png"
               alt="Ecom Finance"
-              className="w-7 h-7 object-contain"
+              className="w-10 h-10 object-cover"
             />
           </div>
           <div className="flex flex-col">
