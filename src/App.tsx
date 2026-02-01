@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { EmpresaProvider } from "./contexts/EmpresaContext";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import Fechamento from "./pages/Fechamento";
@@ -58,47 +59,51 @@ const App = () => (
         <EmpresaProvider>
           <AssistantChatProvider>
             <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/vendas" element={<Vendas />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/perfil" element={<Perfil />} />
-            <Route path="/planos" element={<Planos />} />
-            <Route path="/recursos" element={<Recursos />} />
-            <Route path="/ajuda" element={<Ajuda />} />
-            <Route path="/fechamento" element={<Fechamento />} />
-            <Route path="/fluxo-caixa" element={<FluxoCaixa />} />
-            <Route path="/dre" element={<DRE />} />
-            <Route path="/balanco" element={<Balanco />} />
-            <Route path="/patrimonio" element={<PatrimonioImobilizado />} />
-            <Route path="/kpis" element={<KPIs />} />
-            <Route path="/projecoes" element={<Projecoes />} />
-            <Route path="/icms" element={<ICMS />} />
-            <Route path="/conciliacao" element={<Conciliacao />} />
-            <Route path="/checklist-fechamento" element={<ChecklistFechamento />} />
-            <Route path="/produtos" element={<Produtos />} />
-            <Route path="/produtos/import-export" element={<ProdutosImportExport />} />
-            <Route path="/estoque-sku" element={<EstoqueSKU />} />
-            <Route path="/cmv" element={<CMVRelatorio />} />
-            <Route path="/compras" element={<Compras />} />
-            <Route path="/contas-pagar" element={<ContasPagar />} />
-            <Route path="/contas-receber" element={<ContasReceber />} />
-            <Route path="/fornecedores" element={<Fornecedores />} />
-            <Route path="/precificacao" element={<Precificacao />} />
-            <Route path="/cartao-credito" element={<CartaoCredito />} />
-            <Route path="/centros-custo" element={<CentrosCusto />} />
-            <Route path="/plano-contas" element={<PlanoContas />} />
-            <Route path="/regras-categorizacao" element={<RegrasCategorizacao />} />
-            <Route path="/regras-marketplace" element={<RegrasMarketplace />} />
-            <Route path="/mapeamentos-marketplace" element={<MapeamentosMarketplace />} />
-            <Route path="/assistant" element={<AssistantCenter />} />
-            <Route path="/movimentos-manuais" element={<MovimentosManuais />} />
-            <Route path="/movimentacoes-manuais" element={<MovimentosManuais />} />
-            <Route path="/empresas" element={<Empresas />} />
-            <Route path="/usuarios" element={<Usuarios />} />
-            <Route path="/configuracoes" element={<Configuracoes />} />
-            <Route path="/integracoes" element={<Integracoes />} />
-            <Route path="*" element={<NotFound />} />
+              {/* Rotas públicas */}
+              <Route path="/" element={<Landing />} />
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/planos" element={<Planos />} />
+              <Route path="/recursos" element={<Recursos />} />
+              <Route path="/ajuda" element={<Ajuda />} />
+              
+              {/* Rotas protegidas */}
+              <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              <Route path="/vendas" element={<ProtectedRoute><Vendas /></ProtectedRoute>} />
+              <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
+              <Route path="/fechamento" element={<ProtectedRoute><Fechamento /></ProtectedRoute>} />
+              <Route path="/fluxo-caixa" element={<ProtectedRoute><FluxoCaixa /></ProtectedRoute>} />
+              <Route path="/dre" element={<ProtectedRoute><DRE /></ProtectedRoute>} />
+              <Route path="/balanco" element={<ProtectedRoute><Balanco /></ProtectedRoute>} />
+              <Route path="/patrimonio" element={<ProtectedRoute><PatrimonioImobilizado /></ProtectedRoute>} />
+              <Route path="/kpis" element={<ProtectedRoute><KPIs /></ProtectedRoute>} />
+              <Route path="/projecoes" element={<ProtectedRoute><Projecoes /></ProtectedRoute>} />
+              <Route path="/icms" element={<ProtectedRoute><ICMS /></ProtectedRoute>} />
+              <Route path="/conciliacao" element={<ProtectedRoute><Conciliacao /></ProtectedRoute>} />
+              <Route path="/checklist-fechamento" element={<ProtectedRoute><ChecklistFechamento /></ProtectedRoute>} />
+              <Route path="/produtos" element={<ProtectedRoute><Produtos /></ProtectedRoute>} />
+              <Route path="/produtos/import-export" element={<ProtectedRoute><ProdutosImportExport /></ProtectedRoute>} />
+              <Route path="/estoque-sku" element={<ProtectedRoute><EstoqueSKU /></ProtectedRoute>} />
+              <Route path="/cmv" element={<ProtectedRoute><CMVRelatorio /></ProtectedRoute>} />
+              <Route path="/compras" element={<ProtectedRoute><Compras /></ProtectedRoute>} />
+              <Route path="/contas-pagar" element={<ProtectedRoute><ContasPagar /></ProtectedRoute>} />
+              <Route path="/contas-receber" element={<ProtectedRoute><ContasReceber /></ProtectedRoute>} />
+              <Route path="/fornecedores" element={<ProtectedRoute><Fornecedores /></ProtectedRoute>} />
+              <Route path="/precificacao" element={<ProtectedRoute><Precificacao /></ProtectedRoute>} />
+              <Route path="/cartao-credito" element={<ProtectedRoute><CartaoCredito /></ProtectedRoute>} />
+              <Route path="/centros-custo" element={<ProtectedRoute><CentrosCusto /></ProtectedRoute>} />
+              <Route path="/plano-contas" element={<ProtectedRoute><PlanoContas /></ProtectedRoute>} />
+              <Route path="/regras-categorizacao" element={<ProtectedRoute><RegrasCategorizacao /></ProtectedRoute>} />
+              <Route path="/regras-marketplace" element={<ProtectedRoute><RegrasMarketplace /></ProtectedRoute>} />
+              <Route path="/mapeamentos-marketplace" element={<ProtectedRoute><MapeamentosMarketplace /></ProtectedRoute>} />
+              <Route path="/assistant" element={<ProtectedRoute><AssistantCenter /></ProtectedRoute>} />
+              <Route path="/movimentos-manuais" element={<ProtectedRoute><MovimentosManuais /></ProtectedRoute>} />
+              <Route path="/movimentacoes-manuais" element={<ProtectedRoute><MovimentosManuais /></ProtectedRoute>} />
+              <Route path="/empresas" element={<ProtectedRoute><Empresas /></ProtectedRoute>} />
+              <Route path="/usuarios" element={<ProtectedRoute><Usuarios /></ProtectedRoute>} />
+              <Route path="/configuracoes" element={<ProtectedRoute><Configuracoes /></ProtectedRoute>} />
+              <Route path="/integracoes" element={<ProtectedRoute><Integracoes /></ProtectedRoute>} />
+              
+              <Route path="*" element={<NotFound />} />
             </Routes>
             <AssistantWidget />
           </AssistantChatProvider>
