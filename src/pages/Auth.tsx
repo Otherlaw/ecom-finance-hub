@@ -125,54 +125,46 @@ export default function Auth() {
     }
     setIsLoading(true);
     try {
-      // 1. Criar conta do usuário
-      const { user } = await signUp(signupEmail, signupPassword, signupRazaoSocial);
+      // Verificar se CNPJ já existe
+      const { data: existingEmpresa } = await supabase
+        .from("empresas")
+        .select("id")
+        .eq("cnpj", signupCnpj)
+        .maybeSingle();
 
-      if (user) {
-        // Aguardar um pouco para o trigger criar profile/roles
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // 2. Criar a empresa
-        const { data: empresaData, error: empresaError } = await supabase
-          .from("empresas")
-          .insert({
-            razao_social: signupRazaoSocial,
-            nome_fantasia: signupNomeFantasia || null,
-            cnpj: signupCnpj,
-            regime_tributario: signupRegime,
-            ativo: true
-          })
-          .select()
-          .single();
+      if (existingEmpresa) {
+        toast.error("Este CNPJ já está cadastrado no sistema");
+        setIsLoading(false);
+        return;
+      }
 
-        if (empresaError) throw empresaError;
-
-        // 3. Vincular usuário à empresa como 'dono'
-        const { error: vinculoError } = await supabase
-          .from("user_empresas")
-          .insert({
-            user_id: user.id,
-            empresa_id: empresaData.id,
-            role_na_empresa: "dono"
-          });
-
-        if (vinculoError) throw vinculoError;
-
-        // 4. Atualizar onboarding status
-        const { error: onboardingError } = await supabase
-          .from("onboarding_status")
-          .update({
-            empresa_criada: true,
-            empresa_id: empresaData.id
-          })
-          .eq("user_id", user.id);
-
-        if (onboardingError) {
-          console.warn("Erro ao atualizar onboarding:", onboardingError);
+      // Criar conta do usuário com dados da empresa no metadata
+      // A trigger handle_new_user vai criar a empresa automaticamente
+      const redirectUrl = `${window.location.origin}/`;
+      
+      const { data, error } = await supabase.auth.signUp({
+        email: signupEmail,
+        password: signupPassword,
+        options: {
+          emailRedirectTo: redirectUrl,
+          data: {
+            nome: signupRazaoSocial,
+            empresa_razao_social: signupRazaoSocial,
+            empresa_nome_fantasia: signupNomeFantasia || null,
+            empresa_cnpj: signupCnpj,
+            empresa_regime: signupRegime,
+          },
+        },
+      });
+      
+      if (error) {
+        if (error.message.includes("User already registered")) {
+          throw new Error("Este email já está cadastrado");
         }
+        throw error;
       }
       
-      toast.success("Conta e empresa criadas com sucesso! Você já pode fazer login.");
+      toast.success("Conta e empresa criadas com sucesso! Verifique seu e-mail para confirmar o cadastro.");
       setActiveView("login");
       setLoginEmail(signupEmail);
     } catch (error: any) {
