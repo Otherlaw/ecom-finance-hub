@@ -125,28 +125,48 @@ export function CertificadoModal({ open, onOpenChange, empresaId, empresaCnpj }:
         },
       });
 
+      // Em erros non-2xx, o supabase-js costuma preencher response.error e colocar o body bruto em error.context.body
+      const errorContextBody = (response.error as any)?.context?.body;
+      const parsedErrorBody = (() => {
+        if (!errorContextBody) return null;
+        if (typeof errorContextBody === "string") {
+          try {
+            return JSON.parse(errorContextBody);
+          } catch {
+            return null;
+          }
+        }
+        if (typeof errorContextBody === "object") return errorContextBody;
+        return null;
+      })();
+
+      const payload = response.data ?? parsedErrorBody;
+
       // Checar erro do SDK
       if (response.error) {
-        const errorDetail = response.data?.detail
-          ? `${response.data?.error || "Erro"}: ${response.data.detail}`
-          : (response.data?.error || response.error.message);
+        const detail = payload?.detail ? String(payload.detail) : null;
+        const codeOrError = payload?.error ? String(payload.error) : null;
+
+        const errorDetail = detail
+          ? detail
+          : (codeOrError || response.error.message);
         const result: ValidationResult = { valid: false, error: errorDetail };
         setValidationResult(result);
         return result;
       }
 
       // Verificar se o response.data indica erro
-      if (response.data && response.data.valid === false) {
-        const errorMsg = response.data.detail
-          ? `${response.data.error || "Erro"}: ${response.data.detail}`
-          : (response.data.error || "Certificado inválido");
+      if (payload && payload.valid === false) {
+        const errorMsg = payload.detail
+          ? String(payload.detail)
+          : (payload.error || "Certificado inválido");
         const result: ValidationResult = { valid: false, error: errorMsg };
         setValidationResult(result);
         return result;
       }
 
-      setValidationResult(response.data);
-      return response.data;
+      setValidationResult(payload);
+      return payload;
     } catch (e: any) {
       const result: ValidationResult = { valid: false, error: e.message || "Erro ao validar certificado" };
       setValidationResult(result);
