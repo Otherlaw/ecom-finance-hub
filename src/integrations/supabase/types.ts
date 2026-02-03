@@ -1399,6 +1399,36 @@ export type Database = {
           },
         ]
       }
+      email_verification_codes: {
+        Row: {
+          code: string
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          metadata: Json | null
+          verified: boolean
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          email: string
+          expires_at: string
+          id?: string
+          metadata?: Json | null
+          verified?: boolean
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          metadata?: Json | null
+          verified?: boolean
+        }
+        Relationships: []
+      }
       empresas: {
         Row: {
           ativo: boolean
@@ -3541,6 +3571,7 @@ export type Database = {
         Args: { p_email: string; p_empresa_id: string; p_role?: string }
         Returns: Json
       }
+      cleanup_expired_verification_codes: { Args: never; Returns: undefined }
       date_to_br_timestamptz: { Args: { p_date: string }; Returns: string }
       delete_empresa_cascade: {
         Args: { p_empresa_id: string }
