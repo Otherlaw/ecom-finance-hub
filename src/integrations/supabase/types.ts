@@ -3821,9 +3821,9 @@ export type Database = {
       }
       get_top_produtos_vendidos: {
         Args: {
-          p_data_fim: string
-          p_data_inicio: string
-          p_empresa_id: string
+          p_data_fim?: string
+          p_data_inicio?: string
+          p_empresa_id?: string
           p_limite?: number
         }
         Returns: {
