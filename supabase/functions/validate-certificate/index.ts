@@ -9,6 +9,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as forge from "https://esm.sh/node-forge@1.3.1";
+import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,6 +19,9 @@ const corsHeaders = {
 interface ValidationResult {
   valid: boolean;
   error?: string;
+  detail?: string;
+  code?: string;
+  field?: string;
   certificate_info?: {
     cnpj: string | null;
     common_name: string | null;
@@ -28,6 +32,36 @@ interface ValidationResult {
     days_until_expiry: number;
   };
   cnpj_match?: boolean;
+}
+
+function normalizeBase64(input: string) {
+  let s = (input ?? "").trim();
+
+  // aceita DataURL
+  s = s.replace(/^data:.*;base64,/, "");
+
+  // remove quebras/espacos
+  s = s.replace(/\s/g, "");
+
+  // aceita base64url
+  s = s.replace(/-/g, "+").replace(/_/g, "/");
+
+  // corrige padding
+  const mod = s.length % 4;
+  if (mod) s += "=".repeat(4 - mod);
+
+  return s;
+}
+
+function bytesToBinaryString(bytes: Uint8Array) {
+  // Evita "Maximum call stack size" em arquivos maiores
+  const chunkSize = 0x8000;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    parts.push(String.fromCharCode(...chunk));
+  }
+  return parts.join("");
 }
 
 // Extrai CNPJ do Subject ou do SAN (Subject Alternative Name) do certificado
@@ -142,42 +176,20 @@ Deno.serve(async (req) => {
 
     console.log("[validate-certificate] Validando certificado... CNPJ esperado:", expectedCnpj, "UF:", uf);
 
-    // Normalizar base64 (aceitar data URL e remover espaços/quebras de linha)
-    let normalizedBase64 = typeof pfx_base64 === "string" ? pfx_base64 : "";
-    
-    // Remover prefixo data:...;base64,
-    if (normalizedBase64.includes("base64,")) {
-      normalizedBase64 = normalizedBase64.split("base64,").pop() || "";
-    }
-    
-    // Remover espaços e quebras de linha
-    normalizedBase64 = normalizedBase64.replace(/\s/g, "");
-    
-    // Corrigir padding do base64 (adicionar '=' até múltiplo de 4)
-    const remainder = normalizedBase64.length % 4;
-    if (remainder > 0) {
-      normalizedBase64 += "=".repeat(4 - remainder);
-    }
-
+    const normalizedBase64 = normalizeBase64(String(pfx_base64));
     console.log("[validate-certificate] Base64 normalizado, length:", normalizedBase64.length);
 
-    // Converter base64 para binary
+    // Converter base64 para bytes com std/encoding/base64 (mais robusto que regex)
     let pfxBinary: string;
     try {
-      // Validação rápida de caracteres (evita erros confusos do decode)
-      if (!/^[A-Za-z0-9+/=]+$/.test(normalizedBase64)) {
-        console.error("[validate-certificate] Base64 contém caracteres inválidos");
-        return new Response(
-          JSON.stringify({ valid: false, error: "invalid_base64", detail: "O base64 contém caracteres inválidos", code: "INVALID_BASE64_CHARS" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      pfxBinary = forge.util.decode64(normalizedBase64);
-      console.log("[validate-certificate] Base64 decodificado com sucesso, bytes:", pfxBinary.length);
+      const bytes = decodeBase64(normalizedBase64);
+      pfxBinary = bytesToBinaryString(bytes);
+      console.log("[validate-certificate] Base64 decodificado com sucesso, bytes:", bytes.length);
     } catch (e: any) {
-      console.error("[validate-certificate] Erro ao decodificar base64:", e.message);
+      const detail = e?.message ? String(e.message) : "Falha ao decodificar base64";
+      console.error("[validate-certificate] Erro ao decodificar base64:", detail);
       return new Response(
-        JSON.stringify({ valid: false, error: "decode_error", detail: "Não foi possível decodificar o base64", code: "BASE64_DECODE_FAILED" }),
+        JSON.stringify({ valid: false, error: "PFX_BASE64_DECODE_FAILED", detail }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

@@ -129,7 +129,9 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
       // Checar erro do SDK
       if (response.error) {
         // Tentar extrair mensagem detalhada do corpo se disponível
-        const errorDetail = response.data?.error || response.data?.detail || response.error.message;
+        const errorDetail = response.data?.detail
+          ? `${response.data?.error || "Erro"}: ${response.data.detail}`
+          : (response.data?.error || response.error.message);
         const result: ValidationResult = { valid: false, error: errorDetail };
         setValidationResult(result);
         return result;
@@ -137,7 +139,9 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
 
       // Verificar se o response.data indica erro (ex: { valid: false, error: "..." })
       if (response.data && response.data.valid === false) {
-        const errorMsg = response.data.detail || response.data.error || "Certificado inválido";
+        const errorMsg = response.data.detail
+          ? `${response.data.error || "Erro"}: ${response.data.detail}`
+          : (response.data.error || "Certificado inválido");
         const result: ValidationResult = { valid: false, error: errorMsg };
         setValidationResult(result);
         return result;
@@ -188,16 +192,19 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
             try {
               const arrayBuffer = reader.result as ArrayBuffer;
               const bytes = new Uint8Array(arrayBuffer);
-              let binary = "";
-              for (let i = 0; i < bytes.length; i++) {
-                binary += String.fromCharCode(bytes[i]);
+              // Converter bytes -> string binária com chunking para evitar travar em arquivos maiores
+              const chunkSize = 0x8000;
+              const parts: string[] = [];
+              for (let i = 0; i < bytes.length; i += chunkSize) {
+                const chunk = bytes.subarray(i, i + chunkSize);
+                parts.push(String.fromCharCode(...chunk));
               }
-              const base64 = btoa(binary);
+              const base64 = btoa(parts.join(""));
               if (!base64) {
                 reject(new Error("Não foi possível converter o arquivo para base64"));
                 return;
               }
-              resolve(base64);
+              resolve(base64.replace(/\s/g, ""));
             } catch (err) {
               reject(new Error("Erro ao converter arquivo para base64"));
             }
