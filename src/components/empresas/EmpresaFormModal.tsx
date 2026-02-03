@@ -25,6 +25,7 @@ import {
   formatCNPJ,
 } from "@/lib/empresas-data";
 import { useEmpresas } from "@/hooks/useEmpresas";
+import { CertificadoSection } from "./CertificadoSection";
 
 interface EmpresaFormModalProps {
   open: boolean;
@@ -343,6 +344,11 @@ export function EmpresaFormModal({
               </p>
             </div>
           </div>
+
+          {/* Certificado Digital A1 - somente em modo edição */}
+          <CertificadoSection 
+            empresaId={isEditing ? empresa?.id : undefined}
+          />
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t">
