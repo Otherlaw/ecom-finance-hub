@@ -107,35 +107,77 @@ Deno.serve(async (req) => {
     }
 
     // Parse payload
-    const { pfx_base64, password, expected_cnpj } = await req.json();
-
-    // Normalizar base64 (aceitar data URL e remover espaços/quebras de linha)
-    let normalizedBase64 = typeof pfx_base64 === "string" ? pfx_base64 : "";
-    if (normalizedBase64.includes("base64,")) {
-      normalizedBase64 = normalizedBase64.split("base64,").pop() || "";
-    }
-    normalizedBase64 = normalizedBase64.replace(/\s/g, "").trim();
-
-    if (!normalizedBase64 || !password) {
+    let body: any;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      console.error("[validate-certificate] Erro ao parsear JSON:", parseErr);
       return new Response(
-        JSON.stringify({ valid: false, error: "Arquivo PFX e senha são obrigatórios" }),
+        JSON.stringify({ valid: false, error: "invalid_json", detail: "O corpo da requisição não é um JSON válido", code: "PARSE_ERROR" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("[validate-certificate] Validando certificado...");
+    const { pfx_base64, password, cnpj, expected_cnpj, uf, environment } = body;
+
+    // Validar campos obrigatórios
+    if (!pfx_base64) {
+      console.error("[validate-certificate] Campo obrigatório faltando: pfx_base64");
+      return new Response(
+        JSON.stringify({ valid: false, error: "missing_field", field: "pfx_base64", detail: "O campo pfx_base64 é obrigatório" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!password) {
+      console.error("[validate-certificate] Campo obrigatório faltando: password");
+      return new Response(
+        JSON.stringify({ valid: false, error: "missing_field", field: "password", detail: "O campo password é obrigatório" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Usar cnpj ou expected_cnpj (backward compatibility)
+    const expectedCnpj = cnpj || expected_cnpj;
+
+    console.log("[validate-certificate] Validando certificado... CNPJ esperado:", expectedCnpj, "UF:", uf);
+
+    // Normalizar base64 (aceitar data URL e remover espaços/quebras de linha)
+    let normalizedBase64 = typeof pfx_base64 === "string" ? pfx_base64 : "";
+    
+    // Remover prefixo data:...;base64,
+    if (normalizedBase64.includes("base64,")) {
+      normalizedBase64 = normalizedBase64.split("base64,").pop() || "";
+    }
+    
+    // Remover espaços e quebras de linha
+    normalizedBase64 = normalizedBase64.replace(/\s/g, "");
+    
+    // Corrigir padding do base64 (adicionar '=' até múltiplo de 4)
+    const remainder = normalizedBase64.length % 4;
+    if (remainder > 0) {
+      normalizedBase64 += "=".repeat(4 - remainder);
+    }
+
+    console.log("[validate-certificate] Base64 normalizado, length:", normalizedBase64.length);
 
     // Converter base64 para binary
     let pfxBinary: string;
     try {
       // Validação rápida de caracteres (evita erros confusos do decode)
       if (!/^[A-Za-z0-9+/=]+$/.test(normalizedBase64)) {
-        throw new Error("INVALID_BASE64_CHARS");
+        console.error("[validate-certificate] Base64 contém caracteres inválidos");
+        return new Response(
+          JSON.stringify({ valid: false, error: "invalid_base64", detail: "O base64 contém caracteres inválidos", code: "INVALID_BASE64_CHARS" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
       pfxBinary = forge.util.decode64(normalizedBase64);
-    } catch (e) {
+      console.log("[validate-certificate] Base64 decodificado com sucesso, bytes:", pfxBinary.length);
+    } catch (e: any) {
+      console.error("[validate-certificate] Erro ao decodificar base64:", e.message);
       return new Response(
-        JSON.stringify({ valid: false, error: "Arquivo PFX inválido (não é base64 válido)" }),
+        JSON.stringify({ valid: false, error: "decode_error", detail: "Não foi possível decodificar o base64", code: "BASE64_DECODE_FAILED" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -145,25 +187,26 @@ Deno.serve(async (req) => {
     try {
       const asn1 = forge.asn1.fromDer(pfxBinary);
       p12 = forge.pkcs12.pkcs12FromAsn1(asn1, password);
+      console.log("[validate-certificate] PFX aberto com sucesso");
     } catch (e: any) {
       console.error("[validate-certificate] Erro ao abrir PFX:", e.message);
       
       // Mensagens de erro comuns
       if (e.message?.includes("Invalid password") || e.message?.includes("MAC")) {
         return new Response(
-          JSON.stringify({ valid: false, error: "Senha incorreta" }),
+          JSON.stringify({ valid: false, error: "wrong_password", detail: "A senha do certificado está incorreta", code: "INVALID_PASSWORD" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       if (e.message?.includes("Too few bytes")) {
         return new Response(
-          JSON.stringify({ valid: false, error: "Arquivo PFX corrompido ou inválido" }),
+          JSON.stringify({ valid: false, error: "corrupted_file", detail: "O arquivo PFX está corrompido ou incompleto", code: "CORRUPTED_PFX" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       
       return new Response(
-        JSON.stringify({ valid: false, error: "Não foi possível abrir o certificado. Verifique se o arquivo e a senha estão corretos." }),
+        JSON.stringify({ valid: false, error: "open_failed", detail: `Não foi possível abrir o certificado: ${e.message}`, code: "PFX_OPEN_FAILED" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -173,8 +216,9 @@ Deno.serve(async (req) => {
     const certBags = bags[forge.pki.oids.certBag];
     
     if (!certBags || certBags.length === 0) {
+      console.error("[validate-certificate] Nenhum certificado encontrado no PFX");
       return new Response(
-        JSON.stringify({ valid: false, error: "Nenhum certificado encontrado no arquivo PFX" }),
+        JSON.stringify({ valid: false, error: "no_certificate", detail: "Nenhum certificado encontrado no arquivo PFX", code: "NO_CERT_IN_PFX" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -182,8 +226,9 @@ Deno.serve(async (req) => {
     // Pegar o primeiro certificado (geralmente o do usuário/empresa)
     const cert = certBags[0].cert;
     if (!cert) {
+      console.error("[validate-certificate] Certificado nulo no bag");
       return new Response(
-        JSON.stringify({ valid: false, error: "Certificado inválido" }),
+        JSON.stringify({ valid: false, error: "invalid_certificate", detail: "O certificado dentro do PFX é inválido", code: "INVALID_CERT" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -208,9 +253,10 @@ Deno.serve(async (req) => {
 
     // Verificar match de CNPJ se fornecido
     let cnpjMatch: boolean | undefined;
-    if (expected_cnpj && certCnpj) {
-      const cleanExpected = expected_cnpj.replace(/\D/g, "");
+    if (expectedCnpj && certCnpj) {
+      const cleanExpected = expectedCnpj.replace(/\D/g, "");
       cnpjMatch = certCnpj === cleanExpected;
+      console.log("[validate-certificate] Comparando CNPJs:", { certCnpj, expected: cleanExpected, match: cnpjMatch });
     }
 
     const result: ValidationResult = {
@@ -231,7 +277,7 @@ Deno.serve(async (req) => {
       result.error = `Certificado expirado em ${validTo.toLocaleDateString("pt-BR")}`;
     } else if (cnpjMatch === false) {
       result.valid = false;
-      result.error = `CNPJ do certificado (${certCnpj}) não corresponde ao CNPJ da empresa (${expected_cnpj})`;
+      result.error = `CNPJ do certificado (${certCnpj}) não corresponde ao CNPJ da empresa (${expectedCnpj})`;
     } else if (daysUntilExpiry <= 30) {
       // Aviso se vai expirar em breve (mas ainda válido)
       result.error = `Atenção: certificado expira em ${daysUntilExpiry} dias`;
