@@ -69,3 +69,6 @@ verify_jwt = false
 
 [functions.nfe-sync-cron]
 verify_jwt = false
+
+[functions.validate-certificate]
+verify_jwt = false

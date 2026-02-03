@@ -348,6 +348,7 @@ export function EmpresaFormModal({
           {/* Certificado Digital A1 - somente em modo edição */}
           <CertificadoSection 
             empresaId={isEditing ? empresa?.id : undefined}
+            empresaCnpj={isEditing ? empresa?.cnpj : formData.cnpj}
           />
         </div>
 

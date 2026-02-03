@@ -23,7 +23,8 @@ import {
   Eye, 
   EyeOff,
   RefreshCw,
-  Trash2 
+  Trash2,
+  CheckCircle
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNfeCertificates } from "@/hooks/useNfeSyncStatus";
@@ -31,7 +32,23 @@ import { supabase } from "@/integrations/supabase/client";
 
 interface CertificadoSectionProps {
   empresaId?: string;
+  empresaCnpj?: string;
   onCertificateSaved?: () => void;
+}
+
+interface ValidationResult {
+  valid: boolean;
+  error?: string;
+  certificate_info?: {
+    cnpj: string | null;
+    common_name: string | null;
+    issuer: string | null;
+    valid_from: string;
+    valid_to: string;
+    is_expired: boolean;
+    days_until_expiry: number;
+  };
+  cnpj_match?: boolean;
 }
 
 const UFS_BRASIL = [
@@ -40,7 +57,7 @@ const UFS_BRASIL = [
   "RS", "RO", "RR", "SC", "SP", "SE", "TO"
 ];
 
-export function CertificadoSection({ empresaId, onCertificateSaved }: CertificadoSectionProps) {
+export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved }: CertificadoSectionProps) {
   const [cnpj, setCnpj] = useState("");
   const [pfxFile, setPfxFile] = useState<File | null>(null);
   const [password, setPassword] = useState("");
@@ -49,6 +66,8 @@ export function CertificadoSection({ empresaId, onCertificateSaved }: Certificad
   const [uf, setUf] = useState("SP");
   const [isLoading, setIsLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
 
   const { certificate, saveCertificate, removeCertificate, isLoading: loadingCert } = 
     useNfeCertificates(empresaId);
@@ -73,6 +92,44 @@ export function CertificadoSection({ empresaId, onCertificateSaved }: Certificad
 
     setPfxFile(file);
   }, []);
+
+  // Auto-preencher CNPJ da empresa se disponível
+  useState(() => {
+    if (empresaCnpj && !cnpj) {
+      setCnpj(formatCnpj(empresaCnpj));
+    }
+  });
+
+  // Validar certificado antes de salvar
+  const validateCertificate = async (pfxBase64: string): Promise<ValidationResult | null> => {
+    setIsValidating(true);
+    setValidationResult(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("validate-certificate", {
+        body: {
+          pfx_base64: pfxBase64,
+          password: password,
+          expected_cnpj: cnpj.replace(/\D/g, ""),
+        },
+      });
+
+      if (error) {
+        const result: ValidationResult = { valid: false, error: error.message };
+        setValidationResult(result);
+        return result;
+      }
+
+      setValidationResult(data);
+      return data;
+    } catch (e: any) {
+      const result: ValidationResult = { valid: false, error: e.message || "Erro ao validar certificado" };
+      setValidationResult(result);
+      return result;
+    } finally {
+      setIsValidating(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!empresaId) {
@@ -106,6 +163,23 @@ export function CertificadoSection({ empresaId, onCertificateSaved }: Certificad
         let binary = "";
         bytes.forEach((b) => (binary += String.fromCharCode(b)));
         pfxBase64 = btoa(binary);
+
+        // Validar o certificado antes de salvar
+        const validation = await validateCertificate(pfxBase64);
+        
+        if (!validation?.valid) {
+          setIsLoading(false);
+          toast.error(validation?.error || "Certificado inválido");
+          return;
+        }
+
+        // Mostrar informações extraídas
+        if (validation.certificate_info) {
+          const info = validation.certificate_info;
+          if (info.days_until_expiry <= 30 && info.days_until_expiry > 0) {
+            toast.warning(`Atenção: certificado expira em ${info.days_until_expiry} dias`);
+          }
+        }
       }
 
       await saveCertificate.mutateAsync({
@@ -132,6 +206,7 @@ export function CertificadoSection({ empresaId, onCertificateSaved }: Certificad
       setIsExpanded(false);
       setPfxFile(null);
       setPassword("");
+      setValidationResult(null);
       onCertificateSaved?.();
     } catch (error) {
       console.error("Erro ao salvar certificado:", error);
@@ -344,15 +419,59 @@ export function CertificadoSection({ empresaId, onCertificateSaved }: Certificad
           </div>
         </div>
 
+        {/* Resultado da Validação */}
+        {validationResult && (
+          <Alert className={validationResult.valid 
+            ? "bg-success/10 border-success/30" 
+            : "bg-destructive/10 border-destructive/30"
+          }>
+            {validationResult.valid ? (
+              <Check className="h-4 w-4 text-success" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+            )}
+            <AlertDescription className={validationResult.valid ? "text-success" : "text-destructive"}>
+              {validationResult.valid ? (
+                <div className="space-y-1">
+                  <p className="font-medium">Certificado válido!</p>
+                  {validationResult.certificate_info && (
+                    <div className="text-xs opacity-80">
+                      <p>Titular: {validationResult.certificate_info.common_name}</p>
+                      <p>CNPJ: {validationResult.certificate_info.cnpj}</p>
+                      <p>Válido até: {new Date(validationResult.certificate_info.valid_to).toLocaleDateString("pt-BR")}</p>
+                      {validationResult.certificate_info.days_until_expiry <= 60 && (
+                        <p className="text-amber-600 font-medium">
+                          ⚠ Expira em {validationResult.certificate_info.days_until_expiry} dias
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p>{validationResult.error}</p>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {isValidating && (
+          <Alert className="bg-blue-50 border-blue-200 dark:bg-blue-950/30">
+            <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+            <AlertDescription className="text-blue-700 dark:text-blue-300">
+              Validando certificado...
+            </AlertDescription>
+          </Alert>
+        )}
+
         <Button 
           onClick={handleSubmit} 
-          disabled={isLoading || saveCertificate.isPending}
+          disabled={isLoading || saveCertificate.isPending || isValidating}
           className="w-full"
         >
-          {isLoading || saveCertificate.isPending ? (
+          {isLoading || saveCertificate.isPending || isValidating ? (
             <>
               <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              Salvando...
+              {isValidating ? "Validando..." : "Salvando..."}
             </>
           ) : (
             <>
