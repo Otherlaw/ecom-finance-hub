@@ -189,13 +189,14 @@ export default function Dashboard() {
     enabled: !!periodoInicio && !!periodoFim
   });
 
-  // Processar dados para Top 10 produtos - dados já vêm agregados da RPC
+  // Processar dados para Top 10 produtos - dados já vêm ordenados por faturamento DESC da RPC
   const topProdutosProcessados = useMemo(() => {
     const faturamentoTotal = topProdutosRaw.reduce(
       (sum: number, p: any) => sum + Number(p.total_faturado || 0), 0
     );
     
-    return topProdutosRaw.map((p: any) => {
+    // NÃO reordenar - manter a ordem da RPC (já vem ordenado por faturamento DESC)
+    return topProdutosRaw.map((p: any, index: number) => {
       const custoUnitario = Number(p.custo_unitario) || 0;
       const qtdTotal = Number(p.qtd_total) || 0;
       const totalFaturado = Number(p.total_faturado) || 0;
@@ -217,7 +218,8 @@ export default function Dashboard() {
         precoMedio: qtdTotal > 0 ? totalFaturado / qtdTotal : 0,
         lucro,
         margem,
-        representatividade: faturamentoTotal > 0 ? (totalFaturado / faturamentoTotal) * 100 : 0
+        representatividade: faturamentoTotal > 0 ? (totalFaturado / faturamentoTotal) * 100 : 0,
+        posicao: index + 1  // Ranking 1-10
       };
     });
   }, [topProdutosRaw]);
@@ -411,11 +413,12 @@ export default function Dashboard() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="min-w-[280px]">Produto</TableHead>
+                        <TableHead className="w-10 text-center">#</TableHead>
+                        <TableHead className="min-w-[260px]">Produto</TableHead>
                         <TableHead className="text-right">Preço Médio</TableHead>
                         <TableHead className="text-center min-w-[180px]">Qtd. Vendida</TableHead>
                         <TableHead className="text-right">Ads</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="text-right">Faturamento</TableHead>
                         <TableHead className="text-right">Lucro</TableHead>
                         <TableHead className="text-right">Margem</TableHead>
                       </TableRow>
@@ -423,6 +426,17 @@ export default function Dashboard() {
                     <TableBody>
                       {topProdutosProcessados.map(produto => (
                         <TableRow key={produto.id}>
+                          {/* Posição no Ranking */}
+                          <TableCell className="text-center">
+                            <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                              produto.posicao === 1 ? 'bg-amber-500 text-white' :
+                              produto.posicao === 2 ? 'bg-slate-400 text-white' :
+                              produto.posicao === 3 ? 'bg-amber-700 text-white' :
+                              'bg-muted text-muted-foreground'
+                            }`}>
+                              {produto.posicao}
+                            </span>
+                          </TableCell>
                           {/* Coluna Produto */}
                           <TableCell>
                             <div className="flex items-center gap-3">
@@ -431,7 +445,7 @@ export default function Dashboard() {
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="font-medium text-sm leading-tight" title={produto.nome}>
-                                  {produto.nome.length > 45 ? produto.nome.substring(0, 45) + "..." : produto.nome}
+                                  {produto.nome.length > 40 ? produto.nome.substring(0, 40) + "..." : produto.nome}
                                 </p>
                                 <p className="text-xs text-muted-foreground">{produto.sku}</p>
                               </div>
