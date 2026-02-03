@@ -168,12 +168,18 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
       let pfxBase64 = "";
 
       if (pfxFile) {
-        const buffer = await pfxFile.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        let binary = "";
-        bytes.forEach((b) => (binary += String.fromCharCode(b)));
-        pfxBase64 = btoa(binary);
-
+        // Converter arquivo para base64 de forma robusta
+        pfxBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            // Remover o prefixo "data:...;base64," para obter apenas o base64
+            const base64 = result.split(",")[1];
+            resolve(base64);
+          };
+          reader.onerror = () => reject(new Error("Erro ao ler arquivo"));
+          reader.readAsDataURL(pfxFile);
+        });
         // Validar o certificado antes de salvar
         const validation = await validateCertificate(pfxBase64);
         
