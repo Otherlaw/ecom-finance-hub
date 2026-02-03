@@ -109,13 +109,13 @@ export default function Vendas() {
     pageSize,
     periodoInicio: periodoEfetivo.inicio,
     periodoFim: periodoEfetivo.fim,
-    canal: filtrosAplicados.canal !== "todos" ? filtrosAplicados.canal : undefined,
+    canal: filtrosAplicados.canal && filtrosAplicados.canal !== "todos" ? filtrosAplicados.canal : undefined,
     conta: filtrosAplicados.conta || undefined,
-    statusVenda: filtrosAplicados.statusVenda !== "todos" ? filtrosAplicados.statusVenda : undefined,
+    statusVenda: filtrosAplicados.statusVenda && filtrosAplicados.statusVenda !== "todos" ? filtrosAplicados.statusVenda : undefined,
     empresaId,
     busca: buscaCombinada,
-    tipoEnvio: filtrosAplicados.tipoEnvio !== "todos" ? filtrosAplicados.tipoEnvio : undefined,
-    temCusto: filtrosAplicados.temCusto !== "todos" ? filtrosAplicados.temCusto : undefined,
+    tipoEnvio: filtrosAplicados.tipoEnvio && filtrosAplicados.tipoEnvio !== "todos" ? filtrosAplicados.tipoEnvio : undefined,
+    temCusto: filtrosAplicados.temCusto && filtrosAplicados.temCusto !== "todos" ? filtrosAplicados.temCusto : undefined,
   });
 
   // Hook antigo apenas para métricas por tipo de envio (dashboard)
