@@ -1,125 +1,88 @@
 
-# Plano: Simplificação do Dashboard de Vendas e Melhoria de UX
+# Plano: Implementar Envio de Email de Boas-vindas no Cadastro
 
-## Resumo das Alterações
+## Situação Atual
+- A configuração `enable_confirmations = false` no `supabase/config.toml` significa que não há exigência de confirmação de email
+- Não existe nenhum sistema de envio de emails configurado no projeto
+- Quando o usuário se cadastra, ele pode fazer login imediatamente (sem verificar email)
 
-O usuário solicitou duas mudanças na tela de Vendas:
+## Solução Proposta
 
-1. **Remover custos de ADS e tarifa dos cálculos** - A comissão já engloba comissão + taxa fixa juntas, então não é necessário mostrar separadamente
-2. **Mostrar nome fantasia da empresa na coluna "Conta"** - Em vez de mostrar o identificador técnico (ex: "EXDECORLTDA"), exibir o nome amigável (ex: "Inpari Distribuição")
+Vamos implementar um sistema de email de boas-vindas usando **Resend** (serviço recomendado pelo Lovable para emails de autenticação).
 
----
-
-## Alterações Propostas
-
-### 1. Simplificar Dashboard de Vendas (VendasDashboard.tsx)
-
-**Antes:** 6 cards (Vendas, Custo & Imposto, Comissão ML, Tarifa Fixa, Frete Vendedor, Margem)
-
-**Depois:** 4 cards principais:
-- **Vendas Aprovadas** - mantém igual
-- **Custo & Imposto** - CMV + Imposto (sem ads)
-- **Comissão** - engloba comissão + tarifa (unificado)
-- **Frete Vendedor** - mantém igual
-- **Margem de Contribuição** - recalculada sem separar ads/tarifa
-
-**Ajustes nos cálculos de margem:**
-- Remover `custoAds` do cálculo de margem
-- Não exibir separadamente "Tarifa Fixa"
-- A comissão já inclui tudo junto (comissão + tarifa)
-
-### 2. Simplificar Cards por Tipo de Envio
-
-Remover linha de ADS e ajustar cálculo de margem para não subtrair ads separadamente.
-
-### 3. Remover Colunas Tarifa e ADS da Tabela de Pedidos
-
-**Arquivos:** `PedidosTable.tsx` e `PedidosTableRow.tsx`
-
-- Remover coluna "Tarifa" do header e rows
-- Remover coluna "ADS" do header e rows  
-- Ajustar exportação CSV para não incluir esses campos
-
-### 4. Mostrar Nome Fantasia da Empresa na Coluna "Conta"
-
-**Problema atual:** A coluna "Conta" mostra `conta_nome` que é um identificador técnico do marketplace (ex: "EXDECORLTDA")
-
-**Solução:** Como cada transação já tem `empresa_id`, podemos buscar o `nome_fantasia` da empresa correspondente via join.
-
-**Opções de implementação:**
-1. **Alterar RPC `get_vendas_por_pedido`** - Fazer join com tabela `empresas` e retornar `nome_fantasia` junto com os dados do pedido
-2. **Lookup no frontend** - Manter dados como estão e fazer lookup via hook `useEmpresas`
-
-**Recomendação:** Opção 1 (RPC) é mais eficiente e garante consistência. Adicionar campo `empresa_nome_fantasia` no retorno da RPC.
+### O que o cliente receberá:
+- Email de boas-vindas após criar a conta
+- Design profissional com a logo do ECOM Finance
+- Mensagem personalizada com o nome da empresa cadastrada
 
 ---
 
-## Detalhamento Técnico
+## Etapas de Implementação
 
-### Arquivo: `src/components/vendas/VendasDashboard.tsx`
+### 1. Configurar API Key do Resend
+Você precisará criar uma conta gratuita no [Resend](https://resend.com) e fornecer a API Key.
 
+### 2. Criar Edge Function para Envio de Email
 ```
-Alterações:
-- Mudar grid de 6 para 4 colunas principais
-- Remover card "Tarifa Fixa"
-- Remover exibição de ADS no card de tarifas
-- Ajustar função calcularMargem para não subtrair custoAds
-- Ajustar TipoEnvioCard para não mostrar/calcular ads
+supabase/functions/send-welcome-email/index.ts
 ```
+- Recebe os dados do novo usuário (email, nome da empresa)
+- Envia email de boas-vindas personalizado
+- Template HTML com branding do ECOM Finance
 
-### Arquivo: `src/components/vendas/PedidosTable.tsx`
+### 3. Atualizar o Fluxo de Cadastro
+Após o `signUp` bem-sucedido em `Auth.tsx`:
+- Chamar a edge function para enviar o email
+- Manter a experiência atual (usuário pode logar imediatamente)
 
-```
-Alterações:
-- Remover colunas "Tarifa" e "ADS" do TableHeader
-- Atualizar array de headers na exportação CSV
-- Remover campos tarifa e ads do mapeamento de rows na exportação
-```
-
-### Arquivo: `src/components/vendas/PedidosTableRow.tsx`
-
-```
-Alterações:
-- Remover TableCell de tarifa_fixa_total
-- Remover TableCell de ads_total
-- Remover linhas correspondentes na área expandida (resumo)
-- Alterar coluna "Conta" para usar empresa_nome_fantasia (quando disponível via RPC)
-```
-
-### Arquivo: `src/pages/Vendas.tsx`
-
-```
-Alterações:
-- Remover totalTarifas e totalCustoAds do resumoAdaptado (ou zerar)
-- Simplificar props passadas para VendasDashboard
-```
-
-### Migração SQL (RPC)
-
-```sql
--- Atualizar get_vendas_por_pedido para retornar nome_fantasia
--- Adicionar LEFT JOIN com empresas
--- Incluir e.nome_fantasia AS empresa_nome_fantasia no SELECT
-```
+### 4. (Opcional) Ativar Confirmação de Email
+Se você quiser que o usuário **confirme o email antes de fazer login**:
+- Alterar `enable_confirmations = true` no config
+- Criar edge function com hook de autenticação para emails customizados
 
 ---
 
-## Impacto Visual
+## Detalhes Técnicos
 
-| Antes | Depois |
-|-------|--------|
-| 6 cards no dashboard | 4 cards (mais limpo) |
-| Tarifa e ADS separados | Tudo incluso na comissão |
-| Conta: "EXDECORLTDA" | Conta: "Inpari Distribuição" |
-| Tabela com 15 colunas | Tabela com 13 colunas |
+### Template do Email de Boas-vindas
+```text
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+|                    [LOGO ECOM FINANCE]              |
+|                                                     |
+|     Bem-vindo ao ECOM Finance! 🎉                   |
+|                                                     |
+|     Olá, [Nome da Empresa]!                         |
+|                                                     |
+|     Sua conta foi criada com sucesso.               |
+|     Agora você pode gerenciar suas finanças         |
+|     de e-commerce em um só lugar.                   |
+|                                                     |
+|     [Acessar sua conta]                             |
+|                                                     |
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Arquivos a serem criados/modificados
+| Arquivo | Ação |
+|---------|------|
+| `supabase/functions/send-welcome-email/index.ts` | Criar (edge function) |
+| `src/pages/Auth.tsx` | Modificar (chamar edge function após signup) |
 
 ---
 
-## Sequência de Implementação
+## Pré-requisitos
 
-1. Criar migração SQL para ajustar RPC `get_vendas_por_pedido` (adicionar nome_fantasia)
-2. Atualizar `useVendasPorPedido.ts` para mapear novo campo
-3. Atualizar `VendasDashboard.tsx` (remover tarifa e ads)
-4. Atualizar `PedidosTable.tsx` (remover colunas)
-5. Atualizar `PedidosTableRow.tsx` (remover células, usar nome fantasia)
-6. Atualizar `Vendas.tsx` (simplificar resumo)
+Para prosseguir, você precisa:
+
+1. **Criar conta no Resend**: https://resend.com (gratuito até 3.000 emails/mês)
+2. **Criar API Key**: https://resend.com/api-keys
+3. **Validar domínio** (opcional, mas recomendado para emails não irem para spam): https://resend.com/domains
+   - Sem domínio validado, os emails serão enviados de `onboarding@resend.dev`
+
+---
+
+## Pergunta para você
+
+**Você quer que o email seja apenas de boas-vindas (informativo), ou quer exigir que o usuário confirme o email antes de conseguir fazer login?**
+
+A primeira opção é mais simples e mantém a experiência atual. A segunda opção é mais segura, mas adiciona uma etapa extra para o usuário.
