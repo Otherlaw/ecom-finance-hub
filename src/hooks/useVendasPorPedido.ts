@@ -1,6 +1,10 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  sanitizeSalesFilters,
+  ensureValidPeriod,
+} from "@/lib/sanitize-filters";
 
 /**
  * Representa um pedido agregado (1 linha por pedido)
@@ -12,13 +16,13 @@ export interface PedidoAgregado {
   empresa_nome_fantasia: string | null;  // Nome fantasia da empresa
   canal: string;
   conta_nome: string | null;
-  data_pedido: string;
-  data_repasse: string | null;
+  data_pedido: string;  // TIMESTAMPTZ
+  data_repasse: string | null;  // DATE (formato YYYY-MM-DD)
   status: string;
   tipo_envio: string | null;
   // Valores financeiros
   valor_produto: number;
-  comissao_total: number | null;      // taxas (CV - comissão de venda) - NULL se pendente
+  comissao_total: number | null;      // taxas (CV - comissao de venda) - NULL se pendente
   tarifa_fixa_total: number | null;   // tarifas (FINANCING_FEE, etc) - NULL se pendente
   frete_vendedor_total: number | null; // CXE - NULL se pendente
   ads_total: number;
@@ -27,8 +31,8 @@ export interface PedidoAgregado {
   valor_liquido_calculado: number;
   // CMV e margem
   qtd_itens: number;
-  cmv_total: number | null;  // NULL se produto não tem custo
-  margem_contribuicao: number | null;  // NULL se CMV é NULL
+  cmv_total: number | null;  // NULL se produto nao tem custo
+  margem_contribuicao: number | null;  // NULL se CMV e NULL
   tem_cmv: boolean;  // Flag para indicar se CMV foi calculado
 }
 
@@ -83,25 +87,39 @@ export function useVendasPorPedido({
   temCusto,
 }: UseVendasPorPedidoParams) {
   const empresaParam = empresaId && empresaId !== "todas" ? empresaId : null;
-  const buscaParam = busca && busca.trim().length >= 2 ? busca.trim() : null;
 
-  // PADRONIZADO: Envia strings DATE (YYYY-MM-DD) diretamente
-  // A RPC converte para TIMESTAMPTZ usando date_to_br_timestamptz internamente
-  // Isso garante consistência com Dashboard e outras telas
-  
-  // Log para debug de períodos (apenas em desenvolvimento)
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`[Vendas] Período: ${periodoInicio} a ${periodoFim}`);
-  }
+  // Validar e garantir periodo valido (fallback para ultimos 7 dias se invalido)
+  const { periodoInicio: dataInicio, periodoFim: dataFim } = ensureValidPeriod(
+    periodoInicio,
+    periodoFim
+  );
+
+  // Sanitizar filtros usando helper centralizado
+  const filtrosSanitizados = sanitizeSalesFilters({
+    canal,
+    conta,
+    statusVenda,
+    busca,
+    tipoEnvio,
+    temCusto,
+  });
+
+  // Log para debug: mostrar periodo e filtros aplicados
+  console.debug("[Vendas] Query executada:", {
+    periodo: { inicio: dataInicio, fim: dataFim },
+    empresa: empresaParam,
+    filtrosAplicados: filtrosSanitizados,
+    paginacao: { page, pageSize },
+  });
 
   // Buscar resumo agregado via RPC
   const { data: resumoAgregado, isLoading: isLoadingResumo } = useQuery({
-    queryKey: ["vendas-por-pedido-resumo", empresaParam, periodoInicio, periodoFim],
+    queryKey: ["vendas-por-pedido-resumo", empresaParam, dataInicio, dataFim],
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_resumo", {
         p_empresa_id: empresaParam,
-        p_data_inicio: periodoInicio,
-        p_data_fim: periodoFim,
+        p_data_inicio: dataInicio,
+        p_data_fim: dataFim,
       });
 
       if (error) {
@@ -137,26 +155,21 @@ export function useVendasPorPedido({
     queryKey: [
       "vendas-por-pedido-count",
       empresaParam,
-      periodoInicio,
-      periodoFim,
-      canal,
-      conta,
-      statusVenda,
-      buscaParam,
-      tipoEnvio,
-      temCusto,
+      dataInicio,
+      dataFim,
+      filtrosSanitizados.p_canal,
+      filtrosSanitizados.p_conta,
+      filtrosSanitizados.p_status,
+      filtrosSanitizados.p_busca,
+      filtrosSanitizados.p_tipo_envio,
+      filtrosSanitizados.p_tem_custo,
     ],
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_count", {
         p_empresa_id: empresaParam,
-        p_data_inicio: periodoInicio,
-        p_data_fim: periodoFim,
-        p_canal: canal || null,
-        p_conta: conta || null,
-        p_status: statusVenda || null,
-        p_busca: buscaParam,
-        p_tipo_envio: tipoEnvio || null,
-        p_tem_custo: temCusto || null,
+        p_data_inicio: dataInicio,
+        p_data_fim: dataFim,
+        ...filtrosSanitizados,
       });
 
       if (error) {
@@ -181,28 +194,23 @@ export function useVendasPorPedido({
     queryKey: [
       "vendas-por-pedido",
       empresaParam,
-      periodoInicio,
-      periodoFim,
-      canal,
-      conta,
-      statusVenda,
-      buscaParam,
-      tipoEnvio,
-      temCusto,
+      dataInicio,
+      dataFim,
+      filtrosSanitizados.p_canal,
+      filtrosSanitizados.p_conta,
+      filtrosSanitizados.p_status,
+      filtrosSanitizados.p_busca,
+      filtrosSanitizados.p_tipo_envio,
+      filtrosSanitizados.p_tem_custo,
       page,
       pageSize,
     ],
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido", {
         p_empresa_id: empresaParam,
-        p_data_inicio: periodoInicio,
-        p_data_fim: periodoFim,
-        p_canal: canal || null,
-        p_conta: conta || null,
-        p_status: statusVenda || null,
-        p_busca: buscaParam,
-        p_tipo_envio: tipoEnvio || null,
-        p_tem_custo: temCusto || null,
+        p_data_inicio: dataInicio,
+        p_data_fim: dataFim,
+        ...filtrosSanitizados,
         p_limit: pageSize,
         p_offset: page * pageSize,
       });
