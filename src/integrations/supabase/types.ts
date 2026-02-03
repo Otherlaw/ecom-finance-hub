@@ -3705,6 +3705,8 @@ export type Database = {
           p_limit?: number
           p_offset?: number
           p_status?: string
+          p_tem_custo?: string
+          p_tipo_envio?: string
         }
         Returns: {
           ads_total: number
@@ -3739,6 +3741,8 @@ export type Database = {
           p_data_inicio?: string
           p_empresa_id?: string
           p_status?: string
+          p_tem_custo?: string
+          p_tipo_envio?: string
         }
         Returns: number
       }

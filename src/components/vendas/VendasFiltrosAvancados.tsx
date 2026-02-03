@@ -222,7 +222,7 @@ export function VendasFiltrosAvancados({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todos</SelectItem>
-                    <SelectItem value="fulfillment">Fulfillment (Full)</SelectItem>
+                    <SelectItem value="full">Fulfillment (Full)</SelectItem>
                     <SelectItem value="coleta">Coleta</SelectItem>
                     <SelectItem value="flex">Flex</SelectItem>
                     <SelectItem value="correios">Correios</SelectItem>
