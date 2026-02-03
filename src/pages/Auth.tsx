@@ -164,6 +164,21 @@ export default function Auth() {
         throw error;
       }
       
+      // Send welcome email (fire and forget - don't block the signup flow)
+      try {
+        await supabase.functions.invoke('send-welcome-email', {
+          body: {
+            email: signupEmail,
+            nomeEmpresa: signupRazaoSocial,
+            appUrl: window.location.origin
+          }
+        });
+        console.log("Welcome email sent successfully");
+      } catch (emailError) {
+        // Don't fail the signup if email fails
+        console.error("Failed to send welcome email:", emailError);
+      }
+      
       toast.success("Conta e empresa criadas com sucesso! Verifique seu e-mail para confirmar o cadastro.");
       setActiveView("login");
       setLoginEmail(signupEmail);
