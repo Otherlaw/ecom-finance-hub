@@ -109,7 +109,14 @@ Deno.serve(async (req) => {
     // Parse payload
     const { pfx_base64, password, expected_cnpj } = await req.json();
 
-    if (!pfx_base64 || !password) {
+    // Normalizar base64 (aceitar data URL e remover espaços/quebras de linha)
+    let normalizedBase64 = typeof pfx_base64 === "string" ? pfx_base64 : "";
+    if (normalizedBase64.includes("base64,")) {
+      normalizedBase64 = normalizedBase64.split("base64,").pop() || "";
+    }
+    normalizedBase64 = normalizedBase64.replace(/\s/g, "").trim();
+
+    if (!normalizedBase64 || !password) {
       return new Response(
         JSON.stringify({ valid: false, error: "Arquivo PFX e senha são obrigatórios" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -121,7 +128,11 @@ Deno.serve(async (req) => {
     // Converter base64 para binary
     let pfxBinary: string;
     try {
-      pfxBinary = forge.util.decode64(pfx_base64);
+      // Validação rápida de caracteres (evita erros confusos do decode)
+      if (!/^[A-Za-z0-9+/=]+$/.test(normalizedBase64)) {
+        throw new Error("INVALID_BASE64_CHARS");
+      }
+      pfxBinary = forge.util.decode64(normalizedBase64);
     } catch (e) {
       return new Response(
         JSON.stringify({ valid: false, error: "Arquivo PFX inválido (não é base64 válido)" }),
