@@ -33,6 +33,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     const emailResponse = await resend.emails.send({
       from: "ECOM Finance <onboarding@resend.dev>",
+      reply_to: "ecomfinanceapp@gmail.com",
       to: [email],
       subject: "Bem-vindo ao ECOM Finance! 🎉",
       html: `
