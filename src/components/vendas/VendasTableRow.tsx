@@ -130,22 +130,8 @@ export function VendasTableRow({
         <TableCell className="text-xs text-muted-foreground truncate max-w-[100px]">
           {transacao.conta_nome || "-"}
         </TableCell>
-        <TableCell className="text-xs font-mono text-muted-foreground">
-          {transacao.pedido_id || transacao.referencia_externa || "-"}
-        </TableCell>
-        <TableCell className="text-xs">
-          <div>
-            {format(new Date(transacao.data_transacao), "dd/MM/yy")}
-            <span className="block text-[10px] text-muted-foreground">
-              {format(new Date(transacao.data_transacao), "HH:mm")}
-            </span>
-          </div>
-        </TableCell>
         <TableCell>
-          <TipoEnvioBadge tipo={transacao.tipo_envio} />
-        </TableCell>
-        <TableCell>
-          <div className="flex items-start gap-1.5">
+          <div className="flex items-start gap-1.5 max-w-[200px]">
             {hasWarnings && (
               <Tooltip>
                 <TooltipTrigger>
@@ -158,17 +144,38 @@ export function VendasTableRow({
                 </TooltipContent>
               </Tooltip>
             )}
-            <div className="flex flex-col gap-1">
-              <p className="text-xs truncate max-w-[160px]">
-                {transacao.descricao}
+            <div className="flex flex-col gap-0.5">
+              <p className="text-xs font-medium truncate" title={transacao.descricao}>
+                {transacao.descricao || "Produto não identificado"}
               </p>
               {temItens && (
                 <span className="text-[10px] text-muted-foreground">
                   {transacao.qtd_itens} {transacao.qtd_itens === 1 ? "item" : "itens"}
                 </span>
               )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-[10px] text-muted-foreground/70 font-mono truncate cursor-help w-fit">
+                    Pedido: #{(transacao.pedido_id || transacao.referencia_externa || "-").slice(-8)}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs font-mono">{transacao.pedido_id || transacao.referencia_externa}</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
+        </TableCell>
+        <TableCell className="text-xs">
+          <div>
+            {format(new Date(transacao.data_transacao), "dd/MM/yy")}
+            <span className="block text-[10px] text-muted-foreground">
+              {format(new Date(transacao.data_transacao), "HH:mm")}
+            </span>
+          </div>
+        </TableCell>
+        <TableCell>
+          <TipoEnvioBadge tipo={transacao.tipo_envio} />
         </TableCell>
         <TableCell className="text-center text-xs">{transacao.qtd_itens || 1}</TableCell>
         <TableCell className="text-right text-xs font-medium">
@@ -270,7 +277,7 @@ export function VendasTableRow({
         <>
           {isLoadingItens ? (
             <TableRow>
-              <TableCell colSpan={16} className="bg-muted/20">
+              <TableCell colSpan={15} className="bg-muted/20">
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
                   <span className="text-sm text-muted-foreground">Carregando itens...</span>
@@ -279,7 +286,7 @@ export function VendasTableRow({
             </TableRow>
           ) : itens.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={16} className="bg-muted/20">
+              <TableCell colSpan={15} className="bg-muted/20">
                 <div className="flex items-center justify-center py-4 text-muted-foreground">
                   <Package className="h-4 w-4 mr-2" />
                   <span className="text-sm">Nenhum item encontrado</span>
@@ -302,7 +309,7 @@ export function VendasTableRow({
               return (
                 <TableRow key={item.id} className="bg-muted/20 border-l-4 border-l-primary/20">
                   <TableCell></TableCell>
-                  <TableCell colSpan={5}></TableCell>
+                  <TableCell colSpan={4}></TableCell>
                   <TableCell>
                     <div className="flex items-start gap-1.5 pl-4">
                       {(item.sem_produto || item.sem_custo) && (
