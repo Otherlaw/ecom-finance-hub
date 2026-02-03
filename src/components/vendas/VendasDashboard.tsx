@@ -10,6 +10,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ResumoVendas } from "@/hooks/useVendas";
 import { MetricasPorTipoEnvio } from "@/hooks/useVendasPaginadas";
 import { VendasVariacoes } from "@/hooks/useVendasComparativo";
+import { VariacaoPeriodo } from "@/hooks/usePeriodoComparativo";
+import { VariacaoIndicadorComTooltip } from "@/components/VariacaoTooltip";
 import { cn } from "@/lib/utils";
 import { Package, Truck, Percent, Calculator, ShoppingCart, RotateCcw, AlertTriangle, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
@@ -32,29 +34,6 @@ function formatCurrency(value: number): string {
 
 function formatPercent(value: number): string {
   return `${value.toFixed(1).replace(".", ",")}%`;
-}
-
-function VariacaoIndicador({ 
-  variacaoPct, 
-  trend, 
-  label 
-}: { 
-  variacaoPct: number; 
-  trend: "up" | "down" | "neutral"; 
-  label: string;
-}) {
-  const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : Minus;
-  const trendColor = trend === "up" ? "text-emerald-500" : trend === "down" ? "text-red-500" : "text-muted-foreground";
-  
-  return (
-    <div className={cn("flex items-center gap-1 text-xs", trendColor)}>
-      <TrendIcon className="h-3 w-3" />
-      <span className="font-medium">
-        {variacaoPct >= 0 ? "+" : ""}{variacaoPct.toFixed(1)}%
-      </span>
-      <span className="text-muted-foreground">{label}</span>
-    </div>
-  );
 }
 
 // Transformar métricas por tipo de envio vindas da RPC em formato de lookup
@@ -148,10 +127,10 @@ export function VendasDashboard({
               {resumo.qtdTransacoes} pedidos • {resumo.qtdItens} itens
             </p>
             {variacoes && (
-              <VariacaoIndicador 
-                variacaoPct={variacoes.faturamento.variacaoPct} 
-                trend={variacoes.faturamento.trend} 
+              <VariacaoIndicadorComTooltip 
+                variacao={variacoes.faturamento}
                 label={labelComparacao} 
+                formatValue={formatCurrency}
               />
             )}
           </CardContent>
@@ -192,10 +171,10 @@ export function VendasDashboard({
               {((resumo.totalTaxas + resumo.totalTarifas) / resumo.totalFaturamentoBruto * 100 || 0).toFixed(1)}% do faturamento
             </p>
             {variacoes && (
-              <VariacaoIndicador 
-                variacaoPct={variacoes.comissao.variacaoPct} 
-                trend={variacoes.comissao.trend} 
+              <VariacaoIndicadorComTooltip 
+                variacao={variacoes.comissao}
                 label={labelComparacao} 
+                formatValue={formatCurrency}
               />
             )}
           </CardContent>
@@ -217,10 +196,10 @@ export function VendasDashboard({
               {formatPercent(margemGeral.margemPercent)}
             </p>
             {variacoes && (
-              <VariacaoIndicador 
-                variacaoPct={variacoes.margem.variacaoPct} 
-                trend={variacoes.margem.trend} 
+              <VariacaoIndicadorComTooltip 
+                variacao={variacoes.margem}
                 label={labelComparacao} 
+                formatValue={formatCurrency}
               />
             )}
           </CardContent>
