@@ -132,13 +132,17 @@ export function useNfeSyncStatus(empresaId?: string) {
     },
   });
 
+  // Só considera "syncing" se há certificado E (status running OU mutation pending)
+  const hasCert = data?.has_certificate === true;
+  const isSyncing = hasCert && (data?.sync_state?.status === "running" || startSync.isPending);
+
   return {
     status: data,
     isLoading,
     error,
     refetch,
     startSync,
-    isSyncing: data?.sync_state?.status === "running" || startSync.isPending,
+    isSyncing,
   };
 }
 
