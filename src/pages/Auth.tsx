@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Loader2, Mail, Lock, Eye, EyeOff, ArrowLeft, Building2, FileText, Briefcase } from "lucide-react";
-import logoEcomFinance from "@/assets/logo-ecom-finance-new.png";
+const logoEcomFinance = "/lovable-uploads/logo-ecom-finance-auth.png";
 import { formatCNPJ } from "@/lib/empresas-data";
 import { supabase } from "@/integrations/supabase/client";
 
