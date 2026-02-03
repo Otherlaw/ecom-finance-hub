@@ -61,8 +61,6 @@ interface UseVendasPorPedidoParams {
   statusVenda?: string;
   empresaId?: string | null;
   busca?: string; // Busca por pedido_id, sku, descrição
-  tipoEnvio?: string; // full, flex, coleta, etc.
-  temCusto?: string; // 'com_custo', 'sem_custo', ou undefined para todos
 }
 
 /**
@@ -79,8 +77,6 @@ export function useVendasPorPedido({
   statusVenda,
   empresaId,
   busca,
-  tipoEnvio,
-  temCusto,
 }: UseVendasPorPedidoParams) {
   const empresaParam = empresaId && empresaId !== "todas" ? empresaId : null;
   const buscaParam = busca && busca.trim().length >= 2 ? busca.trim() : null;
@@ -143,8 +139,6 @@ export function useVendasPorPedido({
       conta,
       statusVenda,
       buscaParam,
-      tipoEnvio,
-      temCusto,
     ],
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_count", {
@@ -155,8 +149,6 @@ export function useVendasPorPedido({
         p_conta: conta || null,
         p_status: statusVenda || null,
         p_busca: buscaParam,
-        p_tipo_envio: tipoEnvio || null,
-        p_tem_custo: temCusto || null,
       });
 
       if (error) {
@@ -187,8 +179,6 @@ export function useVendasPorPedido({
       conta,
       statusVenda,
       buscaParam,
-      tipoEnvio,
-      temCusto,
       page,
       pageSize,
     ],
@@ -203,8 +193,6 @@ export function useVendasPorPedido({
         p_busca: buscaParam,
         p_limit: pageSize,
         p_offset: page * pageSize,
-        p_tipo_envio: tipoEnvio || null,
-        p_tem_custo: temCusto || null,
       });
 
       if (error) {
