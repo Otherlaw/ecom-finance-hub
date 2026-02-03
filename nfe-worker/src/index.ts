@@ -19,8 +19,20 @@ const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
 const REQUEST_DELAY_MS = 1100; // Delay entre requisicoes SEFAZ (rate limit)
 
 // Validar configuracoes
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !WORKER_INGEST_TOKEN || !CERT_MASTER_KEY) {
-  console.error('Variaveis de ambiente obrigatorias nao configuradas');
+const missingVars: string[] = [];
+if (!SUPABASE_URL) missingVars.push('SUPABASE_URL');
+if (!SUPABASE_SERVICE_ROLE_KEY) missingVars.push('SUPABASE_SERVICE_ROLE_KEY');
+if (!WORKER_INGEST_TOKEN) missingVars.push('WORKER_INGEST_TOKEN');
+if (!CERT_MASTER_KEY) missingVars.push('CERT_MASTER_KEY');
+
+if (missingVars.length > 0) {
+  console.error('===========================================');
+  console.error('ERRO: Variaveis de ambiente obrigatorias faltando:');
+  missingVars.forEach(v => console.error(`  - ${v}`));
+  console.error('===========================================');
+  console.error('Configure estas variaveis no painel do Render:');
+  console.error('  Dashboard -> Environment -> Add Environment Variable');
+  console.error('===========================================');
   process.exit(1);
 }
 
