@@ -8,8 +8,11 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as forge from "https://esm.sh/node-forge@1.3.1";
+import forgeModule from "https://esm.sh/node-forge@1.3.1?target=deno";
 import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
+
+// esm.sh pode expor node-forge como default export dependendo do target
+const forge: any = (forgeModule as any)?.default ?? (forgeModule as any);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,7 +68,7 @@ function bytesToBinaryString(bytes: Uint8Array) {
 }
 
 // Extrai CNPJ do Subject ou do SAN (Subject Alternative Name) do certificado
-function extractCnpjFromCertificate(cert: forge.pki.Certificate): string | null {
+function extractCnpjFromCertificate(cert: any): string | null {
   try {
     // Tentar extrair do Subject (campo OU ou CN pode conter o CNPJ)
     const subject = cert.subject;
@@ -195,7 +198,7 @@ Deno.serve(async (req) => {
     }
 
     // Tentar abrir o PFX com a senha
-    let p12: forge.pkcs12.Pkcs12Pfx;
+    let p12: any;
     try {
       const asn1 = forge.asn1.fromDer(pfxBinary);
       p12 = forge.pkcs12.pkcs12FromAsn1(asn1, password);
