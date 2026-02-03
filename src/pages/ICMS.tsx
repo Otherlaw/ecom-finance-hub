@@ -15,6 +15,8 @@ import { REGIME_TRIBUTARIO_CONFIG, canUseICMSCredit } from "@/lib/empresas-data"
 import { XMLImportModal } from "@/components/icms/XMLImportModal";
 import { ICMSCalculatorModal } from "@/components/icms/ICMSCalculatorModal";
 import { ICMSRecommendationModal } from "@/components/icms/ICMSRecommendationModal";
+import { NfeSyncStatus } from "@/components/icms/NfeSyncStatus";
+import { CertificadoModal } from "@/components/icms/CertificadoModal";
 import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
@@ -24,7 +26,7 @@ import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/
 import { 
   Receipt, AlertTriangle, TrendingDown, Calculator, 
   Upload, Lightbulb, Trash2, Edit2, Info, Building2, 
-  CheckCircle2, Filter
+  CheckCircle2, Filter, Shield
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
@@ -40,6 +42,7 @@ export default function ICMS() {
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [recommendationOpen, setRecommendationOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [certificadoModalOpen, setCertificadoModalOpen] = useState(false);
   const [editingCredit, setEditingCredit] = useState<CreditoICMSDB | null>(null);
   const [deletingCreditId, setDeletingCreditId] = useState<string | null>(null);
   
@@ -231,6 +234,12 @@ export default function ICMS() {
       subtitle="Gestão de créditos compensáveis e não compensáveis" 
       actions={
         <div className="flex items-center gap-2">
+          {empresaAtiva?.id && (
+            <NfeSyncStatus empresaId={empresaAtiva.id} />
+          )}
+          <Button variant="outline" size="icon" onClick={() => setCertificadoModalOpen(true)} title="Configurar Certificado A1">
+            <Shield className="h-4 w-4" />
+          </Button>
           <AskAssistantButton onClick={handleAskAssistant} label="Perguntar" />
           <Button variant="outline" className="gap-2" onClick={() => setXmlImportOpen(true)}>
             <Upload className="h-4 w-4" />Importar XML
@@ -583,6 +592,15 @@ export default function ICMS() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Modal Certificado */}
+      {empresaAtiva?.id && (
+        <CertificadoModal
+          open={certificadoModalOpen}
+          onOpenChange={setCertificadoModalOpen}
+          empresaId={empresaAtiva.id}
+        />
+      )}
     </MainLayout>
   );
 }
