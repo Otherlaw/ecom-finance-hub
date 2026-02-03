@@ -1,102 +1,143 @@
 
-# Plano: Corrigir extração do CNPJ do certificado ICP-Brasil
+# Plano: Remover dependência do SUPABASE_SERVICE_ROLE_KEY no Worker
 
 ## Problema Identificado
+O worker externo no Render precisa de `SUPABASE_SERVICE_ROLE_KEY` para acessar as tabelas `nfe_certificates`, `nfe_sync_state` e `nfe_sync_logs`. Porém, essa chave não está disponível na interface do Lovable Cloud.
 
-A função `extractCnpjFromCertificate` na Edge Function `validate-certificate` está extraindo o CNPJ do **emissor** (autoridade certificadora) ao invés do CNPJ do **titular** (empresa dona do certificado).
-
-### Logs que comprovam o problema:
-```
-certCnpj: "39157027000128"     ← CNPJ extraído (emissor)
-expected: "29860042000184"      ← CNPJ da empresa (titular)
-match: false
-```
-
-O sistema está encontrando o primeiro CNPJ que aparece nos atributos do Subject, que pode ser da autoridade certificadora (Serasa, Certisign, etc.).
+## Solução Proposta
+Criar uma Edge Function `nfe-worker-proxy` que funciona como API intermediária, permitindo que o worker faça todas as operações de banco via HTTP autenticado com `WORKER_INGEST_TOKEN` (que já está configurado).
 
 ---
 
-## Solução Técnica
+## Mudanças Técnicas
 
-### Estrutura do Certificado ICP-Brasil
+### 1. Nova Edge Function: `nfe-worker-proxy`
 
-Em certificados e-CNPJ/A1 ICP-Brasil, o CNPJ do titular pode estar em:
+```
+supabase/functions/nfe-worker-proxy/index.ts
+```
 
-1. **OID 2.16.76.1.3.3** - Campo específico ICP-Brasil para CNPJ de PJ no SAN (otherName)
-2. **Campo OU (Organizational Unit)** - Geralmente contém o CNPJ após o nome da empresa
-3. **Campo CN (Common Name)** - Formato típico: `NOME DA EMPRESA:CNPJ`
-4. **Último OU** - Quando há múltiplos OUs, o CNPJ do titular costuma estar no último
+Endpoints suportados (via query param `action`):
 
-### Estratégia de Extração (Prioridade)
+| Action | Descrição | Dados Retornados |
+|--------|-----------|------------------|
+| `get-certificate` | Busca certificado A1 ativo | PFX, senha, CNPJ, UF, ambiente |
+| `get-sync-state` | Retorna estado de sincronização | ult_nsu, status |
+| `update-sync-state` | Atualiza estado | - |
+| `log` | Registra log em nfe_sync_logs | - |
+| `get-active-companies` | Lista empresas com certificado ativo | Array de empresa_id |
 
-A nova lógica irá:
-1. **Primeiro**: Buscar no OID específico ICP-Brasil (2.16.76.1.3.3) no SAN
-2. **Segundo**: Buscar no Common Name (CN) - padrão "NOME:CNPJ"
-3. **Terceiro**: Buscar no último campo OU (mais confiável que o primeiro)
-4. **Fallback**: Varrer todos os campos do Subject, mas priorizando os do final
+Autenticação: Header `x-worker-token` = `WORKER_INGEST_TOKEN`
+
+### 2. Atualização do Worker: `nfe-worker/src/supabase-client.ts`
+
+Substituir uso do SDK Supabase por chamadas HTTP à Edge Function:
+
+```typescript
+// ANTES
+const { data, error } = await this.client
+  .from('nfe_certificates')
+  .select('*')
+  .eq('empresa_id', empresaId);
+
+// DEPOIS
+const response = await fetch(
+  `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=get-certificate&empresa_id=${empresaId}`,
+  {
+    headers: { 'x-worker-token': this.ingestToken }
+  }
+);
+```
+
+### 3. Atualização do Worker: `nfe-worker/src/index.ts`
+
+- Remover validação de `SUPABASE_SERVICE_ROLE_KEY`
+- Ajustar instanciação do `SupabaseWorkerClient` (remover parâmetro serviceRoleKey)
+
+### 4. Atualização da documentação: `.env.example`
+
+- Remover `SUPABASE_SERVICE_ROLE_KEY` da lista de variáveis obrigatórias
 
 ---
 
-## Alterações Necessárias
-
-### 1. Edge Function `validate-certificate`
-
-Reescrever a função `extractCnpjFromCertificate` com a seguinte lógica:
+## Diagrama de Arquitetura
 
 ```text
-1. Tentar extrair do SAN (Subject Alternative Name):
-   - Buscar otherName com OID 2.16.76.1.3.3 (CNPJ ICP-Brasil)
-   - Parse do conteúdo ASN.1 para extrair os 14 dígitos
+┌──────────────────────┐
+│   Render Worker      │
+│   (Node.js)          │
+├──────────────────────┤
+│ POST /sync           │──┬──▶ SEFAZ (mTLS com certificado A1)
+│ POST /sync-all       │  │
+│ GET  /health         │  │
+└──────────────────────┘  │
+         │                │
+         │ HTTP + token   │ XMLs
+         ▼                │
+┌──────────────────────┐  │
+│ nfe-worker-proxy     │◀─┘ (get-certificate)
+│ (Edge Function)      │
+├──────────────────────┤
+│ get-certificate      │
+│ get-sync-state       │
+│ update-sync-state    │──▶ Supabase DB
+│ log                  │
+│ get-active-companies │
+└──────────────────────┘
 
-2. Tentar extrair do Common Name (CN):
-   - Padrão típico: "NOME DA EMPRESA:12345678000199"
-   - Separar por ":" e pegar a última parte com 14 dígitos
-
-3. Tentar extrair do último campo OU:
-   - Em certificados ICP-Brasil, o último OU geralmente contém o CNPJ do titular
-
-4. Fallback: varrer todos os atributos do Subject do FIM para o INÍCIO
-   - Priorizar atributos mais próximos do titular
+┌──────────────────────┐
+│ nfe-ingest           │
+│ (Edge Function)      │
+├──────────────────────┤
+│ Recebe XMLs          │──▶ nfe_documents + creditos_icms
+│ Processa créditos    │
+└──────────────────────┘
 ```
 
-### 2. Melhorar logs de debug
+---
 
-Adicionar logs detalhados para diagnosticar de onde o CNPJ está sendo extraído:
-- Log de todos os atributos do Subject
-- Log de todos os altNames do SAN
-- Log de qual fonte foi usada para extrair o CNPJ
+## Variáveis de Ambiente (Render)
 
-### 3. Melhorar mensagem de erro
+**Antes (5 variáveis):**
+- ❌ `SUPABASE_SERVICE_ROLE_KEY` (não disponível)
+- ✅ `SUPABASE_URL`
+- ✅ `WORKER_INGEST_TOKEN`
+- ✅ `CERT_MASTER_KEY`
+- ✅ `SEFAZ_ENV`
 
-Quando o CNPJ não corresponder, mostrar:
-- O CNPJ encontrado e de qual campo foi extraído
-- Sugerir que o usuário verifique se o certificado é da empresa correta
+**Depois (4 variáveis):**
+- ✅ `SUPABASE_URL` - já configurada
+- ✅ `WORKER_INGEST_TOKEN` - já configurada
+- ✅ `CERT_MASTER_KEY` - já configurada
+- ✅ `SEFAZ_ENV` - já configurada
 
 ---
 
-## Arquivos a Modificar
+## Arquivos a Criar/Modificar
 
-| Arquivo | Alteração |
-|---------|-----------|
-| `supabase/functions/validate-certificate/index.ts` | Reescrever `extractCnpjFromCertificate()` com nova lógica de extração prioritária |
-
----
-
-## Comportamento Esperado Após Correção
-
-1. **Certificado válido**: Sistema extrai o CNPJ correto do titular e valida contra o CNPJ da empresa
-2. **Senha errada**: Retorna erro claro "A senha do certificado está incorreta"
-3. **CNPJ divergente real**: Retorna erro explicando que o certificado pertence a outra empresa
+| Arquivo | Ação |
+|---------|------|
+| `supabase/functions/nfe-worker-proxy/index.ts` | **Criar** |
+| `nfe-worker/src/supabase-client.ts` | **Modificar** |
+| `nfe-worker/src/index.ts` | **Modificar** |
+| `nfe-worker/.env.example` | **Modificar** |
+| `nfe-worker/README.md` | **Modificar** |
 
 ---
 
-## Seção Técnica: Estrutura ASN.1 do SAN ICP-Brasil
+## Benefícios
 
-```text
-SubjectAltName:
-  otherName:
-    type-id: 2.16.76.1.3.3 (id-icpbr-pj-cnpj)
-    value: PrintableString "12345678000199"
-```
+1. **Elimina bloqueio**: Não precisa mais de acesso à service key
+2. **Segurança**: Certificados e credenciais nunca saem do ambiente Supabase
+3. **Simplicidade**: Worker só precisa de 4 variáveis de ambiente
+4. **Consistência**: Toda autenticação usa o mesmo token (`WORKER_INGEST_TOKEN`)
 
-A extração do otherName requer parse manual do ASN.1 raw, pois `node-forge` não decodifica automaticamente otherNames customizados.
+---
+
+## Passos para Testar
+
+Após implementação:
+1. Fazer deploy no Render (não precisa adicionar novas variáveis)
+2. Verificar se `/health` retorna 200
+3. Disparar sincronização pelo dashboard
+4. Checar logs no Render e em `nfe_sync_logs`
