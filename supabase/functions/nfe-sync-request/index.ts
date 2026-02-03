@@ -1,7 +1,7 @@
 /**
  * NFe Sync Request Edge Function
  * Endpoint para disparar sincronizacao manual ou atualizar estado
- * Pode ser chamado pela UI ou pelo cron
+ * Agora chama o worker externo via HTTP
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -20,6 +20,47 @@ interface SyncRequestPayload {
   documents_fetched?: number;
   credits_created?: number;
   error_message?: string;
+}
+
+// Helper para registrar log
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function logSync(
+  supabase: any,
+  empresaId: string,
+  level: "info" | "warn" | "error" | "debug",
+  message: string,
+  meta?: Record<string, unknown>
+) {
+  try {
+    await supabase.from("nfe_sync_logs").insert({
+      empresa_id: empresaId,
+      level,
+      message,
+      meta: meta || null,
+    });
+  } catch (e) {
+    console.error("Erro ao registrar log:", e);
+  }
+}
+
+// Helper para atualizar estado
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function updateState(
+  supabase: any,
+  empresaId: string,
+  updates: Record<string, unknown>
+) {
+  const { error } = await supabase
+    .from("nfe_sync_state")
+    .upsert(
+      {
+        empresa_id: empresaId,
+        ...updates,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "empresa_id" }
+    );
+  if (error) console.error("Erro ao atualizar estado:", error);
 }
 
 Deno.serve(async (req) => {
@@ -69,6 +110,10 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Usar service role para operacoes de escrita
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseAdmin = createClient(supabaseUrl, serviceKey);
+
     // Verificar se usuario tem acesso a empresa
     const { data: userEmpresa, error: accessError } = await supabase
       .from("user_empresas")
@@ -85,7 +130,7 @@ Deno.serve(async (req) => {
     }
 
     // Verificar se empresa tem certificado cadastrado
-    const { data: certificate } = await supabase
+    const { data: certificate } = await supabaseAdmin
       .from("nfe_certificates")
       .select("id, is_active, ambiente")
       .eq("empresa_id", payload.empresa_id)
@@ -102,11 +147,26 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Usar service role para operacoes de escrita no sync_state
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabaseAdmin = createClient(supabaseUrl, serviceKey);
-
     if (action === "start") {
+      // Verificar se worker URL esta configurado
+      const workerUrl = Deno.env.get("NFE_WORKER_URL");
+      if (!workerUrl) {
+        const errorMsg = "Worker nao configurado. Configure a variavel NFE_WORKER_URL.";
+        await updateState(supabaseAdmin, payload.empresa_id, {
+          status: "error",
+          last_error: errorMsg,
+        });
+        await logSync(supabaseAdmin, payload.empresa_id, "error", errorMsg);
+        
+        return new Response(
+          JSON.stringify({ 
+            error: errorMsg,
+            code: "WORKER_NOT_CONFIGURED"
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       // Verificar se ja existe sync em andamento
       const { data: currentState } = await supabaseAdmin
         .from("nfe_sync_state")
@@ -129,63 +189,94 @@ Deno.serve(async (req) => {
             { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
+        // Se passou de 30 min, consideramos timeout e reiniciamos
+        await logSync(supabaseAdmin, payload.empresa_id, "warn", "Sync anterior expirou (timeout 30min), reiniciando");
       }
 
-      // Criar ou atualizar estado para running
-      const newState = {
-        empresa_id: payload.empresa_id,
+      // Atualizar estado para running
+      await updateState(supabaseAdmin, payload.empresa_id, {
         status: "running",
         last_error: null,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error: stateError } = await supabaseAdmin
-        .from("nfe_sync_state")
-        .upsert(newState, { onConflict: "empresa_id" });
-
-      if (stateError) {
-        console.error("Erro ao atualizar estado:", stateError);
-        throw stateError;
-      }
-
-      // Registrar log
-      await supabaseAdmin.from("nfe_sync_logs").insert({
-        empresa_id: payload.empresa_id,
-        level: "info",
-        message: "Sincronizacao iniciada pelo usuario",
-        meta: { user_id: userId },
       });
 
-      // NOTA: O worker externo sera chamado via webhook ou polling
-      // Aqui apenas marcamos como 'running' e retornamos
-      // Em producao, voce chamaria o worker via HTTP
+      await logSync(supabaseAdmin, payload.empresa_id, "info", "Sincronizacao iniciada pelo usuario", { user_id: userId });
 
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: "Sincronizacao iniciada",
-          status: "running"
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      // Chamar o worker externo
+      await logSync(supabaseAdmin, payload.empresa_id, "info", `Chamando worker externo: ${workerUrl}`);
+
+      try {
+        const workerResponse = await fetch(workerUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            empresa_id: payload.empresa_id,
+          }),
+        });
+
+        const workerData = await workerResponse.json().catch(() => ({}));
+
+        if (!workerResponse.ok) {
+          const errorMsg = workerData.error || `Worker retornou status ${workerResponse.status}`;
+          await updateState(supabaseAdmin, payload.empresa_id, {
+            status: "error",
+            last_error: errorMsg,
+          });
+          await logSync(supabaseAdmin, payload.empresa_id, "error", `Erro do worker: ${errorMsg}`, { 
+            status: workerResponse.status,
+            response: workerData 
+          });
+
+          return new Response(
+            JSON.stringify({ 
+              error: errorMsg,
+              code: "WORKER_ERROR"
+            }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        await logSync(supabaseAdmin, payload.empresa_id, "info", "Worker respondeu com sucesso", { 
+          response: workerData 
+        });
+
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            message: "Sincronizacao iniciada",
+            status: "running",
+            worker_response: workerData
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (fetchError: unknown) {
+        const errorMsg = fetchError instanceof Error ? fetchError.message : "Erro ao conectar ao worker";
+        await updateState(supabaseAdmin, payload.empresa_id, {
+          status: "error",
+          last_error: `Falha ao conectar ao worker: ${errorMsg}`,
+        });
+        await logSync(supabaseAdmin, payload.empresa_id, "error", `Falha ao conectar ao worker: ${errorMsg}`);
+
+        return new Response(
+          JSON.stringify({ 
+            error: `Falha ao conectar ao worker: ${errorMsg}`,
+            code: "WORKER_CONNECTION_ERROR"
+          }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     if (action === "update_state") {
-      const updates: Record<string, unknown> = {
-        updated_at: new Date().toISOString(),
-      };
+      const updates: Record<string, unknown> = {};
 
       if (payload.ult_nsu !== undefined) updates.ult_nsu = payload.ult_nsu;
       if (payload.max_nsu !== undefined) updates.max_nsu = payload.max_nsu;
       if (payload.documents_fetched !== undefined) updates.documents_fetched = payload.documents_fetched;
       if (payload.credits_created !== undefined) updates.credits_created = payload.credits_created;
 
-      const { error } = await supabaseAdmin
-        .from("nfe_sync_state")
-        .update(updates)
-        .eq("empresa_id", payload.empresa_id);
-
-      if (error) throw error;
+      await updateState(supabaseAdmin, payload.empresa_id, updates);
 
       return new Response(
         JSON.stringify({ success: true }),
@@ -194,21 +285,13 @@ Deno.serve(async (req) => {
     }
 
     if (action === "complete") {
-      await supabaseAdmin
-        .from("nfe_sync_state")
-        .update({
-          status: "idle",
-          last_sync_at: new Date().toISOString(),
-          last_error: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("empresa_id", payload.empresa_id);
-
-      await supabaseAdmin.from("nfe_sync_logs").insert({
-        empresa_id: payload.empresa_id,
-        level: "info",
-        message: "Sincronizacao concluida com sucesso",
+      await updateState(supabaseAdmin, payload.empresa_id, {
+        status: "idle",
+        last_sync_at: new Date().toISOString(),
+        last_error: null,
       });
+
+      await logSync(supabaseAdmin, payload.empresa_id, "info", "Sincronizacao concluida com sucesso");
 
       return new Response(
         JSON.stringify({ success: true, status: "idle" }),
@@ -217,20 +300,12 @@ Deno.serve(async (req) => {
     }
 
     if (action === "error") {
-      await supabaseAdmin
-        .from("nfe_sync_state")
-        .update({
-          status: "error",
-          last_error: payload.error_message || "Erro desconhecido",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("empresa_id", payload.empresa_id);
-
-      await supabaseAdmin.from("nfe_sync_logs").insert({
-        empresa_id: payload.empresa_id,
-        level: "error",
-        message: payload.error_message || "Erro durante sincronizacao",
+      await updateState(supabaseAdmin, payload.empresa_id, {
+        status: "error",
+        last_error: payload.error_message || "Erro desconhecido",
       });
+
+      await logSync(supabaseAdmin, payload.empresa_id, "error", payload.error_message || "Erro durante sincronizacao");
 
       return new Response(
         JSON.stringify({ success: true, status: "error" }),
