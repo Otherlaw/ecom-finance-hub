@@ -204,7 +204,7 @@ export function VendasTablePaginada({
               <TableHead className="w-[30px]"></TableHead>
               <TableHead className="w-[80px]">Canal</TableHead>
               <TableHead className="w-[100px]">Conta</TableHead>
-              <TableHead className="w-[90px]">Nº Pedido</TableHead>
+              <TableHead className="min-w-[200px]">Produto</TableHead>
               <TableHead
                 className="w-[80px] cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("data_transacao")}
@@ -215,7 +215,6 @@ export function VendasTablePaginada({
                 </div>
               </TableHead>
               <TableHead className="w-[80px]">Envio</TableHead>
-              <TableHead className="min-w-[180px]">Descrição</TableHead>
               <TableHead className="w-[50px] text-center">Qtd</TableHead>
               <TableHead
                 className="w-[90px] text-right cursor-pointer hover:text-foreground"
