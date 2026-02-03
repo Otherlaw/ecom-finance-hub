@@ -67,47 +67,240 @@ function bytesToBinaryString(bytes: Uint8Array) {
   return parts.join("");
 }
 
-// Extrai CNPJ do Subject ou do SAN (Subject Alternative Name) do certificado
-function extractCnpjFromCertificate(cert: any): string | null {
+/**
+ * Extrai CNPJ do certificado ICP-Brasil usando estratégia de prioridade.
+ * 
+ * Prioridade de extração:
+ * 1. SAN (Subject Alternative Name) - OID 2.16.76.1.3.3 (id-icpbr-pj-cnpj)
+ * 2. Common Name (CN) - padrão "NOME DA EMPRESA:CNPJ"
+ * 3. Último campo OU (Organizational Unit) - geralmente contém CNPJ do titular
+ * 4. Fallback: varrer atributos do Subject do FIM para o INÍCIO
+ */
+interface ExtractionResult {
+  cnpj: string;
+  source: string;
+}
+
+function extractCnpjFromSAN(cert: any): ExtractionResult | null {
   try {
-    // Tentar extrair do Subject (campo OU ou CN pode conter o CNPJ)
-    const subject = cert.subject;
-    
-    for (const attr of subject.attributes) {
-      // Buscar em diferentes campos
-      const value = attr.value as string;
-      if (value) {
-        // CNPJ tem 14 dígitos
-        const cnpjMatch = value.match(/\d{14}/);
-        if (cnpjMatch) {
-          return cnpjMatch[0];
-        }
-        // Formato com pontuação
-        const cnpjFormatted = value.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
-        if (cnpjFormatted) {
-          return cnpjFormatted[0].replace(/\D/g, "");
-        }
-      }
+    const sanExtension = cert.getExtension("subjectAltName");
+    if (!sanExtension) {
+      console.log("[extractCnpj] SAN extension não encontrada");
+      return null;
     }
 
-    // Tentar extrair do campo otherName no SAN (padrão ICP-Brasil)
-    const sanExtension = cert.getExtension("subjectAltName");
-    if (sanExtension && (sanExtension as any).altNames) {
-      for (const altName of (sanExtension as any).altNames) {
+    console.log("[extractCnpj] SAN encontrado, analisando altNames...");
+    
+    // node-forge expõe altNames como array
+    const altNames = (sanExtension as any).altNames || [];
+    
+    for (const altName of altNames) {
+      // otherName tem type === 0 em node-forge
+      if (altName.type === 0) {
+        console.log("[extractCnpj] otherName encontrado:", JSON.stringify(altName));
+        
+        // Tentar extrair do value diretamente
         if (altName.value) {
-          const cnpjMatch = String(altName.value).match(/\d{14}/);
+          let valueStr = "";
+          
+          // Se for objeto ASN.1, tentar extrair valor
+          if (typeof altName.value === "object" && altName.value.value) {
+            valueStr = String(altName.value.value);
+          } else {
+            valueStr = String(altName.value);
+          }
+          
+          const cnpjMatch = valueStr.match(/\d{14}/);
           if (cnpjMatch) {
-            return cnpjMatch[0];
+            console.log("[extractCnpj] CNPJ encontrado no SAN otherName:", cnpjMatch[0]);
+            return { cnpj: cnpjMatch[0], source: "SAN/otherName" };
+          }
+        }
+        
+        // Tentar OID específico ICP-Brasil (2.16.76.1.3.3)
+        if (altName.oid === "2.16.76.1.3.3") {
+          const valueStr = String(altName.value || "");
+          const cnpjMatch = valueStr.match(/\d{14}/);
+          if (cnpjMatch) {
+            console.log("[extractCnpj] CNPJ encontrado via OID 2.16.76.1.3.3:", cnpjMatch[0]);
+            return { cnpj: cnpjMatch[0], source: "SAN/OID-2.16.76.1.3.3" };
           }
         }
       }
+      
+      // Também verificar outros tipos de altName que possam conter CNPJ
+      if (altName.value) {
+        const valueStr = String(altName.value);
+        const cnpjMatch = valueStr.match(/\d{14}/);
+        if (cnpjMatch) {
+          console.log(`[extractCnpj] CNPJ encontrado no SAN type=${altName.type}:`, cnpjMatch[0]);
+          return { cnpj: cnpjMatch[0], source: `SAN/type-${altName.type}` };
+        }
+      }
     }
-
+    
     return null;
   } catch (e) {
-    console.error("Erro ao extrair CNPJ do certificado:", e);
+    console.error("[extractCnpj] Erro ao processar SAN:", e);
     return null;
   }
+}
+
+function extractCnpjFromCN(cert: any): ExtractionResult | null {
+  try {
+    const cnAttr = cert.subject.getField("CN");
+    if (!cnAttr || !cnAttr.value) {
+      return null;
+    }
+    
+    const cnValue = String(cnAttr.value);
+    console.log("[extractCnpj] Common Name:", cnValue);
+    
+    // Padrão típico ICP-Brasil: "NOME DA EMPRESA:12345678000199"
+    const parts = cnValue.split(":");
+    if (parts.length >= 2) {
+      const lastPart = parts[parts.length - 1].trim();
+      const cnpjMatch = lastPart.match(/^\d{14}$/);
+      if (cnpjMatch) {
+        console.log("[extractCnpj] CNPJ encontrado no CN (após ':'):", cnpjMatch[0]);
+        return { cnpj: cnpjMatch[0], source: "CN/after-colon" };
+      }
+    }
+    
+    // Tentar encontrar CNPJ em qualquer parte do CN
+    const cnpjMatch = cnValue.match(/\d{14}/);
+    if (cnpjMatch) {
+      console.log("[extractCnpj] CNPJ encontrado no CN:", cnpjMatch[0]);
+      return { cnpj: cnpjMatch[0], source: "CN/embedded" };
+    }
+    
+    return null;
+  } catch (e) {
+    console.error("[extractCnpj] Erro ao processar CN:", e);
+    return null;
+  }
+}
+
+function extractCnpjFromOU(cert: any): ExtractionResult | null {
+  try {
+    const subject = cert.subject;
+    
+    // Coletar todos os campos OU
+    const ouFields: string[] = [];
+    for (const attr of subject.attributes) {
+      if (attr.shortName === "OU" || attr.name === "organizationalUnitName") {
+        if (attr.value) {
+          ouFields.push(String(attr.value));
+        }
+      }
+    }
+    
+    console.log("[extractCnpj] Campos OU encontrados:", ouFields);
+    
+    // Buscar no ÚLTIMO OU primeiro (mais provável ter o CNPJ do titular)
+    for (let i = ouFields.length - 1; i >= 0; i--) {
+      const ouValue = ouFields[i];
+      
+      // CNPJ com 14 dígitos
+      const cnpjMatch = ouValue.match(/\d{14}/);
+      if (cnpjMatch) {
+        console.log(`[extractCnpj] CNPJ encontrado no OU[${i}]:`, cnpjMatch[0]);
+        return { cnpj: cnpjMatch[0], source: `OU[${i}]` };
+      }
+      
+      // CNPJ formatado
+      const cnpjFormatted = ouValue.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
+      if (cnpjFormatted) {
+        const cnpj = cnpjFormatted[0].replace(/\D/g, "");
+        console.log(`[extractCnpj] CNPJ formatado encontrado no OU[${i}]:`, cnpj);
+        return { cnpj, source: `OU[${i}]/formatted` };
+      }
+    }
+    
+    return null;
+  } catch (e) {
+    console.error("[extractCnpj] Erro ao processar OU:", e);
+    return null;
+  }
+}
+
+function extractCnpjFromSubjectReverse(cert: any): ExtractionResult | null {
+  try {
+    const subject = cert.subject;
+    const attributes = [...subject.attributes].reverse(); // Do fim para o início
+    
+    console.log("[extractCnpj] Varrendo atributos do Subject (reverso)...");
+    
+    for (let i = 0; i < attributes.length; i++) {
+      const attr = attributes[i];
+      const value = attr.value as string;
+      const fieldName = attr.shortName || attr.name || "unknown";
+      
+      if (!value) continue;
+      
+      // CNPJ com 14 dígitos
+      const cnpjMatch = value.match(/\d{14}/);
+      if (cnpjMatch) {
+        console.log(`[extractCnpj] CNPJ encontrado em ${fieldName} (reverso[${i}]):`, cnpjMatch[0]);
+        return { cnpj: cnpjMatch[0], source: `Subject/${fieldName}/reverse` };
+      }
+      
+      // CNPJ formatado
+      const cnpjFormatted = value.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
+      if (cnpjFormatted) {
+        const cnpj = cnpjFormatted[0].replace(/\D/g, "");
+        console.log(`[extractCnpj] CNPJ formatado encontrado em ${fieldName}:`, cnpj);
+        return { cnpj, source: `Subject/${fieldName}/formatted` };
+      }
+    }
+    
+    return null;
+  } catch (e) {
+    console.error("[extractCnpj] Erro ao processar Subject reverso:", e);
+    return null;
+  }
+}
+
+function extractCnpjFromCertificate(cert: any): { cnpj: string | null; source: string | null } {
+  console.log("[extractCnpj] Iniciando extração de CNPJ do certificado ICP-Brasil...");
+  
+  // Log de todos os atributos do Subject para debug
+  try {
+    const attrs = cert.subject.attributes.map((a: any) => ({
+      name: a.shortName || a.name,
+      value: a.value
+    }));
+    console.log("[extractCnpj] Atributos do Subject:", JSON.stringify(attrs, null, 2));
+  } catch (e) {
+    console.error("[extractCnpj] Erro ao logar atributos:", e);
+  }
+  
+  // Prioridade 1: SAN com OID ICP-Brasil
+  const sanResult = extractCnpjFromSAN(cert);
+  if (sanResult) {
+    return { cnpj: sanResult.cnpj, source: sanResult.source };
+  }
+  
+  // Prioridade 2: Common Name (CN)
+  const cnResult = extractCnpjFromCN(cert);
+  if (cnResult) {
+    return { cnpj: cnResult.cnpj, source: cnResult.source };
+  }
+  
+  // Prioridade 3: Último campo OU
+  const ouResult = extractCnpjFromOU(cert);
+  if (ouResult) {
+    return { cnpj: ouResult.cnpj, source: ouResult.source };
+  }
+  
+  // Prioridade 4: Fallback - varrer Subject do fim para o início
+  const subjectResult = extractCnpjFromSubjectReverse(cert);
+  if (subjectResult) {
+    return { cnpj: subjectResult.cnpj, source: subjectResult.source };
+  }
+  
+  console.log("[extractCnpj] Nenhum CNPJ encontrado no certificado");
+  return { cnpj: null, source: null };
 }
 
 Deno.serve(async (req) => {
@@ -263,15 +456,19 @@ Deno.serve(async (req) => {
     const issuerCn = cert.issuer.getField("CN");
     const issuer = issuerCn ? String(issuerCn.value) : null;
 
-    // Extrair CNPJ
-    const certCnpj = extractCnpjFromCertificate(cert);
+    // Extrair CNPJ com nova lógica de prioridade
+    const cnpjExtraction = extractCnpjFromCertificate(cert);
+    const certCnpj = cnpjExtraction.cnpj;
+    const cnpjSource = cnpjExtraction.source;
+    
+    console.log("[validate-certificate] CNPJ extraído:", { cnpj: certCnpj, source: cnpjSource });
 
     // Verificar match de CNPJ se fornecido
     let cnpjMatch: boolean | undefined;
     if (expectedCnpj && certCnpj) {
       const cleanExpected = expectedCnpj.replace(/\D/g, "");
       cnpjMatch = certCnpj === cleanExpected;
-      console.log("[validate-certificate] Comparando CNPJs:", { certCnpj, expected: cleanExpected, match: cnpjMatch });
+      console.log("[validate-certificate] Comparando CNPJs:", { certCnpj, expected: cleanExpected, match: cnpjMatch, source: cnpjSource });
     }
 
     const result: ValidationResult = {
