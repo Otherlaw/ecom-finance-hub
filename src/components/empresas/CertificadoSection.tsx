@@ -116,22 +116,35 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
     setValidationResult(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke("validate-certificate", {
+      const response = await supabase.functions.invoke("validate-certificate", {
         body: {
           pfx_base64: pfxBase64,
           password: password,
-          expected_cnpj: cnpj.replace(/\D/g, ""),
+          cnpj: cnpj.replace(/\D/g, ""),
+          uf: uf,
+          environment: ambiente === "producao" ? "production" : "homologation",
         },
       });
 
-      if (error) {
-        const result: ValidationResult = { valid: false, error: error.message };
+      // Checar erro do SDK
+      if (response.error) {
+        // Tentar extrair mensagem detalhada do corpo se disponível
+        const errorDetail = response.data?.error || response.data?.detail || response.error.message;
+        const result: ValidationResult = { valid: false, error: errorDetail };
         setValidationResult(result);
         return result;
       }
 
-      setValidationResult(data);
-      return data;
+      // Verificar se o response.data indica erro (ex: { valid: false, error: "..." })
+      if (response.data && response.data.valid === false) {
+        const errorMsg = response.data.detail || response.data.error || "Certificado inválido";
+        const result: ValidationResult = { valid: false, error: errorMsg };
+        setValidationResult(result);
+        return result;
+      }
+
+      setValidationResult(response.data);
+      return response.data;
     } catch (e: any) {
       const result: ValidationResult = { valid: false, error: e.message || "Erro ao validar certificado" };
       setValidationResult(result);
@@ -168,21 +181,29 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
       let pfxBase64 = "";
 
       if (pfxFile) {
-        // Converter arquivo para base64 de forma robusta
+        // Ler arquivo como ArrayBuffer e converter para base64 puro
         pfxBase64 = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
-            const result = reader.result as string;
-            // Remover o prefixo "data:...;base64," para obter apenas o base64
-            const base64 = result.split(",")[1]?.trim();
-            if (!base64) {
-              reject(new Error("Não foi possível converter o arquivo para base64"));
-              return;
+            try {
+              const arrayBuffer = reader.result as ArrayBuffer;
+              const bytes = new Uint8Array(arrayBuffer);
+              let binary = "";
+              for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+              }
+              const base64 = btoa(binary);
+              if (!base64) {
+                reject(new Error("Não foi possível converter o arquivo para base64"));
+                return;
+              }
+              resolve(base64);
+            } catch (err) {
+              reject(new Error("Erro ao converter arquivo para base64"));
             }
-            resolve(base64);
           };
           reader.onerror = () => reject(new Error("Erro ao ler arquivo"));
-          reader.readAsDataURL(pfxFile);
+          reader.readAsArrayBuffer(pfxFile);
         });
         // Validar o certificado antes de salvar
         const validation = await validateCertificate(pfxBase64);
