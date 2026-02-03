@@ -22,11 +22,50 @@ export interface VendaItem {
   custo_total: number;
   sem_produto: boolean;
   sem_custo: boolean;
+  // Flag para indicar que veio do raw_order (não da tabela de itens)
+  from_raw_order?: boolean;
+}
+
+/**
+ * Extrai itens do raw_order quando a tabela marketplace_transaction_items está vazia
+ */
+function parseRawOrderItems(
+  rawOrder: any,
+  transactionId: string
+): Array<{
+  id: string;
+  sku_marketplace: string | null;
+  anuncio_id: string | null;
+  descricao_item: string | null;
+  quantidade: number;
+  preco_unitario: number;
+  preco_total: number;
+}> {
+  if (!rawOrder?.order_items || !Array.isArray(rawOrder.order_items)) {
+    return [];
+  }
+
+  return rawOrder.order_items.map((orderItem: any, index: number) => {
+    const item = orderItem.item || {};
+    const quantity = orderItem.quantity || 1;
+    const unitPrice = orderItem.unit_price || 0;
+
+    return {
+      id: `raw_${transactionId}_${index}`,
+      sku_marketplace: item.seller_sku || item.seller_custom_field || null,
+      anuncio_id: item.id || null,
+      descricao_item: item.title || null,
+      quantidade: quantity,
+      preco_unitario: unitPrice,
+      preco_total: unitPrice * quantity,
+    };
+  });
 }
 
 /**
  * Hook para carregar itens de uma transação específica sob demanda.
  * Use quando o usuário expandir uma linha na tabela de vendas.
+ * Faz fallback para raw_order quando não há itens na tabela.
  */
 export function useVendaItens(transactionId: string | null) {
   const { data: itens, isLoading, error } = useQuery({
@@ -61,25 +100,43 @@ export function useVendaItens(transactionId: string | null) {
         throw itemsError;
       }
 
-      if (!itemsData || itemsData.length === 0) return [];
-
-      // Buscar empresa_id e canal da transação
+      // Buscar empresa_id, canal e raw_order da transação
       const { data: txData } = await supabase
         .from("marketplace_transactions")
-        .select("empresa_id, canal")
+        .select("empresa_id, canal, raw_order")
         .eq("id", transactionId)
         .single();
 
       const empresaId = txData?.empresa_id;
       const canal = txData?.canal;
+      const rawOrder = txData?.raw_order;
+
+      // Se não há itens na tabela, tentar extrair do raw_order
+      let baseItems: any[] = itemsData || [];
+      let fromRawOrder = false;
+
+      if (baseItems.length === 0 && rawOrder) {
+        const parsedItems = parseRawOrderItems(rawOrder, transactionId);
+        if (parsedItems.length > 0) {
+          baseItems = parsedItems.map(item => ({
+            ...item,
+            transaction_id: transactionId,
+            produto_id: null,
+            produto: null,
+          }));
+          fromRawOrder = true;
+        }
+      }
+
+      if (baseItems.length === 0) return [];
 
       // Coletar SKUs sem produto_id para buscar mapeamento e custos fallback
-      const skusSemProduto = itemsData
+      const skusSemProduto = baseItems
         .filter((item: any) => !item.produto_id && item.sku_marketplace)
         .map((item: any) => item.sku_marketplace);
 
       // NOVO: Buscar mapeamentos da tabela produto_marketplace_map
-      let mappingsMap: Record<string, { produto_id: string; custo_medio: number }> = {};
+      let mappingsMap: Record<string, { produto_id: string; custo_medio: number; produto_sku: string | null; produto_nome: string | null }> = {};
       if (skusSemProduto.length > 0 && empresaId) {
         const { data: mappings } = await supabase
           .from("produto_marketplace_map")
@@ -87,6 +144,8 @@ export function useVendaItens(transactionId: string | null) {
             sku_marketplace,
             produto_id,
             produto:produtos!produto_id (
+              sku,
+              nome,
               custo_medio
             )
           `)
@@ -95,10 +154,12 @@ export function useVendaItens(transactionId: string | null) {
           .in("sku_marketplace", skusSemProduto);
 
         if (mappings) {
-          mappingsMap = mappings.reduce((acc: Record<string, { produto_id: string; custo_medio: number }>, m: any) => {
+          mappingsMap = mappings.reduce((acc: Record<string, { produto_id: string; custo_medio: number; produto_sku: string | null; produto_nome: string | null }>, m: any) => {
             acc[m.sku_marketplace] = {
               produto_id: m.produto_id,
               custo_medio: m.produto?.custo_medio || 0,
+              produto_sku: m.produto?.sku || null,
+              produto_nome: m.produto?.nome || null,
             };
             return acc;
           }, {});
@@ -128,7 +189,7 @@ export function useVendaItens(transactionId: string | null) {
       // 2) produto_marketplace_map -> custo do produto mapeado
       // 3) sku_costs -> custo manual
       // 4) Fallback 0
-      const itensTransformados: VendaItem[] = (itemsData || []).map((item: any) => {
+      const itensTransformados: VendaItem[] = baseItems.map((item: any) => {
         const produto = item.produto;
         const quantidade = item.quantidade || 1;
         const sku = item.sku_marketplace;
@@ -145,6 +206,8 @@ export function useVendaItens(transactionId: string | null) {
         } else if (sku && mappingsMap[sku]) {
           // 2) Mapeamento via produto_marketplace_map
           custoMedio = mappingsMap[sku].custo_medio;
+          produtoSku = mappingsMap[sku].produto_sku;
+          produtoNome = mappingsMap[sku].produto_nome;
           if (!produtoId) {
             produtoId = mappingsMap[sku].produto_id;
           }
@@ -160,7 +223,7 @@ export function useVendaItens(transactionId: string | null) {
 
         return {
           id: item.id,
-          transaction_id: item.transaction_id,
+          transaction_id: item.transaction_id || transactionId,
           sku_marketplace: sku,
           anuncio_id: item.anuncio_id,
           descricao_item: item.descricao_item,
@@ -174,6 +237,7 @@ export function useVendaItens(transactionId: string | null) {
           custo_total: custoMedio * quantidade,
           sem_produto: semProduto,
           sem_custo: semCusto,
+          from_raw_order: fromRawOrder,
         };
       });
 
