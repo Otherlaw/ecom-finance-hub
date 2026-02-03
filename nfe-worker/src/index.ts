@@ -12,7 +12,6 @@ import { decrypt } from './crypto.js';
 // Configuracoes
 const PORT = process.env.PORT || 8080;
 const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const WORKER_INGEST_TOKEN = process.env.WORKER_INGEST_TOKEN!;
 const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
 const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
@@ -21,7 +20,6 @@ const REQUEST_DELAY_MS = 1100; // Delay entre requisicoes SEFAZ (rate limit)
 // Validar configuracoes
 const missingVars: string[] = [];
 if (!SUPABASE_URL) missingVars.push('SUPABASE_URL');
-if (!SUPABASE_SERVICE_ROLE_KEY) missingVars.push('SUPABASE_SERVICE_ROLE_KEY');
 if (!WORKER_INGEST_TOKEN) missingVars.push('WORKER_INGEST_TOKEN');
 if (!CERT_MASTER_KEY) missingVars.push('CERT_MASTER_KEY');
 
@@ -36,8 +34,8 @@ if (missingVars.length > 0) {
   process.exit(1);
 }
 
-// Cliente Supabase
-const supabase = new SupabaseWorkerClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, WORKER_INGEST_TOKEN);
+// Cliente Supabase (via proxy)
+const supabase = new SupabaseWorkerClient(SUPABASE_URL, WORKER_INGEST_TOKEN);
 
 // Express app
 const app = express();
@@ -230,4 +228,5 @@ app.post('/sync-all', async (_req: Request, res: Response) => {
 app.listen(PORT, () => {
   console.log(`NFe Worker rodando na porta ${PORT}`);
   console.log(`Supabase URL: ${SUPABASE_URL}`);
+  console.log(`Modo: Proxy via Edge Function (sem SERVICE_ROLE_KEY)`);
 });

@@ -72,3 +72,6 @@ verify_jwt = false
 
 [functions.validate-certificate]
 verify_jwt = false
+
+[functions.nfe-worker-proxy]
+verify_jwt = false

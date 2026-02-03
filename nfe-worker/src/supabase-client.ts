@@ -1,88 +1,119 @@
 /**
- * Cliente Supabase para o NFe Worker
+ * Cliente para comunicação com Supabase via Edge Function Proxy
+ * 
+ * Não usa SDK Supabase diretamente - todas as operações passam pelo nfe-worker-proxy
+ * para evitar necessidade de SUPABASE_SERVICE_ROLE_KEY no worker externo.
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { NfeCertificate, NfeSyncState, IngestPayload, IngestResponse } from './types.js';
 
 export class SupabaseWorkerClient {
-  private client: SupabaseClient;
+  private supabaseUrl: string;
   private ingestToken: string;
 
-  constructor(url: string, serviceRoleKey: string, ingestToken: string) {
-    this.client = createClient(url, serviceRoleKey);
+  constructor(supabaseUrl: string, ingestToken: string) {
+    this.supabaseUrl = supabaseUrl;
     this.ingestToken = ingestToken;
   }
 
   /**
    * Busca todas as empresas com certificados ativos
    */
-  async getActiveCompanies(): Promise<NfeCertificate[]> {
-    const { data, error } = await this.client
-      .from('nfe_certificates')
-      .select('*')
-      .eq('is_active', true);
+  async getActiveCompanies(): Promise<Array<{ empresa_id: string; cnpj: string; uf: string; ambiente: string }>> {
+    const response = await fetch(
+      `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=get-active-companies`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-worker-token': this.ingestToken,
+        },
+      }
+    );
 
-    if (error) {
-      console.error('Erro ao buscar certificados:', error);
-      throw error;
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Erro ao buscar empresas ativas:', error);
+      throw new Error(error.error || 'Erro ao buscar empresas');
     }
 
-    return data || [];
+    const data = await response.json();
+    return data.companies || [];
   }
 
   /**
    * Busca certificado de uma empresa
    */
   async getCertificate(empresaId: string): Promise<NfeCertificate | null> {
-    const { data, error } = await this.client
-      .from('nfe_certificates')
-      .select('*')
-      .eq('empresa_id', empresaId)
-      .eq('is_active', true)
-      .single();
+    const response = await fetch(
+      `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=get-certificate&empresa_id=${encodeURIComponent(empresaId)}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-worker-token': this.ingestToken,
+        },
+      }
+    );
 
-    if (error) {
-      if (error.code === 'PGRST116') return null; // Not found
-      throw error;
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Erro ao buscar certificado:', error);
+      throw new Error(error.error || 'Erro ao buscar certificado');
     }
 
-    return data;
+    const data = await response.json();
+    return data.certificate || null;
   }
 
   /**
    * Busca estado de sincronizacao
    */
   async getSyncState(empresaId: string): Promise<NfeSyncState | null> {
-    const { data, error } = await this.client
-      .from('nfe_sync_state')
-      .select('*')
-      .eq('empresa_id', empresaId)
-      .single();
+    const response = await fetch(
+      `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=get-sync-state&empresa_id=${encodeURIComponent(empresaId)}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-worker-token': this.ingestToken,
+        },
+      }
+    );
 
-    if (error) {
-      if (error.code === 'PGRST116') return null;
-      throw error;
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Erro ao buscar sync state:', error);
+      throw new Error(error.error || 'Erro ao buscar estado de sincronização');
     }
 
-    return data;
+    const data = await response.json();
+    return data.sync_state || null;
   }
 
   /**
    * Atualiza estado de sincronizacao
    */
   async updateSyncState(empresaId: string, updates: Partial<NfeSyncState>): Promise<void> {
-    const { error } = await this.client
-      .from('nfe_sync_state')
-      .upsert({
-        empresa_id: empresaId,
-        ...updates,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'empresa_id' });
+    const response = await fetch(
+      `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=update-sync-state`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-worker-token': this.ingestToken,
+        },
+        body: JSON.stringify({
+          empresa_id: empresaId,
+          updates,
+        }),
+      }
+    );
 
-    if (error) {
-      console.error('Erro ao atualizar estado:', error);
-      throw error;
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Erro ao atualizar sync state:', error);
+      throw new Error(error.error || 'Erro ao atualizar estado');
     }
   }
 
@@ -95,16 +126,29 @@ export class SupabaseWorkerClient {
     message: string,
     meta?: Record<string, unknown>
   ): Promise<void> {
-    const { error } = await this.client
-      .from('nfe_sync_logs')
-      .insert({
-        empresa_id: empresaId,
-        level,
-        message,
-        meta,
-      });
+    try {
+      const response = await fetch(
+        `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=log`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-worker-token': this.ingestToken,
+          },
+          body: JSON.stringify({
+            empresa_id: empresaId,
+            level,
+            message,
+            meta,
+          }),
+        }
+      );
 
-    if (error) {
+      if (!response.ok) {
+        console.error('Erro ao registrar log');
+      }
+    } catch (error) {
+      // Não propaga erro de log para não interromper o fluxo
       console.error('Erro ao registrar log:', error);
     }
   }
@@ -113,8 +157,7 @@ export class SupabaseWorkerClient {
    * Envia documentos para o endpoint de ingestao
    */
   async ingestDocuments(payload: IngestPayload): Promise<IngestResponse> {
-    const url = process.env.SUPABASE_URL;
-    const response = await fetch(`${url}/functions/v1/nfe-ingest`, {
+    const response = await fetch(`${this.supabaseUrl}/functions/v1/nfe-ingest`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
