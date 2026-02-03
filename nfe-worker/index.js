@@ -1,14 +1,12 @@
-const express = require("express");
+/**
+ * NFe Worker - Entry Point
+ * 
+ * Este arquivo é o ponto de entrada para o Render.
+ * Ele carrega o código TypeScript compilado de dist/index.js
+ * 
+ * Para desenvolvimento local: npm run dev
+ * Para produção: npm run build && npm start
+ */
 
-const app = express();
-app.use(express.json({ limit: "25mb" }));
-
-app.get("/health", (req, res) => res.json({ ok: true }));
-
-app.post("/sync", (req, res) => {
-  console.log("SYNC called", new Date().toISOString());
-  res.json({ ok: true, message: "Worker online" });
-});
-
-const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`nfe-worker listening on ${port}`));
+// Carrega o código compilado
+require('./dist/index.js');

@@ -232,8 +232,10 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Apenas processa XMLs completos (procNFe)
-      if (doc.schema !== "procNFe" || !doc.xml) {
+      // Apenas processa XMLs completos (procNFe em qualquer versão)
+      const isProcNFe = doc.schema?.includes('procNFe') || doc.schema === 'procNFe';
+      
+      if (!isProcNFe || !doc.xml) {
         // Salva referencia do documento mesmo sem XML completo
         await supabase.from("nfe_documents").insert({
           empresa_id: payload.empresa_id,
