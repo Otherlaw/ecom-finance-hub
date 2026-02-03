@@ -6,10 +6,12 @@ Worker externo Node.js para comunicacao com a SEFAZ usando certificado digital A
 
 Este worker e necessario porque as Edge Functions do Supabase (Deno) nao suportam mutual TLS com PFX para SOAP da SEFAZ. O worker:
 
-1. Le do Supabase quais empresas devem sincronizar
+1. Le do Supabase quais empresas devem sincronizar (via Edge Function proxy)
 2. Usa certificado A1/PFX para consultar o WS de Distribuicao DF-e
 3. Envia XMLs completos para o Supabase via endpoint `nfe-ingest`
-4. Atualiza estado e logs
+4. Atualiza estado e logs (via Edge Function proxy)
+
+**Nota**: O worker NAO precisa de `SUPABASE_SERVICE_ROLE_KEY`. Todas as operacoes de banco sao feitas via Edge Function `nfe-worker-proxy`, autenticada com `WORKER_INGEST_TOKEN`.
 
 ## Estrutura de Arquivos
 
@@ -18,7 +20,7 @@ nfe-worker/
 ├── src/
 │   ├── index.ts           # Entry point
 │   ├── sefaz-client.ts    # Cliente SOAP para SEFAZ
-│   ├── supabase-client.ts # Cliente Supabase
+│   ├── supabase-client.ts # Cliente HTTP para Edge Functions
 │   ├── crypto.ts          # Criptografia de certificados
 │   └── types.ts           # Tipos TypeScript
 ├── package.json
@@ -32,7 +34,6 @@ nfe-worker/
 ```env
 # Supabase
 SUPABASE_URL=https://bwfbozwyqujlykgaueez.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # Seguranca
 WORKER_INGEST_TOKEN=your-ingest-token
@@ -40,12 +41,26 @@ CERT_MASTER_KEY=your-32-byte-encryption-key
 
 # SEFAZ
 SEFAZ_ENV=producao  # ou 'homologacao'
-
-# Sync
-SYNC_INTERVAL_MINUTES=30
 ```
 
+| Variavel | Descricao |
+|----------|-----------|
+| `SUPABASE_URL` | URL do projeto Supabase |
+| `WORKER_INGEST_TOKEN` | Token compartilhado com as Edge Functions |
+| `CERT_MASTER_KEY` | Chave para descriptografar certificados A1 |
+| `SEFAZ_ENV` | Ambiente SEFAZ: `production` ou `homologation` |
+
 ## Deploy
+
+### Render (Recomendado)
+
+1. Criar novo Web Service no Render
+2. Conectar repositorio
+3. Configurar:
+   - Build Command: `npm install && npm run build`
+   - Start Command: `npm start`
+4. Adicionar variaveis de ambiente (4 variaveis apenas!)
+5. Deploy automatico
 
 ### Cloud Run (Google Cloud)
 
@@ -62,7 +77,7 @@ gcloud run deploy nfe-worker \
   --image gcr.io/YOUR_PROJECT/nfe-worker \
   --platform managed \
   --region us-central1 \
-  --set-env-vars SUPABASE_URL=...,SUPABASE_SERVICE_ROLE_KEY=...
+  --set-env-vars SUPABASE_URL=...,WORKER_INGEST_TOKEN=...
 ```
 
 ### Fly.io
@@ -70,16 +85,11 @@ gcloud run deploy nfe-worker \
 ```bash
 fly launch
 fly secrets set SUPABASE_URL=...
-fly secrets set SUPABASE_SERVICE_ROLE_KEY=...
+fly secrets set WORKER_INGEST_TOKEN=...
+fly secrets set CERT_MASTER_KEY=...
+fly secrets set SEFAZ_ENV=production
 fly deploy
 ```
-
-### Render
-
-1. Criar novo Web Service
-2. Conectar repositorio
-3. Configurar variaveis de ambiente
-4. Deploy automatico
 
 ## Execucao Local
 
@@ -118,7 +128,39 @@ Health check endpoint.
 
 ## Fluxo de Sincronizacao
 
-1. Busca `nfe_certificates` e `nfe_sync_state` do Supabase
+```
+┌──────────────────────┐
+│   Render Worker      │
+│   (Node.js)          │
+├──────────────────────┤
+│ POST /sync           │──┬──▶ SEFAZ (mTLS com certificado A1)
+│ POST /sync-all       │  │
+│ GET  /health         │  │
+└──────────────────────┘  │
+         │                │
+         │ HTTP + token   │ XMLs
+         ▼                │
+┌──────────────────────┐  │
+│ nfe-worker-proxy     │◀─┘ (get-certificate)
+│ (Edge Function)      │
+├──────────────────────┤
+│ get-certificate      │
+│ get-sync-state       │
+│ update-sync-state    │──▶ Supabase DB
+│ log                  │
+│ get-active-companies │
+└──────────────────────┘
+
+┌──────────────────────┐
+│ nfe-ingest           │
+│ (Edge Function)      │
+├──────────────────────┤
+│ Recebe XMLs          │──▶ nfe_documents + creditos_icms
+│ Processa créditos    │
+└──────────────────────┘
+```
+
+1. Worker chama `nfe-worker-proxy?action=get-certificate` para obter certificado
 2. Descriptografa PFX e senha usando `CERT_MASTER_KEY`
 3. Cria agente HTTPS com certificado para mutual TLS
 4. Consulta WS `nfeDistDFeInteresse` da SEFAZ
@@ -126,14 +168,14 @@ Health check endpoint.
 6. Para cada documento:
    - Se `procNFe`: extrai XML completo
    - Envia para `/nfe-ingest` do Supabase
-7. Atualiza `ult_nsu` e `last_sync_at`
-8. Registra logs
+7. Atualiza estado via `nfe-worker-proxy?action=update-sync-state`
+8. Registra logs via `nfe-worker-proxy?action=log`
 
 ## Seguranca
 
+- **Sem SERVICE_ROLE_KEY**: Worker nao precisa de acesso admin ao Supabase
 - Certificados armazenados criptografados (AES-256-GCM)
-- Comunicacao autenticada com Supabase (service role)
-- Token de autenticacao para endpoint de ingestao
+- Comunicacao autenticada via `WORKER_INGEST_TOKEN`
 - Variaveis sensiveis via secrets do provedor cloud
 
 ## Monitoramento
