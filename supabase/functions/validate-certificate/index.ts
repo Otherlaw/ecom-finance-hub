@@ -397,16 +397,26 @@ Deno.serve(async (req) => {
       p12 = forge.pkcs12.pkcs12FromAsn1(asn1, password);
       console.log("[validate-certificate] PFX aberto com sucesso");
     } catch (e: any) {
-      console.error("[validate-certificate] Erro ao abrir PFX:", e.message);
+      const errorMsg = e.message || "";
+      console.error("[validate-certificate] Erro ao abrir PFX:", errorMsg);
       
-      // Mensagens de erro comuns
-      if (e.message?.includes("Invalid password") || e.message?.includes("MAC")) {
+      // Mensagens de erro comuns - senha incorreta pode gerar várias mensagens diferentes
+      const isPasswordError = 
+        errorMsg.includes("Invalid password") || 
+        errorMsg.includes("MAC") ||
+        errorMsg.includes("bits supported") ||  // "Only 8, 16, 24, or 32 bits supported"
+        errorMsg.includes("PKCS#12") ||
+        errorMsg.includes("decrypt") ||
+        errorMsg.includes("Invalid key") ||
+        errorMsg.includes("bad decrypt");
+      
+      if (isPasswordError) {
         return new Response(
           JSON.stringify({ valid: false, error: "wrong_password", detail: "A senha do certificado está incorreta", code: "INVALID_PASSWORD" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (e.message?.includes("Too few bytes")) {
+      if (errorMsg.includes("Too few bytes")) {
         return new Response(
           JSON.stringify({ valid: false, error: "corrupted_file", detail: "O arquivo PFX está corrompido ou incompleto", code: "CORRUPTED_PFX" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -414,7 +424,7 @@ Deno.serve(async (req) => {
       }
       
       return new Response(
-        JSON.stringify({ valid: false, error: "open_failed", detail: `Não foi possível abrir o certificado: ${e.message}`, code: "PFX_OPEN_FAILED" }),
+        JSON.stringify({ valid: false, error: "open_failed", detail: `Não foi possível abrir o certificado: ${errorMsg}`, code: "PFX_OPEN_FAILED" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
