@@ -113,7 +113,9 @@ export default function Vendas() {
     conta: filtrosAplicados.conta || undefined,
     statusVenda: filtrosAplicados.statusVenda !== "todos" ? filtrosAplicados.statusVenda : undefined,
     empresaId,
-    busca: buscaCombinada
+    busca: buscaCombinada,
+    tipoEnvio: filtrosAplicados.tipoEnvio !== "todos" ? filtrosAplicados.tipoEnvio : undefined,
+    temCusto: filtrosAplicados.temCusto !== "todos" ? filtrosAplicados.temCusto : undefined,
   });
 
   // Hook antigo apenas para métricas por tipo de envio (dashboard)
