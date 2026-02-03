@@ -23,9 +23,10 @@ import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useCreditosICMS, CreditoICMSDB, CreditoICMSInsert } from "@/hooks/useCreditosICMS";
 import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
+import { EmpresaSelector } from "@/components/EmpresaSelector";
 import { 
   Receipt, AlertTriangle, TrendingDown, Calculator, 
-  Upload, Lightbulb, Trash2, Edit2, Info, Building2, 
+  Upload, Lightbulb, Trash2, Edit2, Info, 
   CheckCircle2, Filter, Shield
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -265,13 +266,8 @@ export default function ICMS() {
             <Filter className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium text-sm">Filtros:</span>
           </div>
-          {/* Empresa é selecionada pelo seletor global no header */}
-          {empresaAtiva && (
-            <Badge variant="outline" className="text-sm">
-              <Building2 className="h-3 w-3 mr-1" />
-              {empresaAtiva.razao_social}
-            </Badge>
-          )}
+          {/* Seletor de empresa */}
+          <EmpresaSelector />
           <Select value={tipoFilter} onValueChange={setTipoFilter}>
             <SelectTrigger className="w-48">
               <SelectValue placeholder="Tipo de Crédito" />
