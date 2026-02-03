@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   Loader2,
   Trash2,
+  Shield,
+  ShieldOff,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserEmpresas } from "@/hooks/useUserEmpresas";
@@ -47,6 +49,7 @@ import { EmpresaFormModal } from "@/components/empresas/EmpresaFormModal";
 import { ColaboradoresModal } from "@/components/empresas/ColaboradoresModal";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useIntegracoes } from "@/hooks/useIntegracoes";
+import { useAllNfeCertificates } from "@/hooks/useAllNfeCertificates";
 import {
   REGIME_TRIBUTARIO_CONFIG,
   canUseICMSCredit,
@@ -82,6 +85,17 @@ export default function Empresas() {
     const userEmpresaIds = userEmpresas?.map(ue => ue.empresa_id) || [];
     return empresas.filter(e => userEmpresaIds.includes(e.id));
   }, [empresas, userEmpresas]);
+
+  // Buscar certificados de todas as empresas
+  const empresaIds = useMemo(() => empresasFiltradas.map(e => e.id), [empresasFiltradas]);
+  const { data: certificates } = useAllNfeCertificates(empresaIds);
+
+  // Mapa de empresa -> certificado
+  const certMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    certificates?.forEach(c => map.set(c.empresa_id, true));
+    return map;
+  }, [certificates]);
 
   const handleEdit = (empresa: any) => {
     setEditingEmpresa(empresa);
@@ -154,6 +168,7 @@ export default function Empresas() {
                 <TableHead>Empresa</TableHead>
                 <TableHead>CNPJ</TableHead>
                 <TableHead>Regime Tributário</TableHead>
+                <TableHead className="text-center">Certificado A1</TableHead>
                 <TableHead className="text-center">Status</TableHead>
                 <TableHead className="text-center">Ações</TableHead>
               </TableRow>
@@ -162,6 +177,7 @@ export default function Empresas() {
               {empresasFiltradas.map((empresa) => {
                 const regimeConfig = getRegimeConfig(empresa.regime_tributario);
                 const usesICMS = canUseICMSCredit(empresa.regime_tributario as RegimeTributario);
+                const hasCertificate = certMap.get(empresa.id);
 
                 return (
                   <TableRow key={empresa.id}>
@@ -213,6 +229,28 @@ export default function Empresas() {
                           ) : (
                             <p>Simples Nacional: créditos de ICMS são apenas para controle interno, não para compensação.</p>
                           )}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          {hasCertificate ? (
+                            <Badge className="bg-success/10 text-success border-success/20">
+                              <Shield className="h-3 w-3 mr-1" />
+                              Configurado
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-muted-foreground">
+                              <ShieldOff className="h-3 w-3 mr-1" />
+                              Não configurado
+                            </Badge>
+                          )}
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {hasCertificate 
+                            ? "Certificado A1 configurado. Sincronização de NF-e ativa."
+                            : "Configure o certificado A1 para sincronizar NF-e automaticamente."}
                         </TooltipContent>
                       </Tooltip>
                     </TableCell>

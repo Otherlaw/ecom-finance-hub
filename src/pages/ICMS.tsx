@@ -22,6 +22,7 @@ import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useCreditosICMS, CreditoICMSDB, CreditoICMSInsert } from "@/hooks/useCreditosICMS";
+import { useNfeSyncStatus } from "@/hooks/useNfeSyncStatus";
 import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
 import { EmpresaSelector } from "@/components/EmpresaSelector";
 import { 
@@ -72,6 +73,10 @@ export default function ICMS() {
     updateCredito,
     deleteCredito
   } = useCreditosICMS(empresaAtiva?.id);
+
+  // Buscar status do certificado para empresa ativa
+  const { status: nfeStatus, isLoading: nfeLoading } = useNfeSyncStatus(empresaAtiva?.id);
+  const hasCertificate = nfeStatus?.has_certificate ?? false;
 
   const isLoading = empresasLoading || creditosLoading;
 
@@ -298,6 +303,24 @@ export default function ICMS() {
           )}
         </div>
       </div>
+
+      {/* Alerta quando não tem certificado */}
+      {!hasCertificate && empresaAtiva && !nfeLoading && (
+        <Alert className="mb-6 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
+          <Shield className="h-5 w-5 text-amber-600" />
+          <AlertTitle className="text-amber-800 dark:text-amber-300">Certificado Digital não configurado</AlertTitle>
+          <AlertDescription className="text-amber-700 dark:text-amber-400">
+            Configure o certificado A1 para sincronizar automaticamente as NF-e de entrada e gerar créditos de ICMS.
+            <Button 
+              variant="link" 
+              className="p-0 h-auto ml-2 text-amber-700 dark:text-amber-300 underline" 
+              onClick={() => setCertificadoModalOpen(true)}
+            >
+              Configurar agora
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Simples Nacional Warning */}
       {isSimples && (
