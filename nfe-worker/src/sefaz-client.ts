@@ -83,11 +83,14 @@ export class SefazClient {
       }
     }
 
+    // NOTA: rejectUnauthorized=false é necessário porque o Render não tem
+    // os certificados raiz da ICP-Brasil instalados. Em produção com servidor
+    // próprio, recomenda-se instalar os CAs e usar rejectUnauthorized=true.
     return new https.Agent({
       key: privateKey,
       cert: certificate,
       ca: ca.length > 0 ? ca : undefined,
-      rejectUnauthorized: true,
+      rejectUnauthorized: false, // Necessário para ambientes cloud sem CAs ICP-Brasil
     });
   }
 
