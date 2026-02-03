@@ -28,6 +28,21 @@ export class SefazClient {
   }
 
   /**
+   * Retorna codigo IBGE da UF
+   */
+  private getCodigoUF(uf: string): string {
+    const codigos: Record<string, string> = {
+      'AC': '12', 'AL': '27', 'AP': '16', 'AM': '13', 'BA': '29',
+      'CE': '23', 'DF': '53', 'ES': '32', 'GO': '52', 'MA': '21',
+      'MT': '51', 'MS': '50', 'MG': '31', 'PA': '15', 'PB': '25',
+      'PR': '41', 'PE': '26', 'PI': '22', 'RJ': '33', 'RN': '24',
+      'RS': '43', 'RO': '11', 'RR': '14', 'SC': '42', 'SP': '35',
+      'SE': '28', 'TO': '17',
+    };
+    return codigos[uf.toUpperCase()] || '35'; // Default SP
+  }
+
+  /**
    * Retorna URL do servico baseado no ambiente
    */
   private getServiceUrl(): string {
@@ -82,6 +97,7 @@ export class SefazClient {
   private buildDistDFeRequest(cnpj: string, ultNSU: number): string {
     const tpAmb = this.ambiente === 'producao' ? '1' : '2';
     const nsu = ultNSU.toString().padStart(15, '0');
+    const cUFAutor = this.getCodigoUF(this.uf);
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <soap12:Envelope xmlns:soap12="${SOAP_ENV}" xmlns:nfe="${DIST_NS}">
@@ -90,7 +106,7 @@ export class SefazClient {
       <nfe:nfeDadosMsg>
         <distDFeInt xmlns="${NFE_NS}" versao="1.01">
           <tpAmb>${tpAmb}</tpAmb>
-          <cUFAutor>35</cUFAutor>
+          <cUFAutor>${cUFAutor}</cUFAutor>
           <CNPJ>${cnpj}</CNPJ>
           <distNSU>
             <ultNSU>${nsu}</ultNSU>
