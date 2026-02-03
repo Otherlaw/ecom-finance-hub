@@ -1305,10 +1305,12 @@ export type Database = {
           fornecedor_nome: string | null
           id: string
           ncm: string
+          nfe_document_id: string | null
           numero_nf: string | null
           observacoes: string | null
           origem_credito: string
           origem_descricao: string | null
+          origin: string | null
           percentual_aproveitamento: number
           quantidade: number
           status_credito: string
@@ -1335,10 +1337,12 @@ export type Database = {
           fornecedor_nome?: string | null
           id?: string
           ncm: string
+          nfe_document_id?: string | null
           numero_nf?: string | null
           observacoes?: string | null
           origem_credito: string
           origem_descricao?: string | null
+          origin?: string | null
           percentual_aproveitamento?: number
           quantidade?: number
           status_credito?: string
@@ -1365,10 +1369,12 @@ export type Database = {
           fornecedor_nome?: string | null
           id?: string
           ncm?: string
+          nfe_document_id?: string | null
           numero_nf?: string | null
           observacoes?: string | null
           origem_credito?: string
           origem_descricao?: string | null
+          origin?: string | null
           percentual_aproveitamento?: number
           quantidade?: number
           status_credito?: string
@@ -1395,6 +1401,13 @@ export type Database = {
             columns: ["fornecedor_id"]
             isOneToOne: false
             referencedRelation: "fornecedores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creditos_icms_nfe_document_id_fkey"
+            columns: ["nfe_document_id"]
+            isOneToOne: false
+            referencedRelation: "nfe_documents"
             referencedColumns: ["id"]
           },
         ]
@@ -2625,6 +2638,188 @@ export type Database = {
             columns: ["responsavel_id"]
             isOneToOne: false
             referencedRelation: "responsaveis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nfe_certificates: {
+        Row: {
+          ambiente: string
+          cert_password_encrypted: string
+          cert_pfx_encrypted: string
+          cnpj: string
+          created_at: string
+          empresa_id: string
+          id: string
+          is_active: boolean
+          uf: string
+          updated_at: string
+        }
+        Insert: {
+          ambiente?: string
+          cert_password_encrypted: string
+          cert_pfx_encrypted: string
+          cnpj: string
+          created_at?: string
+          empresa_id: string
+          id?: string
+          is_active?: boolean
+          uf?: string
+          updated_at?: string
+        }
+        Update: {
+          ambiente?: string
+          cert_password_encrypted?: string
+          cert_pfx_encrypted?: string
+          cnpj?: string
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          is_active?: boolean
+          uf?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfe_certificates_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nfe_documents: {
+        Row: {
+          access_key: string
+          created_at: string
+          credits_generated: number
+          dest_cnpj: string | null
+          empresa_id: string
+          id: string
+          issue_date: string | null
+          issuer_cnpj: string | null
+          nsu: number | null
+          processed: boolean
+          schema_type: string | null
+          total_value: number | null
+          xml_content: string | null
+        }
+        Insert: {
+          access_key: string
+          created_at?: string
+          credits_generated?: number
+          dest_cnpj?: string | null
+          empresa_id: string
+          id?: string
+          issue_date?: string | null
+          issuer_cnpj?: string | null
+          nsu?: number | null
+          processed?: boolean
+          schema_type?: string | null
+          total_value?: number | null
+          xml_content?: string | null
+        }
+        Update: {
+          access_key?: string
+          created_at?: string
+          credits_generated?: number
+          dest_cnpj?: string | null
+          empresa_id?: string
+          id?: string
+          issue_date?: string | null
+          issuer_cnpj?: string | null
+          nsu?: number | null
+          processed?: boolean
+          schema_type?: string | null
+          total_value?: number | null
+          xml_content?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfe_documents_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nfe_sync_logs: {
+        Row: {
+          created_at: string
+          empresa_id: string
+          id: string
+          level: string
+          message: string
+          meta: Json | null
+        }
+        Insert: {
+          created_at?: string
+          empresa_id: string
+          id?: string
+          level?: string
+          message: string
+          meta?: Json | null
+        }
+        Update: {
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          level?: string
+          message?: string
+          meta?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfe_sync_logs_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nfe_sync_state: {
+        Row: {
+          credits_created: number
+          documents_fetched: number
+          empresa_id: string
+          last_error: string | null
+          last_sync_at: string | null
+          max_nsu: number
+          status: string
+          ult_nsu: number
+          updated_at: string
+        }
+        Insert: {
+          credits_created?: number
+          documents_fetched?: number
+          empresa_id: string
+          last_error?: string | null
+          last_sync_at?: string | null
+          max_nsu?: number
+          status?: string
+          ult_nsu?: number
+          updated_at?: string
+        }
+        Update: {
+          credits_created?: number
+          documents_fetched?: number
+          empresa_id?: string
+          last_error?: string | null
+          last_sync_at?: string | null
+          max_nsu?: number
+          status?: string
+          ult_nsu?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfe_sync_state_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
             referencedColumns: ["id"]
           },
         ]

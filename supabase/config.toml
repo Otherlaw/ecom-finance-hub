@@ -57,3 +57,12 @@ verify_jwt = false
 
 [functions.verify-email-code]
 verify_jwt = false
+
+[functions.nfe-ingest]
+verify_jwt = false
+
+[functions.nfe-sync-request]
+verify_jwt = false
+
+[functions.nfe-status]
+verify_jwt = false
