@@ -2,7 +2,7 @@
  * Seção de Certificado Digital A1 para o formulário de empresa
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,6 +57,16 @@ const UFS_BRASIL = [
   "RS", "RO", "RR", "SC", "SP", "SE", "TO"
 ];
 
+// Função utilitária definida antes de ser usada
+const formatCnpj = (value: string) => {
+  const digits = value.replace(/\D/g, "").slice(0, 14);
+  return digits
+    .replace(/^(\d{2})(\d)/, "$1.$2")
+    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1/$2")
+    .replace(/(\d{4})(\d)/, "$1-$2");
+};
+
 export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved }: CertificadoSectionProps) {
   const [cnpj, setCnpj] = useState("");
   const [pfxFile, setPfxFile] = useState<File | null>(null);
@@ -73,13 +83,20 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
     useNfeCertificates(empresaId);
 
   // Carregar dados existentes quando certificado for carregado
-  useState(() => {
+  useEffect(() => {
     if (certificate) {
       setCnpj(certificate.cnpj || "");
       setAmbiente((certificate.ambiente as "producao" | "homologacao") || "producao");
       setUf(certificate.uf || "SP");
     }
-  });
+  }, [certificate]);
+
+  // Auto-preencher CNPJ da empresa se disponível
+  useEffect(() => {
+    if (empresaCnpj && !cnpj) {
+      setCnpj(formatCnpj(empresaCnpj));
+    }
+  }, [empresaCnpj]);
 
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -92,13 +109,6 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
 
     setPfxFile(file);
   }, []);
-
-  // Auto-preencher CNPJ da empresa se disponível
-  useState(() => {
-    if (empresaCnpj && !cnpj) {
-      setCnpj(formatCnpj(empresaCnpj));
-    }
-  });
 
   // Validar certificado antes de salvar
   const validateCertificate = async (pfxBase64: string): Promise<ValidationResult | null> => {
@@ -225,14 +235,6 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
     await removeCertificate.mutateAsync(certificate.id);
   };
 
-  const formatCnpj = (value: string) => {
-    const digits = value.replace(/\D/g, "").slice(0, 14);
-    return digits
-      .replace(/^(\d{2})(\d)/, "$1.$2")
-      .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
-      .replace(/\.(\d{3})(\d)/, ".$1/$2")
-      .replace(/(\d{4})(\d)/, "$1-$2");
-  };
 
   // Se empresa ainda não foi salva
   if (!empresaId) {
