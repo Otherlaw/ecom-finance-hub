@@ -62,23 +62,19 @@ export function useNfeSyncStatus(empresaId?: string) {
     queryFn: async (): Promise<NfeStatusResponse> => {
       if (!empresaId) throw new Error("Empresa nao selecionada");
 
-      const { data, error } = await supabase.functions.invoke("nfe-status", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: null,
-      });
-
-      // Workaround: GET com query params via invoke nao funciona bem
-      // Vamos usar fetch direto
+      // Usar fetch direto pois invoke nao suporta GET com query params
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       
       if (!token) throw new Error("Nao autenticado");
 
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) throw new Error("VITE_SUPABASE_URL nao configurado");
+
+      console.debug("[NfeSyncStatus] Buscando status para empresa:", empresaId);
+
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/nfe-status?empresa_id=${empresaId}`,
+        `${supabaseUrl}/functions/v1/nfe-status?empresa_id=${encodeURIComponent(empresaId)}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -88,7 +84,8 @@ export function useNfeSyncStatus(empresaId?: string) {
       );
 
       if (!response.ok) {
-        const errData = await response.json();
+        const errData = await response.json().catch(() => ({ error: "Erro desconhecido" }));
+        console.error("[NfeSyncStatus] Erro na resposta:", errData);
         throw new Error(errData.error || "Erro ao buscar status");
       }
 
