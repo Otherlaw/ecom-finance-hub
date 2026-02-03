@@ -333,17 +333,17 @@ export default function Dashboard() {
         </div> : <>
           {/* KPI Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <KPICard title="Faturamento Bruto" value={formatCurrency(kpis.receitaBruta)} icon={DollarSign} iconColor="text-primary" change={variacoes.faturamento.variacaoPct} changeLabel={labelComparacao} trend={variacoes.faturamento.trend} />
-            <KPICard title="Lucro Líquido" value={formatCurrency(kpis.lucroLiquido)} icon={TrendingUp} iconColor={kpis.lucroLiquido >= 0 ? "text-success" : "text-destructive"} change={variacoes.lucroLiquido.variacaoPct} changeLabel={labelComparacao} trend={variacoes.lucroLiquido.trend} />
-            <KPICard title="Margem Bruta" value={`${kpis.margemBruta.toFixed(1)}%`} icon={Percent} iconColor="text-info" change={variacoes.margemBruta.variacaoPct} changeLabel={labelComparacao} trend={variacoes.margemBruta.trend} />
-            <KPICard title="Pedidos" value={formatNumber(kpis.pedidos)} icon={ShoppingCart} iconColor="text-warning" change={variacoes.pedidos.variacaoPct} changeLabel={labelComparacao} trend={variacoes.pedidos.trend} />
+            <KPICard title="Faturamento Bruto" value={formatCurrency(kpis.receitaBruta)} icon={DollarSign} iconColor="text-primary" change={variacoes.faturamento.variacaoPct} changeLabel={labelComparacao} trend={variacoes.faturamento.trend} valorAnterior={variacoes.faturamento.valorAnterior} />
+            <KPICard title="Lucro Líquido" value={formatCurrency(kpis.lucroLiquido)} icon={TrendingUp} iconColor={kpis.lucroLiquido >= 0 ? "text-success" : "text-destructive"} change={variacoes.lucroLiquido.variacaoPct} changeLabel={labelComparacao} trend={variacoes.lucroLiquido.trend} valorAnterior={variacoes.lucroLiquido.valorAnterior} />
+            <KPICard title="Margem Bruta" value={`${kpis.margemBruta.toFixed(1)}%`} icon={Percent} iconColor="text-info" change={variacoes.margemBruta.variacaoPct} changeLabel={labelComparacao} trend={variacoes.margemBruta.trend} valorAnterior={variacoes.margemBruta.valorAnterior} formatValue={(v) => `${v.toFixed(1)}%`} />
+            <KPICard title="Pedidos" value={formatNumber(kpis.pedidos)} icon={ShoppingCart} iconColor="text-warning" change={variacoes.pedidos.variacaoPct} changeLabel={labelComparacao} trend={variacoes.pedidos.trend} valorAnterior={variacoes.pedidos.valorAnterior} formatValue={(v) => formatNumber(Math.round(v))} />
           </div>
 
           {/* Secondary KPIs */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <KPICard title="Ticket Médio" value={formatCurrency(kpis.ticketMedio)} icon={CreditCard} change={variacoes.ticketMedio.variacaoPct} changeLabel={labelComparacao} trend={variacoes.ticketMedio.trend} />
+            <KPICard title="Ticket Médio" value={formatCurrency(kpis.ticketMedio)} icon={CreditCard} change={variacoes.ticketMedio.variacaoPct} changeLabel={labelComparacao} trend={variacoes.ticketMedio.trend} valorAnterior={variacoes.ticketMedio.valorAnterior} />
             <KPICard title="CMV / Custos" value={formatCurrency(kpis.custos)} changeLabel={`${kpis.custosPercentual.toFixed(1)}% da receita`} icon={Package} trend="neutral" />
-            <KPICard title="Margem Líquida" value={`${kpis.margemLiquida.toFixed(1)}%`} icon={Percent} change={variacoes.margemLiquida.variacaoPct} changeLabel={labelComparacao} trend={variacoes.margemLiquida.trend} />
+            <KPICard title="Margem Líquida" value={`${kpis.margemLiquida.toFixed(1)}%`} icon={Percent} change={variacoes.margemLiquida.variacaoPct} changeLabel={labelComparacao} trend={variacoes.margemLiquida.trend} valorAnterior={variacoes.margemLiquida.valorAnterior} formatValue={(v) => `${v.toFixed(1)}%`} />
             <KPICard title="Despesas Operacionais" value={formatCurrency(kpis.totalDespesas)} changeLabel={`${kpis.despesasPercentual.toFixed(1)}% da receita`} icon={BarChart3} trend={variacoes.despesas.trend} />
           </div>
 
