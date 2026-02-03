@@ -439,7 +439,7 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
                       <p>Titular: {validationResult.certificate_info.common_name}</p>
                       <p>CNPJ: {validationResult.certificate_info.cnpj}</p>
                       <p>Válido até: {new Date(validationResult.certificate_info.valid_to).toLocaleDateString("pt-BR")}</p>
-                      {validationResult.certificate_info.days_until_expiry <= 60 && (
+                      {validationResult.certificate_info.days_until_expiry <= 30 && (
                         <p className="text-amber-600 font-medium">
                           ⚠ Expira em {validationResult.certificate_info.days_until_expiry} dias
                         </p>
