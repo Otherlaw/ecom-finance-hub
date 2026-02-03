@@ -174,7 +174,11 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
           reader.onload = () => {
             const result = reader.result as string;
             // Remover o prefixo "data:...;base64," para obter apenas o base64
-            const base64 = result.split(",")[1];
+            const base64 = result.split(",")[1]?.trim();
+            if (!base64) {
+              reject(new Error("Não foi possível converter o arquivo para base64"));
+              return;
+            }
             resolve(base64);
           };
           reader.onerror = () => reject(new Error("Erro ao ler arquivo"));
