@@ -17,6 +17,7 @@ import express, { Request, Response } from 'express';
 import { SupabaseWorkerClient } from './supabase-client.js';
 import { SefazClient } from './sefaz-client.js';
 import { decrypt } from './crypto.js';
+// Usando IngestResponse do types.ts que tem todos os campos necessarios
 import type { IngestResponse } from './types.js';
 
 // Configuracoes
