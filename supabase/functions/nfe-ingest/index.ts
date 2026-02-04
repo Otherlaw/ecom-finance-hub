@@ -220,9 +220,16 @@ Deno.serve(async (req) => {
     // Tipo de credito para a empresa
     const tipoCredito = await getEmpresaTipoCredito(supabaseUrl, supabaseServiceKey, payload.empresa_id);
 
+    // Calcular data limite: apenas notas dos ultimos 3 meses
+    const dataLimite = new Date();
+    dataLimite.setMonth(dataLimite.getMonth() - 3);
+    const dataLimiteStr = dataLimite.toISOString().split("T")[0]; // YYYY-MM-DD
+    console.log(`Filtro de data: processando apenas notas a partir de ${dataLimiteStr}`);
+
     let inserted = 0;
     let duplicates = 0;
     let creditsCreated = 0;
+    let skippedOldDocs = 0;
     const errors: string[] = [];
 
     for (const doc of payload.documents) {
@@ -256,7 +263,24 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Inserir documento
+      // FILTRO DE DATA: ignorar notas mais antigas que 3 meses
+      if (nfe.dataEmissao && nfe.dataEmissao < dataLimiteStr) {
+        skippedOldDocs++;
+        // Salva referencia apenas para controle de NSU, sem processar
+        await supabase.from("nfe_documents").insert({
+          empresa_id: payload.empresa_id,
+          access_key: doc.access_key,
+          nsu: doc.nsu,
+          schema_type: doc.schema,
+          issue_date: nfe.dataEmissao || null,
+          processed: true, // Marca como processado para nao reprocessar
+          total_value: nfe.valorTotal,
+        });
+        existingKeys.add(doc.access_key);
+        continue;
+      }
+
+      // Inserir documento (nota dentro do periodo de 3 meses)
       const { data: insertedDoc, error: docError } = await supabase
         .from("nfe_documents")
         .insert({
@@ -342,14 +366,15 @@ Deno.serve(async (req) => {
     await supabase.from("nfe_sync_logs").insert({
       empresa_id: payload.empresa_id,
       level: errors.length > 0 ? "warn" : "info",
-      message: `Ingestao concluida: ${inserted} inseridos, ${duplicates} duplicados, ${creditsCreated} creditos gerados`,
-      meta: { inserted, duplicates, creditsCreated, errors },
+      message: `Ingestao concluida: ${inserted} inseridos, ${duplicates} duplicados, ${skippedOldDocs} antigos ignorados, ${creditsCreated} creditos gerados`,
+      meta: { inserted, duplicates, skippedOldDocs, creditsCreated, errors, dataLimite: dataLimiteStr },
     });
 
     const response = {
       success: true,
       inserted,
       duplicates,
+      skipped_old: skippedOldDocs,
       credits_created: creditsCreated,
       errors: errors.length > 0 ? errors : undefined,
     };
