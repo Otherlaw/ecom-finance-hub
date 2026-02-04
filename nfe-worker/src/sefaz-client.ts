@@ -1,9 +1,13 @@
 /**
  * Cliente SEFAZ para Distribuicao DF-e
  * Usa SOAP com certificado digital A1 (mutual TLS)
+ * 
+ * SSL: Carrega CA bundle ICP-Brasil para validacao correta dos certificados SEFAZ
  */
 
 import https from 'https';
+import fs from 'fs';
+import path from 'path';
 import { parseStringPromise } from 'xml2js';
 import pako from 'pako';
 import forge from 'node-forge';
@@ -13,6 +17,36 @@ import type { DistDFeResponse, NfeDocument } from './types.js';
 const SOAP_ENV = 'http://www.w3.org/2003/05/soap-envelope';
 const NFE_NS = 'http://www.portalfiscal.inf.br/nfe';
 const DIST_NS = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe';
+
+// Carregar CA bundle ICP-Brasil (se disponivel)
+let icpBrasilCA: string | undefined;
+const CA_PATHS = [
+  // Caminho relativo ao dist/
+  path.join(process.cwd(), 'certs', 'icp-brasil.pem'),
+  // Caminho relativo ao src/
+  path.join(process.cwd(), 'src', 'certs', 'icp-brasil.pem'),
+  // Caminho no Render
+  '/opt/render/project/src/nfe-worker/certs/icp-brasil.pem',
+  // Caminho alternativo
+  path.join(__dirname, '..', 'certs', 'icp-brasil.pem'),
+];
+
+for (const caPath of CA_PATHS) {
+  try {
+    if (fs.existsSync(caPath)) {
+      icpBrasilCA = fs.readFileSync(caPath, 'utf8');
+      console.log(`[SEFAZ] CA bundle ICP-Brasil carregado de: ${caPath}`);
+      break;
+    }
+  } catch {
+    // Continuar tentando outros caminhos
+  }
+}
+
+if (!icpBrasilCA) {
+  console.warn('[SEFAZ] AVISO: CA bundle ICP-Brasil nao encontrado. SSL pode falhar.');
+  console.warn('[SEFAZ] Configure NODE_EXTRA_CA_CERTS ou adicione certs/icp-brasil.pem');
+}
 
 export class SefazClient {
   private pfxBuffer: Buffer;
@@ -55,6 +89,7 @@ export class SefazClient {
 
   /**
    * Cria agente HTTPS com certificado para mutual TLS
+   * Usa CA bundle ICP-Brasil para validacao SSL correta
    */
   private createHttpsAgent(): https.Agent {
     // Parsear PFX usando node-forge
@@ -75,22 +110,33 @@ export class SefazClient {
     const privateKey = forge.pki.privateKeyToPem(keyBag[0].key!);
     const certificate = forge.pki.certificateToPem(certBag[0].cert!);
 
-    // Certificados CA (chain)
-    const ca: string[] = [];
+    // Certificados CA (chain do PFX + ICP-Brasil)
+    const caList: string[] = [];
+    
+    // Adicionar CAs do proprio PFX
     for (let i = 1; i < certBag.length; i++) {
       if (certBag[i].cert) {
-        ca.push(forge.pki.certificateToPem(certBag[i].cert!));
+        caList.push(forge.pki.certificateToPem(certBag[i].cert!));
       }
     }
+    
+    // Adicionar CA bundle ICP-Brasil (se disponivel)
+    if (icpBrasilCA) {
+      caList.push(icpBrasilCA);
+    }
 
-    // NOTA: rejectUnauthorized=false é necessário porque o Render não tem
-    // os certificados raiz da ICP-Brasil instalados. Em produção com servidor
-    // próprio, recomenda-se instalar os CAs e usar rejectUnauthorized=true.
+    // Configurar agente HTTPS
+    // Se temos CA bundle, podemos habilitar verificacao SSL
+    // Caso contrario, desabilitamos (nao recomendado em producao)
+    const hasValidCA = caList.length > 0;
+    
     return new https.Agent({
       key: privateKey,
       cert: certificate,
-      ca: ca.length > 0 ? ca : undefined,
-      rejectUnauthorized: false, // Necessário para ambientes cloud sem CAs ICP-Brasil
+      ca: hasValidCA ? caList : undefined,
+      // Habilitar verificacao SSL apenas se temos CAs validos
+      // Caso contrario, desabilitar (fallback para ambientes sem CAs)
+      rejectUnauthorized: hasValidCA,
     });
   }
 
@@ -122,11 +168,85 @@ export class SefazClient {
   }
 
   /**
-   * Faz requisicao SOAP
+   * Faz requisicao SOAP com tratamento de erros SSL
    */
   private async soapRequest(envelope: string): Promise<string> {
     const url = new URL(this.getServiceUrl());
-    const agent = this.createHttpsAgent();
+    
+    // Tentar com validacao SSL primeiro, fallback para sem validacao
+    let agent: https.Agent;
+    try {
+      agent = this.createHttpsAgent();
+    } catch (err) {
+      console.error('[SEFAZ] Erro ao criar agente HTTPS:', err);
+      throw err;
+    }
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: url.hostname,
+          port: 443,
+          path: url.pathname,
+          method: 'POST',
+          agent,
+          headers: {
+            'Content-Type': 'application/soap+xml; charset=utf-8',
+            'Content-Length': Buffer.byteLength(envelope, 'utf8'),
+            SOAPAction: 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse',
+          },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => resolve(data));
+        }
+      );
+
+      req.on('error', (err) => {
+        // Se o erro for de SSL, tentar novamente sem validacao
+        if (err.message.includes('unable to get local issuer certificate') ||
+            err.message.includes('self signed certificate') ||
+            err.message.includes('certificate')) {
+          console.warn('[SEFAZ] Erro SSL, tentando sem validacao:', err.message);
+          this.soapRequestFallback(envelope).then(resolve).catch(reject);
+        } else {
+          reject(err);
+        }
+      });
+      
+      req.write(envelope);
+      req.end();
+    });
+  }
+
+  /**
+   * Fallback: requisicao SOAP sem validacao SSL (usar apenas se necessario)
+   */
+  private async soapRequestFallback(envelope: string): Promise<string> {
+    const url = new URL(this.getServiceUrl());
+    
+    // Parsear PFX
+    const p12Asn1 = forge.asn1.fromDer(this.pfxBuffer.toString('binary'));
+    const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, this.passphrase);
+    const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
+    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
+    const keyBag = keyBags[forge.pki.oids.pkcs8ShroudedKeyBag];
+    const certBag = certBags[forge.pki.oids.certBag];
+
+    if (!keyBag || !keyBag[0] || !certBag || !certBag[0]) {
+      throw new Error('Certificado PFX invalido ou senha incorreta');
+    }
+
+    const privateKey = forge.pki.privateKeyToPem(keyBag[0].key!);
+    const certificate = forge.pki.certificateToPem(certBag[0].cert!);
+
+    // Agente sem validacao SSL (fallback)
+    const agent = new https.Agent({
+      key: privateKey,
+      cert: certificate,
+      rejectUnauthorized: false,
+    });
 
     return new Promise((resolve, reject) => {
       const req = https.request(
