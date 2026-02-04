@@ -1,138 +1,163 @@
 
 
-# Correção da Sincronização NF-e: 3 Pontos Críticos
+# Diagnóstico: Sincronização NF-e Travando sem Trazer Notas
 
-## Resumo do Problema
+## Problema Identificado
 
-A sincronização está travando porque, quando ocorre erro 656, o sistema pode deixar o status como "running" e não persiste o NSU de forma adequada. Existem 3 correções necessárias:
+A sincronização está travando com status "running" e `ult_nsu = 0`, sem retornar nenhum documento. Analisando os logs:
 
----
-
-## A) Erro 656 não pode deixar status "running"
-
-**Situação atual:** O tratamento do erro 656 no worker (linhas 319-349 de `index.ts`) já seta `status: 'rate_limited'`, porém há um problema: se ocorrer uma exceção durante a atualização do estado, o status permanece "running".
-
-**Correção:**
-1. Usar `try/catch` ao redor de todo o tratamento do 656 para garantir que o status NUNCA fique "running" após erro
-2. Garantir que a primeira ação ao detectar 656 seja atualizar para `status: 'error'` (não `rate_limited`) imediatamente, e só depois adicionar `next_retry_at`
-3. Sair da função imediatamente após o tratamento, sem continuar o loop
+| Data/Hora | Log | Problema |
+|-----------|-----|----------|
+| 04/02 05:19 | "Worker respondeu com sucesso" | Worker respondeu HTTP 200 |
+| 04/02 05:19 | "Sincronização já em andamento (0 min)" | Lock acionou na segunda tentativa |
+| 03/02 08:09 | **"unable to get local issuer certificate"** | Erro SSL crítico |
+| --- | Sem logs de "Consultando NSU 0" | **Worker parou antes de consultar SEFAZ** |
 
 ---
 
-## B) Bloqueio real antes de chamar SEFAZ
+## Causa Raiz
 
-**Situação atual:** O bloqueio existe no worker (linhas 143-187) e também na Edge Function `nfe-sync-request` (linhas 179-224), mas há uma lacuna: o worker pode começar a consultar a SEFAZ antes de verificar corretamente o `next_retry_at`.
+O worker no Render **não foi atualizado com o código mais recente** que inclui:
+1. Correções de SSL (bundle ICP-Brasil)
+2. Tratamento robusto do erro 656
+3. Persistência precoce do NSU
 
-**Correção:**
-1. Mover a verificação de `next_retry_at` para ANTES de atualizar o estado para "running" no worker
-2. Retornar erro claro e específico quando ainda está em cooldown (429 com horário de quando pode tentar)
-3. Na Edge Function, garantir que o retorno inclui o tempo restante formatado
-
-**Código afetado:**
-- `nfe-worker/src/index.ts` - Verificação de bloqueio deve vir antes do `updateSyncState({ status: 'running' })`
-- `supabase/functions/nfe-sync-request/index.ts` - Já está correto, mas precisa de log adicional
+O erro acontece **silenciosamente** no background porque:
+- O endpoint `/sync` responde imediatamente (assíncrono)
+- O erro vai para `console.error` no Render, **não para os logs do Supabase**
+- O status fica "running" eternamente porque o código não consegue nem começar o processamento
 
 ---
 
-## C) Persistir NSU CEDO (antes do ingest)
+## Evidências nos Logs
 
-**Situação atual:** O NSU é atualizado após processar todos os lotes do batch (linha 305-310). Se o ingest falhar, o NSU não é salvo e a próxima execução pode recomeçar do zero.
-
-**Correção:**
-1. Imediatamente após receber resposta da SEFAZ com `ultNSU`, PERSISTIR no estado antes de chamar o ingest
-2. Isso garante que mesmo se o ingest falhar, o NSU avança e não volta ao 0
-3. Manter a atualização completa (com contadores) após o ingest como está
-
-**Fluxo corrigido:**
 ```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                    FLUXO CORRIGIDO                                  │
-├─────────────────────────────────────────────────────────────────────┤
-│  1. Consultar SEFAZ (NSU atual)                                     │
-│  2. Receber resposta com ultNSU e docs                              │
-│  3. ★ PERSISTIR ultNSU IMEDIATAMENTE (antes do ingest)              │
-│  4. Processar ingest (enviar docs para Supabase)                    │
-│  5. Atualizar contadores (documents_fetched, credits_created)       │
-│  6. Delay 3s e repetir                                              │
-└─────────────────────────────────────────────────────────────────────┘
+Fluxo esperado:              Fluxo atual:
+─────────────────            ─────────────
+1. Sync iniciado            1. Sync iniciado ✓
+2. Buscar certificado       2. Buscar certificado ✓
+3. Buscar sync state        3. Buscar sync state ✓
+4. Log "Iniciando..."       4. ❌ (nunca aparece)
+5. Setar status=running     5. ❌ (já setou antes)
+6. Log "Consultando NSU"    6. ❌ (nunca chega aqui)
 ```
 
 ---
 
-## Arquivos que serão modificados
+## Correções Necessárias
 
-| Arquivo | Alteração |
-|---------|-----------|
-| `nfe-worker/src/index.ts` | Reordenar verificação de bloqueio, persistir NSU cedo, ajustar tratamento 656 |
-| `supabase/functions/nfe-sync-request/index.ts` | Adicionar log extra e melhorar mensagem de erro |
+### 1. Melhorar Tratamento de Erros no Worker (nfe-worker/src/index.ts)
 
----
+Adicionar `try/catch` logo no início do `syncEmpresa` para capturar erros de certificado/SSL e registrá-los no Supabase:
 
-## Detalhes técnicos
-
-### Worker - `nfe-worker/src/index.ts`
-
-**1. Persistir NSU imediatamente após resposta SEFAZ:**
 ```typescript
-// IMEDIATAMENTE após receber resposta da SEFAZ
-const result = await sefaz.consultarDistribuicao(cnpj, currentNSU);
+async function syncEmpresa(empresaId: string) {
+  // Registrar início ANTES de qualquer processamento
+  try {
+    await supabase.log(empresaId, 'info', 'Iniciando processamento...');
+  } catch {
+    console.error('[SYNC] Erro ao registrar log inicial');
+  }
 
-// ★ PERSISTIR NSU CEDO - antes de qualquer processamento
-currentNSU = result.ultNSU;
-maxNSU = result.maxNSU;
-hasMore = result.hasMore;
-
-await supabase.updateSyncState(empresaId, {
-  ult_nsu: currentNSU,
-  max_nsu: maxNSU,
-});
-
-// Agora processar documentos...
-```
-
-**2. Tratamento do erro 656 - garantir status `error`:**
-```typescript
-if (isSefazError656(error)) {
-  const nextRetryAt = getNextRetryAt();
-  
-  // ★ Primeiro: status = error, NÃO rate_limited
-  // ★ Segundo: adiciona next_retry_at  
-  await supabase.updateSyncState(empresaId, {
-    status: 'error',  // ← era 'rate_limited', agora é 'error'
-    last_error: 'Erro SEFAZ 656: Consumo Indevido. Aguarde 1 hora.',
-    ult_nsu: currentNSU,  // Preservar NSU
-    max_nsu: maxNSU,
-    next_retry_at: nextRetryAt,
-  });
-
-  // Sair imediatamente
-  return { ... };
+  try {
+    const certificate = await supabase.getCertificate(empresaId);
+    // ... resto do código
+  } catch (error) {
+    // ★ CAPTURAR e REGISTRAR erro antes de falhar silenciosamente
+    const message = error instanceof Error ? error.message : 'Erro desconhecido';
+    console.error(`[SYNC] Erro fatal: ${message}`);
+    
+    try {
+      await supabase.log(empresaId, 'error', `Erro fatal: ${message}`);
+      await supabase.updateSyncState(empresaId, {
+        status: 'error',
+        last_error: message,
+      });
+    } catch {
+      console.error('[SYNC] Falha ao registrar erro no Supabase');
+    }
+    
+    return { success: false, error: message, ... };
+  }
 }
 ```
 
-**3. Verificação de bloqueio ANTES de setar running:**
+### 2. Adicionar Log Inicial Antes do Try/Catch Principal
+
+Para garantir que saibamos quando o worker recebeu a requisição:
+
 ```typescript
-// ORDEM CORRETA:
-// 1) Verificar se rate_limited + cooldown ativo → retornar erro
-// 2) Verificar se running + < 30min → retornar erro
-// 3) Só depois: setar status = running
+app.post('/sync', async (req, res) => {
+  const { empresa_id } = req.body;
+  
+  // Log imediato para confirmar recebimento
+  console.log(`[SYNC] Recebido request para empresa ${empresa_id}`);
+  
+  // Executar em background MAS com tratamento de erro visível
+  syncEmpresa(empresa_id).catch(async (err) => {
+    console.error('[SYNC] Erro não tratado:', err);
+    // Tentar registrar no Supabase mesmo em caso de erro fatal
+    try {
+      await supabase.log(empresa_id, 'error', `Erro fatal não tratado: ${err.message}`);
+      await supabase.updateSyncState(empresa_id, {
+        status: 'error',
+        last_error: `Erro fatal: ${err.message}`,
+      });
+    } catch {
+      console.error('[SYNC] Não foi possível registrar erro no Supabase');
+    }
+  });
+  
+  res.json({ message: 'Sincronizacao iniciada', empresa_id });
+});
 ```
 
+### 3. Verificar/Atualizar Configuração do Render
+
+Confirmar que as variáveis de ambiente estão corretas:
+
+| Variável | Valor |
+|----------|-------|
+| `SUPABASE_URL` | `https://bwfbozwyqujlykgaueez.supabase.co` |
+| `WORKER_INGEST_TOKEN` | (deve corresponder ao secret no Supabase) |
+| `CERT_MASTER_KEY` | (chave de 32 bytes para descriptografar certificados) |
+| `NODE_EXTRA_CA_CERTS` | `/opt/render/project/src/nfe-worker/certs/icp-brasil.pem` |
+
+### 4. Forçar Novo Deploy no Render
+
+Após as correções, é necessário:
+1. Fazer commit das alterações no repositório
+2. Trigger de novo deploy no Render (manual ou automático)
+3. Verificar logs do build no Render para confirmar que `certs/` foi copiado
+
 ---
 
-## Resultados esperados
+## Mudanças Específicas
 
-- **Erro 656:** Status vai para `error` (não `running`), com `next_retry_at` preenchido
-- **Concorrência:** Sync manual/cron não rodam em paralelo; bloqueio é verificado ANTES de chamar SEFAZ
-- **NSU nunca volta ao 0:** Persistência imediata após resposta SEFAZ, mesmo se ingest falhar
-- **UI não trava:** Botão mostra claramente quando pode tentar novamente
+| Arquivo | Alteração |
+|---------|-----------|
+| `nfe-worker/src/index.ts` | Adicionar log inicial antes do try/catch, melhorar captura de erros no endpoint `/sync` |
+| Render Dashboard | Verificar variáveis de ambiente, especialmente `NODE_EXTRA_CA_CERTS` |
 
 ---
 
-## Próximos passos após aprovação
+## Resultado Esperado
 
-1. Implementar as correções nos 2 arquivos
-2. Deploy das Edge Functions (automático)
-3. **Fazer novo deploy no Render** para o worker
-4. Testar sincronização
+Após as correções:
+- Logs de erro aparecerão no Supabase mesmo quando o worker falhar cedo
+- Status não ficará "running" eternamente - será atualizado para "error"
+- Mensagem de erro será específica (SSL, certificado, timeout, etc.)
+- Usuário saberá exatamente o que está falhando
+
+---
+
+## Ação Imediata para Desbloquear
+
+Enquanto as correções não são implementadas, você pode **resetar o status manualmente** para permitir novas tentativas:
+
+```sql
+UPDATE nfe_sync_state 
+SET status = 'idle', last_error = 'Reset manual', updated_at = NOW()
+WHERE empresa_id = 'd2e99a0f-47ae-4490-ac98-0b2cce7047ac';
+```
 
