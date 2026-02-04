@@ -45,7 +45,7 @@ interface NfeSyncStatusProps {
 
 export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const { status, isLoading, isSyncing, isRateLimited, nextRetryAt, startSync, refetch } = useNfeSyncStatus(empresaId);
+  const { status, isLoading, isSyncing, isRateLimited, nextRetryAt, lastError, startSync, refetch } = useNfeSyncStatus(empresaId);
 
   if (isLoading) {
     return (
@@ -61,6 +61,16 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
 
   const getStatusBadge = () => {
     if (!syncState) return null;
+
+    // ★ Priorizar rate limit (status='error' com next_retry_at ativo)
+    if (isRateLimited) {
+      return (
+        <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
+          <Clock className="h-3 w-3 mr-1" />
+          Aguardando (rate limit)
+        </Badge>
+      );
+    }
 
     switch (syncState.status) {
       case "running":
@@ -261,22 +271,22 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
               </div>
             )}
 
-            {/* Rate Limited Warning */}
-            {syncState?.status === "rate_limited" && syncState?.next_retry_at && (
+            {/* Rate Limited Warning - Mostrar para status='rate_limited' OU status='error' com next_retry_at */}
+            {isRateLimited && nextRetryAt && (
               <Alert className="bg-warning/10 border-warning/30">
                 <Clock className="h-4 w-4 text-warning" />
                 <AlertDescription className="text-warning">
                   Rate limited pela SEFAZ (erro 656). Aguarde até {formatNextRetry()} para tentar novamente.
-                  O progresso foi salvo (NSU atual: {syncState.ult_nsu}).
+                  O progresso foi salvo (NSU atual: {syncState?.ult_nsu || 0}).
                 </AlertDescription>
               </Alert>
             )}
 
-            {/* Erro */}
-            {syncState?.last_error && syncState?.status !== "rate_limited" && (
+            {/* Erro genérico (não rate limit) */}
+            {lastError && !isRateLimited && (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>{syncState.last_error}</AlertDescription>
+                <AlertDescription>{lastError}</AlertDescription>
               </Alert>
             )}
 

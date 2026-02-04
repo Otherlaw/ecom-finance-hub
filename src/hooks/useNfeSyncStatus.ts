@@ -146,8 +146,20 @@ export function useNfeSyncStatus(empresaId?: string) {
   // Só considera "syncing" se há certificado E (status running OU mutation pending)
   const hasCert = data?.has_certificate === true;
   const isSyncing = hasCert && (data?.sync_state?.status === "running" || startSync.isPending);
-  const isRateLimited = data?.sync_state?.status === "rate_limited";
+  
+  // ★ RATE LIMITED: status='rate_limited' OU (status='error' COM next_retry_at no futuro)
   const nextRetryAt = data?.sync_state?.next_retry_at;
+  const isRateLimited = (() => {
+    if (data?.sync_state?.status === "rate_limited") return true;
+    if (data?.sync_state?.status === "error" && nextRetryAt) {
+      const retryDate = new Date(nextRetryAt);
+      return retryDate > new Date();
+    }
+    return false;
+  })();
+
+  // ★ Mensagem de erro (excluir se for rate limit, pois já mostramos separadamente)
+  const lastError = isRateLimited ? null : data?.sync_state?.last_error;
 
   return {
     status: data,
@@ -158,6 +170,7 @@ export function useNfeSyncStatus(empresaId?: string) {
     isSyncing,
     isRateLimited,
     nextRetryAt,
+    lastError,
   };
 }
 
