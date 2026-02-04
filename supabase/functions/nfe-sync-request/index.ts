@@ -176,8 +176,11 @@ Deno.serve(async (req) => {
         .eq("empresa_id", payload.empresa_id)
         .maybeSingle();
 
-      // BLOQUEIO: Verificar se esta rate_limited
-      if (currentState?.status === "rate_limited" && currentState?.next_retry_at) {
+      // ========================================
+      // BLOQUEIO REAL: Verificar next_retry_at INDEPENDENTE do status
+      // Isso cobre status='error' ou 'rate_limited' com cooldown ativo
+      // ========================================
+      if (currentState?.next_retry_at) {
         const nextRetry = new Date(currentState.next_retry_at);
         const now = new Date();
         
@@ -190,17 +193,24 @@ Deno.serve(async (req) => {
             minute: '2-digit',
           });
           
+          // Log do bloqueio
+          await logSync(supabaseAdmin, payload.empresa_id, "warn", `Bloqueio ativo: aguarde ate ${retryAtFormatted}`, {
+            next_retry_at: currentState.next_retry_at,
+            status: currentState.status,
+          });
+          
           return new Response(
             JSON.stringify({ 
-              error: `Rate limited pela SEFAZ (erro 656). Aguarde ate ${retryAtFormatted} para tentar novamente.`,
+              error: `Aguarde ate ${retryAtFormatted} para nova tentativa (erro SEFAZ 656 anterior).`,
               code: "RATE_LIMITED",
               next_retry_at: currentState.next_retry_at,
-              status: "rate_limited"
+              status: currentState.status || "error"
             }),
             { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
         // Se ja passou do tempo, continuar normalmente
+        await logSync(supabaseAdmin, payload.empresa_id, "info", "Periodo de cooldown expirou, permitindo nova sincronizacao");
       }
 
       // BLOQUEIO: Verificar se ja existe sync em andamento
