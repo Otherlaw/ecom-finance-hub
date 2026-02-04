@@ -3,6 +3,9 @@
  * Recebe lotes de documentos NF-e do worker externo e processa para gerar creditos de ICMS
  * 
  * Autenticacao: header x-worker-token comparado com secret WORKER_INGEST_TOKEN
+ * 
+ * Filtro de data: apenas docs dos ultimos 90 dias sao importados com XML/creditos
+ * Docs mais antigos sao registrados apenas para controle de NSU
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -12,11 +15,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-worker-token",
 };
 
+// Janela de sincronizacao em dias
+const SYNC_WINDOW_DAYS = 90;
+
 interface NFeDocument {
   access_key: string;
   nsu: number;
   schema: string;
-  xml: string;
+  xml?: string;
 }
 
 interface IngestPayload {
@@ -53,10 +59,16 @@ interface ParsedNFe {
   valorTotal: number;
 }
 
+// Calcula data de corte (90 dias atras)
+function getCutoffDate(): string {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - SYNC_WINDOW_DAYS);
+  return cutoff.toISOString().split("T")[0]; // YYYY-MM-DD
+}
+
 // Parser simplificado de XML NF-e para Deno (sem DOMParser)
 function parseNFeXML(xmlContent: string): ParsedNFe | null {
   try {
-    // Extrai campos usando regex (simplificado para Edge Function)
     const getTagValue = (xml: string, tag: string): string => {
       const regex = new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, "i");
       const match = xml.match(regex);
@@ -81,7 +93,14 @@ function parseNFeXML(xmlContent: string): ParsedNFe | null {
 
     // Dados basicos da NF-e
     const numero = getTagValue(xmlContent, "nNF");
-    const dataEmissao = getTagValue(xmlContent, "dhEmi").substring(0, 10);
+    
+    // Extrai data de emissao (dhEmi ou dEmi)
+    let dataEmissao = getTagValue(xmlContent, "dhEmi");
+    if (!dataEmissao) {
+      dataEmissao = getTagValue(xmlContent, "dEmi");
+    }
+    // Normaliza para YYYY-MM-DD
+    dataEmissao = dataEmissao.substring(0, 10);
 
     // Emitente
     const emitMatch = xmlContent.match(/<emit>([\s\S]*?)<\/emit>/i);
@@ -103,15 +122,12 @@ function parseNFeXML(xmlContent: string): ParsedNFe | null {
     while ((detMatch = detRegex.exec(xmlContent)) !== null) {
       const detXml = detMatch[1];
       
-      // Produto
       const prodMatch = detXml.match(/<prod>([\s\S]*?)<\/prod>/i);
       const prodXml = prodMatch ? prodMatch[1] : "";
 
-      // ICMS - procura em qualquer grupo ICMS
       const icmsMatch = detXml.match(/<ICMS>([\s\S]*?)<\/ICMS>/i);
       const icmsXml = icmsMatch ? icmsMatch[1] : "";
       
-      // Procura valores de ICMS em qualquer subgrupo
       const aliquotaIcms = parseFloat(getTagValue(icmsXml, "pICMS") || "0");
       const valorIcms = parseFloat(getTagValue(icmsXml, "vICMS") || "0");
 
@@ -131,7 +147,6 @@ function parseNFeXML(xmlContent: string): ParsedNFe | null {
       itens.push(item);
     }
 
-    // Valor total
     const valorTotal = parseFloat(getTagValue(xmlContent, "vNF") || "0");
 
     return {
@@ -174,7 +189,6 @@ async function getEmpresaTipoCredito(
 }
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -202,7 +216,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Processando ${payload.documents.length} documentos para empresa ${payload.empresa_id}`);
+    const totalInBatch = payload.documents.length;
+    console.log(`Processando ${totalInBatch} documentos para empresa ${payload.empresa_id}`);
 
     // Criar cliente Supabase com service role
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -220,16 +235,15 @@ Deno.serve(async (req) => {
     // Tipo de credito para a empresa
     const tipoCredito = await getEmpresaTipoCredito(supabaseUrl, supabaseServiceKey, payload.empresa_id);
 
-    // Calcular data limite: apenas notas dos ultimos 3 meses
-    const dataLimite = new Date();
-    dataLimite.setMonth(dataLimite.getMonth() - 3);
-    const dataLimiteStr = dataLimite.toISOString().split("T")[0]; // YYYY-MM-DD
-    console.log(`Filtro de data: processando apenas notas a partir de ${dataLimiteStr}`);
+    // Data de corte (ultimos 90 dias)
+    const cutoffDate = getCutoffDate();
+    console.log(`Cutoff date: ${cutoffDate} (docs mais antigos serao registrados sem XML/creditos)`);
 
     let inserted = 0;
     let duplicates = 0;
     let creditsCreated = 0;
     let skippedOldDocs = 0;
+    let skippedNoXml = 0;
     const errors: string[] = [];
 
     for (const doc of payload.documents) {
@@ -239,19 +253,19 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Apenas processa XMLs completos (procNFe em qualquer versão)
+      // Apenas processa XMLs completos (procNFe em qualquer versao)
       const isProcNFe = doc.schema?.includes('procNFe') || doc.schema === 'procNFe';
       
       if (!isProcNFe || !doc.xml) {
-        // Salva referencia do documento mesmo sem XML completo
+        // Documento sem XML completo (resumo/evento) - salva referencia apenas
         await supabase.from("nfe_documents").insert({
           empresa_id: payload.empresa_id,
           access_key: doc.access_key,
           nsu: doc.nsu,
           schema_type: doc.schema,
-          processed: false,
+          processed: true, // Marca como processado para nao reprocessar
         });
-        inserted++;
+        skippedNoXml++;
         existingKeys.add(doc.access_key);
         continue;
       }
@@ -260,27 +274,41 @@ Deno.serve(async (req) => {
       const nfe = parseNFeXML(doc.xml);
       if (!nfe) {
         errors.push(`Falha ao parsear XML: ${doc.access_key}`);
-        continue;
-      }
-
-      // FILTRO DE DATA: ignorar notas mais antigas que 3 meses
-      if (nfe.dataEmissao && nfe.dataEmissao < dataLimiteStr) {
-        skippedOldDocs++;
-        // Salva referencia apenas para controle de NSU, sem processar
+        // Mesmo com erro, registra para nao reprocessar
         await supabase.from("nfe_documents").insert({
           empresa_id: payload.empresa_id,
           access_key: doc.access_key,
           nsu: doc.nsu,
           schema_type: doc.schema,
-          issue_date: nfe.dataEmissao || null,
-          processed: true, // Marca como processado para nao reprocessar
-          total_value: nfe.valorTotal,
+          processed: true,
         });
         existingKeys.add(doc.access_key);
         continue;
       }
 
-      // Inserir documento (nota dentro do periodo de 3 meses)
+      // FILTRO DE DATA: docs mais antigos que cutoff
+      const docDate = nfe.dataEmissao;
+      if (docDate && docDate < cutoffDate) {
+        skippedOldDocs++;
+        console.log(`Doc ${doc.access_key.substring(0,15)}... ignorado (emissao: ${docDate} < cutoff: ${cutoffDate})`);
+        
+        // Salva referencia para controle de NSU, sem XML nem creditos
+        await supabase.from("nfe_documents").insert({
+          empresa_id: payload.empresa_id,
+          access_key: doc.access_key,
+          nsu: doc.nsu,
+          schema_type: doc.schema,
+          issue_date: docDate,
+          total_value: nfe.valorTotal,
+          processed: true,
+        });
+        existingKeys.add(doc.access_key);
+        continue;
+      }
+
+      // Documento dentro da janela de 90 dias - importar completo
+      console.log(`Doc ${doc.access_key.substring(0,15)}... importando (emissao: ${docDate})`);
+      
       const { data: insertedDoc, error: docError } = await supabase
         .from("nfe_documents")
         .insert({
@@ -310,10 +338,7 @@ Deno.serve(async (req) => {
       const creditos = [];
       const dataCompetencia = nfe.dataEmissao ? nfe.dataEmissao.substring(0, 7) : new Date().toISOString().substring(0, 7);
 
-      for (let i = 0; i < nfe.itens.length; i++) {
-        const item = nfe.itens[i];
-        
-        // Registrar item mesmo sem ICMS (controle)
+      for (const item of nfe.itens) {
         creditos.push({
           empresa_id: payload.empresa_id,
           tipo_credito: tipoCredito,
@@ -353,7 +378,6 @@ Deno.serve(async (req) => {
         } else {
           creditsCreated += creditos.length;
           
-          // Marcar documento como processado
           await supabase
             .from("nfe_documents")
             .update({ processed: true, credits_generated: creditos.length })
@@ -366,8 +390,17 @@ Deno.serve(async (req) => {
     await supabase.from("nfe_sync_logs").insert({
       empresa_id: payload.empresa_id,
       level: errors.length > 0 ? "warn" : "info",
-      message: `Ingestao concluida: ${inserted} inseridos, ${duplicates} duplicados, ${skippedOldDocs} antigos ignorados, ${creditsCreated} creditos gerados`,
-      meta: { inserted, duplicates, skippedOldDocs, creditsCreated, errors, dataLimite: dataLimiteStr },
+      message: `Lote: ${inserted} importados, ${skippedOldDocs} antigos, ${skippedNoXml} sem XML, ${duplicates} duplicados, ${creditsCreated} creditos`,
+      meta: { 
+        total_in_batch: totalInBatch,
+        inserted, 
+        duplicates, 
+        skipped_old: skippedOldDocs,
+        skipped_no_xml: skippedNoXml,
+        credits_created: creditsCreated, 
+        errors,
+        cutoff_date: cutoffDate,
+      },
     });
 
     const response = {
@@ -375,11 +408,13 @@ Deno.serve(async (req) => {
       inserted,
       duplicates,
       skipped_old: skippedOldDocs,
+      skipped_no_xml: skippedNoXml,
+      total_in_batch: totalInBatch,
       credits_created: creditsCreated,
       errors: errors.length > 0 ? errors : undefined,
     };
 
-    console.log("Ingestao concluida:", response);
+    console.log("Ingestao concluida:", JSON.stringify(response));
 
     return new Response(
       JSON.stringify(response),
