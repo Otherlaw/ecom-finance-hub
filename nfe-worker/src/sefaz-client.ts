@@ -157,6 +157,11 @@ export class SefazClient {
 
   /**
    * Parseia resposta SOAP e extrai documentos
+   * 
+   * Codigos SEFAZ relevantes:
+   * - 137: Nenhum documento localizado
+   * - 138: Documentos localizados
+   * - 656: Consumo Indevido (rate limit - aguardar 1 hora)
    */
   private async parseResponse(xml: string): Promise<DistDFeResponse> {
     const result = await parseStringPromise(xml, { explicitArray: false });
@@ -166,21 +171,29 @@ export class SefazClient {
                  result['soap12:Envelope']?.['soap12:Body'];
     
     if (!body) {
+      console.error('[SEFAZ] Resposta SOAP invalida:', xml.substring(0, 500));
       throw new Error('Resposta SOAP invalida');
     }
 
     const nfeResponse = body['nfeDistDFeInteresseResponse']?.['nfeDistDFeInteresseResult']?.['retDistDFeInt'];
     
     if (!nfeResponse) {
+      console.error('[SEFAZ] Resposta da SEFAZ invalida:', JSON.stringify(body).substring(0, 500));
       throw new Error('Resposta da SEFAZ invalida');
     }
 
     const cStat = nfeResponse.cStat;
     const xMotivo = nfeResponse.xMotivo;
 
+    // Tratamento especifico para erro 656 (Consumo Indevido)
+    if (cStat === '656') {
+      console.error(`[SEFAZ] Erro 656 - Consumo Indevido: ${xMotivo}`);
+      throw new Error(`Erro SEFAZ 656: Consumo Indevido - ${xMotivo}`);
+    }
+
+    // Codigos validos: 137 (nenhum doc) e 138 (docs localizados)
     if (cStat !== '138' && cStat !== '137') {
-      // 138 = Documentos localizados
-      // 137 = Nenhum documento localizado
+      console.error(`[SEFAZ] Erro ${cStat}: ${xMotivo}`);
       throw new Error(`Erro SEFAZ: ${cStat} - ${xMotivo}`);
     }
 

@@ -5,6 +5,11 @@
  * Modos de operacao:
  * - Bootstrap: primeira sincronizacao, busca docs dos ultimos 90 dias
  * - Incremental: syncs seguintes, continua do ultimo NSU
+ * 
+ * Regras importantes:
+ * - NSU SEMPRE avanca, mesmo quando docs sao ignorados por data
+ * - Bootstrap para apos N lotes consecutivos com 100% docs antigos
+ * - Erro SEFAZ 656 (Consumo Indevido): delay entre requests + log claro
  */
 
 import 'dotenv/config';
@@ -12,6 +17,7 @@ import express, { Request, Response } from 'express';
 import { SupabaseWorkerClient } from './supabase-client.js';
 import { SefazClient } from './sefaz-client.js';
 import { decrypt } from './crypto.js';
+import type { IngestResponse } from './types.js';
 
 // Configuracoes
 const PORT = process.env.PORT || 8080;
@@ -21,7 +27,7 @@ const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
 
 // Parametros de sincronizacao
 const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
-const REQUEST_DELAY_MS = 1100; // Delay entre requisicoes SEFAZ (rate limit)
+const REQUEST_DELAY_MS = 1500; // Delay entre requisicoes SEFAZ (rate limit) - aumentado para 1.5s
 const SYNC_WINDOW_DAYS = 90; // Janela de 90 dias (3 meses)
 const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos para parar
 
@@ -67,20 +73,21 @@ function getCutoffDate(): string {
 
 /**
  * Verifica se e modo bootstrap (primeira sync)
+ * Bootstrap = nao existe estado OU (ult_nsu = 0 E last_sync_at null)
  */
 function isBootstrapMode(syncState: { ult_nsu: number; last_sync_at: string | null } | null): boolean {
   if (!syncState) return true;
   return syncState.ult_nsu === 0 && !syncState.last_sync_at;
 }
 
-interface IngestResult {
-  success: boolean;
-  inserted: number;
-  duplicates: number;
-  skipped_old: number;
-  total_in_batch: number;
-  credits_created: number;
-  errors?: string[];
+/**
+ * Verifica se erro eh 656 (Consumo Indevido)
+ */
+function isSefazError656(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.message.includes('656') || error.message.includes('Consumo Indevido');
+  }
+  return false;
 }
 
 /**
@@ -93,7 +100,9 @@ async function syncEmpresa(empresaId: string): Promise<{
   creditsCreated: number;
   error?: string;
 }> {
+  console.log(`[SYNC] ========================================`);
   console.log(`[SYNC] Iniciando sincronizacao para empresa ${empresaId}`);
+  console.log(`[SYNC] ========================================`);
 
   try {
     // Buscar certificado
@@ -149,75 +158,113 @@ async function syncEmpresa(empresaId: string): Promise<{
     // Iterar ate nao ter mais documentos
     while (hasMore) {
       await supabase.log(empresaId, 'debug', `Consultando NSU ${currentNSU} (max: ${maxNSU || '?'})`);
+      console.log(`[SYNC] Consultando NSU ${currentNSU}...`);
 
-      const result = await sefaz.consultarDistribuicao(certificate.cnpj, currentNSU);
-      
-      maxNSU = result.maxNSU;
-      hasMore = result.hasMore;
+      try {
+        const result = await sefaz.consultarDistribuicao(certificate.cnpj, currentNSU);
+        
+        maxNSU = result.maxNSU;
+        hasMore = result.hasMore;
 
-      console.log(`[SYNC] SEFAZ retornou ${result.documents.length} docs. NSU: ${result.ultNSU}/${maxNSU}`);
+        console.log(`[SYNC] SEFAZ retornou ${result.documents.length} docs. ultNSU: ${result.ultNSU}, maxNSU: ${maxNSU}`);
 
-      if (result.documents.length > 0) {
-        // Enviar em lotes
-        for (let i = 0; i < result.documents.length; i += BATCH_SIZE) {
-          const batch = result.documents.slice(i, i + BATCH_SIZE);
-          
-          try {
-            const ingestResult: IngestResult = await supabase.ingestDocuments({
-              empresa_id: empresaId,
-              documents: batch,
-            });
+        if (result.documents.length > 0) {
+          // Enviar em lotes
+          for (let i = 0; i < result.documents.length; i += BATCH_SIZE) {
+            const batch = result.documents.slice(i, i + BATCH_SIZE);
+            
+            try {
+              const ingestResult: IngestResponse = await supabase.ingestDocuments({
+                empresa_id: empresaId,
+                documents: batch,
+              });
 
-            totalDocumentsFetched += ingestResult.total_in_batch;
-            totalDocumentsImported += ingestResult.inserted;
-            totalCredits += ingestResult.credits_created;
+              totalDocumentsFetched += ingestResult.total_in_batch;
+              totalDocumentsImported += ingestResult.inserted;
+              totalCredits += ingestResult.credits_created;
 
-            console.log(`[SYNC] Lote: ${ingestResult.inserted} importados, ${ingestResult.skipped_old} antigos, ${ingestResult.credits_created} creditos`);
+              const logMsg = `Lote: ${ingestResult.inserted} importados, ${ingestResult.skipped_old} antigos, ${ingestResult.duplicates} duplicados, ${ingestResult.credits_created} creditos`;
+              console.log(`[SYNC] ${logMsg}`);
+              await supabase.log(empresaId, 'info', logMsg);
 
-            // Logica de parada do bootstrap: verificar se lote teve 100% docs antigos
-            if (isBootstrap) {
-              const batchSize = ingestResult.total_in_batch;
-              const oldDocs = ingestResult.skipped_old;
-              const allOld = batchSize > 0 && oldDocs === batchSize;
+              // Logica de parada do bootstrap: verificar se lote teve 100% docs antigos
+              if (isBootstrap) {
+                const batchSize = ingestResult.total_in_batch;
+                const oldDocs = ingestResult.skipped_old;
+                // Considera "antigos" tambem os duplicados e sem XML, ja que nao sao novas importacoes
+                const nonImported = oldDocs + ingestResult.duplicates + (ingestResult.skipped_no_xml || 0);
+                const allOld = batchSize > 0 && nonImported === batchSize;
 
-              if (allOld) {
-                consecutiveOldOnlyBatches++;
-                console.log(`[SYNC] Lote 100% antigo (${consecutiveOldOnlyBatches}/${BOOTSTRAP_STOP_THRESHOLD})`);
-                await supabase.log(empresaId, 'info', `Lote com 100% docs antigos (${consecutiveOldOnlyBatches}/${BOOTSTRAP_STOP_THRESHOLD})`);
-              } else {
-                consecutiveOldOnlyBatches = 0;
+                if (allOld) {
+                  consecutiveOldOnlyBatches++;
+                  console.log(`[SYNC] Lote sem novos docs (${consecutiveOldOnlyBatches}/${BOOTSTRAP_STOP_THRESHOLD})`);
+                  await supabase.log(empresaId, 'info', `Lote sem novos docs (${consecutiveOldOnlyBatches}/${BOOTSTRAP_STOP_THRESHOLD})`);
+                } else {
+                  // Reset contador se encontrou docs novos
+                  consecutiveOldOnlyBatches = 0;
+                }
+
+                // Parar bootstrap se atingiu threshold
+                if (consecutiveOldOnlyBatches >= BOOTSTRAP_STOP_THRESHOLD) {
+                  const stopMsg = `Bootstrap encerrado: ${BOOTSTRAP_STOP_THRESHOLD} lotes consecutivos sem docs novos`;
+                  await supabase.log(empresaId, 'info', stopMsg);
+                  console.log(`[SYNC] ${stopMsg}`);
+                  hasMore = false;
+                  break;
+                }
               }
 
-              // Parar bootstrap se atingiu threshold
-              if (consecutiveOldOnlyBatches >= BOOTSTRAP_STOP_THRESHOLD) {
-                await supabase.log(empresaId, 'info', `Bootstrap encerrado: ${BOOTSTRAP_STOP_THRESHOLD} lotes consecutivos com docs antigos`);
-                console.log(`[SYNC] Bootstrap STOP: ${BOOTSTRAP_STOP_THRESHOLD} lotes antigos consecutivos`);
-                hasMore = false;
-                break;
-              }
+            } catch (error) {
+              console.error('[SYNC] Erro no lote:', error);
+              await supabase.log(empresaId, 'error', `Erro ao processar lote: ${error}`);
             }
-
-          } catch (error) {
-            console.error('[SYNC] Erro no lote:', error);
-            await supabase.log(empresaId, 'error', `Erro ao processar lote: ${error}`);
           }
         }
-      }
 
-      // SEMPRE avanca o NSU, mesmo quando docs sao ignorados
-      currentNSU = result.ultNSU;
+        // SEMPRE avanca o NSU, mesmo quando docs sao ignorados
+        // IMPORTANTE: usar o ultNSU retornado pela SEFAZ, nao o anterior
+        currentNSU = result.ultNSU;
 
-      // Atualizar estado intermediario
-      await supabase.updateSyncState(empresaId, {
-        ult_nsu: currentNSU,
-        max_nsu: maxNSU,
-        documents_fetched: totalDocumentsFetched,
-        credits_created: totalCredits,
-      });
+        // Atualizar estado intermediario
+        await supabase.updateSyncState(empresaId, {
+          ult_nsu: currentNSU,
+          max_nsu: maxNSU,
+          documents_fetched: totalDocumentsFetched,
+          credits_created: totalCredits,
+        });
 
-      // Delay para respeitar rate limit
-      if (hasMore) {
-        await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY_MS));
+        // Delay para respeitar rate limit da SEFAZ
+        if (hasMore) {
+          console.log(`[SYNC] Aguardando ${REQUEST_DELAY_MS}ms antes da proxima requisicao...`);
+          await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY_MS));
+        }
+
+      } catch (error) {
+        // Tratamento especial para erro SEFAZ 656
+        if (isSefazError656(error)) {
+          const errorMsg = 'Erro SEFAZ 656: Consumo Indevido. Aguarde 1 hora antes de tentar novamente. NSU atual foi preservado.';
+          console.error(`[SYNC] ${errorMsg}`);
+          await supabase.log(empresaId, 'error', errorMsg);
+          
+          // Salvar estado atual sem perder progresso
+          await supabase.updateSyncState(empresaId, {
+            status: 'error',
+            last_error: errorMsg,
+            ult_nsu: currentNSU, // Preserva NSU atual
+            max_nsu: maxNSU,
+          });
+
+          return {
+            success: false,
+            documentsProcessed: totalDocumentsFetched,
+            documentsImported: totalDocumentsImported,
+            creditsCreated: totalCredits,
+            error: errorMsg,
+          };
+        }
+
+        // Outros erros SEFAZ
+        throw error;
       }
     }
 
@@ -247,7 +294,7 @@ async function syncEmpresa(empresaId: string): Promise<{
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro desconhecido';
-    console.error(`[SYNC] Erro: ${message}`);
+    console.error(`[SYNC] Erro fatal: ${message}`);
 
     await supabase.updateSyncState(empresaId, {
       status: 'error',
@@ -295,7 +342,7 @@ app.post('/sync-all', async (_req: Request, res: Response) => {
     // Executar em sequencia para evitar sobrecarga
     for (const company of companies) {
       await syncEmpresa(company.empresa_id);
-      // Delay entre empresas
+      // Delay entre empresas (5 segundos)
       await new Promise((resolve) => setTimeout(resolve, 5000));
     }
 
@@ -308,9 +355,12 @@ app.post('/sync-all', async (_req: Request, res: Response) => {
 
 // Iniciar servidor
 app.listen(PORT, () => {
+  console.log('===========================================');
   console.log(`NFe Worker rodando na porta ${PORT}`);
   console.log(`Supabase URL: ${SUPABASE_URL}`);
   console.log(`Modo: Proxy via Edge Function (sem SERVICE_ROLE_KEY)`);
   console.log(`Janela de sincronizacao: ${SYNC_WINDOW_DAYS} dias`);
-  console.log(`Threshold de parada bootstrap: ${BOOTSTRAP_STOP_THRESHOLD} lotes consecutivos`);
+  console.log(`Delay entre requests: ${REQUEST_DELAY_MS}ms`);
+  console.log(`Threshold bootstrap stop: ${BOOTSTRAP_STOP_THRESHOLD} lotes`);
+  console.log('===========================================');
 });
