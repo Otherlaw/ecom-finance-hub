@@ -153,13 +153,6 @@ async function syncEmpresa(empresaId: string): Promise<{
     const syncState = await supabase.getSyncState(empresaId);
     console.log(`[SYNC] Estado atual: status=${syncState?.status}, ult_nsu=${syncState?.ult_nsu}, next_retry_at=${syncState?.next_retry_at}`);
     
-    if (!certificate) {
-      throw new Error('Certificado nao encontrado');
-    }
-
-    // Buscar estado atual
-    const syncState = await supabase.getSyncState(empresaId);
-    
     // ========================================
     // BLOQUEIO REAL ANTES DE CHAMAR SEFAZ
     // Ordem: (1) next_retry_at (2) running lock (3) setar running
