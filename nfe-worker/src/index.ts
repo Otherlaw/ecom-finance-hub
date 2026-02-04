@@ -139,9 +139,35 @@ async function syncEmpresa(empresaId: string): Promise<{
     // Buscar estado atual
     const syncState = await supabase.getSyncState(empresaId);
     
-    // BLOQUEIO DE CONCORRENCIA: verificar se ja esta rodando ou rate_limited
+    // ========================================
+    // BLOQUEIO REAL ANTES DE CHAMAR SEFAZ
+    // Ordem: (1) next_retry_at (2) running lock (3) setar running
+    // ========================================
     if (syncState) {
-      // Verificar se running e updated_at < 30 min
+      // PRIMEIRO: Verificar se next_retry_at existe e ainda esta no cooldown
+      // Isso vale para status 'rate_limited' OU 'error' com next_retry_at
+      if (syncState.next_retry_at) {
+        const nextRetry = new Date(syncState.next_retry_at);
+        const now = new Date();
+        
+        if (now < nextRetry) {
+          const msg = `Aguarde ate ${formatDateTime(syncState.next_retry_at)} para nova tentativa (erro SEFAZ 656 anterior)`;
+          console.log(`[SYNC] BLOQUEADO: ${msg}`);
+          await supabase.log(empresaId, 'warn', `Bloqueio ativo: ${msg}`);
+          return {
+            success: false,
+            documentsProcessed: 0,
+            documentsImported: 0,
+            creditsCreated: 0,
+            error: msg,
+            rateLimited: true,
+          };
+        }
+        // Se ja passou do tempo, limpar e continuar
+        await supabase.log(empresaId, 'info', 'Periodo de rate limit expirou, retomando sincronizacao');
+      }
+
+      // SEGUNDO: Verificar se running e updated_at < 30 min (lock de concorrencia)
       if (syncState.status === 'running') {
         const updatedAt = new Date(syncState.updated_at);
         const now = new Date();
@@ -149,7 +175,7 @@ async function syncEmpresa(empresaId: string): Promise<{
         
         if (diffMinutes < 30) {
           const msg = `Sincronizacao ja em andamento (iniciada ha ${Math.round(diffMinutes)} minutos)`;
-          console.log(`[SYNC] ${msg}`);
+          console.log(`[SYNC] BLOQUEADO: ${msg}`);
           await supabase.log(empresaId, 'warn', msg);
           return {
             success: false,
@@ -161,28 +187,6 @@ async function syncEmpresa(empresaId: string): Promise<{
         }
         // Se passou de 30 min, consideramos timeout e continuamos
         await supabase.log(empresaId, 'warn', 'Sync anterior expirou (timeout 30min), reiniciando');
-      }
-      
-      // Verificar se rate_limited e ainda nao pode tentar
-      if (syncState.status === 'rate_limited' && syncState.next_retry_at) {
-        const nextRetry = new Date(syncState.next_retry_at);
-        const now = new Date();
-        
-        if (now < nextRetry) {
-          const msg = `Rate limited. Tente novamente apos ${formatDateTime(syncState.next_retry_at)}`;
-          console.log(`[SYNC] ${msg}`);
-          await supabase.log(empresaId, 'warn', msg);
-          return {
-            success: false,
-            documentsProcessed: 0,
-            documentsImported: 0,
-            creditsCreated: 0,
-            error: msg,
-            rateLimited: true,
-          };
-        }
-        // Se ja passou do tempo, pode tentar novamente
-        await supabase.log(empresaId, 'info', 'Periodo de rate limit expirou, retomando sincronizacao');
       }
     }
     
@@ -199,10 +203,11 @@ async function syncEmpresa(empresaId: string): Promise<{
       console.log(`[SYNC] Modo INCREMENTAL - NSU inicial: ${ultNSU}`);
     }
 
-    // Atualizar estado para running (limpar rate limit anterior se houver)
+    // TERCEIRO: So agora setar status = running (apos passar pelas verificacoes)
     await supabase.updateSyncState(empresaId, { 
       status: 'running',
       next_retry_at: null,
+      last_error: null,
     });
 
     // Descriptografar certificado
@@ -239,10 +244,22 @@ async function syncEmpresa(empresaId: string): Promise<{
       try {
         const result = await sefaz.consultarDistribuicao(certificate.cnpj, currentNSU);
         
+        // ========================================
+        // ★ PERSISTIR NSU CEDO - antes de qualquer processamento
+        // Isso garante que mesmo se o ingest falhar, o NSU avanca
+        // ========================================
+        currentNSU = result.ultNSU;
         maxNSU = result.maxNSU;
         hasMore = result.hasMore;
 
-        console.log(`[SYNC] SEFAZ retornou ${result.documents.length} docs. ultNSU: ${result.ultNSU}, maxNSU: ${maxNSU}`);
+        console.log(`[SYNC] SEFAZ retornou ${result.documents.length} docs. ultNSU: ${currentNSU}, maxNSU: ${maxNSU}`);
+
+        // Salvar NSU imediatamente ANTES do ingest
+        await supabase.updateSyncState(empresaId, {
+          ult_nsu: currentNSU,
+          max_nsu: maxNSU,
+        });
+        console.log(`[SYNC] ★ NSU ${currentNSU} persistido (antes do ingest)`);
 
         if (result.documents.length > 0) {
           // Enviar em lotes
@@ -293,18 +310,13 @@ async function syncEmpresa(empresaId: string): Promise<{
             } catch (error) {
               console.error('[SYNC] Erro no lote:', error);
               await supabase.log(empresaId, 'error', `Erro ao processar lote: ${error}`);
+              // Continua para o proximo lote, NSU ja foi salvo
             }
           }
         }
 
-        // SEMPRE avanca o NSU, mesmo quando docs sao ignorados
-        // IMPORTANTE: usar o ultNSU retornado pela SEFAZ, nao o anterior
-        currentNSU = result.ultNSU;
-
-        // Atualizar estado intermediario
+        // Atualizar estado com contadores (NSU ja foi salvo antes)
         await supabase.updateSyncState(empresaId, {
-          ult_nsu: currentNSU,
-          max_nsu: maxNSU,
           documents_fetched: totalDocumentsFetched,
           credits_created: totalCredits,
         });
@@ -316,28 +328,52 @@ async function syncEmpresa(empresaId: string): Promise<{
         }
 
       } catch (error) {
+        // ========================================
         // TRATAMENTO ESPECIAL PARA ERRO SEFAZ 656 (Consumo Indevido)
+        // ★ Status = 'error' (NAO 'rate_limited' nem 'running')
+        // ★ next_retry_at = agora + 1 hora
+        // ★ Preservar NSU atual
+        // ★ Sair imediatamente da funcao
+        // ========================================
         if (isSefazError656(error)) {
           const nextRetryAt = getNextRetryAt();
-          const errorMsg = `Erro SEFAZ 656: Consumo Indevido. Aguarde 1 hora antes de tentar novamente. NSU atual foi preservado. Proximo retry: ${formatDateTime(nextRetryAt)}`;
+          const errorMsg = `Erro SEFAZ 656: Consumo Indevido. Aguarde ate ${formatDateTime(nextRetryAt)} para tentar novamente.`;
           
+          console.error(`[SYNC] ★ ERRO 656 DETECTADO - setando status='error' com cooldown`);
           console.error(`[SYNC] ${errorMsg}`);
-          await supabase.log(empresaId, 'warn', errorMsg, {
-            cStat: 656,
-            ult_nsu: currentNSU,
-            max_nsu: maxNSU,
-            next_retry_at: nextRetryAt,
-          });
           
-          // Salvar estado com status rate_limited e next_retry_at
-          await supabase.updateSyncState(empresaId, {
-            status: 'rate_limited',
-            last_error: errorMsg,
-            ult_nsu: currentNSU, // Preserva NSU atual
-            max_nsu: maxNSU,
-            next_retry_at: nextRetryAt,
-          });
+          // Usar try/catch para garantir que status NUNCA fica 'running'
+          try {
+            await supabase.log(empresaId, 'error', errorMsg, {
+              cStat: 656,
+              ult_nsu: currentNSU,
+              max_nsu: maxNSU,
+              next_retry_at: nextRetryAt,
+            });
+            
+            // ★ PRIMEIRO: Salvar estado com status='error' (NAO rate_limited)
+            // Isso garante que o estado nunca fica 'running' apos 656
+            await supabase.updateSyncState(empresaId, {
+              status: 'error',  // ← 'error', NAO 'rate_limited'
+              last_error: errorMsg,
+              ult_nsu: currentNSU, // Preserva NSU atual
+              max_nsu: maxNSU,
+              next_retry_at: nextRetryAt, // Adiciona cooldown de 1 hora
+            });
+          } catch (updateError) {
+            // Se falhar ao atualizar, tentar novamente apenas com status='error'
+            console.error('[SYNC] Falha ao atualizar estado apos 656, tentando fallback:', updateError);
+            try {
+              await supabase.updateSyncState(empresaId, {
+                status: 'error',
+                last_error: 'Erro SEFAZ 656: Consumo Indevido',
+              });
+            } catch {
+              console.error('[SYNC] Falha critica ao atualizar estado - status pode estar inconsistente');
+            }
+          }
 
+          // ★ SAIR IMEDIATAMENTE - nao continuar loop
           return {
             success: false,
             documentsProcessed: totalDocumentsFetched,
