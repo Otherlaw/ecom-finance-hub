@@ -20,11 +20,12 @@ export interface NfeSyncState {
   ult_nsu: number;
   max_nsu: number;
   last_sync_at: string | null;
-  status: 'idle' | 'running' | 'error' | 'completed';
+  status: 'idle' | 'running' | 'error' | 'completed' | 'rate_limited';
   last_error: string | null;
   documents_fetched: number;
   credits_created: number;
   updated_at: string;
+  next_retry_at: string | null;
 }
 
 export interface NfeDocument {
