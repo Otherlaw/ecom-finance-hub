@@ -1,6 +1,10 @@
 /**
  * NFe Worker - Entry Point
  * Servidor Express para sincronizacao de NF-e via Distribuicao DF-e
+ * 
+ * Modos de operacao:
+ * - Bootstrap: primeira sincronizacao, busca docs dos ultimos 90 dias
+ * - Incremental: syncs seguintes, continua do ultimo NSU
  */
 
 import 'dotenv/config';
@@ -14,8 +18,12 @@ const PORT = process.env.PORT || 8080;
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const WORKER_INGEST_TOKEN = process.env.WORKER_INGEST_TOKEN!;
 const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
+
+// Parametros de sincronizacao
 const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
 const REQUEST_DELAY_MS = 1100; // Delay entre requisicoes SEFAZ (rate limit)
+const SYNC_WINDOW_DAYS = 90; // Janela de 90 dias (3 meses)
+const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos para parar
 
 // Validar configuracoes
 const missingVars: string[] = [];
@@ -49,11 +57,39 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 /**
+ * Calcula a data de corte (90 dias atras)
+ */
+function getCutoffDate(): string {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - SYNC_WINDOW_DAYS);
+  return cutoff.toISOString().split('T')[0]; // YYYY-MM-DD
+}
+
+/**
+ * Verifica se e modo bootstrap (primeira sync)
+ */
+function isBootstrapMode(syncState: { ult_nsu: number; last_sync_at: string | null } | null): boolean {
+  if (!syncState) return true;
+  return syncState.ult_nsu === 0 && !syncState.last_sync_at;
+}
+
+interface IngestResult {
+  success: boolean;
+  inserted: number;
+  duplicates: number;
+  skipped_old: number;
+  total_in_batch: number;
+  credits_created: number;
+  errors?: string[];
+}
+
+/**
  * Sincroniza uma empresa especifica
  */
 async function syncEmpresa(empresaId: string): Promise<{
   success: boolean;
   documentsProcessed: number;
+  documentsImported: number;
   creditsCreated: number;
   error?: string;
 }> {
@@ -67,26 +103,33 @@ async function syncEmpresa(empresaId: string): Promise<{
     }
 
     // Buscar estado atual
-    let syncState = await supabase.getSyncState(empresaId);
+    const syncState = await supabase.getSyncState(empresaId);
+    const isBootstrap = isBootstrapMode(syncState);
     const ultNSU = syncState?.ult_nsu || 0;
+    const cutoffDate = getCutoffDate();
+
+    // Log do modo de operacao
+    if (isBootstrap) {
+      await supabase.log(empresaId, 'info', `Iniciando BOOTSTRAP (ultimos ${SYNC_WINDOW_DAYS} dias). Cutoff: ${cutoffDate}`);
+      console.log(`[SYNC] Modo BOOTSTRAP - cutoff: ${cutoffDate}`);
+    } else {
+      await supabase.log(empresaId, 'info', `Iniciando sync INCREMENTAL a partir do NSU ${ultNSU}`);
+      console.log(`[SYNC] Modo INCREMENTAL - NSU inicial: ${ultNSU}`);
+    }
 
     // Atualizar estado para running
     await supabase.updateSyncState(empresaId, { status: 'running' });
 
     // Descriptografar certificado
-    // NOTA: Em producao real, os dados ja estarao criptografados
-    // Aqui assumimos que podem estar em texto plano (para testes)
     let pfxBase64 = certificate.cert_pfx_encrypted;
     let password = certificate.cert_password_encrypted;
 
-    // Tentar descriptografar se parecer base64 criptografado
     try {
       if (CERT_MASTER_KEY && certificate.cert_pfx_encrypted.length > 100) {
         pfxBase64 = decrypt(certificate.cert_pfx_encrypted, CERT_MASTER_KEY);
         password = decrypt(certificate.cert_password_encrypted, CERT_MASTER_KEY);
       }
     } catch {
-      // Se falhar, assume que esta em texto plano
       console.log('[SYNC] Usando certificado sem criptografia');
     }
 
@@ -94,19 +137,25 @@ async function syncEmpresa(empresaId: string): Promise<{
     const sefaz = new SefazClient(pfxBase64, password, certificate.ambiente, certificate.uf);
 
     let currentNSU = ultNSU;
-    let totalDocuments = 0;
+    let totalDocumentsFetched = 0;
+    let totalDocumentsImported = 0;
     let totalCredits = 0;
     let hasMore = true;
     let maxNSU = 0;
 
+    // Contadores para logica de parada do bootstrap
+    let consecutiveOldOnlyBatches = 0;
+
     // Iterar ate nao ter mais documentos
     while (hasMore) {
-      await supabase.log(empresaId, 'info', `Consultando NSU ${currentNSU}`);
+      await supabase.log(empresaId, 'debug', `Consultando NSU ${currentNSU} (max: ${maxNSU || '?'})`);
 
       const result = await sefaz.consultarDistribuicao(certificate.cnpj, currentNSU);
       
       maxNSU = result.maxNSU;
       hasMore = result.hasMore;
+
+      console.log(`[SYNC] SEFAZ retornou ${result.documents.length} docs. NSU: ${result.ultNSU}/${maxNSU}`);
 
       if (result.documents.length > 0) {
         // Enviar em lotes
@@ -114,15 +163,40 @@ async function syncEmpresa(empresaId: string): Promise<{
           const batch = result.documents.slice(i, i + BATCH_SIZE);
           
           try {
-            const ingestResult = await supabase.ingestDocuments({
+            const ingestResult: IngestResult = await supabase.ingestDocuments({
               empresa_id: empresaId,
               documents: batch,
             });
 
-            totalDocuments += ingestResult.inserted;
+            totalDocumentsFetched += ingestResult.total_in_batch;
+            totalDocumentsImported += ingestResult.inserted;
             totalCredits += ingestResult.credits_created;
 
-            console.log(`[SYNC] Lote processado: ${ingestResult.inserted} docs, ${ingestResult.credits_created} creditos`);
+            console.log(`[SYNC] Lote: ${ingestResult.inserted} importados, ${ingestResult.skipped_old} antigos, ${ingestResult.credits_created} creditos`);
+
+            // Logica de parada do bootstrap: verificar se lote teve 100% docs antigos
+            if (isBootstrap) {
+              const batchSize = ingestResult.total_in_batch;
+              const oldDocs = ingestResult.skipped_old;
+              const allOld = batchSize > 0 && oldDocs === batchSize;
+
+              if (allOld) {
+                consecutiveOldOnlyBatches++;
+                console.log(`[SYNC] Lote 100% antigo (${consecutiveOldOnlyBatches}/${BOOTSTRAP_STOP_THRESHOLD})`);
+                await supabase.log(empresaId, 'info', `Lote com 100% docs antigos (${consecutiveOldOnlyBatches}/${BOOTSTRAP_STOP_THRESHOLD})`);
+              } else {
+                consecutiveOldOnlyBatches = 0;
+              }
+
+              // Parar bootstrap se atingiu threshold
+              if (consecutiveOldOnlyBatches >= BOOTSTRAP_STOP_THRESHOLD) {
+                await supabase.log(empresaId, 'info', `Bootstrap encerrado: ${BOOTSTRAP_STOP_THRESHOLD} lotes consecutivos com docs antigos`);
+                console.log(`[SYNC] Bootstrap STOP: ${BOOTSTRAP_STOP_THRESHOLD} lotes antigos consecutivos`);
+                hasMore = false;
+                break;
+              }
+            }
+
           } catch (error) {
             console.error('[SYNC] Erro no lote:', error);
             await supabase.log(empresaId, 'error', `Erro ao processar lote: ${error}`);
@@ -130,13 +204,14 @@ async function syncEmpresa(empresaId: string): Promise<{
         }
       }
 
+      // SEMPRE avanca o NSU, mesmo quando docs sao ignorados
       currentNSU = result.ultNSU;
 
       // Atualizar estado intermediario
       await supabase.updateSyncState(empresaId, {
         ult_nsu: currentNSU,
         max_nsu: maxNSU,
-        documents_fetched: totalDocuments,
+        documents_fetched: totalDocumentsFetched,
         credits_created: totalCredits,
       });
 
@@ -146,22 +221,28 @@ async function syncEmpresa(empresaId: string): Promise<{
       }
     }
 
-    // Finalizar
+    // Finalizar com sucesso
+    const finishMessage = isBootstrap
+      ? `Bootstrap concluido: ${totalDocumentsImported} docs importados de ${totalDocumentsFetched} buscados, ${totalCredits} creditos`
+      : `Sync incremental concluido: ${totalDocumentsImported} docs importados, ${totalCredits} creditos`;
+
     await supabase.updateSyncState(empresaId, {
       status: 'idle',
       last_sync_at: new Date().toISOString(),
       last_error: null,
       ult_nsu: currentNSU,
       max_nsu: maxNSU,
-      documents_fetched: totalDocuments,
+      documents_fetched: totalDocumentsFetched,
       credits_created: totalCredits,
     });
 
-    await supabase.log(empresaId, 'info', `Sincronizacao concluida: ${totalDocuments} docs, ${totalCredits} creditos`);
+    await supabase.log(empresaId, 'info', finishMessage);
+    console.log(`[SYNC] ${finishMessage}`);
 
     return {
       success: true,
-      documentsProcessed: totalDocuments,
+      documentsProcessed: totalDocumentsFetched,
+      documentsImported: totalDocumentsImported,
       creditsCreated: totalCredits,
     };
   } catch (error) {
@@ -178,6 +259,7 @@ async function syncEmpresa(empresaId: string): Promise<{
     return {
       success: false,
       documentsProcessed: 0,
+      documentsImported: 0,
       creditsCreated: 0,
       error: message,
     };
@@ -229,4 +311,6 @@ app.listen(PORT, () => {
   console.log(`NFe Worker rodando na porta ${PORT}`);
   console.log(`Supabase URL: ${SUPABASE_URL}`);
   console.log(`Modo: Proxy via Edge Function (sem SERVICE_ROLE_KEY)`);
+  console.log(`Janela de sincronizacao: ${SYNC_WINDOW_DAYS} dias`);
+  console.log(`Threshold de parada bootstrap: ${BOOTSTRAP_STOP_THRESHOLD} lotes consecutivos`);
 });
