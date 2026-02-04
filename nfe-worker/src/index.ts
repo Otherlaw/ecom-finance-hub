@@ -125,13 +125,34 @@ async function syncEmpresa(empresaId: string): Promise<{
   error?: string;
   rateLimited?: boolean;
 }> {
+  // ★ LOG INICIAL - ANTES de qualquer try/catch para garantir visibilidade
   console.log(`[SYNC] ========================================`);
-  console.log(`[SYNC] Iniciando sincronizacao para empresa ${empresaId}`);
+  console.log(`[SYNC] Iniciando syncEmpresa para empresa ${empresaId}`);
+  console.log(`[SYNC] Timestamp: ${new Date().toISOString()}`);
   console.log(`[SYNC] ========================================`);
+
+  // Tentar registrar log no Supabase imediatamente
+  try {
+    await supabase.log(empresaId, 'info', 'Worker iniciou processamento da sincronizacao');
+  } catch (logError) {
+    console.error('[SYNC] Erro ao registrar log inicial no Supabase:', logError);
+    // Continuar mesmo se falhar - nao queremos parar por causa de log
+  }
 
   try {
     // Buscar certificado
+    console.log('[SYNC] Buscando certificado...');
     const certificate = await supabase.getCertificate(empresaId);
+    if (!certificate) {
+      throw new Error('Certificado nao encontrado');
+    }
+    console.log('[SYNC] Certificado encontrado com sucesso');
+
+    // Buscar estado atual
+    console.log('[SYNC] Buscando estado de sincronizacao...');
+    const syncState = await supabase.getSyncState(empresaId);
+    console.log(`[SYNC] Estado atual: status=${syncState?.status}, ult_nsu=${syncState?.ult_nsu}, next_retry_at=${syncState?.next_retry_at}`);
+    
     if (!certificate) {
       throw new Error('Certificado nao encontrado');
     }
@@ -446,8 +467,34 @@ app.post('/sync', async (req: Request, res: Response) => {
     return;
   }
 
-  // Executar sync em background
-  syncEmpresa(empresa_id).catch(console.error);
+  // Log imediato para confirmar recebimento
+  console.log(`[SYNC] ========================================`);
+  console.log(`[SYNC] Recebido request para empresa ${empresa_id}`);
+  console.log(`[SYNC] Timestamp: ${new Date().toISOString()}`);
+  console.log(`[SYNC] ========================================`);
+
+  // Executar sync em background MAS com tratamento de erro visível
+  syncEmpresa(empresa_id).catch(async (err) => {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error('[SYNC] ========================================');
+    console.error('[SYNC] ERRO NAO TRATADO NO BACKGROUND:');
+    console.error(`[SYNC] Empresa: ${empresa_id}`);
+    console.error(`[SYNC] Erro: ${errorMessage}`);
+    console.error('[SYNC] Stack:', err instanceof Error ? err.stack : 'N/A');
+    console.error('[SYNC] ========================================');
+    
+    // Tentar registrar no Supabase mesmo em caso de erro fatal
+    try {
+      await supabase.log(empresa_id, 'error', `Erro fatal nao tratado: ${errorMessage}`);
+      await supabase.updateSyncState(empresa_id, {
+        status: 'error',
+        last_error: `Erro fatal: ${errorMessage}`,
+      });
+      console.log('[SYNC] Erro registrado no Supabase com sucesso');
+    } catch (logError) {
+      console.error('[SYNC] Falha ao registrar erro no Supabase:', logError);
+    }
+  });
 
   res.json({ message: 'Sincronizacao iniciada', empresa_id });
 });
