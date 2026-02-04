@@ -58,7 +58,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     resetSync,
     refetch,
     isStuck,
-    getTimeUntilRetry,
+    timeUntilRetry,
   } = useNfeSyncStatus(empresaId);
 
   // Atualizar countdown a cada segundo quando rate limited
@@ -68,21 +68,21 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
       return;
     }
 
-    const updateCountdown = () => {
-      const remaining = getTimeUntilRetry();
-      setCountdown(remaining);
-      
-      // Se expirou, refetch para atualizar estado
-      if (!remaining) {
-        refetch();
-      }
-    };
+    // Usar o valor direto do hook
+    setCountdown(timeUntilRetry);
 
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 10000); // Atualiza a cada 10s
+    // Se expirou, refetch para atualizar estado
+    if (!timeUntilRetry) {
+      refetch();
+    }
+
+    // Atualizar periodicamente
+    const interval = setInterval(() => {
+      refetch(); // Refetch vai recalcular timeUntilRetry
+    }, 10000);
 
     return () => clearInterval(interval);
-  }, [isRateLimited, nextRetryAt, getTimeUntilRetry, refetch]);
+  }, [isRateLimited, nextRetryAt, timeUntilRetry, refetch]);
 
   if (isLoading) {
     return (

@@ -6,7 +6,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export interface NfeCertificate {
   cnpj: string;
@@ -239,20 +239,20 @@ export function useNfeSyncStatus(empresaId?: string) {
   
   // Rate limited: status='rate_limited' OU (status='error' COM next_retry_at no futuro)
   const nextRetryAt = data?.sync_state?.next_retry_at;
-  const isRateLimited = useCallback(() => {
+  const isRateLimited = useMemo(() => {
     if (data?.sync_state?.status === "rate_limited") return true;
     if (data?.sync_state?.status === "error" && nextRetryAt) {
       const retryDate = new Date(nextRetryAt);
       return retryDate > new Date();
     }
     return false;
-  }, [data?.sync_state?.status, nextRetryAt])();
+  }, [data?.sync_state?.status, nextRetryAt]);
 
   // Mensagem de erro (excluir se for rate limit)
   const lastError = isRateLimited ? null : data?.sync_state?.last_error;
 
   // Calcular tempo restante para retry
-  const getTimeUntilRetry = useCallback(() => {
+  const getTimeUntilRetry = useMemo(() => {
     if (!nextRetryAt) return null;
     const retryDate = new Date(nextRetryAt);
     const now = new Date();
@@ -280,7 +280,7 @@ export function useNfeSyncStatus(empresaId?: string) {
     nextRetryAt,
     lastError,
     isStuck,
-    getTimeUntilRetry,
+    timeUntilRetry: getTimeUntilRetry,
   };
 }
 
