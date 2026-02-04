@@ -68,8 +68,9 @@ export class SupabaseWorkerClient {
 
   /**
    * Busca estado de sincronizacao
+   * Retorna dados adicionais: updated_at e next_retry_at para controle de rate limit
    */
-  async getSyncState(empresaId: string): Promise<NfeSyncState | null> {
+  async getSyncState(empresaId: string): Promise<(NfeSyncState & { updated_at: string; next_retry_at: string | null }) | null> {
     const response = await fetch(
       `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=get-sync-state&empresa_id=${encodeURIComponent(empresaId)}`,
       {
@@ -93,8 +94,9 @@ export class SupabaseWorkerClient {
 
   /**
    * Atualiza estado de sincronizacao
+   * Suporta next_retry_at para controle de rate limit
    */
-  async updateSyncState(empresaId: string, updates: Partial<NfeSyncState>): Promise<void> {
+  async updateSyncState(empresaId: string, updates: Partial<NfeSyncState & { next_retry_at: string | null }>): Promise<void> {
     const response = await fetch(
       `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=update-sync-state`,
       {

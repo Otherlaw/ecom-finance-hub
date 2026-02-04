@@ -2788,6 +2788,7 @@ export type Database = {
           last_error: string | null
           last_sync_at: string | null
           max_nsu: number
+          next_retry_at: string | null
           status: string
           ult_nsu: number
           updated_at: string
@@ -2799,6 +2800,7 @@ export type Database = {
           last_error?: string | null
           last_sync_at?: string | null
           max_nsu?: number
+          next_retry_at?: string | null
           status?: string
           ult_nsu?: number
           updated_at?: string
@@ -2810,6 +2812,7 @@ export type Database = {
           last_error?: string | null
           last_sync_at?: string | null
           max_nsu?: number
+          next_retry_at?: string | null
           status?: string
           ult_nsu?: number
           updated_at?: string
