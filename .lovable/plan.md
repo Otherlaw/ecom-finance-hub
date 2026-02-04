@@ -160,4 +160,3 @@ UPDATE nfe_sync_state
 SET status = 'idle', last_error = 'Reset manual', updated_at = NOW()
 WHERE empresa_id = 'd2e99a0f-47ae-4490-ac98-0b2cce7047ac';
 ```
-
