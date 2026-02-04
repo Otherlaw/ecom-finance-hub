@@ -2,6 +2,8 @@
  * NFe Sync Request Edge Function
  * Endpoint para disparar sincronizacao manual ou atualizar estado
  * Agora chama o worker externo via HTTP
+ * 
+ * Inclui verificacoes de concorrencia e rate limit
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -167,15 +169,42 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Verificar se ja existe sync em andamento
+      // Verificar estado atual para bloqueio de concorrencia
       const { data: currentState } = await supabaseAdmin
         .from("nfe_sync_state")
         .select("*")
         .eq("empresa_id", payload.empresa_id)
         .maybeSingle();
 
+      // BLOQUEIO: Verificar se esta rate_limited
+      if (currentState?.status === "rate_limited" && currentState?.next_retry_at) {
+        const nextRetry = new Date(currentState.next_retry_at);
+        const now = new Date();
+        
+        if (now < nextRetry) {
+          const retryAtFormatted = nextRetry.toLocaleString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          
+          return new Response(
+            JSON.stringify({ 
+              error: `Rate limited pela SEFAZ (erro 656). Aguarde ate ${retryAtFormatted} para tentar novamente.`,
+              code: "RATE_LIMITED",
+              next_retry_at: currentState.next_retry_at,
+              status: "rate_limited"
+            }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        // Se ja passou do tempo, continuar normalmente
+      }
+
+      // BLOQUEIO: Verificar se ja existe sync em andamento
       if (currentState?.status === "running") {
-        // Verificar timeout (30 min)
         const lastUpdate = new Date(currentState.updated_at);
         const now = new Date();
         const diffMinutes = (now.getTime() - lastUpdate.getTime()) / 60000;
@@ -183,7 +212,8 @@ Deno.serve(async (req) => {
         if (diffMinutes < 30) {
           return new Response(
             JSON.stringify({ 
-              error: "Sincronizacao ja em andamento",
+              error: `Sincronizacao ja em andamento (iniciada ha ${Math.round(diffMinutes)} minutos)`,
+              code: "SYNC_RUNNING",
               state: currentState
             }),
             { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -193,10 +223,11 @@ Deno.serve(async (req) => {
         await logSync(supabaseAdmin, payload.empresa_id, "warn", "Sync anterior expirou (timeout 30min), reiniciando");
       }
 
-      // Atualizar estado para running
+      // Atualizar estado para running (limpar rate limit anterior)
       await updateState(supabaseAdmin, payload.empresa_id, {
         status: "running",
         last_error: null,
+        next_retry_at: null,
       });
 
       await logSync(supabaseAdmin, payload.empresa_id, "info", "Sincronizacao iniciada pelo usuario", { user_id: userId });
@@ -289,6 +320,7 @@ Deno.serve(async (req) => {
         status: "idle",
         last_sync_at: new Date().toISOString(),
         last_error: null,
+        next_retry_at: null,
       });
 
       await logSync(supabaseAdmin, payload.empresa_id, "info", "Sincronizacao concluida com sucesso");

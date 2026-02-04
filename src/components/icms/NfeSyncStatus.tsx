@@ -45,7 +45,7 @@ interface NfeSyncStatusProps {
 
 export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const { status, isLoading, isSyncing, startSync, refetch } = useNfeSyncStatus(empresaId);
+  const { status, isLoading, isSyncing, isRateLimited, nextRetryAt, startSync, refetch } = useNfeSyncStatus(empresaId);
 
   if (isLoading) {
     return (
@@ -68,6 +68,13 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
             Sincronizando...
+          </Badge>
+        );
+      case "rate_limited":
+        return (
+          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
+            <Clock className="h-3 w-3 mr-1" />
+            Aguardando (rate limit)
           </Badge>
         );
       case "error":
@@ -98,6 +105,17 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     }
   };
 
+  const formatNextRetry = () => {
+    if (!nextRetryAt) return null;
+    const date = new Date(nextRetryAt);
+    return date.toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   const formatLastSync = () => {
     if (!syncState?.last_sync_at) return "Nunca";
     const date = new Date(syncState.last_sync_at);
@@ -110,6 +128,18 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     });
   };
 
+  // Calcular se o botao deve estar desabilitado
+  const isButtonDisabled = !hasCertificate || isSyncing || isRateLimited;
+  
+  // Texto do botao
+  const getButtonText = () => {
+    if (isSyncing) return "Sincronizando...";
+    if (isRateLimited && nextRetryAt) {
+      return `Aguarde até ${formatNextRetry()}`;
+    }
+    return "Sincronizar NF-e";
+  };
+
   return (
     <div className="flex items-center gap-2">
       {/* Botao principal de sincronizacao */}
@@ -117,14 +147,17 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
         variant="outline"
         className="gap-2"
         onClick={() => startSync.mutate()}
-        disabled={!hasCertificate || isSyncing}
+        disabled={isButtonDisabled}
+        title={isRateLimited ? `Rate limited. Próximo retry: ${formatNextRetry()}` : undefined}
       >
         {isSyncing ? (
           <Loader2 className="h-4 w-4 animate-spin" />
+        ) : isRateLimited ? (
+          <Clock className="h-4 w-4" />
         ) : (
           <RefreshCw className="h-4 w-4" />
         )}
-        {isSyncing ? "Sincronizando..." : "Sincronizar NF-e"}
+        {getButtonText()}
       </Button>
 
       {/* Dialog de detalhes */}
@@ -228,8 +261,19 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
               </div>
             )}
 
+            {/* Rate Limited Warning */}
+            {syncState?.status === "rate_limited" && syncState?.next_retry_at && (
+              <Alert className="bg-warning/10 border-warning/30">
+                <Clock className="h-4 w-4 text-warning" />
+                <AlertDescription className="text-warning">
+                  Rate limited pela SEFAZ (erro 656). Aguarde até {formatNextRetry()} para tentar novamente.
+                  O progresso foi salvo (NSU atual: {syncState.ult_nsu}).
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Erro */}
-            {syncState?.last_error && (
+            {syncState?.last_error && syncState?.status !== "rate_limited" && (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>{syncState.last_error}</AlertDescription>

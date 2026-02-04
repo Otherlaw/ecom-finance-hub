@@ -14,13 +14,14 @@ export interface NfeCertificate {
 }
 
 export interface NfeSyncState {
-  status: "idle" | "running" | "error" | "completed";
+  status: "idle" | "running" | "error" | "completed" | "rate_limited";
   ult_nsu: number;
   max_nsu: number;
   last_sync_at: string | null;
   last_error: string | null;
   documents_fetched: number;
   credits_created: number;
+  next_retry_at: string | null;
 }
 
 export interface NfeSyncLog {
@@ -115,7 +116,13 @@ export function useNfeSyncStatus(empresaId?: string) {
       });
 
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (data?.error) {
+        // Incluir codigo e next_retry_at no erro se disponivel
+        const err = new Error(data.error) as Error & { code?: string; next_retry_at?: string };
+        err.code = data.code;
+        err.next_retry_at = data.next_retry_at;
+        throw err;
+      }
       
       return data;
     },
@@ -123,9 +130,13 @@ export function useNfeSyncStatus(empresaId?: string) {
       toast.success("Sincronizacao iniciada");
       queryClient.invalidateQueries({ queryKey: ["nfe-sync-status", empresaId] });
     },
-    onError: (error: Error) => {
-      if (error.message.includes("NO_CERTIFICATE")) {
+    onError: (error: Error & { code?: string; next_retry_at?: string }) => {
+      if (error.message.includes("NO_CERTIFICATE") || error.code === "NO_CERTIFICATE") {
         toast.error("Nenhum certificado A1 cadastrado. Configure um certificado primeiro.");
+      } else if (error.code === "RATE_LIMITED" || error.message.includes("Rate limited")) {
+        toast.warning(error.message);
+      } else if (error.code === "SYNC_RUNNING" || error.message.includes("em andamento")) {
+        toast.info(error.message);
       } else {
         toast.error(`Erro ao iniciar sincronizacao: ${error.message}`);
       }
@@ -135,6 +146,8 @@ export function useNfeSyncStatus(empresaId?: string) {
   // Só considera "syncing" se há certificado E (status running OU mutation pending)
   const hasCert = data?.has_certificate === true;
   const isSyncing = hasCert && (data?.sync_state?.status === "running" || startSync.isPending);
+  const isRateLimited = data?.sync_state?.status === "rate_limited";
+  const nextRetryAt = data?.sync_state?.next_retry_at;
 
   return {
     status: data,
@@ -143,6 +156,8 @@ export function useNfeSyncStatus(empresaId?: string) {
     refetch,
     startSync,
     isSyncing,
+    isRateLimited,
+    nextRetryAt,
   };
 }
 

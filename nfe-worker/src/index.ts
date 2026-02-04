@@ -9,7 +9,7 @@
  * Regras importantes:
  * - NSU SEMPRE avanca, mesmo quando docs sao ignorados por data
  * - Bootstrap para apos N lotes consecutivos com 100% docs antigos
- * - Erro SEFAZ 656 (Consumo Indevido): delay entre requests + log claro
+ * - Erro SEFAZ 656 (Consumo Indevido): para imediatamente, seta status rate_limited
  */
 
 import 'dotenv/config';
@@ -17,7 +17,6 @@ import express, { Request, Response } from 'express';
 import { SupabaseWorkerClient } from './supabase-client.js';
 import { SefazClient } from './sefaz-client.js';
 import { decrypt } from './crypto.js';
-// Usando IngestResponse do types.ts que tem todos os campos necessarios
 import type { IngestResponse } from './types.js';
 
 // Configuracoes
@@ -28,9 +27,10 @@ const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
 
 // Parametros de sincronizacao
 const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
-const REQUEST_DELAY_MS = 1500; // Delay entre requisicoes SEFAZ (rate limit) - aumentado para 1.5s
+const REQUEST_DELAY_MS = 3000; // Delay entre requisicoes SEFAZ - aumentado para 3s para evitar 656
 const SYNC_WINDOW_DAYS = 90; // Janela de 90 dias (3 meses)
 const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos para parar
+const RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hora em milissegundos
 
 // Validar configuracoes
 const missingVars: string[] = [];
@@ -92,6 +92,29 @@ function isSefazError656(error: unknown): boolean {
 }
 
 /**
+ * Calcula a data/hora do proximo retry (1 hora a partir de agora)
+ */
+function getNextRetryAt(): string {
+  const nextRetry = new Date();
+  nextRetry.setTime(nextRetry.getTime() + RATE_LIMIT_COOLDOWN_MS);
+  return nextRetry.toISOString();
+}
+
+/**
+ * Formata data para exibicao amigavel
+ */
+function formatDateTime(isoString: string): string {
+  const date = new Date(isoString);
+  return date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
  * Sincroniza uma empresa especifica
  */
 async function syncEmpresa(empresaId: string): Promise<{
@@ -100,6 +123,7 @@ async function syncEmpresa(empresaId: string): Promise<{
   documentsImported: number;
   creditsCreated: number;
   error?: string;
+  rateLimited?: boolean;
 }> {
   console.log(`[SYNC] ========================================`);
   console.log(`[SYNC] Iniciando sincronizacao para empresa ${empresaId}`);
@@ -114,6 +138,54 @@ async function syncEmpresa(empresaId: string): Promise<{
 
     // Buscar estado atual
     const syncState = await supabase.getSyncState(empresaId);
+    
+    // BLOQUEIO DE CONCORRENCIA: verificar se ja esta rodando ou rate_limited
+    if (syncState) {
+      // Verificar se running e updated_at < 30 min
+      if (syncState.status === 'running') {
+        const updatedAt = new Date(syncState.updated_at);
+        const now = new Date();
+        const diffMinutes = (now.getTime() - updatedAt.getTime()) / 60000;
+        
+        if (diffMinutes < 30) {
+          const msg = `Sincronizacao ja em andamento (iniciada ha ${Math.round(diffMinutes)} minutos)`;
+          console.log(`[SYNC] ${msg}`);
+          await supabase.log(empresaId, 'warn', msg);
+          return {
+            success: false,
+            documentsProcessed: 0,
+            documentsImported: 0,
+            creditsCreated: 0,
+            error: msg,
+          };
+        }
+        // Se passou de 30 min, consideramos timeout e continuamos
+        await supabase.log(empresaId, 'warn', 'Sync anterior expirou (timeout 30min), reiniciando');
+      }
+      
+      // Verificar se rate_limited e ainda nao pode tentar
+      if (syncState.status === 'rate_limited' && syncState.next_retry_at) {
+        const nextRetry = new Date(syncState.next_retry_at);
+        const now = new Date();
+        
+        if (now < nextRetry) {
+          const msg = `Rate limited. Tente novamente apos ${formatDateTime(syncState.next_retry_at)}`;
+          console.log(`[SYNC] ${msg}`);
+          await supabase.log(empresaId, 'warn', msg);
+          return {
+            success: false,
+            documentsProcessed: 0,
+            documentsImported: 0,
+            creditsCreated: 0,
+            error: msg,
+            rateLimited: true,
+          };
+        }
+        // Se ja passou do tempo, pode tentar novamente
+        await supabase.log(empresaId, 'info', 'Periodo de rate limit expirou, retomando sincronizacao');
+      }
+    }
+    
     const isBootstrap = isBootstrapMode(syncState);
     const ultNSU = syncState?.ult_nsu || 0;
     const cutoffDate = getCutoffDate();
@@ -127,8 +199,11 @@ async function syncEmpresa(empresaId: string): Promise<{
       console.log(`[SYNC] Modo INCREMENTAL - NSU inicial: ${ultNSU}`);
     }
 
-    // Atualizar estado para running
-    await supabase.updateSyncState(empresaId, { status: 'running' });
+    // Atualizar estado para running (limpar rate limit anterior se houver)
+    await supabase.updateSyncState(empresaId, { 
+      status: 'running',
+      next_retry_at: null,
+    });
 
     // Descriptografar certificado
     let pfxBase64 = certificate.cert_pfx_encrypted;
@@ -241,18 +316,26 @@ async function syncEmpresa(empresaId: string): Promise<{
         }
 
       } catch (error) {
-        // Tratamento especial para erro SEFAZ 656
+        // TRATAMENTO ESPECIAL PARA ERRO SEFAZ 656 (Consumo Indevido)
         if (isSefazError656(error)) {
-          const errorMsg = 'Erro SEFAZ 656: Consumo Indevido. Aguarde 1 hora antes de tentar novamente. NSU atual foi preservado.';
-          console.error(`[SYNC] ${errorMsg}`);
-          await supabase.log(empresaId, 'error', errorMsg);
+          const nextRetryAt = getNextRetryAt();
+          const errorMsg = `Erro SEFAZ 656: Consumo Indevido. Aguarde 1 hora antes de tentar novamente. NSU atual foi preservado. Proximo retry: ${formatDateTime(nextRetryAt)}`;
           
-          // Salvar estado atual sem perder progresso
+          console.error(`[SYNC] ${errorMsg}`);
+          await supabase.log(empresaId, 'warn', errorMsg, {
+            cStat: 656,
+            ult_nsu: currentNSU,
+            max_nsu: maxNSU,
+            next_retry_at: nextRetryAt,
+          });
+          
+          // Salvar estado com status rate_limited e next_retry_at
           await supabase.updateSyncState(empresaId, {
-            status: 'error',
+            status: 'rate_limited',
             last_error: errorMsg,
             ult_nsu: currentNSU, // Preserva NSU atual
             max_nsu: maxNSU,
+            next_retry_at: nextRetryAt,
           });
 
           return {
@@ -261,6 +344,7 @@ async function syncEmpresa(empresaId: string): Promise<{
             documentsImported: totalDocumentsImported,
             creditsCreated: totalCredits,
             error: errorMsg,
+            rateLimited: true,
           };
         }
 
@@ -278,6 +362,7 @@ async function syncEmpresa(empresaId: string): Promise<{
       status: 'idle',
       last_sync_at: new Date().toISOString(),
       last_error: null,
+      next_retry_at: null,
       ult_nsu: currentNSU,
       max_nsu: maxNSU,
       documents_fetched: totalDocumentsFetched,
@@ -363,5 +448,6 @@ app.listen(PORT, () => {
   console.log(`Janela de sincronizacao: ${SYNC_WINDOW_DAYS} dias`);
   console.log(`Delay entre requests: ${REQUEST_DELAY_MS}ms`);
   console.log(`Threshold bootstrap stop: ${BOOTSTRAP_STOP_THRESHOLD} lotes`);
+  console.log(`Rate limit cooldown: ${RATE_LIMIT_COOLDOWN_MS / 60000} minutos`);
   console.log('===========================================');
 });
