@@ -39,11 +39,19 @@ export interface IngestPayload {
   documents: NfeDocument[];
 }
 
+/**
+ * Resposta do endpoint de ingestao
+ * Inclui contadores para logica de bootstrap no worker
+ */
 export interface IngestResponse {
   success: boolean;
   inserted: number;
   duplicates: number;
   credits_created: number;
+  // Campos adicionais para logica de bootstrap
+  skipped_old: number;
+  skipped_no_xml: number;
+  total_in_batch: number;
   errors?: string[];
 }
 
