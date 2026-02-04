@@ -8,6 +8,28 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
 
+type InvokeErrorShape = {
+  error?: string;
+  code?: string;
+  next_retry_at?: string | null;
+  started_at?: string;
+};
+
+function parseInvokeError(err: unknown): Error & { code?: string; next_retry_at?: string } {
+  // supabase-js retorna FunctionsHttpError com `context` contendo status/body
+  const anyErr = err as {
+    message?: string;
+    context?: { status?: number; body?: unknown };
+  };
+
+  const body = anyErr?.context?.body as InvokeErrorShape | undefined;
+  const msg = body?.error || anyErr?.message || "Erro ao chamar função";
+  const e = new Error(msg) as Error & { code?: string; next_retry_at?: string };
+  e.code = body?.code;
+  if (body?.next_retry_at) e.next_retry_at = body.next_retry_at;
+  return e;
+}
+
 export interface NfeCertificate {
   cnpj: string;
   ambiente: string;
@@ -178,7 +200,7 @@ export function useNfeSyncStatus(empresaId?: string) {
         },
       });
 
-      if (error) throw error;
+      if (error) throw parseInvokeError(error);
       if (data?.error) {
         const err = new Error(data.error) as Error & { code?: string; next_retry_at?: string };
         err.code = data.code;
@@ -218,7 +240,7 @@ export function useNfeSyncStatus(empresaId?: string) {
         },
       });
 
-      if (error) throw error;
+      if (error) throw parseInvokeError(error);
       if (data?.error) throw new Error(data.error);
       
       return data;
