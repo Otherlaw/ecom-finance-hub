@@ -28,7 +28,7 @@ const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
 // Parametros de sincronizacao
 const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
 const REQUEST_DELAY_MS = 3000; // Delay entre requisicoes SEFAZ - aumentado para 3s para evitar 656
-const SYNC_WINDOW_DAYS = 90; // Janela de 90 dias (3 meses)
+const SYNC_WINDOW_DAYS = 7; // Janela de 7 dias
 const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos para parar
 const RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hora em milissegundos
 
