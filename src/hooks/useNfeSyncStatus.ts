@@ -1,10 +1,12 @@
 /**
  * Hook para gerenciar sincronizacao de NF-e via Distribuicao DF-e
+ * Com suporte a realtime, reset de sync travada e deteccao de timeout
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useEffect, useCallback, useState } from "react";
 
 export interface NfeCertificate {
   cnpj: string;
@@ -22,6 +24,7 @@ export interface NfeSyncState {
   documents_fetched: number;
   credits_created: number;
   next_retry_at: string | null;
+  updated_at?: string;
 }
 
 export interface NfeSyncLog {
@@ -54,8 +57,12 @@ export interface NfeStatusResponse {
   logs: NfeSyncLog[];
 }
 
+// Timeout para considerar sync travada (em minutos)
+const SYNC_STUCK_THRESHOLD_MINUTES = 3;
+
 export function useNfeSyncStatus(empresaId?: string) {
   const queryClient = useQueryClient();
+  const [isStuck, setIsStuck] = useState(false);
 
   // Query para buscar status
   const { data, isLoading, error, refetch } = useQuery({
@@ -63,7 +70,6 @@ export function useNfeSyncStatus(empresaId?: string) {
     queryFn: async (): Promise<NfeStatusResponse> => {
       if (!empresaId) throw new Error("Empresa nao selecionada");
 
-      // Usar fetch direto pois invoke nao suporta GET com query params
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       
@@ -94,14 +100,71 @@ export function useNfeSyncStatus(empresaId?: string) {
     },
     enabled: !!empresaId,
     refetchInterval: (query) => {
-      // Refetch a cada 5s enquanto estiver sincronizando
       const data = query.state.data;
+      // Refetch mais frequente enquanto sincronizando
       if (data?.sync_state?.status === "running") {
-        return 5000;
+        return 3000; // 3s durante sync
       }
-      return false;
+      return 30000; // 30s quando idle
     },
   });
+
+  // Detectar sync travada (running por muito tempo sem updates)
+  useEffect(() => {
+    if (data?.sync_state?.status === "running" && data?.sync_state?.updated_at) {
+      const lastUpdate = new Date(data.sync_state.updated_at);
+      const now = new Date();
+      const diffMinutes = (now.getTime() - lastUpdate.getTime()) / 60000;
+      
+      setIsStuck(diffMinutes > SYNC_STUCK_THRESHOLD_MINUTES);
+    } else {
+      setIsStuck(false);
+    }
+  }, [data?.sync_state]);
+
+  // Subscription realtime para nfe_sync_state
+  useEffect(() => {
+    if (!empresaId) return;
+
+    console.debug("[NfeSyncStatus] Iniciando subscription realtime");
+
+    const channel = supabase
+      .channel(`nfe-sync-${empresaId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "nfe_sync_state",
+          filter: `empresa_id=eq.${empresaId}`,
+        },
+        (payload) => {
+          console.debug("[NfeSyncStatus] Realtime update:", payload);
+          // Invalidar cache para refetch
+          queryClient.invalidateQueries({ queryKey: ["nfe-sync-status", empresaId] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "nfe_sync_logs",
+          filter: `empresa_id=eq.${empresaId}`,
+        },
+        (payload) => {
+          console.debug("[NfeSyncStatus] Novo log:", payload);
+          // Invalidar cache para mostrar novos logs
+          queryClient.invalidateQueries({ queryKey: ["nfe-sync-status", empresaId] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.debug("[NfeSyncStatus] Removendo subscription");
+      supabase.removeChannel(channel);
+    };
+  }, [empresaId, queryClient]);
 
   // Mutation para iniciar sincronizacao
   const startSync = useMutation({
@@ -117,7 +180,6 @@ export function useNfeSyncStatus(empresaId?: string) {
 
       if (error) throw error;
       if (data?.error) {
-        // Incluir codigo e next_retry_at no erro se disponivel
         const err = new Error(data.error) as Error & { code?: string; next_retry_at?: string };
         err.code = data.code;
         err.next_retry_at = data.next_retry_at;
@@ -126,8 +188,9 @@ export function useNfeSyncStatus(empresaId?: string) {
       
       return data;
     },
-    onSuccess: () => {
-      toast.success("Sincronizacao iniciada");
+    onSuccess: (data) => {
+      toast.success("Sincronizacao iniciada em background");
+      console.debug("[NfeSyncStatus] Sync iniciada:", data);
       queryClient.invalidateQueries({ queryKey: ["nfe-sync-status", empresaId] });
     },
     onError: (error: Error & { code?: string; next_retry_at?: string }) => {
@@ -143,23 +206,67 @@ export function useNfeSyncStatus(empresaId?: string) {
     },
   });
 
-  // Só considera "syncing" se há certificado E (status running OU mutation pending)
+  // Mutation para resetar sync travada
+  const resetSync = useMutation({
+    mutationFn: async () => {
+      if (!empresaId) throw new Error("Empresa nao selecionada");
+
+      const { data, error } = await supabase.functions.invoke("nfe-sync-request", {
+        body: {
+          empresa_id: empresaId,
+          action: "reset",
+        },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      
+      return data;
+    },
+    onSuccess: () => {
+      toast.success("Sincronizacao resetada. Voce pode tentar novamente.");
+      setIsStuck(false);
+      queryClient.invalidateQueries({ queryKey: ["nfe-sync-status", empresaId] });
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro ao resetar: ${error.message}`);
+    },
+  });
+
+  // Calcular estados derivados
   const hasCert = data?.has_certificate === true;
   const isSyncing = hasCert && (data?.sync_state?.status === "running" || startSync.isPending);
   
-  // ★ RATE LIMITED: status='rate_limited' OU (status='error' COM next_retry_at no futuro)
+  // Rate limited: status='rate_limited' OU (status='error' COM next_retry_at no futuro)
   const nextRetryAt = data?.sync_state?.next_retry_at;
-  const isRateLimited = (() => {
+  const isRateLimited = useCallback(() => {
     if (data?.sync_state?.status === "rate_limited") return true;
     if (data?.sync_state?.status === "error" && nextRetryAt) {
       const retryDate = new Date(nextRetryAt);
       return retryDate > new Date();
     }
     return false;
-  })();
+  }, [data?.sync_state?.status, nextRetryAt])();
 
-  // ★ Mensagem de erro (excluir se for rate limit, pois já mostramos separadamente)
+  // Mensagem de erro (excluir se for rate limit)
   const lastError = isRateLimited ? null : data?.sync_state?.last_error;
+
+  // Calcular tempo restante para retry
+  const getTimeUntilRetry = useCallback(() => {
+    if (!nextRetryAt) return null;
+    const retryDate = new Date(nextRetryAt);
+    const now = new Date();
+    const diffMs = retryDate.getTime() - now.getTime();
+    if (diffMs <= 0) return null;
+    
+    const diffMinutes = Math.ceil(diffMs / 60000);
+    if (diffMinutes >= 60) {
+      const hours = Math.floor(diffMinutes / 60);
+      const mins = diffMinutes % 60;
+      return `${hours}h ${mins}min`;
+    }
+    return `${diffMinutes} min`;
+  }, [nextRetryAt]);
 
   return {
     status: data,
@@ -167,10 +274,13 @@ export function useNfeSyncStatus(empresaId?: string) {
     error,
     refetch,
     startSync,
+    resetSync,
     isSyncing,
     isRateLimited,
     nextRetryAt,
     lastError,
+    isStuck,
+    getTimeUntilRetry,
   };
 }
 
@@ -208,21 +318,14 @@ export function useNfeCertificates(empresaId?: string) {
     }) => {
       if (!empresaId) throw new Error("Empresa nao selecionada");
 
-      // NOTA: Em producao, a criptografia deve ser feita no servidor
-      // Aqui estamos passando os dados para o servidor criptografar
-      // O worker externo tera a chave para descriptografar
-
-      // Por enquanto, salvamos sem criptografia real (para demonstracao)
-      // Em producao, deve-se chamar uma edge function que criptografa com CERT_MASTER_KEY
-
       const { data, error } = await supabase
         .from("nfe_certificates")
         .upsert(
           {
             empresa_id: empresaId,
             cnpj: params.cnpj,
-            cert_pfx_encrypted: params.pfxBase64, // Em prod: criptografar
-            cert_password_encrypted: params.password, // Em prod: criptografar
+            cert_pfx_encrypted: params.pfxBase64,
+            cert_password_encrypted: params.password,
             ambiente: params.ambiente,
             uf: params.uf,
             is_active: true,

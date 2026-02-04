@@ -3,7 +3,13 @@
  * Endpoint para disparar sincronizacao manual ou atualizar estado
  * Agora chama o worker externo via HTTP
  * 
- * Inclui verificacoes de concorrencia e rate limit
+ * Actions disponiveis:
+ * - start: inicia sincronizacao (chama worker)
+ * - reset: forca status=idle (destravar sync travada)
+ * - get_status: retorna estado + ultimos logs
+ * - update_state: atualiza campos de progresso
+ * - complete: finaliza sync com sucesso
+ * - error: registra erro
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -15,13 +21,14 @@ const corsHeaders = {
 
 interface SyncRequestPayload {
   empresa_id: string;
-  action?: "start" | "update_state" | "complete" | "error";
+  action?: "start" | "reset" | "get_status" | "update_state" | "complete" | "error";
   // Campos para update_state
   ult_nsu?: number;
   max_nsu?: number;
   documents_fetched?: number;
   credits_created?: number;
   error_message?: string;
+  next_retry_at?: string;
 }
 
 // Helper para registrar log
@@ -52,7 +59,7 @@ async function updateState(
   empresaId: string,
   updates: Record<string, unknown>
 ) {
-  const { error } = await supabase
+  const { error, data } = await supabase
     .from("nfe_sync_state")
     .upsert(
       {
@@ -61,8 +68,70 @@ async function updateState(
         updated_at: new Date().toISOString(),
       },
       { onConflict: "empresa_id" }
-    );
+    )
+    .select()
+    .single();
   if (error) console.error("Erro ao atualizar estado:", error);
+  return data;
+}
+
+// Helper para buscar estado atual com logs
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getFullStatus(supabase: any, empresaId: string, logsLimit = 30) {
+  // Buscar estado
+  const { data: syncState } = await supabase
+    .from("nfe_sync_state")
+    .select("*")
+    .eq("empresa_id", empresaId)
+    .maybeSingle();
+
+  // Buscar ultimos logs
+  const { data: logs } = await supabase
+    .from("nfe_sync_logs")
+    .select("*")
+    .eq("empresa_id", empresaId)
+    .order("created_at", { ascending: false })
+    .limit(logsLimit);
+
+  // Buscar certificado
+  const { data: certificate } = await supabase
+    .from("nfe_certificates")
+    .select("cnpj, ambiente, uf, updated_at")
+    .eq("empresa_id", empresaId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  // Stats
+  const { count: totalDocuments } = await supabase
+    .from("nfe_documents")
+    .select("*", { count: "exact", head: true })
+    .eq("empresa_id", empresaId);
+
+  const { count: totalCredits } = await supabase
+    .from("creditos_icms")
+    .select("*", { count: "exact", head: true })
+    .eq("empresa_id", empresaId)
+    .eq("origin", "sefaz_sync");
+
+  return {
+    sync_state: syncState || {
+      status: "idle",
+      ult_nsu: 0,
+      max_nsu: 0,
+      last_sync_at: null,
+      last_error: null,
+      documents_fetched: 0,
+      credits_created: 0,
+      next_retry_at: null,
+    },
+    logs: logs || [],
+    has_certificate: !!certificate,
+    certificate,
+    stats: {
+      total_documents: totalDocuments || 0,
+      total_credits_from_sync: totalCredits || 0,
+    },
+  };
 }
 
 Deno.serve(async (req) => {
@@ -131,7 +200,44 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Verificar se empresa tem certificado cadastrado
+    // ========================================
+    // ACTION: GET_STATUS - Retorna estado completo
+    // ========================================
+    if (action === "get_status") {
+      const fullStatus = await getFullStatus(supabaseAdmin, payload.empresa_id);
+      
+      return new Response(
+        JSON.stringify(fullStatus),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ========================================
+    // ACTION: RESET - Forca status=idle para destravar
+    // ========================================
+    if (action === "reset") {
+      const updatedState = await updateState(supabaseAdmin, payload.empresa_id, {
+        status: "idle",
+        last_error: null,
+        next_retry_at: null,
+      });
+
+      await logSync(supabaseAdmin, payload.empresa_id, "warn", "Sincronizacao resetada manualmente pelo usuario", {
+        user_id: userId,
+      });
+
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          message: "Sincronizacao resetada",
+          status: "idle",
+          state: updatedState,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Verificar se empresa tem certificado cadastrado (para actions que precisam)
     const { data: certificate } = await supabaseAdmin
       .from("nfe_certificates")
       .select("id, is_active, ambiente")
@@ -149,6 +255,9 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ========================================
+    // ACTION: START - Iniciar sincronizacao
+    // ========================================
     if (action === "start") {
       // Verificar se worker URL esta configurado
       const workerUrl = Deno.env.get("NFE_WORKER_URL");
@@ -178,7 +287,6 @@ Deno.serve(async (req) => {
 
       // ========================================
       // BLOQUEIO REAL: Verificar next_retry_at INDEPENDENTE do status
-      // Isso cobre status='error' ou 'rate_limited' com cooldown ativo
       // ========================================
       if (currentState?.next_retry_at) {
         const nextRetry = new Date(currentState.next_retry_at);
@@ -193,7 +301,6 @@ Deno.serve(async (req) => {
             minute: '2-digit',
           });
           
-          // Log do bloqueio
           await logSync(supabaseAdmin, payload.empresa_id, "warn", `Bloqueio ativo: aguarde ate ${retryAtFormatted}`, {
             next_retry_at: currentState.next_retry_at,
             status: currentState.status,
@@ -220,11 +327,14 @@ Deno.serve(async (req) => {
         const diffMinutes = (now.getTime() - lastUpdate.getTime()) / 60000;
 
         if (diffMinutes < 30) {
+          await logSync(supabaseAdmin, payload.empresa_id, "warn", `Sincronizacao ja em andamento (iniciada ha ${Math.round(diffMinutes)} minutos)`);
+          
           return new Response(
             JSON.stringify({ 
               error: `Sincronizacao ja em andamento (iniciada ha ${Math.round(diffMinutes)} minutos)`,
               code: "SYNC_RUNNING",
-              state: currentState
+              state: currentState,
+              started_at: currentState.updated_at,
             }),
             { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
@@ -233,17 +343,27 @@ Deno.serve(async (req) => {
         await logSync(supabaseAdmin, payload.empresa_id, "warn", "Sync anterior expirou (timeout 30min), reiniciando");
       }
 
+      // Gerar sync_id para rastreabilidade
+      const syncId = crypto.randomUUID();
+      const startedAt = new Date().toISOString();
+
       // Atualizar estado para running (limpar rate limit anterior)
-      await updateState(supabaseAdmin, payload.empresa_id, {
+      const updatedState = await updateState(supabaseAdmin, payload.empresa_id, {
         status: "running",
         last_error: null,
         next_retry_at: null,
       });
 
-      await logSync(supabaseAdmin, payload.empresa_id, "info", "Sincronizacao iniciada pelo usuario", { user_id: userId });
+      await logSync(supabaseAdmin, payload.empresa_id, "info", "Sincronizacao iniciada pelo usuario", { 
+        user_id: userId,
+        sync_id: syncId,
+        started_at: startedAt,
+      });
 
       // Chamar o worker externo
-      await logSync(supabaseAdmin, payload.empresa_id, "info", `Chamando worker externo: ${workerUrl}`);
+      await logSync(supabaseAdmin, payload.empresa_id, "info", `Chamando worker externo: ${workerUrl}`, {
+        sync_id: syncId,
+      });
 
       try {
         const workerResponse = await fetch(workerUrl, {
@@ -253,6 +373,7 @@ Deno.serve(async (req) => {
           },
           body: JSON.stringify({
             empresa_id: payload.empresa_id,
+            sync_id: syncId,
           }),
         });
 
@@ -266,7 +387,8 @@ Deno.serve(async (req) => {
           });
           await logSync(supabaseAdmin, payload.empresa_id, "error", `Erro do worker: ${errorMsg}`, { 
             status: workerResponse.status,
-            response: workerData 
+            response: workerData,
+            sync_id: syncId,
           });
 
           return new Response(
@@ -278,16 +400,20 @@ Deno.serve(async (req) => {
           );
         }
 
-        await logSync(supabaseAdmin, payload.empresa_id, "info", "Worker respondeu com sucesso", { 
-          response: workerData 
+        await logSync(supabaseAdmin, payload.empresa_id, "info", "Worker respondeu com sucesso (sync em background)", { 
+          response: workerData,
+          sync_id: syncId,
         });
 
         return new Response(
           JSON.stringify({ 
             success: true, 
-            message: "Sincronizacao iniciada",
+            message: "Sincronizacao iniciada em background",
             status: "running",
-            worker_response: workerData
+            sync_id: syncId,
+            started_at: startedAt,
+            state: updatedState,
+            worker_response: workerData,
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -297,7 +423,9 @@ Deno.serve(async (req) => {
           status: "error",
           last_error: `Falha ao conectar ao worker: ${errorMsg}`,
         });
-        await logSync(supabaseAdmin, payload.empresa_id, "error", `Falha ao conectar ao worker: ${errorMsg}`);
+        await logSync(supabaseAdmin, payload.empresa_id, "error", `Falha ao conectar ao worker: ${errorMsg}`, {
+          sync_id: syncId,
+        });
 
         return new Response(
           JSON.stringify({ 
@@ -309,6 +437,9 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ========================================
+    // ACTION: UPDATE_STATE - Atualiza progresso
+    // ========================================
     if (action === "update_state") {
       const updates: Record<string, unknown> = {};
 
@@ -316,17 +447,21 @@ Deno.serve(async (req) => {
       if (payload.max_nsu !== undefined) updates.max_nsu = payload.max_nsu;
       if (payload.documents_fetched !== undefined) updates.documents_fetched = payload.documents_fetched;
       if (payload.credits_created !== undefined) updates.credits_created = payload.credits_created;
+      if (payload.next_retry_at !== undefined) updates.next_retry_at = payload.next_retry_at;
 
-      await updateState(supabaseAdmin, payload.empresa_id, updates);
+      const updatedState = await updateState(supabaseAdmin, payload.empresa_id, updates);
 
       return new Response(
-        JSON.stringify({ success: true }),
+        JSON.stringify({ success: true, state: updatedState }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
+    // ========================================
+    // ACTION: COMPLETE - Finaliza com sucesso
+    // ========================================
     if (action === "complete") {
-      await updateState(supabaseAdmin, payload.empresa_id, {
+      const updatedState = await updateState(supabaseAdmin, payload.empresa_id, {
         status: "idle",
         last_sync_at: new Date().toISOString(),
         last_error: null,
@@ -336,21 +471,33 @@ Deno.serve(async (req) => {
       await logSync(supabaseAdmin, payload.empresa_id, "info", "Sincronizacao concluida com sucesso");
 
       return new Response(
-        JSON.stringify({ success: true, status: "idle" }),
+        JSON.stringify({ success: true, status: "idle", state: updatedState }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
+    // ========================================
+    // ACTION: ERROR - Registra erro
+    // ========================================
     if (action === "error") {
-      await updateState(supabaseAdmin, payload.empresa_id, {
+      const updates: Record<string, unknown> = {
         status: "error",
         last_error: payload.error_message || "Erro desconhecido",
+      };
+      
+      // Se tiver next_retry_at (rate limit), adicionar
+      if (payload.next_retry_at) {
+        updates.next_retry_at = payload.next_retry_at;
+      }
+
+      const updatedState = await updateState(supabaseAdmin, payload.empresa_id, updates);
+
+      await logSync(supabaseAdmin, payload.empresa_id, "error", payload.error_message || "Erro durante sincronizacao", {
+        next_retry_at: payload.next_retry_at,
       });
 
-      await logSync(supabaseAdmin, payload.empresa_id, "error", payload.error_message || "Erro durante sincronizacao");
-
       return new Response(
-        JSON.stringify({ success: true, status: "error" }),
+        JSON.stringify({ success: true, status: "error", state: updatedState }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

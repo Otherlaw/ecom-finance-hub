@@ -1,9 +1,10 @@
 /**
  * Componente de Status e Sincronizacao de NF-e
  * Exibe status da sincronizacao e permite iniciar sync manual
+ * Com suporte a reset de sync travada e countdown de rate limit
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -32,12 +33,11 @@ import {
   AlertTriangle,
   Clock,
   FileText,
-  Settings,
   Info,
   Loader2,
+  RotateCcw,
 } from "lucide-react";
 import { useNfeSyncStatus } from "@/hooks/useNfeSyncStatus";
-import { formatDate } from "@/lib/icms-data";
 
 interface NfeSyncStatusProps {
   empresaId: string;
@@ -45,7 +45,44 @@ interface NfeSyncStatusProps {
 
 export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const { status, isLoading, isSyncing, isRateLimited, nextRetryAt, lastError, startSync, refetch } = useNfeSyncStatus(empresaId);
+  const [countdown, setCountdown] = useState<string | null>(null);
+  
+  const { 
+    status, 
+    isLoading, 
+    isSyncing, 
+    isRateLimited, 
+    nextRetryAt, 
+    lastError, 
+    startSync, 
+    resetSync,
+    refetch,
+    isStuck,
+    getTimeUntilRetry,
+  } = useNfeSyncStatus(empresaId);
+
+  // Atualizar countdown a cada segundo quando rate limited
+  useEffect(() => {
+    if (!isRateLimited || !nextRetryAt) {
+      setCountdown(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const remaining = getTimeUntilRetry();
+      setCountdown(remaining);
+      
+      // Se expirou, refetch para atualizar estado
+      if (!remaining) {
+        refetch();
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 10000); // Atualiza a cada 10s
+
+    return () => clearInterval(interval);
+  }, [isRateLimited, nextRetryAt, getTimeUntilRetry, refetch]);
 
   if (isLoading) {
     return (
@@ -62,12 +99,22 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
   const getStatusBadge = () => {
     if (!syncState) return null;
 
-    // ★ Priorizar rate limit (status='error' com next_retry_at ativo)
+    // Priorizar rate limit
     if (isRateLimited) {
       return (
         <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
           <Clock className="h-3 w-3 mr-1" />
-          Aguardando (rate limit)
+          Aguardando ({countdown || "..."})
+        </Badge>
+      );
+    }
+
+    // Sync travada
+    if (isStuck) {
+      return (
+        <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-200">
+          <AlertTriangle className="h-3 w-3 mr-1" />
+          Sync travada
         </Badge>
       );
     }
@@ -139,15 +186,23 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
   };
 
   // Calcular se o botao deve estar desabilitado
-  const isButtonDisabled = !hasCertificate || isSyncing || isRateLimited;
+  const isButtonDisabled = !hasCertificate || (isSyncing && !isStuck) || isRateLimited;
   
   // Texto do botao
   const getButtonText = () => {
-    if (isSyncing) return "Sincronizando...";
-    if (isRateLimited && nextRetryAt) {
-      return `Aguarde até ${formatNextRetry()}`;
+    if (isSyncing && !isStuck) return "Sincronizando...";
+    if (isRateLimited && countdown) {
+      return `Aguarde ${countdown}`;
     }
     return "Sincronizar NF-e";
+  };
+
+  const handleStartSync = () => {
+    startSync.mutate();
+  };
+
+  const handleResetSync = () => {
+    resetSync.mutate();
   };
 
   return (
@@ -156,11 +211,11 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
       <Button
         variant="outline"
         className="gap-2"
-        onClick={() => startSync.mutate()}
+        onClick={handleStartSync}
         disabled={isButtonDisabled}
         title={isRateLimited ? `Rate limited. Próximo retry: ${formatNextRetry()}` : undefined}
       >
-        {isSyncing ? (
+        {isSyncing && !isStuck ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : isRateLimited ? (
           <Clock className="h-4 w-4" />
@@ -169,6 +224,25 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
         )}
         {getButtonText()}
       </Button>
+
+      {/* Botao de reset quando travado */}
+      {isStuck && (
+        <Button
+          variant="destructive"
+          size="sm"
+          className="gap-2"
+          onClick={handleResetSync}
+          disabled={resetSync.isPending}
+          title="Resetar sincronizacao travada"
+        >
+          {resetSync.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RotateCcw className="h-4 w-4" />
+          )}
+          Reiniciar
+        </Button>
+      )}
 
       {/* Dialog de detalhes */}
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
@@ -202,6 +276,17 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                 <div className="font-medium">{formatLastSync()}</div>
               </div>
             </div>
+
+            {/* Alerta de sync travada */}
+            {isStuck && (
+              <Alert className="bg-orange-50 border-orange-200">
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                <AlertDescription className="text-orange-700">
+                  A sincronizacao parece estar travada (sem atualizacoes ha mais de 3 minutos). 
+                  Clique em "Reiniciar" para destravar e tentar novamente.
+                </AlertDescription>
+              </Alert>
+            )}
 
             {/* Certificado */}
             {!hasCertificate && (
@@ -271,12 +356,14 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
               </div>
             )}
 
-            {/* Rate Limited Warning - Mostrar para status='rate_limited' OU status='error' com next_retry_at */}
+            {/* Rate Limited Warning */}
             {isRateLimited && nextRetryAt && (
               <Alert className="bg-warning/10 border-warning/30">
                 <Clock className="h-4 w-4 text-warning" />
                 <AlertDescription className="text-warning">
                   Rate limited pela SEFAZ (erro 656). Aguarde até {formatNextRetry()} para tentar novamente.
+                  {countdown && <span className="font-medium"> ({countdown} restantes)</span>}
+                  <br />
                   O progresso foi salvo (NSU atual: {syncState?.ult_nsu || 0}).
                 </AlertDescription>
               </Alert>
@@ -342,7 +429,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
             {status?.logs && status.logs.length > 0 && (
               <div>
                 <div className="text-sm font-medium mb-2">Historico de Sincronizacao</div>
-                <ScrollArea className="h-40 rounded border p-2">
+                <ScrollArea className="h-48 rounded border p-2">
                   <div className="space-y-1 text-xs font-mono">
                     {status.logs.map((log) => (
                       <div
@@ -352,25 +439,62 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                             ? "text-destructive"
                             : log.level === "warn"
                             ? "text-warning"
+                            : log.level === "debug"
+                            ? "text-muted-foreground/60"
                             : "text-muted-foreground"
                         }`}
                       >
-                        <span className="text-muted-foreground/60">
+                        <span className="text-muted-foreground/60 shrink-0">
                           {new Date(log.created_at).toLocaleString("pt-BR", {
                             day: "2-digit",
                             month: "2-digit",
                             hour: "2-digit",
                             minute: "2-digit",
+                            second: "2-digit",
                           })}
                         </span>
-                        <span className="uppercase w-12">[{log.level}]</span>
-                        <span>{log.message}</span>
+                        <span className="uppercase w-14 shrink-0">[{log.level}]</span>
+                        <span className="break-all">{log.message}</span>
                       </div>
                     ))}
                   </div>
                 </ScrollArea>
               </div>
             )}
+
+            {/* Botoes de acao no dialog */}
+            <div className="flex gap-2 pt-4 border-t">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleStartSync}
+                disabled={isButtonDisabled}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Sincronizar Agora
+              </Button>
+              
+              {(isStuck || syncState?.status === "running") && (
+                <Button
+                  variant="outline"
+                  className="gap-2 text-orange-600 border-orange-300 hover:bg-orange-50"
+                  onClick={handleResetSync}
+                  disabled={resetSync.isPending}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Resetar Sync
+                </Button>
+              )}
+              
+              <Button
+                variant="ghost"
+                className="gap-2"
+                onClick={() => refetch()}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Atualizar Status
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
