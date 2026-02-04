@@ -136,8 +136,17 @@ async function syncEmpresa(empresaId: string): Promise<{
     await supabase.log(empresaId, 'info', 'Worker iniciou processamento da sincronizacao');
   } catch (logError) {
     console.error('[SYNC] Erro ao registrar log inicial no Supabase:', logError);
-    // Continuar mesmo se falhar - nao queremos parar por causa de log
   }
+
+  // ========================================
+  // VARIÁVEIS DE ESTADO PARA FINALLY
+  // ========================================
+  let lockAcquired = false;
+  let currentNSU = 0;
+  let maxNSU = 0;
+  let totalDocumentsFetched = 0;
+  let totalDocumentsImported = 0;
+  let totalCredits = 0;
 
   try {
     // Buscar certificado
@@ -159,7 +168,6 @@ async function syncEmpresa(empresaId: string): Promise<{
     // ========================================
     if (syncState) {
       // PRIMEIRO: Verificar se next_retry_at existe e ainda esta no cooldown
-      // Isso vale para status 'rate_limited' OU 'error' com next_retry_at
       if (syncState.next_retry_at) {
         const nextRetry = new Date(syncState.next_retry_at);
         const now = new Date();
@@ -202,10 +210,13 @@ async function syncEmpresa(empresaId: string): Promise<{
         // Se passou de 30 min, consideramos timeout e continuamos
         await supabase.log(empresaId, 'warn', 'Sync anterior expirou (timeout 30min), reiniciando');
       }
+
+      // Inicializar NSU do estado anterior
+      currentNSU = syncState.ult_nsu || 0;
+      maxNSU = syncState.max_nsu || 0;
     }
     
     const isBootstrap = isBootstrapMode(syncState);
-    const ultNSU = syncState?.ult_nsu || 0;
     const cutoffDate = getCutoffDate();
 
     // Log do modo de operacao
@@ -213,16 +224,18 @@ async function syncEmpresa(empresaId: string): Promise<{
       await supabase.log(empresaId, 'info', `Iniciando BOOTSTRAP (ultimos ${SYNC_WINDOW_DAYS} dias). Cutoff: ${cutoffDate}`);
       console.log(`[SYNC] Modo BOOTSTRAP - cutoff: ${cutoffDate}`);
     } else {
-      await supabase.log(empresaId, 'info', `Iniciando sync INCREMENTAL a partir do NSU ${ultNSU}`);
-      console.log(`[SYNC] Modo INCREMENTAL - NSU inicial: ${ultNSU}`);
+      await supabase.log(empresaId, 'info', `Iniciando sync INCREMENTAL a partir do NSU ${currentNSU}`);
+      console.log(`[SYNC] Modo INCREMENTAL - NSU inicial: ${currentNSU}`);
     }
 
-    // TERCEIRO: So agora setar status = running (apos passar pelas verificacoes)
+    // TERCEIRO: Setar status = running (apos passar pelas verificacoes)
     await supabase.updateSyncState(empresaId, { 
       status: 'running',
       next_retry_at: null,
       last_error: null,
     });
+    lockAcquired = true; // ★ MARCAR QUE ADQUIRIMOS O LOCK
+    console.log('[SYNC] Lock adquirido (status=running)');
 
     // Descriptografar certificado
     let pfxBase64 = certificate.cert_pfx_encrypted;
@@ -240,12 +253,7 @@ async function syncEmpresa(empresaId: string): Promise<{
     // Criar cliente SEFAZ
     const sefaz = new SefazClient(pfxBase64, password, certificate.ambiente, certificate.uf);
 
-    let currentNSU = ultNSU;
-    let totalDocumentsFetched = 0;
-    let totalDocumentsImported = 0;
-    let totalCredits = 0;
     let hasMore = true;
-    let maxNSU = 0;
 
     // Contadores para logica de parada do bootstrap
     let consecutiveOldOnlyBatches = 0;
@@ -260,7 +268,6 @@ async function syncEmpresa(empresaId: string): Promise<{
         
         // ========================================
         // ★ PERSISTIR NSU CEDO - antes de qualquer processamento
-        // Isso garante que mesmo se o ingest falhar, o NSU avanca
         // ========================================
         currentNSU = result.ultNSU;
         maxNSU = result.maxNSU;
@@ -294,12 +301,10 @@ async function syncEmpresa(empresaId: string): Promise<{
               console.log(`[SYNC] ${logMsg}`);
               await supabase.log(empresaId, 'info', logMsg);
 
-              // Logica de parada do bootstrap: verificar se lote teve 100% docs antigos
+              // Logica de parada do bootstrap
               if (isBootstrap) {
                 const batchSize = ingestResult.total_in_batch;
-                const oldDocs = ingestResult.skipped_old;
-                // Considera "antigos" tambem os duplicados e sem XML, ja que nao sao novas importacoes
-                const nonImported = oldDocs + ingestResult.duplicates + (ingestResult.skipped_no_xml || 0);
+                const nonImported = ingestResult.skipped_old + ingestResult.duplicates + (ingestResult.skipped_no_xml || 0);
                 const allOld = batchSize > 0 && nonImported === batchSize;
 
                 if (allOld) {
@@ -307,11 +312,9 @@ async function syncEmpresa(empresaId: string): Promise<{
                   console.log(`[SYNC] Lote sem novos docs (${consecutiveOldOnlyBatches}/${BOOTSTRAP_STOP_THRESHOLD})`);
                   await supabase.log(empresaId, 'info', `Lote sem novos docs (${consecutiveOldOnlyBatches}/${BOOTSTRAP_STOP_THRESHOLD})`);
                 } else {
-                  // Reset contador se encontrou docs novos
                   consecutiveOldOnlyBatches = 0;
                 }
 
-                // Parar bootstrap se atingiu threshold
                 if (consecutiveOldOnlyBatches >= BOOTSTRAP_STOP_THRESHOLD) {
                   const stopMsg = `Bootstrap encerrado: ${BOOTSTRAP_STOP_THRESHOLD} lotes consecutivos sem docs novos`;
                   await supabase.log(empresaId, 'info', stopMsg);
@@ -324,12 +327,11 @@ async function syncEmpresa(empresaId: string): Promise<{
             } catch (error) {
               console.error('[SYNC] Erro no lote:', error);
               await supabase.log(empresaId, 'error', `Erro ao processar lote: ${error}`);
-              // Continua para o proximo lote, NSU ja foi salvo
             }
           }
         }
 
-        // Atualizar estado com contadores (NSU ja foi salvo antes)
+        // Atualizar estado com contadores
         await supabase.updateSyncState(empresaId, {
           documents_fetched: totalDocumentsFetched,
           credits_created: totalCredits,
@@ -344,50 +346,33 @@ async function syncEmpresa(empresaId: string): Promise<{
       } catch (error) {
         // ========================================
         // TRATAMENTO ESPECIAL PARA ERRO SEFAZ 656 (Consumo Indevido)
-        // ★ Status = 'error' (NAO 'rate_limited' nem 'running')
-        // ★ next_retry_at = agora + 1 hora
-        // ★ Preservar NSU atual
-        // ★ Sair imediatamente da funcao
         // ========================================
         if (isSefazError656(error)) {
           const nextRetryAt = getNextRetryAt();
           const errorMsg = `Erro SEFAZ 656: Consumo Indevido. Aguarde ate ${formatDateTime(nextRetryAt)} para tentar novamente.`;
           
-          console.error(`[SYNC] ★ ERRO 656 DETECTADO - setando status='error' com cooldown`);
+          console.error(`[SYNC] ★ ERRO 656 DETECTADO`);
           console.error(`[SYNC] ${errorMsg}`);
           
-          // Usar try/catch para garantir que status NUNCA fica 'running'
-          try {
-            await supabase.log(empresaId, 'error', errorMsg, {
-              cStat: 656,
-              ult_nsu: currentNSU,
-              max_nsu: maxNSU,
-              next_retry_at: nextRetryAt,
-            });
-            
-            // ★ PRIMEIRO: Salvar estado com status='error' (NAO rate_limited)
-            // Isso garante que o estado nunca fica 'running' apos 656
-            await supabase.updateSyncState(empresaId, {
-              status: 'error',  // ← 'error', NAO 'rate_limited'
-              last_error: errorMsg,
-              ult_nsu: currentNSU, // Preserva NSU atual
-              max_nsu: maxNSU,
-              next_retry_at: nextRetryAt, // Adiciona cooldown de 1 hora
-            });
-          } catch (updateError) {
-            // Se falhar ao atualizar, tentar novamente apenas com status='error'
-            console.error('[SYNC] Falha ao atualizar estado apos 656, tentando fallback:', updateError);
-            try {
-              await supabase.updateSyncState(empresaId, {
-                status: 'error',
-                last_error: 'Erro SEFAZ 656: Consumo Indevido',
-              });
-            } catch {
-              console.error('[SYNC] Falha critica ao atualizar estado - status pode estar inconsistente');
-            }
-          }
+          await supabase.log(empresaId, 'error', errorMsg, {
+            cStat: 656,
+            ult_nsu: currentNSU,
+            max_nsu: maxNSU,
+            next_retry_at: nextRetryAt,
+          });
+          
+          // ★ ATUALIZAR ESTADO COM STATUS='error' E next_retry_at
+          await supabase.updateSyncState(empresaId, {
+            status: 'error',
+            last_error: errorMsg,
+            ult_nsu: currentNSU,
+            max_nsu: maxNSU,
+            next_retry_at: nextRetryAt,
+          });
 
-          // ★ SAIR IMEDIATAMENTE - nao continuar loop
+          lockAcquired = false; // Lock foi liberado (status != running)
+          console.log('[SYNC] Lock liberado (status=error com next_retry_at)');
+
           return {
             success: false,
             documentsProcessed: totalDocumentsFetched,
@@ -419,6 +404,9 @@ async function syncEmpresa(empresaId: string): Promise<{
       credits_created: totalCredits,
     });
 
+    lockAcquired = false; // Lock liberado com sucesso
+    console.log('[SYNC] Lock liberado (status=idle, sucesso)');
+
     await supabase.log(empresaId, 'info', finishMessage);
     console.log(`[SYNC] ${finishMessage}`);
 
@@ -432,20 +420,42 @@ async function syncEmpresa(empresaId: string): Promise<{
     const message = error instanceof Error ? error.message : 'Erro desconhecido';
     console.error(`[SYNC] Erro fatal: ${message}`);
 
-    await supabase.updateSyncState(empresaId, {
-      status: 'error',
-      last_error: message,
-    });
+    // ★ SEMPRE liberar lock em caso de erro
+    try {
+      await supabase.updateSyncState(empresaId, {
+        status: 'error',
+        last_error: message,
+      });
+      lockAcquired = false;
+      console.log('[SYNC] Lock liberado (status=error)');
+    } catch (updateError) {
+      console.error('[SYNC] Falha ao liberar lock:', updateError);
+    }
 
     await supabase.log(empresaId, 'error', `Erro na sincronizacao: ${message}`);
 
     return {
       success: false,
-      documentsProcessed: 0,
-      documentsImported: 0,
-      creditsCreated: 0,
+      documentsProcessed: totalDocumentsFetched,
+      documentsImported: totalDocumentsImported,
+      creditsCreated: totalCredits,
       error: message,
     };
+  } finally {
+    // ★ GARANTIA FINAL: Se ainda temos o lock, liberá-lo
+    if (lockAcquired) {
+      console.error('[SYNC] ★ FINALLY: Lock ainda estava ativo, liberando...');
+      try {
+        await supabase.updateSyncState(empresaId, {
+          status: 'error',
+          last_error: 'Sincronizacao interrompida inesperadamente',
+        });
+        console.log('[SYNC] Lock liberado no finally');
+      } catch (finallyError) {
+        console.error('[SYNC] Falha ao liberar lock no finally:', finallyError);
+      }
+      await supabase.log(empresaId, 'error', 'Sincronizacao interrompida inesperadamente (finally cleanup)');
+    }
   }
 }
 
