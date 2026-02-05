@@ -96,6 +96,13 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     }
 
     switch (syncState.status) {
+      case "queued":
+        return (
+          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+            Iniciando...
+          </Badge>
+        );
       case "running":
         return (
           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
@@ -450,7 +457,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                 Sincronizar Agora
               </Button>
               
-              {(isStuck || syncState?.status === "running") && (
+              {(isStuck || syncState?.status === "running" || syncState?.status === "queued") && (
                 <Button
                   variant="outline"
                   className="gap-2 text-orange-600 border-orange-300 hover:bg-orange-50"

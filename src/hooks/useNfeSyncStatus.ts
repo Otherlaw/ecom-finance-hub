@@ -57,7 +57,7 @@ export interface NfeCertificate {
 }
 
 export interface NfeSyncState {
-  status: "idle" | "running" | "error" | "completed" | "rate_limited";
+  status: "idle" | "queued" | "running" | "error" | "completed" | "rate_limited";
   ult_nsu: number;
   max_nsu: number;
   last_sync_at: string | null;
@@ -141,7 +141,7 @@ export function useNfeSyncStatus(empresaId?: string) {
     refetchInterval: (query) => {
       const data = query.state.data;
       // Refetch mais frequente enquanto sincronizando
-      if (data?.sync_state?.status === "running") {
+      if (data?.sync_state?.status === "running" || data?.sync_state?.status === "queued") {
         return 3000; // 3s durante sync
       }
       return 30000; // 30s quando idle
@@ -150,7 +150,10 @@ export function useNfeSyncStatus(empresaId?: string) {
 
   // Detectar sync travada (running por muito tempo sem updates)
   useEffect(() => {
-    if (data?.sync_state?.status === "running" && data?.sync_state?.updated_at) {
+    if (
+      (data?.sync_state?.status === "running" || data?.sync_state?.status === "queued") &&
+      data?.sync_state?.updated_at
+    ) {
       const lastUpdate = new Date(data.sync_state.updated_at);
       const now = new Date();
       const diffMinutes = (now.getTime() - lastUpdate.getTime()) / 60000;
@@ -288,7 +291,10 @@ export function useNfeSyncStatus(empresaId?: string) {
   }, [syncStatus, nextRetryAt]);
 
   // isSyncing SOMENTE se não estiver em rate limit
-  const isSyncing = hasCert && !isRateLimited && (syncStatus === "running" || startSync.isPending);
+  const isSyncing =
+    hasCert &&
+    !isRateLimited &&
+    (syncStatus === "running" || syncStatus === "queued" || startSync.isPending);
 
   // Mensagem de erro (excluir se for rate limit)
   const lastError = isRateLimited ? null : data?.sync_state?.last_error;

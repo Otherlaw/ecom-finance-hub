@@ -31,6 +31,34 @@ interface SyncRequestPayload {
   next_retry_at?: string;
 }
 
+type SyncStatus = "idle" | "queued" | "running" | "error" | "completed" | "rate_limited";
+
+/**
+ * Regra de concorrência do START.
+ * - Bloqueia se status estiver running/queued e updated_at for recente.
+ * - Usa janela de 30 minutos (compatível com lock do worker).
+ */
+export function shouldBlockConcurrentStart(currentState: { status?: string | null; updated_at?: string } | null): {
+  blocked: boolean;
+  diffMinutes?: number;
+  reason?: "SYNC_RUNNING";
+} {
+  if (!currentState?.status || !currentState.updated_at) return { blocked: false };
+
+  const status = currentState.status as string;
+  if (status !== "running" && status !== "queued") return { blocked: false };
+
+  const lastUpdate = new Date(currentState.updated_at);
+  const now = new Date();
+  const diffMinutes = (now.getTime() - lastUpdate.getTime()) / 60000;
+
+  if (diffMinutes < 30) {
+    return { blocked: true, diffMinutes, reason: "SYNC_RUNNING" };
+  }
+
+  return { blocked: false, diffMinutes };
+}
+
 // Helper para registrar log
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function logSync(
@@ -111,7 +139,8 @@ async function getFullStatus(supabase: any, empresaId: string, logsLimit = 30) {
     .from("creditos_icms")
     .select("*", { count: "exact", head: true })
     .eq("empresa_id", empresaId)
-    .eq("origin", "sefaz_sync");
+    // origem correta do ingest
+    .eq("origin", "nfe_sync");
 
   return {
     sync_state: syncState || {
@@ -321,36 +350,48 @@ Deno.serve(async (req) => {
       }
 
       // BLOQUEIO: Verificar se ja existe sync em andamento
-      if (currentState?.status === "running") {
-        const lastUpdate = new Date(currentState.updated_at);
-        const now = new Date();
-        const diffMinutes = (now.getTime() - lastUpdate.getTime()) / 60000;
+      const concurrency = shouldBlockConcurrentStart(currentState);
+      if (concurrency.blocked) {
+        const diff = Math.round(concurrency.diffMinutes || 0);
+        await logSync(
+          supabaseAdmin,
+          payload.empresa_id,
+          "warn",
+          `Sincronizacao ja em andamento (status=${currentState?.status}, iniciada ha ${diff} minutos)`
+        );
 
-        // Anti-travamento: liberar apos 5 minutos sem updates
-        if (diffMinutes < 5) {
-          await logSync(supabaseAdmin, payload.empresa_id, "warn", `Sincronizacao ja em andamento (iniciada ha ${Math.round(diffMinutes)} minutos)`);
-          
-          return new Response(
-            JSON.stringify({ 
-              error: `Sincronizacao ja em andamento (iniciada ha ${Math.round(diffMinutes)} minutos)`,
-              code: "SYNC_RUNNING",
-              state: currentState,
-              started_at: currentState.updated_at,
-            }),
-            { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        return new Response(
+          JSON.stringify({
+            error: `Sincronizacao ja em andamento (status=${currentState?.status}, iniciada ha ${diff} minutos)`,
+            code: "SYNC_RUNNING",
+            state: currentState,
+            started_at: currentState?.updated_at,
+          }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Se estava running/queued mas expirou (>=30min), liberamos para reiniciar
+      if (currentState?.status === "running" || currentState?.status === "queued") {
+        const diff = Math.round(concurrency.diffMinutes || 0);
+        if (diff >= 30) {
+          await logSync(
+            supabaseAdmin,
+            payload.empresa_id,
+            "warn",
+            `Sync anterior expirou (status=${currentState.status}, sem updates por ${diff} min), reiniciando`
           );
         }
-        // Se passou de 5 min sem updates, consideramos travada e liberamos
-        await logSync(supabaseAdmin, payload.empresa_id, "warn", `Sync anterior travada (sem updates por ${Math.round(diffMinutes)} min), liberando e reiniciando`);
       }
 
       // Gerar sync_id para rastreabilidade
       const syncId = crypto.randomUUID();
       const startedAt = new Date().toISOString();
 
-      // Atualizar estado para running (limpar rate limit anterior)
+      // Atualizar estado para queued (limpar rate limit anterior).
+      // IMPORTANTE: o worker é quem transiciona queued -> running após passar no lock real.
       const updatedState = await updateState(supabaseAdmin, payload.empresa_id, {
-        status: "running",
+        status: "queued" as SyncStatus,
         last_error: null,
         next_retry_at: null,
       });
@@ -410,7 +451,7 @@ Deno.serve(async (req) => {
           JSON.stringify({ 
             success: true, 
             message: "Sincronizacao iniciada em background",
-            status: "running",
+            status: "queued",
             sync_id: syncId,
             started_at: startedAt,
             state: updatedState,
