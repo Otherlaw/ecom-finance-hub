@@ -2,6 +2,14 @@
  * Tipos para o NFe Worker
  */
 
+export type NfeSyncStatus =
+  | 'idle'
+  | 'queued'
+  | 'running'
+  | 'error'
+  | 'completed'
+  | 'rate_limited';
+
 export interface NfeCertificate {
   id: string;
   empresa_id: string;
@@ -20,12 +28,16 @@ export interface NfeSyncState {
   ult_nsu: number;
   max_nsu: number;
   last_sync_at: string | null;
-  status: 'idle' | 'queued' | 'running' | 'error' | 'completed' | 'rate_limited';
+  status: NfeSyncStatus;
   last_error: string | null;
   documents_fetched: number;
   credits_created: number;
   updated_at: string;
   next_retry_at: string | null;
+  // Campos para throttle/backoff
+  last_sefaz_request_at?: string | null;
+  rate_limit_count?: number | null;
+  last_rate_limit_at?: string | null;
 }
 
 export interface NfeDocument {
