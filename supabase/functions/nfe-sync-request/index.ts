@@ -426,11 +426,28 @@ Deno.serve(async (req) => {
         sync_id: syncId,
       });
 
+       // Obter token de autenticação do worker
+       const workerToken = Deno.env.get("WORKER_INGEST_TOKEN");
+       if (!workerToken) {
+         const errorMsg = "WORKER_INGEST_TOKEN não configurado";
+         await updateState(supabaseAdmin, payload.empresa_id, {
+           status: "error",
+           last_error: errorMsg,
+         });
+         await logSync(supabaseAdmin, payload.empresa_id, "error", errorMsg);
+         
+         return new Response(
+           JSON.stringify({ error: errorMsg, code: "TOKEN_NOT_CONFIGURED" }),
+           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+         );
+       }
+ 
       try {
-        const workerResponse = await fetch(workerUrl, {
+         const workerResponse = await fetch(`${workerUrl}/sync`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+             "x-worker-sync-token": workerToken,
           },
           body: JSON.stringify({
             empresa_id: payload.empresa_id,
