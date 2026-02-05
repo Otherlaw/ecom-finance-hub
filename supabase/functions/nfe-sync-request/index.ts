@@ -326,7 +326,8 @@ Deno.serve(async (req) => {
         const now = new Date();
         const diffMinutes = (now.getTime() - lastUpdate.getTime()) / 60000;
 
-        if (diffMinutes < 30) {
+        // Anti-travamento: liberar apos 5 minutos sem updates
+        if (diffMinutes < 5) {
           await logSync(supabaseAdmin, payload.empresa_id, "warn", `Sincronizacao ja em andamento (iniciada ha ${Math.round(diffMinutes)} minutos)`);
           
           return new Response(
@@ -339,8 +340,8 @@ Deno.serve(async (req) => {
             { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
-        // Se passou de 30 min, consideramos timeout e reiniciamos
-        await logSync(supabaseAdmin, payload.empresa_id, "warn", "Sync anterior expirou (timeout 30min), reiniciando");
+        // Se passou de 5 min sem updates, consideramos travada e liberamos
+        await logSync(supabaseAdmin, payload.empresa_id, "warn", `Sync anterior travada (sem updates por ${Math.round(diffMinutes)} min), liberando e reiniciando`);
       }
 
       // Gerar sync_id para rastreabilidade
