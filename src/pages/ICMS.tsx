@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { MainLayout } from "@/components/MainLayout";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModuleCard } from "@/components/ModuleCard";
 import { KPICard } from "@/components/KPICard";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import { XMLImportModal } from "@/components/icms/XMLImportModal";
 import { ICMSCalculatorModal } from "@/components/icms/ICMSCalculatorModal";
 import { ICMSRecommendationModal } from "@/components/icms/ICMSRecommendationModal";
 import { NfeSyncStatus } from "@/components/icms/NfeSyncStatus";
+import { NfeDocumentsTab } from "@/components/icms/NfeDocumentsTab";
 import { CertificadoModal } from "@/components/icms/CertificadoModal";
 import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
@@ -27,7 +29,7 @@ import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/
 import { EmpresaSelector } from "@/components/EmpresaSelector";
 import { 
   Receipt, AlertTriangle, TrendingDown, Calculator, 
-  Upload, Lightbulb, Trash2, Edit2, Info, 
+  Upload, Lightbulb, Trash2, Edit2, Info, FileText,
   CheckCircle2, Filter, Shield
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -40,6 +42,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 export default function ICMS() {
   const { openChat } = useAssistantChatContext();
+  const [activeMainTab, setActiveMainTab] = useState<"nfe" | "creditos">("nfe");
   const [xmlImportOpen, setXmlImportOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [recommendationOpen, setRecommendationOpen] = useState(false);
@@ -240,9 +243,6 @@ export default function ICMS() {
       subtitle="Gestão de créditos compensáveis e não compensáveis" 
       actions={
         <div className="flex items-center gap-2">
-          {empresaAtiva?.id && (
-            <NfeSyncStatus empresaId={empresaAtiva.id} />
-          )}
           <Button variant="outline" size="icon" onClick={() => setCertificadoModalOpen(true)} title="Configurar Certificado A1">
             <Shield className="h-4 w-4" />
           </Button>
@@ -256,23 +256,77 @@ export default function ICMS() {
         </div>
       }
     >
-      {/* Filters */}
-      <div className="mb-6 space-y-4 p-4 rounded-lg bg-secondary/30 border">
-        {/* Filtro de Período */}
+      {/* Filtros Globais (Período e Empresa) - Visíveis em todas as abas */}
+      <div className="mb-6 flex flex-wrap items-center gap-4 p-4 rounded-lg bg-secondary/30 border">
         <PeriodFilter
           selectedPeriod={selectedPeriod}
           onPeriodChange={handlePeriodChange}
           isLoading={isLoading}
         />
-        
-        {/* Outros Filtros */}
+        <EmpresaSelector />
+        {selectedEmpresa && (
+          <Badge variant="outline" className={`${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.bgColor} ${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.color} border`}>
+            {REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.label}
+          </Badge>
+        )}
+      </div>
+
+      {/* Alerta quando não tem certificado */}
+      {!hasCertificate && empresaAtiva && !nfeLoading && (
+        <Alert className="mb-6 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
+          <Shield className="h-5 w-5 text-amber-600" />
+          <AlertTitle className="text-amber-800 dark:text-amber-300">Certificado Digital não configurado</AlertTitle>
+          <AlertDescription className="text-amber-700 dark:text-amber-400">
+            Configure o certificado A1 para sincronizar automaticamente as NF-e de entrada e gerar créditos de ICMS.
+            <Button 
+              variant="link" 
+              className="p-0 h-auto ml-2 text-amber-700 dark:text-amber-300 underline" 
+              onClick={() => setCertificadoModalOpen(true)}
+            >
+              Configurar agora
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Tabs Principais: NF-e | Créditos ICMS */}
+      <Tabs value={activeMainTab} onValueChange={(v) => setActiveMainTab(v as "nfe" | "creditos")} className="mb-6">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="nfe" className="gap-2">
+            <FileText className="h-4 w-4" />
+            NF-e
+          </TabsTrigger>
+          <TabsTrigger value="creditos" className="gap-2">
+            <Receipt className="h-4 w-4" />
+            Créditos ICMS
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Aba NF-e - Estilo Qive */}
+        <TabsContent value="nfe" className="mt-6">
+          {empresaAtiva?.id && empresaAtiva?.cnpj ? (
+            <NfeDocumentsTab
+              empresaId={empresaAtiva.id}
+              empresaCnpj={empresaAtiva.cnpj}
+              dateRange={dateRange}
+            />
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">
+              <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>Selecione uma empresa para visualizar as NF-e.</p>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Aba Créditos ICMS - Conteúdo original */}
+        <TabsContent value="creditos" className="mt-6">
+          {/* Filtros específicos de créditos */}
+      <div className="mb-6 p-4 rounded-lg bg-secondary/30 border">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium text-sm">Filtros:</span>
           </div>
-          {/* Seletor de empresa */}
-          <EmpresaSelector />
           <Select value={tipoFilter} onValueChange={setTipoFilter}>
             <SelectTrigger className="w-48">
               <SelectValue placeholder="Tipo de Crédito" />
@@ -296,31 +350,8 @@ export default function ICMS() {
               ))}
             </SelectContent>
           </Select>
-          {selectedEmpresa && (
-            <Badge variant="outline" className={`${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.bgColor} ${REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.color} border`}>
-              {REGIME_TRIBUTARIO_CONFIG[selectedEmpresa.regime_tributario as keyof typeof REGIME_TRIBUTARIO_CONFIG]?.label}
-            </Badge>
-          )}
         </div>
       </div>
-
-      {/* Alerta quando não tem certificado */}
-      {!hasCertificate && empresaAtiva && !nfeLoading && (
-        <Alert className="mb-6 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
-          <Shield className="h-5 w-5 text-amber-600" />
-          <AlertTitle className="text-amber-800 dark:text-amber-300">Certificado Digital não configurado</AlertTitle>
-          <AlertDescription className="text-amber-700 dark:text-amber-400">
-            Configure o certificado A1 para sincronizar automaticamente as NF-e de entrada e gerar créditos de ICMS.
-            <Button 
-              variant="link" 
-              className="p-0 h-auto ml-2 text-amber-700 dark:text-amber-300 underline" 
-              onClick={() => setCertificadoModalOpen(true)}
-            >
-              Configurar agora
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
 
       {/* Simples Nacional Warning */}
       {isSimples && (
@@ -546,6 +577,9 @@ export default function ICMS() {
           </Button>
         </div>
       )}
+
+        </TabsContent>
+      </Tabs>
 
       {/* Modals */}
       <XMLImportModal 
