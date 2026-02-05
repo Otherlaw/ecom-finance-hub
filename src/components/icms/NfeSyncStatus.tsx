@@ -236,7 +236,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
       </Button>
 
       {/* Botao de reset quando travado */}
-      {isStuck && (
+     {isStuck && !isRateLimited && (
         <Button
           variant="destructive"
           size="sm"
