@@ -104,6 +104,10 @@ export interface NfeStatusResponse {
 
 // Timeout para considerar sync travada (em minutos) - Anti-travamento
 const SYNC_STUCK_THRESHOLD_MINUTES = 5;
+ 
+ // Intervalos de polling
+ const POLLING_INTERVAL_SYNCING = 5000; // 5s durante sync
+ const POLLING_INTERVAL_IDLE = 60000; // 60s quando idle (modo automático)
 
 export function useNfeSyncStatus(empresaId?: string) {
   const queryClient = useQueryClient();
@@ -146,9 +150,9 @@ export function useNfeSyncStatus(empresaId?: string) {
       const data = query.state.data;
       // Refetch mais frequente enquanto sincronizando
       if (data?.sync_state?.status === "running" || data?.sync_state?.status === "queued") {
-        return 3000; // 3s durante sync
+         return POLLING_INTERVAL_SYNCING; // 5s durante sync
       }
-      return 30000; // 30s quando idle
+       return POLLING_INTERVAL_IDLE; // 60s quando idle (modo automático)
     },
   });
 

@@ -1,10 +1,13 @@
 /**
  * Componente de Status e Sincronizacao de NF-e
- * Exibe status da sincronizacao e permite iniciar sync manual
- * Com suporte a reset de sync travada e countdown de rate limit
+ * MODO AUTOMÁTICO: Exibe status da sincronização automática (estilo Arquivei/Qive)
+ * Sem botão de sync manual - sincronização roda em background via cron
  * 
- * ATUALIZADO: Exibe progresso real (ult_nsu/max_nsu), status "pausado",
- * e backoff progressivo para erros 656.
+ * Funcionalidades:
+ * - Exibe progresso real (ult_nsu/max_nsu)
+ * - Mostra próxima sincronização automática
+ * - Countdown para cooldown (cStat 137 ou erro 656)
+ * - Reset manual apenas para sync travada
  */
 
 import { useState, useEffect } from "react";
@@ -56,7 +59,6 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     isRateLimited, 
     nextRetryAt, 
     lastError, 
-    startSync, 
     resetSync,
     refetch,
     isStuck,
@@ -84,7 +86,8 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
    // Detectar se foi pausado para proteção anti-rate-limit
    const isPaused = syncState?.status === "idle" && 
      syncState?.last_error?.includes("Pausado") || 
-     syncState?.last_error?.includes("Limite de");
+     syncState?.last_error?.includes("Limite de") ||
+     syncState?.last_error?.includes("cStat 137");
  
   const getStatusBadge = () => {
     if (!syncState) return null;
@@ -114,7 +117,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
        return (
          <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
            <Clock className="h-3 w-3 mr-1" />
-           Pausado
+             Aguardando próximo ciclo
          </Badge>
        );
      }
@@ -169,6 +172,18 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     }
   };
 
+   // Formatar próxima sincronização
+   const formatNextSync = () => {
+     if (!nextRetryAt) return null;
+     const date = new Date(nextRetryAt);
+     return date.toLocaleString("pt-BR", {
+       day: "2-digit",
+       month: "2-digit",
+       hour: "2-digit",
+       minute: "2-digit",
+     });
+   };
+ 
   const formatNextRetry = () => {
     if (!nextRetryAt) return null;
     const date = new Date(nextRetryAt);
@@ -192,51 +207,14 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     });
   };
 
-  // Calcular se o botao deve estar desabilitado
-  const isButtonDisabled = !hasCertificate || (isSyncing && !isStuck) || isRateLimited;
-  
-  // Texto do botao
-  const getButtonText = () => {
-    if (isSyncing && !isStuck) return "Sincronizando...";
-    if (isRateLimited && timeUntilRetry) {
-      return `Aguarde ${timeUntilRetry}`;
-    }
-     if (isPaused && hasBacklog) {
-       return "Continuar Sync";
-     }
-    return "Sincronizar NF-e";
-  };
-
-  const handleStartSync = () => {
-    startSync.mutate();
-  };
-
   const handleResetSync = () => {
     resetSync.mutate();
   };
 
   return (
     <div className="flex items-center gap-2">
-      {/* Botao principal de sincronizacao */}
-      <Button
-        variant="outline"
-        className="gap-2"
-        onClick={handleStartSync}
-        disabled={isButtonDisabled}
-        title={isRateLimited ? `Rate limited. Próximo retry: ${formatNextRetry()}` : undefined}
-      >
-        {isSyncing && !isStuck ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : isRateLimited ? (
-          <Clock className="h-4 w-4" />
-        ) : (
-          <RefreshCw className="h-4 w-4" />
-        )}
-        {getButtonText()}
-      </Button>
-
-      {/* Botao de reset quando travado */}
-     {isStuck && !isRateLimited && (
+       {/* Botao de reset apenas quando travado */}
+       {isStuck && !isRateLimited && (
         <Button
           variant="destructive"
           size="sm"
@@ -305,9 +283,9 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                  <AlertDescription className="text-blue-700">
                    Sincronização pausada para evitar rate limit da SEFAZ. 
                    {hasBacklog && (
-                     <span> Ainda há documentos pendentes ({syncState?.ult_nsu}/{syncState?.max_nsu} NSUs). </span>
+                 <span> Ainda há documentos pendentes ({syncState?.ult_nsu}/{syncState?.max_nsu} NSUs).</span>
                    )}
-                   Clique em "Continuar Sync" para retomar ou aguarde o cron automático.
+               <span> A sincronização automática retomará em breve.</span>
                  </AlertDescription>
                </Alert>
              )}
@@ -493,28 +471,37 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
 
             {/* Botoes de acao no dialog */}
             <div className="flex gap-2 pt-4 border-t">
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={handleStartSync}
-                disabled={isButtonDisabled}
-              >
-                <RefreshCw className="h-4 w-4" />
-                Sincronizar Agora
-              </Button>
-              
-              {(isStuck || syncState?.status === "running" || syncState?.status === "queued") && (
+               {/* Reset apenas quando travado */}
+               {isStuck && (
                 <Button
                   variant="outline"
                   className="gap-2 text-orange-600 border-orange-300 hover:bg-orange-50"
                   onClick={handleResetSync}
-                  disabled={resetSync.isPending}
+                   disabled={resetSync.isPending || isRateLimited}
                 >
-                  <RotateCcw className="h-4 w-4" />
+                   {resetSync.isPending ? (
+                     <Loader2 className="h-4 w-4 animate-spin" />
+                   ) : (
+                     <RotateCcw className="h-4 w-4" />
+                   )}
                   Resetar Sync
                 </Button>
               )}
               
+               {/* Informação sobre modo automático */}
+               <div className="flex-1 text-sm text-muted-foreground">
+                 {isSyncing ? (
+                   <span className="flex items-center gap-1">
+                     <Loader2 className="h-3 w-3 animate-spin" />
+                     Sincronização em andamento...
+                   </span>
+                 ) : nextRetryAt && new Date(nextRetryAt) > new Date() ? (
+                   <span>Próxima tentativa: {formatNextSync()}</span>
+                 ) : (
+                   <span>Sincronização automática ativa</span>
+                 )}
+               </div>
+ 
               <Button
                 variant="ghost"
                 className="gap-2"

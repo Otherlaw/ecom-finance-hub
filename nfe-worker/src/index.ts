@@ -35,7 +35,7 @@ const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
 const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
  const REQUEST_DELAY_MS = 12000; // Delay base entre requisicoes SEFAZ (12s conservador)
  const REQUEST_DELAY_JITTER = 0.25; // Jitter de ±25% para evitar padrões previsíveis
-const SYNC_WINDOW_DAYS = 7; // Janela de 7 dias
+ const SYNC_WINDOW_DAYS = 90; // Janela de 90 dias (alinhado com nfe-ingest)
 const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos para parar
  const RATE_LIMIT_BASE_COOLDOWN_MS = 60 * 60 * 1000; // 1 hora base em milissegundos
  const RATE_LIMIT_MAX_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 horas máximo
@@ -46,6 +46,9 @@ const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos 
  const MAX_SEFAZ_REQUESTS_PER_RUN = 10; // Máximo de requests à SEFAZ por execução
  const MAX_RUNTIME_MS = 4 * 60 * 1000; // 4 minutos máximo por execução
  const MIN_TIME_BETWEEN_RUNS_MS = 3 * 60 * 1000; // 3 minutos mínimo entre execuções
+ 
+ // Cooldown para cStat 137 (sem mais documentos)
+ const CSTAT_137_COOLDOWN_MS = 60 * 60 * 1000; // 1 hora
 
 // Validar configuracoes
 const missingVars: string[] = [];
@@ -72,6 +75,22 @@ const app = express();
 app.use(express.json());
 
 /**
+ * Middleware de autenticação para endpoints de sync
+ */
+ function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+   const syncToken = req.headers['x-worker-sync-token'];
+   const expectedToken = WORKER_INGEST_TOKEN;
+   
+   if (!syncToken || syncToken !== expectedToken) {
+     console.warn('[AUTH] Token invalido ou ausente');
+     res.status(401).json({ error: 'Unauthorized: x-worker-sync-token invalido' });
+     return;
+   }
+   
+   next();
+ }
+ 
+ /**
  * Health check
  */
 app.get('/health', (_req: Request, res: Response) => {
@@ -379,6 +398,48 @@ async function syncEmpresa(empresaId: string): Promise<{
         });
         console.log(`[SYNC] ★ NSU ${currentNSU} persistido (antes do ingest)`);
 
+         // ========================================
+         // CSTAT 137: SEFAZ sem mais documentos (resposta vazia final)
+         // ========================================
+         if (result.documents.length === 0 && !hasMore) {
+           const nextRetryAt = new Date(Date.now() + CSTAT_137_COOLDOWN_MS).toISOString();
+           const cooldownMessage = `SEFAZ cStat 137: Consulta sem documentos novos. Cooldown de 1h ativado.`;
+           
+           console.log(`[SYNC] ★ ${cooldownMessage}`);
+           await supabase.log(empresaId, 'info', cooldownMessage, {
+             cStat: 137,
+             ult_nsu: currentNSU,
+             max_nsu: maxNSU,
+             next_retry_at: nextRetryAt,
+             sefaz_requests_this_run: sefazRequestCount,
+           });
+           
+           // Finalizar com cooldown para evitar consultas desnecessárias
+           await supabase.updateSyncState(empresaId, {
+             status: 'idle',
+             last_sync_at: new Date().toISOString(),
+             last_error: null,
+             next_retry_at: nextRetryAt,
+             ult_nsu: currentNSU,
+             max_nsu: maxNSU,
+             documents_fetched: totalDocumentsFetched,
+             credits_created: totalCredits,
+             rate_limit_count: 0,
+           });
+           
+           lockAcquired = false;
+           console.log('[SYNC] Lock liberado (status=idle, cStat 137 cooldown)');
+           
+           return {
+             success: true,
+             documentsProcessed: totalDocumentsFetched,
+             documentsImported: totalDocumentsImported,
+             creditsCreated: totalCredits,
+             paused: true,
+             pauseReason: cooldownMessage,
+           };
+         }
+ 
         if (result.documents.length > 0) {
           // Enviar em lotes
           for (let i = 0; i < result.documents.length; i += BATCH_SIZE) {
@@ -607,7 +668,7 @@ async function syncEmpresa(empresaId: string): Promise<{
 /**
  * Endpoint para sincronizar empresa especifica
  */
-app.post('/sync', async (req: Request, res: Response) => {
+ app.post('/sync', authMiddleware, async (req: Request, res: Response) => {
   const { empresa_id } = req.body;
 
   if (!empresa_id) {
@@ -650,7 +711,7 @@ app.post('/sync', async (req: Request, res: Response) => {
 /**
  * Endpoint para sincronizar todas as empresas
  */
-app.post('/sync-all', async (_req: Request, res: Response) => {
+ app.post('/sync-all', authMiddleware, async (_req: Request, res: Response) => {
   try {
     const companies = await supabase.getActiveCompanies();
     
