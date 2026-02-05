@@ -277,8 +277,19 @@ export function useNfeSyncStatus(empresaId?: string) {
       
       return data;
     },
-    onSuccess: () => {
-      toast.success("Sincronizacao resetada. Voce pode tentar novamente.");
+   onSuccess: (data) => {
+     if (data?.cooldown_active && data?.next_retry_at) {
+       const retryDate = new Date(data.next_retry_at);
+       const formatted = retryDate.toLocaleString("pt-BR", {
+         day: "2-digit",
+         month: "2-digit",
+         hour: "2-digit",
+         minute: "2-digit",
+       });
+       toast.info(`Reset feito, mas cooldown continua até ${formatted}`);
+     } else {
+       toast.success("Sincronizacao resetada. Voce pode tentar novamente.");
+     }
       setIsStuck(false);
       queryClient.invalidateQueries({ queryKey: ["nfe-sync-status", empresaId] });
     },

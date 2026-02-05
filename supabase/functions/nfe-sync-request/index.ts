@@ -245,22 +245,41 @@ Deno.serve(async (req) => {
     // ACTION: RESET - Forca status=idle para destravar
     // ========================================
     if (action === "reset") {
+     // Buscar estado atual para preservar next_retry_at
+     const { data: currentState } = await supabaseAdmin
+       .from("nfe_sync_state")
+       .select("next_retry_at, rate_limit_count, last_rate_limit_at, last_sefaz_request_at")
+       .eq("empresa_id", payload.empresa_id)
+       .maybeSingle();
+ 
+     // Reset NÃO limpa campos de rate limit - apenas destrava execução
       const updatedState = await updateState(supabaseAdmin, payload.empresa_id, {
         status: "idle",
-        last_error: null,
-        next_retry_at: null,
+       last_error: null
+       // NÃO mexer em: next_retry_at, last_rate_limit_at, rate_limit_count, last_sefaz_request_at
       });
 
-      await logSync(supabaseAdmin, payload.empresa_id, "warn", "Sincronizacao resetada manualmente pelo usuario", {
+     const hasActiveCooldown = currentState?.next_retry_at && new Date(currentState.next_retry_at) > new Date();
+ 
+     await logSync(supabaseAdmin, payload.empresa_id, "warn", 
+       hasActiveCooldown 
+         ? "Sincronizacao resetada (cooldown de rate limit preservado)"
+         : "Sincronizacao resetada manualmente pelo usuario", 
+       {
         user_id: userId,
+       next_retry_at_preserved: currentState?.next_retry_at || null,
       });
 
       return new Response(
         JSON.stringify({ 
           success: true, 
-          message: "Sincronizacao resetada",
+         message: hasActiveCooldown 
+           ? "Sincronizacao resetada, mas cooldown de rate limit continua ativo" 
+           : "Sincronizacao resetada",
           status: "idle",
           state: updatedState,
+         next_retry_at: currentState?.next_retry_at || null,
+         cooldown_active: hasActiveCooldown,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
