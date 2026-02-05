@@ -16,18 +16,37 @@ type InvokeErrorShape = {
 };
 
 function parseInvokeError(err: unknown): Error & { code?: string; next_retry_at?: string } {
-  // supabase-js retorna FunctionsHttpError com `context` contendo status/body
-  const anyErr = err as {
-    message?: string;
-    context?: { status?: number; body?: unknown };
-  };
+  try {
+    // supabase-js retorna FunctionsHttpError com `context` contendo status/body
+    const anyErr = err as {
+      message?: string;
+      context?: { status?: number; body?: unknown };
+    };
 
-  const body = anyErr?.context?.body as InvokeErrorShape | undefined;
-  const msg = body?.error || anyErr?.message || "Erro ao chamar função";
-  const e = new Error(msg) as Error & { code?: string; next_retry_at?: string };
-  e.code = body?.code;
-  if (body?.next_retry_at) e.next_retry_at = body.next_retry_at;
-  return e;
+    // Body pode vir como objeto ou string JSON
+    let body: InvokeErrorShape | undefined;
+    if (anyErr?.context?.body) {
+      if (typeof anyErr.context.body === "string") {
+        try {
+          body = JSON.parse(anyErr.context.body);
+        } catch {
+          body = undefined;
+        }
+      } else {
+        body = anyErr.context.body as InvokeErrorShape;
+      }
+    }
+
+    const msg = body?.error || anyErr?.message || "Erro ao chamar função";
+    const e = new Error(msg) as Error & { code?: string; next_retry_at?: string };
+    e.code = body?.code;
+    if (body?.next_retry_at) e.next_retry_at = body.next_retry_at;
+    return e;
+  } catch {
+    // Fallback seguro se algo der errado no parse
+    const msg = err instanceof Error ? err.message : "Erro desconhecido";
+    return new Error(msg) as Error & { code?: string; next_retry_at?: string };
+  }
 }
 
 export interface NfeCertificate {
