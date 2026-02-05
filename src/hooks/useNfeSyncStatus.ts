@@ -213,18 +213,23 @@ export function useNfeSyncStatus(empresaId?: string) {
     mutationFn: async () => {
       if (!empresaId) throw new Error("Empresa nao selecionada");
 
-      const { data, error } = await supabase.functions.invoke("nfe-sync-request", {
+      const { data, error: invokeError } = await supabase.functions.invoke("nfe-sync-request", {
         body: {
           empresa_id: empresaId,
           action: "start",
         },
       });
 
-      if (error) throw parseInvokeError(error);
-      if (data?.error) {
-        const err = new Error(data.error) as Error & { code?: string; next_retry_at?: string };
-        err.code = data.code;
-        err.next_retry_at = data.next_retry_at;
+      // Handle both invoke-level errors and response-body errors
+      if (invokeError) {
+        throw parseInvokeError(invokeError);
+      }
+      
+      // Check if response body contains an error (e.g., 429 rate limit)
+      if (data?.error || data?.code === "RATE_LIMITED") {
+        const err = new Error(data.error || "Rate limited") as Error & { code?: string; next_retry_at?: string };
+        err.code = data.code || "UNKNOWN";
+        if (data.next_retry_at) err.next_retry_at = data.next_retry_at;
         throw err;
       }
       
@@ -239,7 +244,10 @@ export function useNfeSyncStatus(empresaId?: string) {
       if (error.message.includes("NO_CERTIFICATE") || error.code === "NO_CERTIFICATE") {
         toast.error("Nenhum certificado A1 cadastrado. Configure um certificado primeiro.");
       } else if (error.code === "RATE_LIMITED" || error.message.includes("Rate limited")) {
-        toast.warning(error.message);
+        // Don't show toast for rate limit - UI already shows countdown
+        console.debug("[NfeSyncStatus] Rate limited, next_retry_at:", error.next_retry_at);
+        // Force refetch to update UI with latest state
+        queryClient.invalidateQueries({ queryKey: ["nfe-sync-status", empresaId] });
       } else if (error.code === "SYNC_RUNNING" || error.message.includes("em andamento")) {
         toast.info(error.message);
       } else {
