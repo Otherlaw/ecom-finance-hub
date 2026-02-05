@@ -66,6 +66,10 @@ export interface NfeSyncState {
   credits_created: number;
   next_retry_at: string | null;
   updated_at?: string;
+   // Anti-rate-limit fields
+   last_sefaz_request_at?: string | null;
+   rate_limit_count?: number;
+   last_rate_limit_at?: string | null;
 }
 
 export interface NfeSyncLog {

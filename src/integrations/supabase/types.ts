@@ -2786,9 +2786,12 @@ export type Database = {
           documents_fetched: number
           empresa_id: string
           last_error: string | null
+          last_rate_limit_at: string | null
+          last_sefaz_request_at: string | null
           last_sync_at: string | null
           max_nsu: number
           next_retry_at: string | null
+          rate_limit_count: number | null
           status: string
           ult_nsu: number
           updated_at: string
@@ -2798,9 +2801,12 @@ export type Database = {
           documents_fetched?: number
           empresa_id: string
           last_error?: string | null
+          last_rate_limit_at?: string | null
+          last_sefaz_request_at?: string | null
           last_sync_at?: string | null
           max_nsu?: number
           next_retry_at?: string | null
+          rate_limit_count?: number | null
           status?: string
           ult_nsu?: number
           updated_at?: string
@@ -2810,9 +2816,12 @@ export type Database = {
           documents_fetched?: number
           empresa_id?: string
           last_error?: string | null
+          last_rate_limit_at?: string | null
+          last_sefaz_request_at?: string | null
           last_sync_at?: string | null
           max_nsu?: number
           next_retry_at?: string | null
+          rate_limit_count?: number | null
           status?: string
           ult_nsu?: number
           updated_at?: string
