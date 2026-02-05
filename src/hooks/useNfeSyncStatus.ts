@@ -6,7 +6,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 
 type InvokeErrorShape = {
   error?: string;
@@ -98,8 +98,8 @@ export interface NfeStatusResponse {
   logs: NfeSyncLog[];
 }
 
-// Timeout para considerar sync travada (em minutos)
-const SYNC_STUCK_THRESHOLD_MINUTES = 3;
+// Timeout para considerar sync travada (em minutos) - Anti-travamento
+const SYNC_STUCK_THRESHOLD_MINUTES = 5;
 
 export function useNfeSyncStatus(empresaId?: string) {
   const queryClient = useQueryClient();
@@ -118,8 +118,6 @@ export function useNfeSyncStatus(empresaId?: string) {
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       if (!supabaseUrl) throw new Error("VITE_SUPABASE_URL nao configurado");
-
-      console.debug("[NfeSyncStatus] Buscando status para empresa:", empresaId);
 
       const response = await fetch(
         `${supabaseUrl}/functions/v1/nfe-status?empresa_id=${encodeURIComponent(empresaId)}`,
@@ -274,26 +272,29 @@ export function useNfeSyncStatus(empresaId?: string) {
     },
   });
 
-  // Calcular estados derivados
+  // Calcular estados derivados com segurança
+  const nextRetryAt = data?.sync_state?.next_retry_at;
+  const syncStatus = data?.sync_state?.status;
   const hasCert = data?.has_certificate === true;
-  const isSyncing = hasCert && (data?.sync_state?.status === "running" || startSync.isPending);
   
   // Rate limited: status='rate_limited' OU (status='error' COM next_retry_at no futuro)
-  const nextRetryAt = data?.sync_state?.next_retry_at;
   const isRateLimited = useMemo(() => {
-    if (data?.sync_state?.status === "rate_limited") return true;
-    if (data?.sync_state?.status === "error" && nextRetryAt) {
+    if (syncStatus === "rate_limited") return true;
+    if (syncStatus === "error" && nextRetryAt) {
       const retryDate = new Date(nextRetryAt);
       return retryDate > new Date();
     }
     return false;
-  }, [data?.sync_state?.status, nextRetryAt]);
+  }, [syncStatus, nextRetryAt]);
+
+  // isSyncing SOMENTE se não estiver em rate limit
+  const isSyncing = hasCert && !isRateLimited && (syncStatus === "running" || startSync.isPending);
 
   // Mensagem de erro (excluir se for rate limit)
   const lastError = isRateLimited ? null : data?.sync_state?.last_error;
 
-  // Calcular tempo restante para retry
-  const getTimeUntilRetry = useMemo(() => {
+  // Calcular tempo restante para retry (como função para atualizar dinamicamente)
+  const computeTimeUntilRetry = useCallback(() => {
     if (!nextRetryAt) return null;
     const retryDate = new Date(nextRetryAt);
     const now = new Date();
@@ -309,6 +310,33 @@ export function useNfeSyncStatus(empresaId?: string) {
     return `${diffMinutes} min`;
   }, [nextRetryAt]);
 
+  // Estado de tempo restante que atualiza dinamicamente
+  const [timeUntilRetry, setTimeUntilRetry] = useState<string | null>(null);
+
+  // Atualizar countdown a cada segundo quando rate limited
+  useEffect(() => {
+    if (!isRateLimited || !nextRetryAt) {
+      setTimeUntilRetry(null);
+      return;
+    }
+
+    // Calcular imediatamente
+    setTimeUntilRetry(computeTimeUntilRetry());
+
+    const interval = setInterval(() => {
+      const newTime = computeTimeUntilRetry();
+      setTimeUntilRetry(newTime);
+      
+      // Se expirou, refetch para atualizar estado
+      if (!newTime) {
+        refetch();
+        clearInterval(interval);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isRateLimited, nextRetryAt, computeTimeUntilRetry, refetch]);
+
   return {
     status: data,
     isLoading,
@@ -321,7 +349,7 @@ export function useNfeSyncStatus(empresaId?: string) {
     nextRetryAt,
     lastError,
     isStuck,
-    timeUntilRetry: getTimeUntilRetry,
+    timeUntilRetry,
   };
 }
 

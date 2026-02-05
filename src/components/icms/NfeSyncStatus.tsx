@@ -45,8 +45,7 @@ interface NfeSyncStatusProps {
 
 export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [countdown, setCountdown] = useState<string | null>(null);
-  
+
   const { 
     status, 
     isLoading, 
@@ -60,29 +59,6 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     isStuck,
     timeUntilRetry,
   } = useNfeSyncStatus(empresaId);
-
-  // Atualizar countdown a cada segundo quando rate limited
-  useEffect(() => {
-    if (!isRateLimited || !nextRetryAt) {
-      setCountdown(null);
-      return;
-    }
-
-    // Usar o valor direto do hook
-    setCountdown(timeUntilRetry);
-
-    // Se expirou, refetch para atualizar estado
-    if (!timeUntilRetry) {
-      refetch();
-    }
-
-    // Atualizar periodicamente
-    const interval = setInterval(() => {
-      refetch(); // Refetch vai recalcular timeUntilRetry
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [isRateLimited, nextRetryAt, timeUntilRetry, refetch]);
 
   if (isLoading) {
     return (
@@ -104,7 +80,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
       return (
         <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
           <Clock className="h-3 w-3 mr-1" />
-          Aguardando ({countdown || "..."})
+          Aguardando ({timeUntilRetry || "..."})
         </Badge>
       );
     }
@@ -191,8 +167,8 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
   // Texto do botao
   const getButtonText = () => {
     if (isSyncing && !isStuck) return "Sincronizando...";
-    if (isRateLimited && countdown) {
-      return `Aguarde ${countdown}`;
+    if (isRateLimited && timeUntilRetry) {
+      return `Aguarde ${timeUntilRetry}`;
     }
     return "Sincronizar NF-e";
   };
@@ -362,7 +338,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                 <Clock className="h-4 w-4 text-warning" />
                 <AlertDescription className="text-warning">
                   Rate limited pela SEFAZ (erro 656). Aguarde até {formatNextRetry()} para tentar novamente.
-                  {countdown && <span className="font-medium"> ({countdown} restantes)</span>}
+                {timeUntilRetry && <span className="font-medium"> ({timeUntilRetry} restantes)</span>}
                   <br />
                   O progresso foi salvo (NSU atual: {syncState?.ult_nsu || 0}).
                 </AlertDescription>
