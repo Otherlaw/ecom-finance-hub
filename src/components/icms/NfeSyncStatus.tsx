@@ -2,6 +2,9 @@
  * Componente de Status e Sincronizacao de NF-e
  * Exibe status da sincronizacao e permite iniciar sync manual
  * Com suporte a reset de sync travada e countdown de rate limit
+ * 
+ * ATUALIZADO: Exibe progresso real (ult_nsu/max_nsu), status "pausado",
+ * e backoff progressivo para erros 656.
  */
 
 import { useState, useEffect } from "react";
@@ -72,6 +75,17 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
   const syncState = status?.sync_state;
   const hasCertificate = status?.has_certificate;
 
+   // Calcular progresso real
+   const hasBacklog = syncState && syncState.max_nsu > 0 && syncState.ult_nsu < syncState.max_nsu;
+   const progressPercent = syncState && syncState.max_nsu > 0 
+     ? Math.round((syncState.ult_nsu / syncState.max_nsu) * 100)
+     : 0;
+ 
+   // Detectar se foi pausado para proteção anti-rate-limit
+   const isPaused = syncState?.status === "idle" && 
+     syncState?.last_error?.includes("Pausado") || 
+     syncState?.last_error?.includes("Limite de");
+ 
   const getStatusBadge = () => {
     if (!syncState) return null;
 
@@ -95,6 +109,16 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
       );
     }
 
+     // Pausado para proteção
+     if (isPaused) {
+       return (
+         <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
+           <Clock className="h-3 w-3 mr-1" />
+           Pausado
+         </Badge>
+       );
+     }
+ 
     switch (syncState.status) {
       case "queued":
         return (
@@ -104,12 +128,12 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
           </Badge>
         );
       case "running":
-        return (
-          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-            Sincronizando...
-          </Badge>
-        );
+         return (
+           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+             Sincronizando... {progressPercent > 0 && `(${progressPercent}%)`}
+           </Badge>
+         );
       case "rate_limited":
         return (
           <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
@@ -177,6 +201,9 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     if (isRateLimited && timeUntilRetry) {
       return `Aguarde ${timeUntilRetry}`;
     }
+     if (isPaused && hasBacklog) {
+       return "Continuar Sync";
+     }
     return "Sincronizar NF-e";
   };
 
@@ -270,6 +297,20 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                 </AlertDescription>
               </Alert>
             )}
+             
+             {/* Alerta de pausa para proteção */}
+             {isPaused && (
+               <Alert className="bg-blue-50 border-blue-200">
+                 <Clock className="h-4 w-4 text-blue-600" />
+                 <AlertDescription className="text-blue-700">
+                   Sincronização pausada para evitar rate limit da SEFAZ. 
+                   {hasBacklog && (
+                     <span> Ainda há documentos pendentes ({syncState?.ult_nsu}/{syncState?.max_nsu} NSUs). </span>
+                   )}
+                   Clique em "Continuar Sync" para retomar ou aguarde o cron automático.
+                 </AlertDescription>
+               </Alert>
+             )}
 
             {/* Certificado */}
             {!hasCertificate && (
@@ -327,13 +368,18 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                 </div>
 
                 {/* Progress se estiver sincronizando */}
-                {syncState.status === "running" && syncState.max_nsu > 0 && (
+                 {(syncState.status === "running" || syncState.status === "queued" || hasBacklog) && syncState.max_nsu > 0 && (
                   <div className="mt-4">
                     <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                      <span>Progresso</span>
-                      <span>{Math.round((syncState.ult_nsu / syncState.max_nsu) * 100)}%</span>
+                       <span>Progresso {hasBacklog && !isSyncing && "(pendente)"}</span>
+                       <span>{progressPercent}%</span>
                     </div>
-                    <Progress value={(syncState.ult_nsu / syncState.max_nsu) * 100} />
+                     <Progress value={progressPercent} className={hasBacklog && !isSyncing ? "opacity-60" : ""} />
+                     {hasBacklog && !isSyncing && (
+                       <div className="text-xs text-muted-foreground mt-1">
+                         {syncState.max_nsu - syncState.ult_nsu} NSUs restantes
+                       </div>
+                     )}
                   </div>
                 )}
               </div>
