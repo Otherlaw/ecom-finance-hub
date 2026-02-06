@@ -5,14 +5,14 @@
  * - Se a senha está correta
  * - Se o certificado não está expirado
  * - Extrai o CNPJ do certificado para comparação
+ * 
+ * NOTA: Usa npm:node-forge para compatibilidade com Deno edge runtime
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import forgeModule from "https://esm.sh/node-forge@1.3.1?target=deno";
-import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 
-// esm.sh pode expor node-forge como default export dependendo do target
-const forge: any = (forgeModule as any)?.default ?? (forgeModule as any);
+// Importar node-forge via npm: specifier (compatível com Deno)
+import forge from "npm:node-forge@1.3.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -56,15 +56,11 @@ function normalizeBase64(input: string) {
   return s;
 }
 
-function bytesToBinaryString(bytes: Uint8Array) {
-  // Evita "Maximum call stack size" em arquivos maiores
-  const chunkSize = 0x8000;
-  const parts: string[] = [];
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    parts.push(String.fromCharCode(...chunk));
-  }
-  return parts.join("");
+/**
+ * Decodifica base64 para binary string usando forge (evita problemas de compatibilidade)
+ */
+function base64ToBinaryString(base64: string): string {
+  return forge.util.decode64(base64);
 }
 
 /**
@@ -81,7 +77,7 @@ interface ExtractionResult {
   source: string;
 }
 
-function extractCnpjFromSAN(cert: any): ExtractionResult | null {
+function extractCnpjFromSAN(cert: forge.pki.Certificate): ExtractionResult | null {
   try {
     const sanExtension = cert.getExtension("subjectAltName");
     if (!sanExtension) {
@@ -92,8 +88,10 @@ function extractCnpjFromSAN(cert: any): ExtractionResult | null {
     console.log("[extractCnpj] SAN encontrado, analisando altNames...");
     
     // node-forge expõe altNames como array
+    // deno-lint-ignore no-explicit-any
     const altNames = (sanExtension as any).altNames || [];
     
+    // deno-lint-ignore no-explicit-any
     for (const altName of altNames) {
       // otherName tem type === 0 em node-forge
       if (altName.type === 0) {
@@ -146,7 +144,7 @@ function extractCnpjFromSAN(cert: any): ExtractionResult | null {
   }
 }
 
-function extractCnpjFromCN(cert: any): ExtractionResult | null {
+function extractCnpjFromCN(cert: forge.pki.Certificate): ExtractionResult | null {
   try {
     const cnAttr = cert.subject.getField("CN");
     if (!cnAttr || !cnAttr.value) {
@@ -181,7 +179,7 @@ function extractCnpjFromCN(cert: any): ExtractionResult | null {
   }
 }
 
-function extractCnpjFromOU(cert: any): ExtractionResult | null {
+function extractCnpjFromOU(cert: forge.pki.Certificate): ExtractionResult | null {
   try {
     const subject = cert.subject;
     
@@ -224,7 +222,7 @@ function extractCnpjFromOU(cert: any): ExtractionResult | null {
   }
 }
 
-function extractCnpjFromSubjectReverse(cert: any): ExtractionResult | null {
+function extractCnpjFromSubjectReverse(cert: forge.pki.Certificate): ExtractionResult | null {
   try {
     const subject = cert.subject;
     const attributes = [...subject.attributes].reverse(); // Do fim para o início
@@ -261,11 +259,12 @@ function extractCnpjFromSubjectReverse(cert: any): ExtractionResult | null {
   }
 }
 
-function extractCnpjFromCertificate(cert: any): { cnpj: string | null; source: string | null } {
+function extractCnpjFromCertificate(cert: forge.pki.Certificate): { cnpj: string | null; source: string | null } {
   console.log("[extractCnpj] Iniciando extração de CNPJ do certificado ICP-Brasil...");
   
   // Log de todos os atributos do Subject para debug
   try {
+    // deno-lint-ignore no-explicit-any
     const attrs = cert.subject.attributes.map((a: any) => ({
       name: a.shortName || a.name,
       value: a.value
@@ -337,6 +336,7 @@ Deno.serve(async (req) => {
     }
 
     // Parse payload
+    // deno-lint-ignore no-explicit-any
     let body: any;
     try {
       body = await req.json();
@@ -348,7 +348,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { pfx_base64, password, cnpj, expected_cnpj, uf, environment } = body;
+    const { pfx_base64, password, cnpj, expected_cnpj, uf } = body;
 
     // Validar campos obrigatórios
     if (!pfx_base64) {
@@ -375,14 +375,14 @@ Deno.serve(async (req) => {
     const normalizedBase64 = normalizeBase64(String(pfx_base64));
     console.log("[validate-certificate] Base64 normalizado, length:", normalizedBase64.length);
 
-    // Converter base64 para bytes com std/encoding/base64 (mais robusto que regex)
+    // Converter base64 para binary string usando forge (mais robusto)
     let pfxBinary: string;
     try {
-      const bytes = decodeBase64(normalizedBase64);
-      pfxBinary = bytesToBinaryString(bytes);
-      console.log("[validate-certificate] Base64 decodificado com sucesso, bytes:", bytes.length);
-    } catch (e: any) {
-      const detail = e?.message ? String(e.message) : "Falha ao decodificar base64";
+      pfxBinary = base64ToBinaryString(normalizedBase64);
+      console.log("[validate-certificate] Base64 decodificado com sucesso, bytes:", pfxBinary.length);
+    } catch (e) {
+      // deno-lint-ignore no-explicit-any
+      const detail = (e as any)?.message ? String((e as any).message) : "Falha ao decodificar base64";
       console.error("[validate-certificate] Erro ao decodificar base64:", detail);
       return new Response(
         JSON.stringify({ valid: false, error: "PFX_BASE64_DECODE_FAILED", detail }),
@@ -391,13 +391,15 @@ Deno.serve(async (req) => {
     }
 
     // Tentar abrir o PFX com a senha
+    // deno-lint-ignore no-explicit-any
     let p12: any;
     try {
       const asn1 = forge.asn1.fromDer(pfxBinary);
       p12 = forge.pkcs12.pkcs12FromAsn1(asn1, password);
       console.log("[validate-certificate] PFX aberto com sucesso");
-    } catch (e: any) {
-      const errorMsg = e.message || "";
+    } catch (e) {
+      // deno-lint-ignore no-explicit-any
+      const errorMsg = (e as any).message || "";
       console.error("[validate-certificate] Erro ao abrir PFX:", errorMsg);
       
       // Mensagens de erro comuns - senha incorreta pode gerar várias mensagens diferentes
@@ -495,22 +497,21 @@ Deno.serve(async (req) => {
       cnpj_match: cnpjMatch,
     };
 
+    // Se expirado, adicionar erro
     if (isExpired) {
-      result.error = `Certificado expirado em ${validTo.toLocaleDateString("pt-BR")}`;
-    } else if (cnpjMatch === false) {
-      result.valid = false;
-      result.error = `CNPJ do certificado (${certCnpj}) não corresponde ao CNPJ da empresa (${expectedCnpj})`;
-    } else if (daysUntilExpiry <= 30) {
-      // Aviso se vai expirar em breve (mas ainda válido)
-      result.error = `Atenção: certificado expira em ${daysUntilExpiry} dias`;
+      result.error = "expired";
+      result.detail = `O certificado expirou em ${validTo.toLocaleDateString("pt-BR")}`;
+      result.code = "CERTIFICATE_EXPIRED";
     }
 
-    console.log("[validate-certificate] Resultado:", { 
-      valid: result.valid, 
-      cnpj: certCnpj,
-      expired: isExpired,
-      days: daysUntilExpiry 
-    });
+    // Se CNPJ não bate, avisar
+    if (cnpjMatch === false) {
+      result.error = "cnpj_mismatch";
+      result.detail = `O CNPJ do certificado (${certCnpj}) não corresponde ao CNPJ da empresa`;
+      result.code = "CNPJ_MISMATCH";
+    }
+
+    console.log("[validate-certificate] Resultado:", { valid: result.valid, cnpj: certCnpj, expired: isExpired, days: daysUntilExpiry });
 
     return new Response(
       JSON.stringify(result),
@@ -518,10 +519,10 @@ Deno.serve(async (req) => {
     );
 
   } catch (error: unknown) {
-    console.error("[validate-certificate] Erro:", error);
+    console.error("[validate-certificate] Erro geral:", error);
     const message = error instanceof Error ? error.message : "Erro interno";
     return new Response(
-      JSON.stringify({ valid: false, error: message }),
+      JSON.stringify({ valid: false, error: "internal_error", detail: message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
