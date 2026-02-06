@@ -211,10 +211,16 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     resetSync.mutate();
   };
 
+  // Verificar se cooldown está ativo (next_retry_at > now)
+  const cooldownActive = nextRetryAt && new Date(nextRetryAt) > new Date();
+  
+  // Reset só aparece se: (1) travado E (2) NÃO está em rate limit E (3) cooldown expirou
+  const canShowReset = isStuck && !isRateLimited && !cooldownActive;
+
   return (
     <div className="flex items-center gap-2">
-       {/* Botao de reset apenas quando travado */}
-       {isStuck && !isRateLimited && (
+       {/* Botao de reset apenas quando travado E sem cooldown ativo */}
+       {canShowReset && (
         <Button
           variant="destructive"
           size="sm"
@@ -230,6 +236,14 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
           )}
           Reiniciar
         </Button>
+      )}
+      
+      {/* Aviso quando travado mas precisa esperar cooldown */}
+      {isStuck && cooldownActive && (
+        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+          <Clock className="h-3 w-3 mr-1" />
+          Aguarde cooldown expirar
+        </Badge>
       )}
 
       {/* Dialog de detalhes */}
