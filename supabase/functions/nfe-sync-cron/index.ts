@@ -216,11 +216,15 @@ Deno.serve(async (req) => {
         });
 
         try {
-          // Normalizar URL (remover barra final se houver)
-          const normalizedWorkerUrl = workerUrl.replace(/\/+$/, '');
-          
+          // Normalizar URL base do worker:
+          // - remove barras finais
+          // - se a secret vier como ".../sync" (erro comum), remove o sufixo para não virar "/sync/sync"
+          const normalizedWorkerBaseUrl = workerUrl
+            .replace(/\/+$/, "")
+            .replace(/\/sync\/?$/, "");
+
           // Chamar worker com token de autenticação
-          const workerResponse = await fetch(`${normalizedWorkerUrl}/sync`, {
+          const workerResponse = await fetch(`${normalizedWorkerBaseUrl}/sync`, {
             method: "POST",
             headers: { 
               "Content-Type": "application/json",
