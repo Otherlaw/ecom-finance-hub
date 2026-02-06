@@ -338,38 +338,33 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       // ========================================
-      // BLOQUEIO REAL: Verificar next_retry_at INDEPENDENTE do status
+      // BLOQUEIO FORTE: Verificar next_retry_at (cooldown) ANTES de qualquer mudança de status
       // ========================================
       if (currentState?.next_retry_at) {
         const nextRetry = new Date(currentState.next_retry_at);
         const now = new Date();
-        
+
         if (now < nextRetry) {
-          const retryAtFormatted = nextRetry.toLocaleString('pt-BR', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-          
-          await logSync(supabaseAdmin, payload.empresa_id, "warn", `Bloqueio ativo: aguarde ate ${retryAtFormatted}`, {
-            next_retry_at: currentState.next_retry_at,
-            status: currentState.status,
-          });
-          
+          await logSync(
+            supabaseAdmin,
+            payload.empresa_id,
+            "warn",
+            `Start bloqueado por cooldown até ${currentState.next_retry_at}`,
+            {
+              next_retry_at: currentState.next_retry_at,
+              status: currentState.status,
+            }
+          );
+
           return new Response(
-            JSON.stringify({ 
-              error: `Aguarde ate ${retryAtFormatted} para nova tentativa (erro SEFAZ 656 anterior).`,
+            JSON.stringify({
+              success: false,
               code: "RATE_LIMITED",
               next_retry_at: currentState.next_retry_at,
-              status: currentState.status || "error"
             }),
             { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
-        // Se ja passou do tempo, continuar normalmente
-        await logSync(supabaseAdmin, payload.empresa_id, "info", "Periodo de cooldown expirou, permitindo nova sincronizacao");
       }
 
       // BLOQUEIO: Verificar se ja existe sync em andamento
@@ -411,12 +406,12 @@ Deno.serve(async (req) => {
       const syncId = crypto.randomUUID();
       const startedAt = new Date().toISOString();
 
-      // Atualizar estado para queued (limpar rate limit anterior).
-      // IMPORTANTE: o worker é quem transiciona queued -> running após passar no lock real.
+      // Atualizar estado para queued.
+      // IMPORTANTE: NÃO limpar next_retry_at aqui. Cooldown é controlado exclusivamente pelo worker.
+      // O worker é quem transiciona queued -> running após passar no lock real.
       const updatedState = await updateState(supabaseAdmin, payload.empresa_id, {
         status: "queued" as SyncStatus,
         last_error: null,
-        next_retry_at: null,
       });
 
       await logSync(supabaseAdmin, payload.empresa_id, "info", "Sincronizacao iniciada pelo usuario", { 

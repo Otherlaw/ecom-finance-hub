@@ -29,6 +29,7 @@ import {
 import { toast } from "sonner";
 import { useNfeCertificates } from "@/hooks/useNfeSyncStatus";
 import { supabase } from "@/integrations/supabase/client";
+import { shouldStartNfeSyncNow } from "@/lib/nfe-sync-guards";
 
 interface CertificadoSectionProps {
   empresaId?: string;
@@ -258,15 +259,26 @@ export function CertificadoSection({ empresaId, empresaCnpj, onCertificateSaved 
         uf,
       });
 
-      // Disparar sincronização automática
+      // Disparar sincronização automática (respeita cooldown)
       try {
-        await supabase.functions.invoke("nfe-sync-request", {
-          body: {
-            empresa_id: empresaId,
-            action: "start",
-          },
-        });
-        toast.success("Sincronização de NF-e iniciada automaticamente");
+        const guard = await shouldStartNfeSyncNow(empresaId);
+        if (guard.allowed === false) {
+          const formatted = new Date(guard.next_retry_at).toLocaleString("pt-BR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          toast.info(`Sync em cooldown até ${formatted}`);
+        } else {
+          await supabase.functions.invoke("nfe-sync-request", {
+            body: {
+              empresa_id: empresaId,
+              action: "start",
+            },
+          });
+          toast.success("Sincronização de NF-e iniciada automaticamente");
+        }
       } catch (syncError) {
         console.warn("Não foi possível iniciar sync automático:", syncError);
       }
