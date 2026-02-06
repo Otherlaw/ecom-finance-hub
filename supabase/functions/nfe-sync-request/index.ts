@@ -445,10 +445,12 @@ Deno.serve(async (req) => {
       try {
         // Normalizar URL (remover barra final se houver)
         const normalizedWorkerUrl = workerUrl.replace(/\/+$/, '');
+        const fullUrl = `${normalizedWorkerUrl}/sync`;
         
-        await logSync(supabaseAdmin, payload.empresa_id, "debug", `Chamando: ${normalizedWorkerUrl}/sync`, { sync_id: syncId });
+        console.log(`[nfe-sync-request] Chamando worker: ${fullUrl}`);
+        await logSync(supabaseAdmin, payload.empresa_id, "debug", `Chamando worker: ${fullUrl}`, { sync_id: syncId });
         
-        const workerResponse = await fetch(`${normalizedWorkerUrl}/sync`, {
+        const workerResponse = await fetch(fullUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -459,6 +461,8 @@ Deno.serve(async (req) => {
             sync_id: syncId,
           }),
         });
+        
+        console.log(`[nfe-sync-request] Worker response status: ${workerResponse.status}`);
 
         const workerData = await workerResponse.json().catch(() => ({}));
 
