@@ -443,30 +443,17 @@ Deno.serve(async (req) => {
        }
  
       try {
-        // Normalizar URL base do worker:
-        // - remove barras finais
-        // - se a secret vier como ".../sync" (erro comum), remove o sufixo para não virar "/sync/sync"
-        const normalizedWorkerBaseUrl = workerUrl
-          .replace(/\/+$/, "")
-          .replace(/\/sync\/?$/, "");
-        const fullUrl = `${normalizedWorkerBaseUrl}/sync`;
-        
-        console.log(`[nfe-sync-request] Chamando worker: ${fullUrl}`);
-        await logSync(supabaseAdmin, payload.empresa_id, "debug", `Chamando worker: ${fullUrl}`, { sync_id: syncId });
-        
-        const workerResponse = await fetch(fullUrl, {
+         const workerResponse = await fetch(`${workerUrl}/sync`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-worker-sync-token": workerToken,
+             "x-worker-sync-token": workerToken,
           },
           body: JSON.stringify({
             empresa_id: payload.empresa_id,
             sync_id: syncId,
           }),
         });
-        
-        console.log(`[nfe-sync-request] Worker response status: ${workerResponse.status}`);
 
         const workerData = await workerResponse.json().catch(() => ({}));
 
