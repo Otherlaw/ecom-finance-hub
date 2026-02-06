@@ -18,7 +18,7 @@ import { ICMSCalculatorModal } from "@/components/icms/ICMSCalculatorModal";
 import { ICMSRecommendationModal } from "@/components/icms/ICMSRecommendationModal";
 import { NfeSyncStatus } from "@/components/icms/NfeSyncStatus";
 import { NfeDocumentsTab } from "@/components/icms/NfeDocumentsTab";
-import { CertificadoModal } from "@/components/icms/CertificadoModal";
+
 import { AskAssistantButton } from "@/components/assistant/AskAssistantButton";
 import { useAssistantChatContext } from "@/contexts/AssistantChatContext";
 import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
@@ -30,7 +30,7 @@ import { EmpresaSelector } from "@/components/EmpresaSelector";
 import { 
   Receipt, AlertTriangle, TrendingDown, Calculator, 
   Upload, Lightbulb, Trash2, Edit2, Info, FileText,
-  CheckCircle2, Filter, Shield
+  CheckCircle2, Filter
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
@@ -47,7 +47,7 @@ export default function ICMS() {
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [recommendationOpen, setRecommendationOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [certificadoModalOpen, setCertificadoModalOpen] = useState(false);
+  
   const [editingCredit, setEditingCredit] = useState<CreditoICMSDB | null>(null);
   const [deletingCreditId, setDeletingCreditId] = useState<string | null>(null);
   
@@ -77,9 +77,6 @@ export default function ICMS() {
     deleteCredito
   } = useCreditosICMS(empresaAtiva?.id);
 
-  // Buscar status do certificado para empresa ativa
-  const { status: nfeStatus, isLoading: nfeLoading } = useNfeSyncStatus(empresaAtiva?.id);
-  const hasCertificate = nfeStatus?.has_certificate ?? false;
 
   const isLoading = empresasLoading || creditosLoading;
 
@@ -243,9 +240,6 @@ export default function ICMS() {
       subtitle="Gestão de créditos compensáveis e não compensáveis" 
       actions={
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => setCertificadoModalOpen(true)} title="Configurar Certificado A1">
-            <Shield className="h-4 w-4" />
-          </Button>
           <AskAssistantButton onClick={handleAskAssistant} label="Perguntar" />
           <Button variant="outline" className="gap-2" onClick={() => setXmlImportOpen(true)}>
             <Upload className="h-4 w-4" />Importar XML
@@ -271,23 +265,6 @@ export default function ICMS() {
         )}
       </div>
 
-      {/* Alerta quando não tem certificado */}
-      {!hasCertificate && empresaAtiva && !nfeLoading && (
-        <Alert className="mb-6 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
-          <Shield className="h-5 w-5 text-amber-600" />
-          <AlertTitle className="text-amber-800 dark:text-amber-300">Certificado Digital não configurado</AlertTitle>
-          <AlertDescription className="text-amber-700 dark:text-amber-400">
-            Configure o certificado A1 para sincronizar automaticamente as NF-e de entrada e gerar créditos de ICMS.
-            <Button 
-              variant="link" 
-              className="p-0 h-auto ml-2 text-amber-700 dark:text-amber-300 underline" 
-              onClick={() => setCertificadoModalOpen(true)}
-            >
-              Configurar agora
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
 
       {/* Tabs Principais: NF-e | Créditos ICMS */}
       <Tabs value={activeMainTab} onValueChange={(v) => setActiveMainTab(v as "nfe" | "creditos")} className="mb-6">
@@ -646,14 +623,6 @@ export default function ICMS() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Modal Certificado */}
-      {empresaAtiva?.id && (
-        <CertificadoModal
-          open={certificadoModalOpen}
-          onOpenChange={setCertificadoModalOpen}
-          empresaId={empresaAtiva.id}
-        />
-      )}
     </MainLayout>
   );
 }
