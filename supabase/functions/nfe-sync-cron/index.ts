@@ -40,16 +40,17 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const workerUrl = Deno.env.get("NFE_WORKER_URL");
+    // PADRONIZADO: usar BASE_URL sem path, construir endpoint com new URL()
+    const workerBaseUrl = Deno.env.get("NFE_WORKER_BASE_URL") || Deno.env.get("NFE_WORKER_URL");
     const workerToken = Deno.env.get("WORKER_INGEST_TOKEN");
     
     const supabase = createClient(supabaseUrl, serviceKey);
 
     // Validar configurações
-    if (!workerUrl) {
-      console.log("[nfe-sync-cron] NFE_WORKER_URL não configurado");
+    if (!workerBaseUrl) {
+      console.log("[nfe-sync-cron] NFE_WORKER_BASE_URL não configurado");
       return new Response(
-        JSON.stringify({ success: false, error: "NFE_WORKER_URL não configurado" }),
+        JSON.stringify({ success: false, error: "NFE_WORKER_BASE_URL não configurado" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -61,6 +62,10 @@ Deno.serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // Construir endpoint de forma segura (nunca duplica /sync/sync)
+    const workerEndpoint = new URL("/sync", workerBaseUrl).toString();
+    console.log(`[nfe-sync-cron] Worker endpoint construído: ${workerEndpoint}`);
 
     // Buscar empresas com certificado ativo
     const { data: certificates, error: certError } = await supabase
@@ -216,8 +221,8 @@ Deno.serve(async (req) => {
         });
 
         try {
-          // Chamar worker com token de autenticação
-          const workerResponse = await fetch(`${workerUrl}/sync`, {
+          // Chamar worker com token de autenticação (usando endpoint construído)
+          const workerResponse = await fetch(workerEndpoint, {
             method: "POST",
             headers: { 
               "Content-Type": "application/json",

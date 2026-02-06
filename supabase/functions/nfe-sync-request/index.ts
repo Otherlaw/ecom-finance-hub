@@ -307,10 +307,10 @@ Deno.serve(async (req) => {
     // ACTION: START - Iniciar sincronizacao
     // ========================================
     if (action === "start") {
-      // Verificar se worker URL esta configurado
-      const workerUrl = Deno.env.get("NFE_WORKER_URL");
-      if (!workerUrl) {
-        const errorMsg = "Worker nao configurado. Configure a variavel NFE_WORKER_URL.";
+      // PADRONIZADO: usar BASE_URL sem path, construir endpoint com new URL()
+      const workerBaseUrl = Deno.env.get("NFE_WORKER_BASE_URL") || Deno.env.get("NFE_WORKER_URL");
+      if (!workerBaseUrl) {
+        const errorMsg = "Worker nao configurado. Configure a variavel NFE_WORKER_BASE_URL.";
         await updateState(supabaseAdmin, payload.empresa_id, {
           status: "error",
           last_error: errorMsg,
@@ -325,6 +325,10 @@ Deno.serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
+
+      // Construir endpoint de forma segura (nunca duplica /sync/sync)
+      const workerEndpoint = new URL("/sync", workerBaseUrl).toString();
+      console.log(`[nfe-sync-request] Worker endpoint construído: ${workerEndpoint}`);
 
       // Verificar estado atual para bloqueio de concorrencia
       const { data: currentState } = await supabaseAdmin
@@ -422,8 +426,9 @@ Deno.serve(async (req) => {
       });
 
       // Chamar o worker externo
-      await logSync(supabaseAdmin, payload.empresa_id, "info", `Chamando worker externo: ${workerUrl}`, {
+      await logSync(supabaseAdmin, payload.empresa_id, "info", `Chamando worker externo: ${workerEndpoint}`, {
         sync_id: syncId,
+        base_url: workerBaseUrl,
       });
 
        // Obter token de autenticação do worker
@@ -443,7 +448,7 @@ Deno.serve(async (req) => {
        }
  
       try {
-         const workerResponse = await fetch(`${workerUrl}/sync`, {
+         const workerResponse = await fetch(workerEndpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
