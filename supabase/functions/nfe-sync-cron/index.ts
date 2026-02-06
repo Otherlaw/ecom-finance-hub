@@ -216,8 +216,11 @@ Deno.serve(async (req) => {
         });
 
         try {
+          // Normalizar URL (remover barra final se houver)
+          const normalizedWorkerUrl = workerUrl.replace(/\/+$/, '');
+          
           // Chamar worker com token de autenticação
-          const workerResponse = await fetch(`${workerUrl}/sync`, {
+          const workerResponse = await fetch(`${normalizedWorkerUrl}/sync`, {
             method: "POST",
             headers: { 
               "Content-Type": "application/json",

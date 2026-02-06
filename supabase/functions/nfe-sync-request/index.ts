@@ -443,11 +443,16 @@ Deno.serve(async (req) => {
        }
  
       try {
-         const workerResponse = await fetch(`${workerUrl}/sync`, {
+        // Normalizar URL (remover barra final se houver)
+        const normalizedWorkerUrl = workerUrl.replace(/\/+$/, '');
+        
+        await logSync(supabaseAdmin, payload.empresa_id, "debug", `Chamando: ${normalizedWorkerUrl}/sync`, { sync_id: syncId });
+        
+        const workerResponse = await fetch(`${normalizedWorkerUrl}/sync`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-             "x-worker-sync-token": workerToken,
+            "x-worker-sync-token": workerToken,
           },
           body: JSON.stringify({
             empresa_id: payload.empresa_id,
