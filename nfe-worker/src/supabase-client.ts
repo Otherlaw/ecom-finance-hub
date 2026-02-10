@@ -157,7 +157,8 @@ export class SupabaseWorkerClient {
    * Envia documentos para o endpoint de ingestao
    */
   async ingestDocuments(payload: IngestPayload): Promise<IngestResponse> {
-    const response = await fetch(`${this.supabaseUrl}/functions/v1/nfe-ingest`, {
+    const url = `${this.supabaseUrl}/functions/v1/nfe-ingest`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -167,8 +168,13 @@ export class SupabaseWorkerClient {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Erro na ingestao');
+      let bodyText: string;
+      try {
+        bodyText = await response.text();
+      } catch {
+        bodyText = '(não foi possível ler o body da resposta)';
+      }
+      throw new Error(`Ingest falhou (${response.status}) em ${url}: ${bodyText}`);
     }
 
     return response.json();
