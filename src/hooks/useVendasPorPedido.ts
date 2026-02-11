@@ -34,6 +34,7 @@ export interface PedidoAgregado {
   cmv_total: number | null;  // NULL se produto nao tem custo
   margem_contribuicao: number | null;  // NULL se CMV e NULL
   tem_cmv: boolean;  // Flag para indicar se CMV foi calculado
+  primeiro_anuncio_id: string | null;  // ID do primeiro anúncio do pedido (ex: MLB...)
 }
 
 /**
@@ -244,6 +245,7 @@ export function useVendasPorPedido({
         cmv_total: p.cmv_total != null ? Number(p.cmv_total) : null,
         margem_contribuicao: p.margem_contribuicao != null ? Number(p.margem_contribuicao) : null,
         tem_cmv: Boolean(p.tem_cmv),
+        primeiro_anuncio_id: p.primeiro_anuncio_id || null,
       }));
 
       return pedidos;
