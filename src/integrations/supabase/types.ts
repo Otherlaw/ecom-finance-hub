@@ -3909,9 +3909,9 @@ export type Database = {
           p_busca?: string
           p_canal?: string
           p_conta?: string
-          p_data_fim: string
-          p_data_inicio: string
-          p_empresa_id: string
+          p_data_fim?: string
+          p_data_inicio?: string
+          p_empresa_id?: string
           p_limit?: number
           p_offset?: number
           p_status?: string
