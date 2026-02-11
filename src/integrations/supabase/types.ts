@@ -4055,27 +4055,49 @@ export type Database = {
         Returns: number
       }
       refresh_dashboard_metricas: { Args: never; Returns: undefined }
-      registrar_movimento_financeiro: {
-        Args: {
-          p_categoria_id?: string
-          p_categoria_nome?: string
-          p_centro_custo_id?: string
-          p_centro_custo_nome?: string
-          p_cliente_nome?: string
-          p_data: string
-          p_descricao: string
-          p_empresa_id: string
-          p_forma_pagamento?: string
-          p_fornecedor_nome?: string
-          p_observacoes?: string
-          p_origem: Database["public"]["Enums"]["movimento_origem"]
-          p_referencia_id?: string
-          p_responsavel_id?: string
-          p_tipo: Database["public"]["Enums"]["movimento_tipo"]
-          p_valor: number
-        }
-        Returns: string
-      }
+      registrar_movimento_financeiro:
+        | {
+            Args: {
+              p_categoria_id?: string
+              p_categoria_nome?: string
+              p_centro_custo_id?: string
+              p_centro_custo_nome?: string
+              p_cliente_nome?: string
+              p_data: string
+              p_descricao: string
+              p_empresa_id: string
+              p_forma_pagamento?: string
+              p_fornecedor_nome?: string
+              p_observacoes?: string
+              p_origem: Database["public"]["Enums"]["movimento_origem"]
+              p_referencia_id?: string
+              p_responsavel_id?: string
+              p_tipo: Database["public"]["Enums"]["movimento_tipo"]
+              p_valor: number
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              p_categoria_id?: string
+              p_categoria_nome?: string
+              p_centro_custo_id?: string
+              p_centro_custo_nome?: string
+              p_cliente_nome?: string
+              p_data: string
+              p_descricao: string
+              p_empresa_id: string
+              p_forma_pagamento?: string
+              p_fornecedor_nome?: string
+              p_observacoes?: string
+              p_origem: string
+              p_referencia_id?: string
+              p_responsavel_id?: string
+              p_tipo: string
+              p_valor: number
+            }
+            Returns: string
+          }
       remove_user_from_empresa: {
         Args: { p_empresa_id: string; p_user_id: string }
         Returns: Json
