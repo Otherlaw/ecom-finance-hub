@@ -177,6 +177,16 @@ export class SupabaseWorkerClient {
       throw new Error(`Ingest falhou (${response.status}) em ${url}: ${bodyText}`);
     }
 
-    return response.json();
+    let resultText: string;
+    try {
+      resultText = await response.text();
+    } catch {
+      throw new Error(`Ingest OK (${response.status}) mas falhou ao ler body em ${url}`);
+    }
+    try {
+      return JSON.parse(resultText) as IngestResponse;
+    } catch {
+      throw new Error(`Ingest OK (${response.status}) mas body não é JSON válido em ${url}: ${resultText.substring(0, 500)}`);
+    }
   }
 }
