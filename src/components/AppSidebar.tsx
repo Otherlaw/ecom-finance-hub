@@ -162,7 +162,7 @@ export function AppSidebar() {
       {/* Logo */}
       <div className="flex items-center justify-between p-4 h-16">
         <div className={cn("flex items-center gap-3 overflow-hidden", collapsed && "justify-center w-full")}>
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+          <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 overflow-hidden">
             <img alt="Ecom Finance" className="w-10 h-10 object-cover" src="/lovable-uploads/logo-ecom-finance-icon.png" />
           </div>
           {!collapsed && (
