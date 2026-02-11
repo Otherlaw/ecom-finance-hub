@@ -1530,10 +1530,6 @@ Deno.serve(async (req) => {
               anuncio_id: item.item.id,
               produto_id: produtoId,
               batch_id: batch_id,
-              // Novos campos do payload completo
-              sale_fee: item.sale_fee || null,
-              category_id: item.item.category_id || null,
-              listing_type_id: item.listing_type_id || null,
             };
           });
 
