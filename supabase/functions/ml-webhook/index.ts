@@ -8,11 +8,18 @@ const corsHeaders = {
 /**
  * ML Webhook - Salva "rascunho" mínimo das vendas
  * 
- * REGRAS:
+ * VALIDAÇÃO DE ASSINATURA:
+ * - Usa webhook_secret salvo em integracao_config por empresa
+ * - Busca empresa(s) via user_id do payload → integracao_tokens
+ * - Para cada empresa, busca webhook_secret em integracao_config
+ * - Valida HMAC SHA-256 conforme docs ML
+ * - Se nenhuma empresa tiver secret configurado → 503
+ * - Se assinatura inválida para todas as empresas → 401
+ * 
+ * REGRAS DE DADOS:
  * - Webhook salva dados mínimos com tarifas/taxas como NULL (não calculado)
  * - Status = "pendente_sync" para indicar que precisa ser completado pelo sync
  * - O ml-sync-orders é o "dono" dos números reais
- * - Não usamos order.shipping.cost como frete_vendedor (incorreto)
  */
 
 Deno.serve(async (req) => {
@@ -25,27 +32,16 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // --- Validação de assinatura do Mercado Livre ---
+    // 1) Ler body cru e headers de assinatura
+    const rawBody = await req.text();
     const xSignature = req.headers.get("x-signature") || "";
     const xRequestId = req.headers.get("x-request-id") || "";
-    const bodyText = await req.text();
 
-    // Extrair ts e hash da assinatura: "ts=...,v1=..."
+    // 2) Extrair ts e hash da assinatura: "ts=...,v1=..."
     const tsPart = xSignature.split(",").find((p: string) => p.trim().startsWith("ts="));
     const hashPart = xSignature.split(",").find((p: string) => p.trim().startsWith("v1="));
     const ts = tsPart ? tsPart.split("=")[1] : "";
     const receivedHash = hashPart ? hashPart.split("=")[1] : "";
-
-    // Buscar webhook_secret do ML (application secret)
-    const mlWebhookSecret = Deno.env.get("ML_WEBHOOK_SECRET");
-
-    if (!mlWebhookSecret || mlWebhookSecret.length === 0) {
-      console.error("[ML Webhook] ML_WEBHOOK_SECRET não configurado - recusando processamento");
-      return new Response(
-        JSON.stringify({ error: "Webhook secret not configured" }),
-        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
 
     if (!ts || !receivedHash) {
       console.warn("[ML Webhook] Assinatura ausente no header X-Signature");
@@ -55,44 +51,31 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Montar string de validação conforme docs ML
-    const manifest = `id:${xRequestId};ts:${ts};${bodyText}`;
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(mlWebhookSecret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-    const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
-    const expectedHash = Array.from(new Uint8Array(sig))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    if (expectedHash !== receivedHash) {
-      console.warn("[ML Webhook] Assinatura inválida");
+    // 3) Parsear body para extrair user_id (necessário para descobrir empresa)
+    let body: any;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      console.error("[ML Webhook] Body não é JSON válido");
       return new Response(
-        JSON.stringify({ message: "Assinatura inválida" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ message: "Body inválido" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("[ML Webhook] Assinatura validada com sucesso");
-
-    const body = JSON.parse(bodyText);
-    
     console.log("[ML Webhook] Recebido:", JSON.stringify(body));
 
     const { resource, topic, user_id, application_id } = body;
 
-    if (!resource || !topic) {
+    if (!user_id) {
+      console.warn("[ML Webhook] user_id ausente no payload");
       return new Response(
-        JSON.stringify({ message: "Webhook recebido mas sem dados úteis" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ message: "user_id ausente" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Buscar empresas pelo user_id do ML
+    // 4) Buscar empresas pelo user_id do ML
     const { data: tokenDataList, error: tokenError } = await supabase
       .from("integracao_tokens")
       .select("empresa_id, access_token")
@@ -107,7 +90,98 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Processar para todas as empresas vinculadas
+    // 5) Para cada empresa, buscar webhook_secret e tentar validar assinatura
+    let signatureValid = false;
+    let anySecretConfigured = false;
+
+    for (const tokenData of tokenDataList) {
+      const { data: configRow } = await supabase
+        .from("integracao_config")
+        .select("webhook_secret")
+        .eq("empresa_id", tokenData.empresa_id)
+        .eq("provider", "mercado_livre")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const secret = configRow?.webhook_secret;
+      if (!secret || secret.length === 0) {
+        console.warn(`[ML Webhook] webhook_secret não configurado para empresa ${tokenData.empresa_id}`);
+        continue;
+      }
+
+      anySecretConfigured = true;
+
+      // Validar HMAC SHA-256 conforme docs ML
+      const manifest = `id:${xRequestId};ts:${ts};${rawBody}`;
+      const key = await crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(secret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
+      const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
+      const expectedHash = Array.from(new Uint8Array(sig))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+
+      if (expectedHash === receivedHash) {
+        signatureValid = true;
+        break;
+      }
+    }
+
+    // Fallback: tentar env var global ML_WEBHOOK_SECRET (compatibilidade)
+    if (!signatureValid) {
+      const globalSecret = Deno.env.get("ML_WEBHOOK_SECRET");
+      if (globalSecret && globalSecret.length > 0) {
+        anySecretConfigured = true;
+        const manifest = `id:${xRequestId};ts:${ts};${rawBody}`;
+        const key = await crypto.subtle.importKey(
+          "raw",
+          new TextEncoder().encode(globalSecret),
+          { name: "HMAC", hash: "SHA-256" },
+          false,
+          ["sign"]
+        );
+        const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
+        const expectedHash = Array.from(new Uint8Array(sig))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+
+        if (expectedHash === receivedHash) {
+          signatureValid = true;
+        }
+      }
+    }
+
+    if (!anySecretConfigured) {
+      console.error("[ML Webhook] Nenhum webhook_secret configurado (nem por empresa, nem global)");
+      return new Response(
+        JSON.stringify({ error: "Webhook secret not configured" }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!signatureValid) {
+      console.warn("[ML Webhook] Assinatura inválida para todas as empresas/secrets");
+      return new Response(
+        JSON.stringify({ message: "Assinatura inválida" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log("[ML Webhook] Assinatura validada com sucesso");
+
+    if (!resource || !topic) {
+      return new Response(
+        JSON.stringify({ message: "Webhook recebido mas sem dados úteis" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 6) Processar para todas as empresas vinculadas
     for (const tokenData of tokenDataList) {
       const empresa_id = tokenData.empresa_id;
 
@@ -151,7 +225,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error("[ML Webhook] Erro:", error);
     return new Response(
-      JSON.stringify({ message: "Erro processado", error: error instanceof Error ? error.message : "Erro desconhecido" }),
+      JSON.stringify({ message: "Erro interno" }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
@@ -159,18 +233,12 @@ Deno.serve(async (req) => {
 
 /**
  * Processa pedido do webhook - salva RASCUNHO mínimo
- * 
- * IMPORTANTE:
- * - Não tentamos calcular tarifas/taxas aqui (usamos NULL)
- * - Não usamos order.shipping.cost como frete_vendedor
- * - O sync vai completar com dados reais
  */
 async function processOrder(supabase: any, tokenData: any, resource: string, empresa_id: string) {
   try {
     const orderId = resource.split("/").pop();
     if (!orderId) return;
 
-    // Buscar detalhes do pedido
     const response = await fetch(`https://api.mercadolibre.com/orders/${orderId}`, {
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`,
@@ -184,20 +252,13 @@ async function processOrder(supabase: any, tokenData: any, resource: string, emp
 
     const order = await response.json();
 
-    // Valores básicos
     const valorBruto = order.total_amount;
-    
-    // RASCUNHO: não calcular tarifas/taxas aqui - deixar para o sync
-    // Colocar marketplace_fee como estimativa inicial, mas sync vai corrigir
     const marketplaceFeeEstimado = order.payments?.reduce(
       (sum: number, p: any) => sum + (p.marketplace_fee || 0), 
       0
     ) || 0;
-    
-    // valor_liquido = valor_bruto - taxas (regra padronizada)
     const valorLiquido = valorBruto - marketplaceFeeEstimado;
 
-    // Verificar se já existe usando a chave completa
     const { data: existing } = await supabase
       .from("marketplace_transactions")
       .select("id")
@@ -217,31 +278,24 @@ async function processOrder(supabase: any, tokenData: any, resource: string, emp
       tipo_transacao: "venda",
       valor_bruto: valorBruto,
       valor_liquido: valorLiquido,
-      taxas: marketplaceFeeEstimado, // Estimativa - sync vai corrigir
-      tarifas: 0, // Sync vai preencher com valor real
+      taxas: marketplaceFeeEstimado,
+      tarifas: 0,
       outros_descontos: 0,
       referencia_externa: String(order.id),
       pedido_id: String(order.id),
       origem_extrato: "webhook_mercado_livre",
-      // Status indica que precisa ser completado pelo sync
       status: order.status === "paid" ? "pendente_sync" : "pendente",
-      // NÃO preencher frete_vendedor - sync vai buscar via /shipments/{id}/costs
       frete_vendedor: 0,
       frete_comprador: 0,
       tipo_envio: null,
     };
 
     if (existing) {
-      // Só atualiza se o status atual for pendente (não sobrescrever dados do sync)
       await supabase
         .from("marketplace_transactions")
-        .update({
-          ...transactionData,
-          // Manter status se já foi processado pelo sync
-        })
+        .update(transactionData)
         .eq("id", existing.id)
         .in("status", ["pendente", "pendente_sync"]);
-        
       console.log(`[ML Webhook] Pedido ${order.id} atualizado (já existia)`);
     } else {
       const { data: newTx } = await supabase
@@ -250,7 +304,6 @@ async function processOrder(supabase: any, tokenData: any, resource: string, emp
         .select()
         .single();
 
-      // Inserir itens
       if (order.order_items && newTx) {
         for (const item of order.order_items) {
           await supabase.from("marketplace_transaction_items").insert({
@@ -264,11 +317,9 @@ async function processOrder(supabase: any, tokenData: any, resource: string, emp
           });
         }
       }
-      
       console.log(`[ML Webhook] Pedido ${order.id} criado como rascunho`);
     }
 
-    // Atualizar log
     await supabase.from("integracao_logs").insert({
       empresa_id,
       provider: "mercado_livre",
@@ -304,9 +355,7 @@ async function processPayment(supabase: any, tokenData: any, resource: string, e
     const payment = await response.json();
     console.log("[ML Webhook] Payment details:", payment.id, payment.status);
 
-    // Atualizar transação associada se existir
     if (payment.order_id) {
-      // Só atualiza status se for "approved" e ainda estiver pendente
       if (payment.status === "approved") {
         await supabase
           .from("marketplace_transactions")
