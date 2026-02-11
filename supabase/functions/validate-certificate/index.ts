@@ -350,19 +350,29 @@ Deno.serve(async (req) => {
 
     const { pfx_base64, password, cnpj, expected_cnpj, uf, environment } = body;
 
+    // Constantes de segurança
+    const MAX_CERT_SIZE_BYTES = 50 * 1024; // 50KB (certificados A1 são ~10KB)
+    const MAX_BASE64_LENGTH = Math.ceil(MAX_CERT_SIZE_BYTES * 1.4); // base64 overhead
+
     // Validar campos obrigatórios
-    if (!pfx_base64) {
-      console.error("[validate-certificate] Campo obrigatório faltando: pfx_base64");
+    if (!pfx_base64 || typeof pfx_base64 !== 'string') {
       return new Response(
-        JSON.stringify({ valid: false, error: "missing_field", field: "pfx_base64", detail: "O campo pfx_base64 é obrigatório" }),
+        JSON.stringify({ valid: false, error: "missing_field", field: "pfx_base64", detail: "O campo pfx_base64 é obrigatório", code: "INVALID_INPUT" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    if (!password) {
-      console.error("[validate-certificate] Campo obrigatório faltando: password");
+    if (!password || typeof password !== 'string') {
       return new Response(
-        JSON.stringify({ valid: false, error: "missing_field", field: "password", detail: "O campo password é obrigatório" }),
+        JSON.stringify({ valid: false, error: "missing_field", field: "password", detail: "O campo password é obrigatório", code: "INVALID_INPUT" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Validação de tamanho
+    if (pfx_base64.length > MAX_BASE64_LENGTH) {
+      return new Response(
+        JSON.stringify({ valid: false, error: "file_too_large", detail: "Certificado muito grande (máx 50KB)", code: "FILE_TOO_LARGE", field: "pfx_base64" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

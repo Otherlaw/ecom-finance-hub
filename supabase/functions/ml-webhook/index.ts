@@ -39,42 +39,45 @@ Deno.serve(async (req) => {
     // Buscar webhook_secret do ML (application secret)
     const mlWebhookSecret = Deno.env.get("ML_WEBHOOK_SECRET");
 
-    if (mlWebhookSecret && mlWebhookSecret.length > 0) {
-      if (!ts || !receivedHash) {
-        console.warn("[ML Webhook] Assinatura ausente no header X-Signature");
-        return new Response(
-          JSON.stringify({ message: "Assinatura ausente" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Montar string de validação conforme docs ML:
-      // manifest = "id:{x-request-id};ts:{ts};{bodyText}"  (para notificações com body)
-      const manifest = `id:${xRequestId};ts:${ts};${bodyText}`;
-      const key = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(mlWebhookSecret),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign"]
+    if (!mlWebhookSecret || mlWebhookSecret.length === 0) {
+      console.error("[ML Webhook] ML_WEBHOOK_SECRET não configurado - recusando processamento");
+      return new Response(
+        JSON.stringify({ error: "Webhook secret not configured" }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
-      const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
-      const expectedHash = Array.from(new Uint8Array(sig))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-
-      if (expectedHash !== receivedHash) {
-        console.warn("[ML Webhook] Assinatura inválida. Esperado:", expectedHash, "Recebido:", receivedHash);
-        return new Response(
-          JSON.stringify({ message: "Assinatura inválida" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      console.log("[ML Webhook] Assinatura validada com sucesso");
-    } else {
-      console.warn("[ML Webhook] ML_WEBHOOK_SECRET não configurado - validação de assinatura desativada");
     }
+
+    if (!ts || !receivedHash) {
+      console.warn("[ML Webhook] Assinatura ausente no header X-Signature");
+      return new Response(
+        JSON.stringify({ message: "Assinatura ausente" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Montar string de validação conforme docs ML
+    const manifest = `id:${xRequestId};ts:${ts};${bodyText}`;
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(mlWebhookSecret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
+    const expectedHash = Array.from(new Uint8Array(sig))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    if (expectedHash !== receivedHash) {
+      console.warn("[ML Webhook] Assinatura inválida");
+      return new Response(
+        JSON.stringify({ message: "Assinatura inválida" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log("[ML Webhook] Assinatura validada com sucesso");
 
     const body = JSON.parse(bodyText);
     
