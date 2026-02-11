@@ -25,6 +25,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MapearCmvModal } from "./MapearCmvModal";
 import { MapearItensPedidoModal } from "./MapearItensPedidoModal";
+import { MlThumbnail } from "./MlThumbnail";
 
 interface PedidosTableRowProps {
   pedido: PedidoAgregado;
@@ -202,6 +203,9 @@ export function PedidosTableRow({
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           )}
         </TableCell>
+        <TableCell className="w-[50px] p-1">
+          <MlThumbnail anuncioId={pedido.primeiro_anuncio_id} size={36} />
+        </TableCell>
         <TableCell>
           <Badge variant="outline" className="text-xs">
             {pedido.canal}
@@ -371,8 +375,8 @@ export function PedidosTableRow({
       {expanded && (
         <>
           {/* Resumo financeiro do pedido */}
-          <TableRow className="bg-muted/20 border-l-4 border-l-primary/30">
-            <TableCell colSpan={12}>
+           <TableRow className="bg-muted/20 border-l-4 border-l-primary/30">
+             <TableCell colSpan={15}>
               <div className="py-3 px-4">
                 <p className="text-sm font-medium mb-3">Resumo do Pedido #{pedido.pedido_id}</p>
                 
@@ -483,7 +487,7 @@ export function PedidosTableRow({
           {/* Lista de itens */}
           {isLoadingItens ? (
             <TableRow>
-              <TableCell colSpan={12} className="bg-muted/10">
+             <TableCell colSpan={15} className="bg-muted/10">
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
                   <span className="text-sm text-muted-foreground">Carregando itens...</span>
@@ -492,7 +496,7 @@ export function PedidosTableRow({
             </TableRow>
           ) : itens.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={14} className="bg-muted/10">
+              <TableCell colSpan={15} className="bg-muted/10">
                 <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-3">
                   <Package className="h-8 w-8 opacity-50" />
                   <span className="text-sm font-medium">Itens pendentes de sincronização</span>
@@ -520,8 +524,8 @@ export function PedidosTableRow({
           ) : (
             <>
               {/* Header dos itens com botão de mapeamento em lote */}
-              <TableRow className="bg-muted/10">
-                <TableCell>
+               <TableRow className="bg-muted/10">
+                <TableCell colSpan={2}>
                   {itens.some(i => i.sem_produto) && (
                     <Button
                       variant="outline"
@@ -536,6 +540,9 @@ export function PedidosTableRow({
                       Mapear Todos
                     </Button>
                   )}
+                </TableCell>
+                <TableCell className="text-xs font-medium text-muted-foreground">
+                  Imagem
                 </TableCell>
                 <TableCell className="text-xs font-medium text-muted-foreground">
                   SKU Marketplace
@@ -596,6 +603,9 @@ export function PedidosTableRow({
                           </TooltipContent>
                         </Tooltip>
                       )}
+                    </TableCell>
+                    <TableCell className="p-1">
+                      <MlThumbnail anuncioId={item.anuncio_id} size={32} />
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">

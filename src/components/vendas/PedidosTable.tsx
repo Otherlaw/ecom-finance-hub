@@ -171,6 +171,7 @@ export function PedidosTable({
           <TableHeader className="sticky top-0 bg-background z-10">
             <TableRow>
               <TableHead className="w-[30px]"></TableHead>
+              <TableHead className="w-[50px]"></TableHead>
               <TableHead className="w-[80px]">Canal</TableHead>
               <TableHead className="w-[120px]">Empresa</TableHead>
               <TableHead className="w-[110px]">Nº Pedido</TableHead>
