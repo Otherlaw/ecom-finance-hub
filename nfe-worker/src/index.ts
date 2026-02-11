@@ -483,8 +483,9 @@ async function syncEmpresa(empresaId: string): Promise<{
               }
 
             } catch (error) {
-              console.error('[SYNC] Erro no lote:', error);
-              await supabase.log(empresaId, 'error', `Erro ao processar lote: ${error}`);
+              const errMsg = error instanceof Error ? error.message : String(error);
+              console.error('[SYNC] Erro no lote de ingestao:', errMsg);
+              await supabase.log(empresaId, 'error', `Erro no ingest: ${errMsg}`);
             }
           }
         }
