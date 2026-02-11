@@ -163,9 +163,9 @@ export function AppSidebar() {
     navigate("/perfil");
   };
 
-  const userInitials = profile?.nome 
-    ? profile.nome.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
-    : user?.email?.[0]?.toUpperCase() || "U";
+  const userInitials = profile?.nome ?
+  profile.nome.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase() :
+  user?.email?.[0]?.toUpperCase() || "U";
 
   const userName = profile?.nome || "Usuário";
   const userEmail = user?.email || "Não logado";
@@ -191,15 +191,15 @@ export function AppSidebar() {
       {/* Navigation */}
       <ScrollArea className="flex-1 px-3 py-4">
         <nav className="space-y-1">
-          {mainNavItems.map(item => {
+          {mainNavItems.map((item) => {
           const isActive = location.pathname === item.href;
           return <NavLink key={item.href} to={item.href} className={cn("flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200", isActive ? "bg-primary text-primary-foreground shadow-primary" : "text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent", collapsed && "justify-center px-2")}>
                 <item.icon className={cn("h-5 w-5 flex-shrink-0", isActive && "text-primary-foreground")} />
                 {!collapsed && <>
                     <span className="flex-1">{item.title}</span>
-                    {item.badge && <span className="bg-warning text-warning-foreground text-xs font-bold px-1.5 py-0.5 rounded">
-                        {item.badge}
-                      </span>}
+                    {item.badge
+
+              }
                   </>}
               </NavLink>;
         })}
@@ -208,7 +208,7 @@ export function AppSidebar() {
         <Separator className="bg-sidebar-border my-4" />
 
         <nav className="space-y-1">
-          {settingsNavItems.map(item => {
+          {settingsNavItems.map((item) => {
           const isActive = location.pathname === item.href;
           return <NavLink key={item.href} to={item.href} className={cn("flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200", isActive ? "bg-primary text-primary-foreground" : "text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent", collapsed && "justify-center px-2")}>
                 <item.icon className="h-5 w-5 flex-shrink-0" />
@@ -221,31 +221,31 @@ export function AppSidebar() {
       {/* User Section */}
       <div className="p-3 border-t border-sidebar-border">
         <div className={cn("flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent transition-colors", collapsed && "justify-center")}>
-          <div 
-            onClick={handleProfileClick}
-            className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 cursor-pointer hover:bg-primary/30 transition-colors"
-          >
+          <div
+          onClick={handleProfileClick}
+          className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 cursor-pointer hover:bg-primary/30 transition-colors">
+
             <span className="text-primary font-semibold text-sm">{userInitials}</span>
           </div>
-          {!collapsed && (
-            <div 
-              onClick={handleProfileClick}
-              className="flex-1 min-w-0 cursor-pointer"
-            >
+          {!collapsed &&
+        <div
+          onClick={handleProfileClick}
+          className="flex-1 min-w-0 cursor-pointer">
+
               <p className="text-sm font-medium text-sidebar-accent-foreground truncate">{userName}</p>
               <p className="text-xs text-sidebar-foreground truncate">{userEmail}</p>
             </div>
-          )}
-          {!collapsed && (
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={handleLogout}
-              className="h-8 w-8 text-sidebar-foreground hover:text-destructive"
-            >
+        }
+          {!collapsed &&
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleLogout}
+          className="h-8 w-8 text-sidebar-foreground hover:text-destructive">
+
               <LogOut className="h-4 w-4" />
             </Button>
-          )}
+        }
         </div>
       </div>
     </aside>;
