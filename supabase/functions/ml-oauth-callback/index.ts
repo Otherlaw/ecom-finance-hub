@@ -101,10 +101,11 @@ Deno.serve(async (req) => {
     });
 
     if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      console.error("[ML OAuth Callback] Erro ao obter tokens:", errorText);
+      console.error("[ML OAuth Callback] Token exchange failed", { 
+        status: tokenResponse.status,
+      });
       return new Response(
-        JSON.stringify({ error: "Falha ao obter tokens do Mercado Livre", details: errorText }),
+        JSON.stringify({ error: "Falha ao conectar com Mercado Livre", code: "TOKEN_EXCHANGE_FAILED" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

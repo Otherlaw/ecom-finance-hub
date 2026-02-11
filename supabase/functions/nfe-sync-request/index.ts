@@ -217,7 +217,7 @@ Deno.serve(async (req) => {
     // Verificar se usuario tem acesso a empresa
     const { data: userEmpresa, error: accessError } = await supabase
       .from("user_empresas")
-      .select("id")
+      .select("id, role_na_empresa")
       .eq("user_id", userId)
       .eq("empresa_id", payload.empresa_id)
       .maybeSingle();
@@ -225,6 +225,15 @@ Deno.serve(async (req) => {
     if (accessError || !userEmpresa) {
       return new Response(
         JSON.stringify({ error: "Acesso negado a esta empresa" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Ações críticas (start, reset) exigem role elevado
+    if ((action === "start" || action === "reset") && 
+        !["dono", "admin"].includes(userEmpresa.role_na_empresa)) {
+      return new Response(
+        JSON.stringify({ error: "Apenas donos e admins podem iniciar ou resetar sincronização" }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
