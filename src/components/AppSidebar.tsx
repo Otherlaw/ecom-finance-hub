@@ -7,8 +7,8 @@ import {
   FileText, Scale, TrendingUp, LineChart, Receipt, RefreshCw, ClipboardCheck,
   Package, ShoppingCart, CreditCard, Truck, Calculator, Settings,
   ChevronLeft, ChevronRight, Building2, Users, LogOut, Bot, FolderTree,
-  List, Sparkles, PenLine, BarChart3, Store, Link2, Landmark,
-} from "lucide-react";
+  List, Sparkles, PenLine, BarChart3, Store, Link2, Landmark } from
+"lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -26,64 +26,64 @@ interface NavSection {
 }
 
 const navSections: NavSection[] = [
-  {
-    title: "Visão geral",
-    items: [
-      { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-      { title: "Vendas", href: "/vendas", icon: Store, badge: "NOVO" },
-      { title: "Assis.Fin", href: "/assistant", icon: Bot, badge: "IA" },
-    ],
-  },
-  {
-    title: "Financeiro",
-    items: [
-      { title: "Fechamento Mensal", href: "/fechamento", icon: CalendarCheck },
-      { title: "Checklist por Canal", href: "/checklist-fechamento", icon: ClipboardCheck },
-      { title: "Fluxo de Caixa", href: "/fluxo-caixa", icon: Wallet },
-      { title: "DRE", href: "/dre", icon: FileText },
-      { title: "Balanço Patrimonial", href: "/balanco", icon: Scale },
-      { title: "Patrimônio & Imobilizado", href: "/patrimonio", icon: Landmark },
-      { title: "Crédito ICMS", href: "/icms", icon: Receipt, badge: "!" },
-      { title: "Conciliações", href: "/conciliacao", icon: RefreshCw },
-    ],
-  },
-  {
-    title: "Indicadores",
-    items: [
-      { title: "KPIs", href: "/kpis", icon: TrendingUp },
-      { title: "Projeções", href: "/projecoes", icon: LineChart },
-    ],
-  },
-  {
-    title: "Operação",
-    items: [
-      { title: "Produtos", href: "/produtos", icon: Package },
-      { title: "Estoque SKU", href: "/estoque-sku", icon: Package, badge: "V1" },
-      { title: "CMV & Margem", href: "/cmv", icon: BarChart3, badge: "V1" },
-      { title: "Compras", href: "/compras", icon: ShoppingCart },
-      { title: "Contas a Pagar", href: "/contas-pagar", icon: CreditCard },
-      { title: "Contas a Receber", href: "/contas-receber", icon: TrendingUp },
-      { title: "Cartões de Crédito", href: "/cartao-credito", icon: CreditCardIcon },
-      { title: "Fornecedores", href: "/fornecedores", icon: Truck },
-      { title: "Precificação", href: "/precificacao", icon: Calculator },
-      { title: "Movimentações Manuais", href: "/movimentacoes-manuais", icon: PenLine },
-    ],
-  },
-];
+{
+  title: "Visão geral",
+  items: [
+  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { title: "Vendas", href: "/vendas", icon: Store, badge: "NOVO" },
+  { title: "Assis.Fin", href: "/assistant", icon: Bot, badge: "IA" }]
+
+},
+{
+  title: "Financeiro",
+  items: [
+  { title: "Fechamento Mensal", href: "/fechamento", icon: CalendarCheck },
+  { title: "Checklist por Canal", href: "/checklist-fechamento", icon: ClipboardCheck },
+  { title: "Fluxo de Caixa", href: "/fluxo-caixa", icon: Wallet },
+  { title: "DRE", href: "/dre", icon: FileText },
+  { title: "Balanço Patrimonial", href: "/balanco", icon: Scale },
+  { title: "Patrimônio & Imobilizado", href: "/patrimonio", icon: Landmark },
+  { title: "Crédito ICMS", href: "/icms", icon: Receipt, badge: "!" },
+  { title: "Conciliações", href: "/conciliacao", icon: RefreshCw }]
+
+},
+{
+  title: "Indicadores",
+  items: [
+  { title: "KPIs", href: "/kpis", icon: TrendingUp },
+  { title: "Projeções", href: "/projecoes", icon: LineChart }]
+
+},
+{
+  title: "Operação",
+  items: [
+  { title: "Produtos", href: "/produtos", icon: Package },
+  { title: "Estoque SKU", href: "/estoque-sku", icon: Package, badge: "V1" },
+  { title: "CMV & Margem", href: "/cmv", icon: BarChart3, badge: "V1" },
+  { title: "Compras", href: "/compras", icon: ShoppingCart },
+  { title: "Contas a Pagar", href: "/contas-pagar", icon: CreditCard },
+  { title: "Contas a Receber", href: "/contas-receber", icon: TrendingUp },
+  { title: "Cartões de Crédito", href: "/cartao-credito", icon: CreditCardIcon },
+  { title: "Fornecedores", href: "/fornecedores", icon: Truck },
+  { title: "Precificação", href: "/precificacao", icon: Calculator },
+  { title: "Movimentações Manuais", href: "/movimentacoes-manuais", icon: PenLine }]
+
+}];
+
 
 const settingsSection: NavSection = {
   title: "Configurações",
   items: [
-    { title: "Integrações", href: "/integracoes", icon: Link2 },
-    { title: "Empresas", href: "/empresas", icon: Building2 },
-    { title: "Centros de Custo", href: "/centros-custo", icon: FolderTree },
-    { title: "Plano de Contas", href: "/plano-contas", icon: List },
-    { title: "Regras Categorização", href: "/regras-categorizacao", icon: Sparkles },
-    { title: "Regras Marketplace", href: "/regras-marketplace", icon: Store },
-    { title: "Mapeamentos MLB ↔ SKU", href: "/mapeamentos-marketplace", icon: Link2 },
-    { title: "Usuários", href: "/usuarios", icon: Users },
-    { title: "Configurações", href: "/configuracoes", icon: Settings },
-  ],
+  { title: "Integrações", href: "/integracoes", icon: Link2 },
+  { title: "Empresas", href: "/empresas", icon: Building2 },
+  { title: "Centros de Custo", href: "/centros-custo", icon: FolderTree },
+  { title: "Plano de Contas", href: "/plano-contas", icon: List },
+  { title: "Regras Categorização", href: "/regras-categorizacao", icon: Sparkles },
+  { title: "Regras Marketplace", href: "/regras-marketplace", icon: Store },
+  { title: "Mapeamentos MLB ↔ SKU", href: "/mapeamentos-marketplace", icon: Link2 },
+  { title: "Usuários", href: "/usuarios", icon: Users },
+  { title: "Configurações", href: "/configuracoes", icon: Settings }]
+
 };
 
 export function AppSidebar() {
@@ -101,16 +101,16 @@ export function AppSidebar() {
     navigate("/perfil");
   };
 
-  const userInitials = profile?.nome
-    ? profile.nome.split(" ").map((n) => n[0]).join("").substring(0, 2).toUpperCase()
-    : user?.email?.[0]?.toUpperCase() || "U";
+  const userInitials = profile?.nome ?
+  profile.nome.split(" ").map((n) => n[0]).join("").substring(0, 2).toUpperCase() :
+  user?.email?.[0]?.toUpperCase() || "U";
 
   const userName = profile?.nome || "Usuário";
   const userEmail = user?.email || "Não logado";
 
   const isActive = (href: string) =>
-    location.pathname === href ||
-    (href !== "/" && location.pathname.startsWith(href + "/"));
+  location.pathname === href ||
+  href !== "/" && location.pathname.startsWith(href + "/");
 
   const renderItem = (item: NavItem) => {
     const active = isActive(item.href);
@@ -120,57 +120,57 @@ export function AppSidebar() {
         to={item.href}
         className={cn(
           "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-          active
-            ? "bg-primary text-primary-foreground shadow-primary"
-            : "text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent",
+          active ?
+          "bg-primary text-primary-foreground shadow-primary" :
+          "text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent",
           collapsed && "justify-center px-2"
-        )}
-      >
+        )}>
+
         <item.icon className={cn("h-5 w-5 flex-shrink-0", active && "text-primary-foreground")} />
-        {!collapsed && (
-          <>
+        {!collapsed &&
+        <>
             <span className="flex-1">{item.title}</span>
-            {item.badge && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary leading-none">
+            {item.badge &&
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary leading-none">
                 {item.badge}
               </span>
-            )}
+          }
           </>
-        )}
-      </NavLink>
-    );
+        }
+      </NavLink>);
+
   };
 
-  const renderSection = (section: NavSection) => (
-    <div key={section.title} className="mb-2">
-      {!collapsed && (
-        <span className="px-3 mb-2 block text-[11px] uppercase tracking-wide text-sidebar-foreground/60 font-semibold">
+  const renderSection = (section: NavSection) =>
+  <div key={section.title} className="mb-2">
+      {!collapsed &&
+    <span className="px-3 mb-2 block text-[11px] uppercase tracking-wide text-sidebar-foreground/60 font-semibold">
           {section.title}
         </span>
-      )}
+    }
       <div className="space-y-0.5">{section.items.map(renderItem)}</div>
-    </div>
-  );
+    </div>;
+
 
   return (
     <aside
       className={cn(
         "h-screen bg-sidebar flex flex-col border-r border-sidebar-border transition-all duration-300 ease-in-out",
         collapsed ? "w-[72px]" : "w-[260px]"
-      )}
-    >
+      )}>
+
       {/* Logo */}
       <div className="flex items-center justify-between p-4 h-16">
         <div className={cn("flex items-center gap-3 overflow-hidden", collapsed && "justify-center w-full")}>
           <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 overflow-hidden">
-            <img alt="Ecom Finance" className="w-10 h-10 object-cover" src="/lovable-uploads/logo-ecom-finance-icon.png" />
+            <img alt="Ecom Finance" className="w-10 h-10 object-cover" src="/lovable-uploads/1a064bb8-984a-4697-8696-36980204c2f3.png" />
           </div>
-          {!collapsed && (
-            <div className="flex flex-col">
+          {!collapsed &&
+          <div className="flex flex-col">
               <span className="font-bold text-sidebar-accent-foreground text-sm">ECOM</span>
               <span className="text-primary text-xs font-semibold -mt-1">FINANCE</span>
             </div>
-          )}
+          }
         </div>
         <Button
           variant="ghost"
@@ -179,8 +179,8 @@ export function AppSidebar() {
           className={cn(
             "h-8 w-8 text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent",
             collapsed && "absolute right-2"
-          )}
-        >
+          )}>
+
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </Button>
       </div>
@@ -205,23 +205,23 @@ export function AppSidebar() {
         <div className={cn("flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent transition-colors", collapsed && "justify-center")}>
           <div
             onClick={handleProfileClick}
-            className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 cursor-pointer hover:bg-primary/30 transition-colors"
-          >
+            className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 cursor-pointer hover:bg-primary/30 transition-colors">
+
             <span className="text-primary font-semibold text-sm">{userInitials}</span>
           </div>
-          {!collapsed && (
-            <div onClick={handleProfileClick} className="flex-1 min-w-0 cursor-pointer">
+          {!collapsed &&
+          <div onClick={handleProfileClick} className="flex-1 min-w-0 cursor-pointer">
               <p className="text-sm font-medium text-sidebar-accent-foreground truncate">{userName}</p>
               <p className="text-xs text-sidebar-foreground truncate">{userEmail}</p>
             </div>
-          )}
-          {!collapsed && (
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 text-sidebar-foreground hover:text-destructive">
+          }
+          {!collapsed &&
+          <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 text-sidebar-foreground hover:text-destructive">
               <LogOut className="h-4 w-4" />
             </Button>
-          )}
+          }
         </div>
       </div>
-    </aside>
-  );
+    </aside>);
+
 }
