@@ -21,7 +21,62 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const body = await req.json();
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // --- Validação de assinatura do Mercado Livre ---
+    const xSignature = req.headers.get("x-signature") || "";
+    const xRequestId = req.headers.get("x-request-id") || "";
+    const bodyText = await req.text();
+
+    // Extrair ts e hash da assinatura: "ts=...,v1=..."
+    const tsPart = xSignature.split(",").find((p: string) => p.trim().startsWith("ts="));
+    const hashPart = xSignature.split(",").find((p: string) => p.trim().startsWith("v1="));
+    const ts = tsPart ? tsPart.split("=")[1] : "";
+    const receivedHash = hashPart ? hashPart.split("=")[1] : "";
+
+    // Buscar webhook_secret do ML (application secret)
+    const mlWebhookSecret = Deno.env.get("ML_WEBHOOK_SECRET");
+
+    if (mlWebhookSecret && mlWebhookSecret.length > 0) {
+      if (!ts || !receivedHash) {
+        console.warn("[ML Webhook] Assinatura ausente no header X-Signature");
+        return new Response(
+          JSON.stringify({ message: "Assinatura ausente" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Montar string de validação conforme docs ML:
+      // manifest = "id:{x-request-id};ts:{ts};{bodyText}"  (para notificações com body)
+      const manifest = `id:${xRequestId};ts:${ts};${bodyText}`;
+      const key = await crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(mlWebhookSecret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
+      const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
+      const expectedHash = Array.from(new Uint8Array(sig))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+
+      if (expectedHash !== receivedHash) {
+        console.warn("[ML Webhook] Assinatura inválida. Esperado:", expectedHash, "Recebido:", receivedHash);
+        return new Response(
+          JSON.stringify({ message: "Assinatura inválida" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log("[ML Webhook] Assinatura validada com sucesso");
+    } else {
+      console.warn("[ML Webhook] ML_WEBHOOK_SECRET não configurado - validação de assinatura desativada");
+    }
+
+    const body = JSON.parse(bodyText);
     
     console.log("[ML Webhook] Recebido:", JSON.stringify(body));
 
@@ -33,10 +88,6 @@ Deno.serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Buscar empresas pelo user_id do ML
     const { data: tokenDataList, error: tokenError } = await supabase
