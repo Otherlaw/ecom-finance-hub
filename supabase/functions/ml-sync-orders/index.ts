@@ -59,6 +59,7 @@ interface MLPayment {
 
 interface MLOrder {
   id: number;
+  pack_id?: number | null;
   status: string;
   date_created: string;
   date_closed: string;
@@ -1263,6 +1264,7 @@ Deno.serve(async (req) => {
         // Raw order para auditoria (incluindo order_items para fallback de mapeamento)
         const rawOrder = {
           id: order.id,
+          pack_id: order.pack_id || null,
           status: order.status,
           date_created: order.date_created,
           date_closed: order.date_closed,
@@ -1310,7 +1312,7 @@ Deno.serve(async (req) => {
           seller_id: tokenState.user_id_provider,
           shipment_id: order.shipping?.id ? String(order.shipping.id) : null,
           data_transacao: dataTransacao,
-          descricao: `Venda #${order.id}${buyerNickname ? ` - ${buyerNickname}` : ''}`,
+          descricao: `Venda #${order.pack_id || order.id}${buyerNickname ? ` - ${buyerNickname}` : ''}`,
           tipo_lancamento: "credito",
           tipo_transacao: "venda",
           valor_bruto: valorBruto,
@@ -1319,7 +1321,7 @@ Deno.serve(async (req) => {
           tarifas: tarifasLegado,
           outros_descontos: 0,
           referencia_externa: String(order.id),
-          pedido_id: String(order.id),
+          pedido_id: String(order.pack_id || order.id),
           origem_extrato: "api_mercado_livre",
           status: order.status === "paid" ? "importado" : "pendente",
           tipo_envio: tipoEnvio,
@@ -1385,12 +1387,12 @@ Deno.serve(async (req) => {
             empresa_id,
             canal: "Mercado Livre",
             event_id: `order_${order.id}_comissao`,
-            pedido_id: String(order.id),
+            pedido_id: String(order.pack_id || order.id),
             conta_nome: contaNome,
             tipo_evento: "comissao",
             data_evento: dataTransacao,
             valor: -comissao,
-            descricao: `Comissão ML pedido #${order.id}`,
+            descricao: `Comissão ML pedido #${order.pack_id || order.id}`,
             origem: origemEventos,
             metadados: usouFallback ? { fallback: true } : (usouSaleFee ? { from_sale_fee: true } : null),
           });
@@ -1401,12 +1403,12 @@ Deno.serve(async (req) => {
             empresa_id,
             canal: "Mercado Livre",
             event_id: `order_${order.id}_tarifa_fixa`,
-            pedido_id: String(order.id),
+            pedido_id: String(order.pack_id || order.id),
             conta_nome: contaNome,
             tipo_evento: "tarifa_fixa",
             data_evento: dataTransacao,
             valor: -tarifaFixa,
-            descricao: `Tarifa fixa pedido #${order.id}`,
+            descricao: `Tarifa fixa pedido #${order.pack_id || order.id}`,
             origem: usouListingPrices ? "estimado_listing_prices" : origemEventos,
             metadados: usouListingPrices ? { estimado: true, from_listing_prices: true } : null,
           });
@@ -1417,12 +1419,12 @@ Deno.serve(async (req) => {
             empresa_id,
             canal: "Mercado Livre",
             event_id: `order_${order.id}_tarifa_financeira`,
-            pedido_id: String(order.id),
+            pedido_id: String(order.pack_id || order.id),
             conta_nome: contaNome,
             tipo_evento: "tarifa_financeira",
             data_evento: dataTransacao,
             valor: -tarifaFinanceira,
-            descricao: `Tarifa financeira pedido #${order.id}`,
+            descricao: `Tarifa financeira pedido #${order.pack_id || order.id}`,
             origem: origemEventos,
           });
         }
@@ -1432,12 +1434,12 @@ Deno.serve(async (req) => {
             empresa_id,
             canal: "Mercado Livre",
             event_id: `order_${order.id}_frete_vendedor`,
-            pedido_id: String(order.id),
+            pedido_id: String(order.pack_id || order.id),
             conta_nome: contaNome,
             tipo_evento: "frete_vendedor",
             data_evento: dataTransacao,
             valor: -freteVendedor,
-            descricao: `Frete vendedor pedido #${order.id}`,
+            descricao: `Frete vendedor pedido #${order.pack_id || order.id}`,
             origem: "api_shipping_costs",
           });
         }
