@@ -152,10 +152,6 @@ export function AssistantWidget() {
             )}
           </div>
 
-          {/* Animação ping */}
-          {!isChatOpen && (
-            <div className="absolute inset-0 rounded-full animate-ping opacity-20 bg-indigo-500" />
-          )}
 
           {/* Badge de contagem */}
           {unreadCount > 0 && !isSilenced && !isChatOpen && (
