@@ -40,6 +40,14 @@ export function useVendasPendentes(params?: UseVendasPendentesParams) {
         .is("produto_id", null)
         .not("sku_marketplace", "is", null);
 
+      // Filtrar por empresa no banco para evitar carregar tudo
+      if (params?.empresaId) {
+        query = query.eq("marketplace_transactions.empresa_id", params.empresaId);
+      }
+
+      // Limitar resultado para evitar timeout
+      query = query.limit(2000);
+
       const { data, error } = await query;
       
       if (error) {
