@@ -8,7 +8,7 @@ import { useFluxoCaixa } from "@/hooks/useFluxoCaixa";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
-import { EmpresaFilter } from "@/components/EmpresaFilter";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -35,7 +35,7 @@ export default function Dashboard() {
   
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
-  const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
+  const { empresaAtiva } = useEmpresaAtiva();
 
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
@@ -45,15 +45,11 @@ export default function Dashboard() {
     });
   };
 
-  const handleEmpresaChange = (value: string) => {
-    setEmpresaSelecionada(value);
-  };
-
   const periodoInicio = format(dateRange.from, "yyyy-MM-dd");
   const periodoFim = format(dateRange.to, "yyyy-MM-dd");
   
-  // ID da empresa para filtros (null = todas)
-  const empresaIdFiltro = empresaSelecionada !== "todas" ? empresaSelecionada : undefined;
+  // ID da empresa ativa global (undefined = todas/nenhuma selecionada)
+  const empresaIdFiltro = empresaAtiva?.id;
 
   // Hook UNIFICADO para todos os KPIs do período COM COMPARATIVO
   const {
@@ -378,7 +374,6 @@ export default function Dashboard() {
     }];
   }, [kpis, contasPagarResumo, contasReceberResumo, fluxoResumo, channelData]);
   return <MainLayout title="Dashboard Executivo" subtitle="Visão geral consolidada do seu e-commerce" actions={<div className="flex items-center gap-3 flex-wrap">
-          <EmpresaFilter value={empresaSelecionada} onChange={handleEmpresaChange} showLabel={false} />
           <PeriodFilter selectedPeriod={selectedPeriod} onPeriodChange={handlePeriodChange} isLoading={isLoading} />
           <Button className="gap-2">
             <Download className="h-4 w-4" />
