@@ -10,27 +10,20 @@ interface Empresa {
 }
 
 interface EmpresaContextType {
-  /** Empresa ativa ou null quando "Consolidado (todas)" */
   empresaAtiva: Empresa | null;
   setEmpresaAtiva: (empresa: Empresa | null) => void;
   empresasDisponiveis: Empresa[];
   isLoading: boolean;
-  /** true quando o usuário selecionou "Consolidado" explicitamente */
-  isConsolidado: boolean;
-  /** ID da empresa para filtros de query: string quando empresa específica, undefined quando consolidado */
-  empresaIdParaFiltro: string | undefined;
 }
 
 const EmpresaContext = createContext<EmpresaContextType | undefined>(undefined);
 
 const STORAGE_KEY = "ecom-finance-empresa-ativa";
-const CONSOLIDADO_VALUE = "__CONSOLIDADO__";
 
 export function EmpresaProvider({ children }: { children: ReactNode }) {
   const { empresas, isLoading: loadingEmpresas } = useEmpresas();
   const { userEmpresas, isLoading: loadingUserEmpresas } = useUserEmpresas();
   const [empresaAtiva, setEmpresaAtivaState] = useState<Empresa | null>(null);
-  const [isConsolidado, setIsConsolidado] = useState(false);
 
   // Filtra empresas que o usuário tem acesso
   const empresasDisponiveis = React.useMemo(() => {
@@ -44,39 +37,25 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
     if (empresasDisponiveis.length === 0) return;
 
     const savedId = localStorage.getItem(STORAGE_KEY);
-    
-    if (savedId === CONSOLIDADO_VALUE) {
-      setEmpresaAtivaState(null);
-      setIsConsolidado(true);
-      return;
-    }
-
     const savedEmpresa = savedId
       ? empresasDisponiveis.find((e) => e.id === savedId)
       : null;
 
     if (savedEmpresa) {
       setEmpresaAtivaState(savedEmpresa);
-      setIsConsolidado(false);
-    } else if (!empresaAtiva && !isConsolidado) {
+    } else if (!empresaAtiva) {
       setEmpresaAtivaState(empresasDisponiveis[0]);
-      setIsConsolidado(false);
     }
   }, [empresasDisponiveis]);
 
   const setEmpresaAtiva = (empresa: Empresa | null) => {
     setEmpresaAtivaState(empresa);
     if (empresa) {
-      setIsConsolidado(false);
       localStorage.setItem(STORAGE_KEY, empresa.id);
     } else {
-      // null = consolidado
-      setIsConsolidado(true);
-      localStorage.setItem(STORAGE_KEY, CONSOLIDADO_VALUE);
+      localStorage.removeItem(STORAGE_KEY);
     }
   };
-
-  const empresaIdParaFiltro = isConsolidado ? undefined : empresaAtiva?.id;
 
   return (
     <EmpresaContext.Provider
@@ -85,8 +64,6 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
         setEmpresaAtiva,
         empresasDisponiveis,
         isLoading: loadingEmpresas || loadingUserEmpresas,
-        isConsolidado,
-        empresaIdParaFiltro,
       }}
     >
       {children}
@@ -103,8 +80,6 @@ export function useEmpresaAtiva() {
       setEmpresaAtiva: () => {},
       empresasDisponiveis: [],
       isLoading: true,
-      isConsolidado: false,
-      empresaIdParaFiltro: undefined,
     };
   }
   return context;
