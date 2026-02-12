@@ -3847,10 +3847,12 @@ export type Database = {
         Returns: {
           custo_unitario: number
           por_canal: Json
+          produto_anuncio_id: string
           produto_id: string
           produto_imagem_url: string
           produto_nome: string
           produto_sku: string
+          produto_thumbnail_url: string
           qtd_total: number
           total_ads: number
           total_faturado: number
