@@ -521,7 +521,7 @@ export default function Dashboard() {
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
                                 {produto.anuncioId ? (
-                                  <MlThumbnail anuncioId={produto.anuncioId} size={40} />
+                                  <MlThumbnail anuncioId={produto.anuncioId} size={40} empresaId={empresaIdFiltro} />
                                 ) : produto.thumbnailUrl ? (
                                   <img src={produto.thumbnailUrl} alt={produto.nome} className="w-full h-full object-cover rounded-lg border border-border" />
                                 ) : produto.imagemUrl ? (
