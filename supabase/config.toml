@@ -75,3 +75,6 @@ verify_jwt = false
 
 [functions.nfe-worker-proxy]
 verify_jwt = false
+
+[functions.ml-item-thumb]
+verify_jwt = false
