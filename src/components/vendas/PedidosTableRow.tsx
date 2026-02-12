@@ -128,14 +128,16 @@ export function PedidosTableRow({
   const [itemParaMapear, setItemParaMapear] = useState<VendaItem | null>(null);
   const queryClient = useQueryClient();
   
-  // Buscar TODAS as transactions do pedido (packs têm múltiplas orders)
+  // Buscar TODAS as transactions do pedido/pack (packs têm múltiplas orders)
+  // pedido.pedido_id vem da RPC como COALESCE(pack_id, pedido_id)
   const { data: transactionData } = useQuery({
     queryKey: ["pedido-transaction-ids", pedido.pedido_id],
     queryFn: async () => {
+      // Buscar por pack_id OU pedido_id para cobrir packs com múltiplas orders
       const { data } = await supabase
         .from("marketplace_transactions")
         .select("id, empresa_id")
-        .eq("pedido_id", pedido.pedido_id)
+        .or(`pack_id.eq.${pedido.pedido_id},pedido_id.eq.${pedido.pedido_id}`)
         .eq("tipo_transacao", "venda");
       return data || [];
     },
