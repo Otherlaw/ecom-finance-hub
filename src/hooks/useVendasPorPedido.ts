@@ -218,7 +218,8 @@ export function useVendasPorPedido({
 
       if (error) {
         console.error("Erro ao buscar pedidos paginados:", error);
-        throw error;
+        // Não dar throw para manter dados anteriores via placeholderData
+        return undefined;
       }
 
       const pedidos: PedidoAgregado[] = (data || []).map((p: any) => ({
