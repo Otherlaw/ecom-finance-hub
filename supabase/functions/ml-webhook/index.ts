@@ -282,7 +282,7 @@ async function processOrder(supabase: any, tokenData: any, resource: string, emp
       tarifas: 0,
       outros_descontos: 0,
       referencia_externa: String(order.id),
-      pedido_id: String(order.pack_id || order.id),
+      pedido_id: String(order.id),
       pack_id: order.pack_id ? String(order.pack_id) : null,
       origem_extrato: "webhook_mercado_livre",
       status: order.status === "paid" ? "pendente_sync" : "pendente",
