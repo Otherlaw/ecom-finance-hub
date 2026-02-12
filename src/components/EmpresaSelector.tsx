@@ -1,9 +1,10 @@
-import { Building2, ChevronDown, Check } from "lucide-react";
+import { Building2, ChevronDown, Check, Globe } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
@@ -14,7 +15,7 @@ interface EmpresaSelectorProps {
 }
 
 export function EmpresaSelector({ collapsed = false }: EmpresaSelectorProps) {
-  const { empresaAtiva, setEmpresaAtiva, empresasDisponiveis, isLoading } =
+  const { empresaAtiva, setEmpresaAtiva, empresasDisponiveis, isLoading, isConsolidado } =
     useEmpresaAtiva();
 
   if (isLoading || empresasDisponiveis.length === 0) {
@@ -34,6 +35,10 @@ export function EmpresaSelector({ collapsed = false }: EmpresaSelectorProps) {
     );
   }
 
+  const displayName = isConsolidado
+    ? "Consolidado (todas)"
+    : empresaAtiva?.nome_fantasia || empresaAtiva?.razao_social || "Selecionar empresa";
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -44,11 +49,15 @@ export function EmpresaSelector({ collapsed = false }: EmpresaSelectorProps) {
             collapsed && "justify-center px-2"
           )}
         >
-          <Building2 className="h-4 w-4 shrink-0" />
+          {isConsolidado ? (
+            <Globe className="h-4 w-4 shrink-0" />
+          ) : (
+            <Building2 className="h-4 w-4 shrink-0" />
+          )}
           {!collapsed && (
             <>
               <span className="truncate flex-1 text-left">
-                {empresaAtiva?.nome_fantasia || empresaAtiva?.razao_social || "Selecionar empresa"}
+                {displayName}
               </span>
               <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
             </>
@@ -56,6 +65,21 @@ export function EmpresaSelector({ collapsed = false }: EmpresaSelectorProps) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[250px]">
+        {/* Opção Consolidado */}
+        <DropdownMenuItem
+          onClick={() => setEmpresaAtiva(null)}
+          className="flex items-center gap-2"
+        >
+          <Check
+            className={cn(
+              "h-4 w-4",
+              isConsolidado ? "opacity-100" : "opacity-0"
+            )}
+          />
+          <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate font-medium">Consolidado (todas as lojas)</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         {empresasDisponiveis.map((empresa) => (
           <DropdownMenuItem
             key={empresa.id}
@@ -65,7 +89,7 @@ export function EmpresaSelector({ collapsed = false }: EmpresaSelectorProps) {
             <Check
               className={cn(
                 "h-4 w-4",
-                empresaAtiva?.id === empresa.id ? "opacity-100" : "opacity-0"
+                !isConsolidado && empresaAtiva?.id === empresa.id ? "opacity-100" : "opacity-0"
               )}
             />
             <span className="truncate">
