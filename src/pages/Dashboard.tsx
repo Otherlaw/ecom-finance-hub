@@ -10,7 +10,7 @@ import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
 import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { useMemo, useState, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format, subDays, differenceInDays } from "date-fns";
 import { buildUtcRangeFromStrings } from "@/lib/dateRangeUtc";
@@ -32,34 +32,21 @@ const formatNumber = (value: number): string => {
   return new Intl.NumberFormat("pt-BR").format(value);
 };
 export default function Dashboard() {
-  const queryClient = useQueryClient();
+  
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
   const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
 
-  const invalidateDashboardQueries = () => {
-    queryClient.cancelQueries({ queryKey: ["dashboard-kpis-period"] });
-    queryClient.cancelQueries({ queryKey: ["dashboard-kpis-period-anterior"] });
-    queryClient.cancelQueries({ queryKey: ["top-produtos-vendidos"] });
-    queryClient.cancelQueries({ queryKey: ["top-produtos-vendidos-anterior"] });
-    queryClient.invalidateQueries({ queryKey: ["dashboard-kpis-period"] });
-    queryClient.invalidateQueries({ queryKey: ["dashboard-kpis-period-anterior"] });
-    queryClient.invalidateQueries({ queryKey: ["top-produtos-vendidos"] });
-    queryClient.invalidateQueries({ queryKey: ["top-produtos-vendidos-anterior"] });
-  };
-  
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
     setDateRange({
       from: new Date(range.from.getTime()),
       to: new Date(range.to.getTime()),
     });
-    invalidateDashboardQueries();
   };
 
   const handleEmpresaChange = (value: string) => {
     setEmpresaSelecionada(value);
-    invalidateDashboardQueries();
   };
 
   const periodoInicio = format(dateRange.from, "yyyy-MM-dd");
@@ -237,7 +224,7 @@ export default function Dashboard() {
       return data || [];
     },
     enabled: !!prevPeriodo.inicio && !!prevPeriodo.fim,
-    staleTime: 60_000,
+    staleTime: 10_000,
   });
 
   // Processar dados para Top 10 produtos - dados já vêm ordenados por faturamento DESC da RPC
