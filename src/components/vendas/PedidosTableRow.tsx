@@ -26,6 +26,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MapearCmvModal } from "./MapearCmvModal";
 import { MapearItensPedidoModal } from "./MapearItensPedidoModal";
 import { MlThumbnail } from "./MlThumbnail";
+import { MlThumbnailStack } from "./MlThumbnailStack";
 
 interface PedidosTableRowProps {
   pedido: PedidoAgregado;
@@ -127,23 +128,26 @@ export function PedidosTableRow({
   const [itemParaMapear, setItemParaMapear] = useState<VendaItem | null>(null);
   const queryClient = useQueryClient();
   
-  // Buscar transaction_id pelo pedido_id para depois buscar itens
-  const { data: transactionId } = useQuery({
-    queryKey: ["pedido-transaction-id", pedido.pedido_id],
+  // Buscar TODAS as transactions do pedido (packs têm múltiplas orders)
+  const { data: transactionData } = useQuery({
+    queryKey: ["pedido-transaction-ids", pedido.pedido_id],
     queryFn: async () => {
       const { data } = await supabase
         .from("marketplace_transactions")
         .select("id, empresa_id")
         .eq("pedido_id", pedido.pedido_id)
-        .eq("tipo_transacao", "venda")
-        .limit(1)
-        .single();
-      return data || null;
+        .eq("tipo_transacao", "venda");
+      return data || [];
     },
     enabled: expanded,
   });
 
-  const { itens, isLoading: isLoadingItens } = useVendaItens(expanded && transactionId?.id ? transactionId.id : null);
+  const transactionIds = expanded && transactionData && transactionData.length > 0
+    ? transactionData.map(t => t.id)
+    : null;
+  const firstEmpresaId = transactionData?.[0]?.empresa_id;
+
+  const { itens, isLoading: isLoadingItens } = useVendaItens(transactionIds);
 
   const handleAbrirCmvModal = (item: VendaItem) => {
     setItemParaMapear(item);
@@ -204,7 +208,14 @@ export function PedidosTableRow({
           )}
         </TableCell>
         <TableCell className="w-[50px] p-1">
-          <MlThumbnail anuncioId={pedido.primeiro_anuncio_id} size={36} />
+          {itens.length > 1 ? (
+            <MlThumbnailStack
+              anuncioIds={itens.map(i => i.anuncio_id)}
+              size={36}
+            />
+          ) : (
+            <MlThumbnail anuncioId={pedido.primeiro_anuncio_id} size={36} />
+          )}
         </TableCell>
         <TableCell>
           <Badge variant="outline" className="text-xs">
@@ -715,11 +726,11 @@ export function PedidosTableRow({
       )}
 
       {/* Modal de mapeamento de CMV */}
-      {showCmvModal && itemParaMapear && transactionId && (
+      {showCmvModal && itemParaMapear && firstEmpresaId && (
         <MapearCmvModal
           open={showCmvModal}
           onOpenChange={setShowCmvModal}
-          empresaId={transactionId.empresa_id}
+          empresaId={firstEmpresaId}
           item={itemParaMapear}
           canal={pedido.canal}
           onSuccess={handleCmvSalvo}
