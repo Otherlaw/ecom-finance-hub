@@ -38,7 +38,7 @@ export default function Dashboard() {
   
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
-    setDateRange(range);
+    setDateRange({ from: new Date(range.from.getTime()), to: new Date(range.to.getTime()) });
   };
   const periodoInicio = format(dateRange.from, "yyyy-MM-dd");
   const periodoFim = format(dateRange.to, "yyyy-MM-dd");
