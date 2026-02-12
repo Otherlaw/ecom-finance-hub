@@ -8,7 +8,7 @@ import { useFluxoCaixa } from "@/hooks/useFluxoCaixa";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
-import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
+import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,7 +33,9 @@ const formatNumber = (value: number): string => {
 };
 export default function Dashboard() {
   const queryClient = useQueryClient();
-  const { empresaIdParaFiltro: empresaIdFiltro, isConsolidado } = useEmpresaAtiva();
+  const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
+  const empresaIdFiltro = empresaSelecionada !== "todas" ? empresaSelecionada : undefined;
+  const isConsolidado = empresaSelecionada === "todas";
   
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
@@ -389,6 +391,7 @@ export default function Dashboard() {
     }];
   }, [kpis, contasPagarResumo, contasReceberResumo, fluxoResumo, channelData]);
   return <MainLayout title="Dashboard Executivo" subtitle={isConsolidado ? "Visão consolidada de todas as lojas" : "Visão geral do seu e-commerce"} actions={<div className="flex items-center gap-3 flex-wrap">
+          <EmpresaFilter value={empresaSelecionada} onChange={val => { setEmpresaSelecionada(val); invalidateDashboardQueries(); }} showLabel={false} />
           <PeriodFilter selectedPeriod={selectedPeriod} onPeriodChange={handlePeriodChange} isLoading={isLoading} />
           <Button className="gap-2">
             <Download className="h-4 w-4" />
