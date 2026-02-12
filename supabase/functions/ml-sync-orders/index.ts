@@ -1074,6 +1074,84 @@ Deno.serve(async (req) => {
 
     console.log(`[ML Sync] ✓ ${allOrders.length} pedidos com payload completo`);
 
+    // ========== FASE 2.5: BUSCAR ORDERS FALTANTES DE PACKS ==========
+    // Quando um pedido tem pack_id, significa que há múltiplas orders no mesmo pacote.
+    // Precisamos garantir que TODAS as orders do pack foram buscadas.
+    const fetchedOrderIds = new Set(allOrders.map(o => o.id));
+    const packIds = new Set<number>();
+    
+    for (const order of allOrders) {
+      if (order.pack_id && order.pack_id !== order.id) {
+        packIds.add(order.pack_id);
+      }
+    }
+
+    if (packIds.size > 0) {
+      console.log(`[ML Sync] 📦 Detectados ${packIds.size} packs, verificando orders faltantes...`);
+      
+      let missingOrdersFetched = 0;
+      
+      for (const packId of packIds) {
+        if (Date.now() - startTime > TIMEOUT_MS * 0.6) {
+          console.warn(`[ML Sync] ⚠ Timeout aproximando, parando busca de packs`);
+          timeout_reached = true;
+          break;
+        }
+        
+        try {
+          // Buscar todas as orders do pack
+          const packUrl = `${ML_API_URL}/orders/search?seller=${tokenState.user_id_provider}&pack_id=${packId}&sort=date_desc`;
+          const { response: packResponse, tokenState: packTokenState } = await mlFetch(
+            packUrl,
+            supabase,
+            tokenState
+          );
+          tokenState = packTokenState;
+          
+          if (packResponse.ok) {
+            const packData = await packResponse.json();
+            const packOrderIds: number[] = (packData.results || []).map((r: any) => r.id);
+            
+            // Identificar orders que não foram buscadas
+            const missingIds = packOrderIds.filter(id => !fetchedOrderIds.has(id));
+            
+            if (missingIds.length > 0) {
+              console.log(`[ML Sync] 📦 Pack ${packId}: ${missingIds.length} orders faltantes (${missingIds.join(', ')})`);
+              
+              // Buscar detalhes das orders faltantes
+              for (const missingId of missingIds) {
+                const { order: missingOrder, tokenState: updatedState, hasIssues, issues } = await fetchOrderDetails(
+                  supabase,
+                  tokenState,
+                  missingId
+                );
+                tokenState = updatedState;
+                
+                if (missingOrder) {
+                  allOrders.push(missingOrder);
+                  fetchedOrderIds.add(missingOrder.id);
+                  missingOrdersFetched++;
+                }
+                
+                if (hasIssues && issues.length > 0) {
+                  orderIssues.push({ orderId: missingId, issues });
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error(`[ML Sync] ❌ Erro ao buscar pack ${packId}:`, err);
+        }
+        
+        // Rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      if (missingOrdersFetched > 0) {
+        console.log(`[ML Sync] ✓ ${missingOrdersFetched} orders de packs adicionadas`);
+      }
+    }
+
     // ========== BUSCAR NOME DA CONTA DO VENDEDOR ==========
     let contaNome: string | null = null;
     try {
