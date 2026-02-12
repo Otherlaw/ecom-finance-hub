@@ -7,6 +7,8 @@ interface MlThumbnailProps {
   anuncioId: string | null;
   size?: number;
   className?: string;
+  /** Quando fornecido, usa este empresaId em vez do contexto global */
+  empresaId?: string;
 }
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -24,9 +26,9 @@ async function fetchMlThumbnailUrl(anuncioId: string, empresaId?: string): Promi
   return data?.imageUrl ?? null;
 }
 
-export function MlThumbnail({ anuncioId, size = 40, className }: MlThumbnailProps) {
+export function MlThumbnail({ anuncioId, size = 40, className, empresaId: empresaIdProp }: MlThumbnailProps) {
   const { empresaAtiva } = useEmpresaAtiva();
-  const empresaId = empresaAtiva?.id;
+  const empresaId = empresaIdProp || empresaAtiva?.id;
   const isValidId = !!anuncioId && anuncioId.startsWith("MLB");
 
   const { data: imageUrl, isLoading, isError } = useQuery({
