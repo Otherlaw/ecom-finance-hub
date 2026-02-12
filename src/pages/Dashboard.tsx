@@ -12,10 +12,11 @@ import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { format } from "date-fns";
+import { format, subDays, differenceInDays } from "date-fns";
 import { buildUtcRangeFromStrings } from "@/lib/dateRangeUtc";
 import { ptBR } from "date-fns/locale";
-import { DollarSign, TrendingUp, Percent, ShoppingCart, Package, CreditCard, BarChart3, PieChart, Download, Loader2, RefreshCw, HelpCircle, Target, Scale, Wallet, Activity, ImageIcon } from "lucide-react";
+import { DollarSign, TrendingUp, Percent, ShoppingCart, Package, CreditCard, BarChart3, PieChart, Download, Loader2, RefreshCw, HelpCircle, Target, Scale, Wallet, Activity, ImageIcon, ArrowUp, ArrowDown, Minus, Sparkles } from "lucide-react";
+import { MlThumbnail } from "@/components/vendas/MlThumbnail";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, Legend } from "recharts";
 import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
 import { Tooltip as TooltipUI, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -173,7 +174,7 @@ export default function Dashboard() {
     queryKey: ["top-produtos-vendidos", empresaIdFiltro, periodoInicio, periodoFim],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_top_produtos_vendidos", {
-        p_empresa_id: empresaIdFiltro || null,  // NULL = consolidado
+        p_empresa_id: empresaIdFiltro || null,
         p_data_inicio: periodoInicio,
         p_data_fim: periodoFim,
         p_limite: 10
@@ -185,12 +186,46 @@ export default function Dashboard() {
       }
       return data || [];
     },
-    // Funciona para consolidado e individual
     enabled: !!periodoInicio && !!periodoFim
+  });
+
+  // Período anterior para comparação de ranking
+  const prevPeriodo = useMemo(() => {
+    const from = new Date(periodoInicio);
+    const to = new Date(periodoFim);
+    const days = differenceInDays(to, from) + 1;
+    const prevFim = subDays(from, 1);
+    const prevInicio = subDays(prevFim, days - 1);
+    return {
+      inicio: format(prevInicio, "yyyy-MM-dd"),
+      fim: format(prevFim, "yyyy-MM-dd"),
+    };
+  }, [periodoInicio, periodoFim]);
+
+  const { data: topProdutosAnteriorRaw = [] } = useQuery({
+    queryKey: ["top-produtos-vendidos-anterior", empresaIdFiltro, prevPeriodo.inicio, prevPeriodo.fim],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_top_produtos_vendidos", {
+        p_empresa_id: empresaIdFiltro || null,
+        p_data_inicio: prevPeriodo.inicio,
+        p_data_fim: prevPeriodo.fim,
+        p_limite: 50
+      });
+      if (error) return [];
+      return data || [];
+    },
+    enabled: !!prevPeriodo.inicio && !!prevPeriodo.fim,
+    staleTime: 60_000,
   });
 
   // Processar dados para Top 10 produtos - dados já vêm ordenados por faturamento DESC da RPC
   const topProdutosProcessados = useMemo(() => {
+    // Map do ranking anterior por prod_key
+    const rankAnterior = new Map<string, number>();
+    topProdutosAnteriorRaw.forEach((p: any, idx: number) => {
+      rankAnterior.set(p.produto_id, idx + 1);
+    });
+
     const faturamentoTotal = topProdutosRaw.reduce(
       (sum: number, p: any) => sum + Number(p.total_faturado || 0), 0
     );
@@ -204,6 +239,13 @@ export default function Dashboard() {
       const cmv = custoUnitario * qtdTotal;
       const lucro = totalFaturado - cmv - totalAds;
       const margem = totalFaturado > 0 ? (lucro / totalFaturado) * 100 : 0;
+      const posicaoAtual = index + 1;
+      const posicaoAnterior = rankAnterior.get(p.produto_id) ?? null;
+      const variacaoPosicao = posicaoAnterior !== null ? posicaoAnterior - posicaoAtual : null;
+      const statusVariacao: "subiu" | "caiu" | "igual" | "novo" =
+        posicaoAnterior === null ? "novo" :
+        variacaoPosicao! > 0 ? "subiu" :
+        variacaoPosicao! < 0 ? "caiu" : "igual";
       
       return {
         id: p.produto_id,
@@ -211,6 +253,8 @@ export default function Dashboard() {
         sku: p.produto_sku,
         custoUnitario,
         imagemUrl: p.produto_imagem_url,
+        anuncioId: p.produto_anuncio_id || null,
+        thumbnailUrl: p.produto_thumbnail_url || null,
         qtdTotal,
         totalFaturado,
         totalAds,
@@ -219,10 +263,13 @@ export default function Dashboard() {
         lucro,
         margem,
         representatividade: faturamentoTotal > 0 ? (totalFaturado / faturamentoTotal) * 100 : 0,
-        posicao: index + 1  // Ranking 1-10
+        posicao: posicaoAtual,
+        posicaoAnterior,
+        variacaoPosicao,
+        statusVariacao,
       };
     });
-  }, [topProdutosRaw]);
+  }, [topProdutosRaw, topProdutosAnteriorRaw]);
 
   // Indicadores de saúde financeira expandidos
   const indicadoresSaude = useMemo(() => {
@@ -427,21 +474,54 @@ export default function Dashboard() {
                       {topProdutosProcessados.map(produto => (
                         <TableRow key={produto.id}>
                           {/* Posição no Ranking */}
+                          {/* Coluna Posição + Variação */}
                           <TableCell className="text-center">
-                            <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
-                              produto.posicao === 1 ? 'bg-amber-500 text-white' :
-                              produto.posicao === 2 ? 'bg-slate-400 text-white' :
-                              produto.posicao === 3 ? 'bg-amber-700 text-white' :
-                              'bg-muted text-muted-foreground'
-                            }`}>
-                              {produto.posicao}
-                            </span>
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                                produto.posicao === 1 ? 'bg-amber-500 text-white' :
+                                produto.posicao === 2 ? 'bg-slate-400 text-white' :
+                                produto.posicao === 3 ? 'bg-amber-700 text-white' :
+                                'bg-muted text-muted-foreground'
+                              }`}>
+                                {produto.posicao}
+                              </span>
+                              {produto.statusVariacao === "novo" ? (
+                                <span className="flex items-center gap-0.5 text-[10px] font-medium text-primary">
+                                  <Sparkles className="h-2.5 w-2.5" />
+                                  Novo
+                                </span>
+                              ) : produto.statusVariacao === "subiu" ? (
+                                <span className="flex items-center gap-0.5 text-[10px] font-medium text-emerald-500">
+                                  <ArrowUp className="h-2.5 w-2.5" />
+                                  +{produto.variacaoPosicao}
+                                </span>
+                              ) : produto.statusVariacao === "caiu" ? (
+                                <span className="flex items-center gap-0.5 text-[10px] font-medium text-red-500">
+                                  <ArrowDown className="h-2.5 w-2.5" />
+                                  {produto.variacaoPosicao}
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                                  <Minus className="h-2.5 w-2.5" />
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
                           {/* Coluna Produto */}
                           <TableCell>
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center overflow-hidden shrink-0">
-                                {produto.imagemUrl ? <img src={produto.imagemUrl} alt={produto.nome} className="w-full h-full object-cover" /> : <ImageIcon className="h-5 w-5 text-muted-foreground" />}
+                              <div className="w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
+                                {produto.anuncioId ? (
+                                  <MlThumbnail anuncioId={produto.anuncioId} size={40} />
+                                ) : produto.thumbnailUrl ? (
+                                  <img src={produto.thumbnailUrl} alt={produto.nome} className="w-full h-full object-cover rounded-lg border border-border" />
+                                ) : produto.imagemUrl ? (
+                                  <img src={produto.imagemUrl} alt={produto.nome} className="w-full h-full object-cover rounded-lg border border-border" />
+                                ) : (
+                                  <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center">
+                                    <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                                  </div>
+                                )}
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="font-medium text-sm leading-tight" title={produto.nome}>
