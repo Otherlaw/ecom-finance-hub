@@ -210,13 +210,17 @@ export function PedidosTableRow({
           )}
         </TableCell>
         <TableCell className="w-[50px] p-1">
-          {itens.length > 1 ? (
+          {(pedido.anuncio_ids?.length ?? 0) > 1 ? (
             <MlThumbnailStack
-              anuncioIds={itens.map(i => i.anuncio_id)}
+              anuncioIds={pedido.anuncio_ids}
               size={36}
             />
           ) : (
-            <MlThumbnail anuncioId={pedido.primeiro_anuncio_id} size={36} />
+            <MlThumbnail
+              anuncioId={pedido.anuncio_ids?.[0] || pedido.primeiro_anuncio_id}
+              size={36}
+              empresaId={pedido.empresa_id}
+            />
           )}
         </TableCell>
         <TableCell>

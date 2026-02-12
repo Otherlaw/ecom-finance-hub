@@ -3925,6 +3925,7 @@ export type Database = {
         }
         Returns: {
           ads_total: number
+          anuncio_ids: string[]
           canal: string
           cmv_total: number
           comissao_total: number
