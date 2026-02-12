@@ -273,7 +273,7 @@ async function processOrder(supabase: any, tokenData: any, resource: string, emp
       empresa_id,
       canal: "Mercado Livre",
       data_transacao: order.date_closed || order.date_created,
-      descricao: `Venda #${order.id}${order.buyer?.nickname ? ` - ${order.buyer.nickname}` : ''}`,
+      descricao: `Venda #${order.pack_id || order.id}${order.buyer?.nickname ? ` - ${order.buyer.nickname}` : ''}`,
       tipo_lancamento: "credito",
       tipo_transacao: "venda",
       valor_bruto: valorBruto,
@@ -282,12 +282,14 @@ async function processOrder(supabase: any, tokenData: any, resource: string, emp
       tarifas: 0,
       outros_descontos: 0,
       referencia_externa: String(order.id),
-      pedido_id: String(order.id),
+      pedido_id: String(order.pack_id || order.id),
+      pack_id: order.pack_id ? String(order.pack_id) : null,
       origem_extrato: "webhook_mercado_livre",
       status: order.status === "paid" ? "pendente_sync" : "pendente",
       frete_vendedor: 0,
       frete_comprador: 0,
       tipo_envio: null,
+      raw_order: order,
     };
 
     if (existing) {
