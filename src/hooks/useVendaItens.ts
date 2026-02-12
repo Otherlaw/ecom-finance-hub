@@ -27,7 +27,7 @@ export interface VendaItem {
 }
 
 /**
- * Extrai itens do raw_order quando a tabela marketplace_transaction_items está vazia
+ * Extrai itens do raw_order (suporta order_items e items)
  */
 function parseRawOrderItems(
   rawOrder: any,
@@ -41,25 +41,61 @@ function parseRawOrderItems(
   preco_unitario: number;
   preco_total: number;
 }> {
-  if (!rawOrder?.order_items || !Array.isArray(rawOrder.order_items)) {
-    return [];
-  }
+  if (!rawOrder || typeof rawOrder !== "object") return [];
 
-  return rawOrder.order_items.map((orderItem: any, index: number) => {
-    const item = orderItem.item || {};
-    const quantity = orderItem.quantity || 1;
-    const unitPrice = orderItem.unit_price || 0;
+  const orderItems: any[] = Array.isArray(rawOrder.order_items)
+    ? rawOrder.order_items
+    : Array.isArray(rawOrder.items)
+      ? rawOrder.items
+      : [];
+
+  if (orderItems.length === 0) return [];
+
+  return orderItems.map((oi: any, index: number) => {
+    const item = oi?.item ?? oi;
+    const quantity = Math.max(1, oi?.quantity ?? oi?.qty ?? 1);
+    const unitPrice = oi?.unit_price ?? oi?.price ?? item?.price ?? 0;
 
     return {
       id: `raw_${transactionId}_${index}`,
-      sku_marketplace: item.seller_sku || item.seller_custom_field || null,
-      anuncio_id: item.id || null,
-      descricao_item: item.title || null,
+      sku_marketplace:
+        oi?.seller_custom_field || oi?.seller_sku ||
+        item?.seller_custom_field || item?.seller_sku || null,
+      anuncio_id: item?.id ? String(item.id) : (oi?.item_id ? String(oi.item_id) : null),
+      descricao_item: item?.title || oi?.title || null,
       quantidade: quantity,
       preco_unitario: unitPrice,
       preco_total: unitPrice * quantity,
     };
   });
+}
+
+/**
+ * Tenta encontrar um item do banco que corresponda ao rawItem
+ */
+function findMatchingDbItem(rawItem: ReturnType<typeof parseRawOrderItems>[0], dbItems: any[]): any | null {
+  if (!dbItems || dbItems.length === 0) return null;
+
+  // 1) Match por anuncio_id
+  if (rawItem.anuncio_id) {
+    const match = dbItems.find((db: any) => db.anuncio_id && String(db.anuncio_id) === String(rawItem.anuncio_id));
+    if (match) return match;
+  }
+
+  // 2) Match por sku_marketplace
+  if (rawItem.sku_marketplace) {
+    const match = dbItems.find((db: any) => db.sku_marketplace && db.sku_marketplace === rawItem.sku_marketplace);
+    if (match) return match;
+  }
+
+  // 3) Fallback: descricao_item semelhante
+  if (rawItem.descricao_item) {
+    const rawDesc = rawItem.descricao_item.toLowerCase().trim();
+    const match = dbItems.find((db: any) => db.descricao_item && db.descricao_item.toLowerCase().trim() === rawDesc);
+    if (match) return match;
+  }
+
+  return null;
 }
 
 /**
@@ -111,21 +147,55 @@ export function useVendaItens(transactionId: string | null) {
       const canal = txData?.canal;
       const rawOrder = txData?.raw_order;
 
-      // Se não há itens na tabela, tentar extrair do raw_order
-      let baseItems: any[] = itemsData || [];
-      let fromRawOrder = false;
+      // C) Montar rawItems do raw_order
+      const rawItems = parseRawOrderItems(rawOrder, transactionId);
+      const dbItems: any[] = itemsData || [];
 
-      if (baseItems.length === 0 && rawOrder) {
-        const parsedItems = parseRawOrderItems(rawOrder, transactionId);
-        if (parsedItems.length > 0) {
-          baseItems = parsedItems.map(item => ({
-            ...item,
+      // D) Merge: raw_order como base, enriquecido com dados do banco
+      const usedDbIds = new Set<string>();
+      let baseItems: Array<any & { from_raw_order: boolean }> = [];
+
+      if (rawItems.length > 0) {
+        // Para cada rawItem, buscar match no banco
+        baseItems = rawItems.map((rawItem) => {
+          const dbMatch = findMatchingDbItem(rawItem, dbItems.filter((d: any) => !usedDbIds.has(d.id)));
+          if (dbMatch) {
+            usedDbIds.add(dbMatch.id);
+            return {
+              ...dbMatch,
+              // Preferir descrição do raw se banco estiver vazio
+              descricao_item: dbMatch.descricao_item || rawItem.descricao_item,
+              quantidade: rawItem.quantidade, // raw_order é fonte de verdade para qty
+              preco_unitario: rawItem.preco_unitario || dbMatch.preco_unitario || 0,
+              preco_total: rawItem.preco_total || dbMatch.preco_total || 0,
+              from_raw_order: false,
+            };
+          }
+          // Sem match: item vem só do raw_order
+          return {
+            id: rawItem.id,
             transaction_id: transactionId,
+            sku_marketplace: rawItem.sku_marketplace,
+            anuncio_id: rawItem.anuncio_id,
+            descricao_item: rawItem.descricao_item,
+            quantidade: rawItem.quantidade,
+            preco_unitario: rawItem.preco_unitario,
+            preco_total: rawItem.preco_total,
             produto_id: null,
             produto: null,
-          }));
-          fromRawOrder = true;
+            from_raw_order: true,
+          };
+        });
+
+        // E) Anexar itens do banco que não existem no raw_order (caso raro)
+        for (const dbItem of dbItems) {
+          if (!usedDbIds.has(dbItem.id)) {
+            baseItems.push({ ...dbItem, from_raw_order: false });
+          }
         }
+      } else if (dbItems.length > 0) {
+        // Sem raw_order: usar apenas dados do banco
+        baseItems = dbItems.map((d: any) => ({ ...d, from_raw_order: false }));
       }
 
       if (baseItems.length === 0) return [];
@@ -237,7 +307,7 @@ export function useVendaItens(transactionId: string | null) {
           custo_total: custoMedio * quantidade,
           sem_produto: semProduto,
           sem_custo: semCusto,
-          from_raw_order: fromRawOrder,
+          from_raw_order: item.from_raw_order ?? false,
         };
       });
 
