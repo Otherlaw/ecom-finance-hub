@@ -8,9 +8,9 @@ import { useFluxoCaixa } from "@/hooks/useFluxoCaixa";
 import { useContasPagar } from "@/hooks/useContasPagar";
 import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
-import { EmpresaFilter } from "@/components/EmpresaFilter";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useMemo, useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format, subDays, differenceInDays } from "date-fns";
 import { buildUtcRangeFromStrings } from "@/lib/dateRangeUtc";
@@ -32,10 +32,27 @@ const formatNumber = (value: number): string => {
   return new Intl.NumberFormat("pt-BR").format(value);
 };
 export default function Dashboard() {
+  const queryClient = useQueryClient();
+  const { empresaIdParaFiltro: empresaIdFiltro, isConsolidado } = useEmpresaAtiva();
   
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
-  const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
+
+  const invalidateDashboardQueries = () => {
+    const prefixes = [
+      "dashboard-kpis-period", "dashboard-kpis-period-anterior",
+      "top-produtos-vendidos", "top-produtos-vendidos-anterior",
+    ];
+    prefixes.forEach(k => {
+      queryClient.cancelQueries({ queryKey: [k] });
+      queryClient.invalidateQueries({ queryKey: [k] });
+    });
+  };
+
+  // Invalidar ao trocar empresa global
+  useEffect(() => {
+    invalidateDashboardQueries();
+  }, [empresaIdFiltro]);
 
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
@@ -43,17 +60,11 @@ export default function Dashboard() {
       from: new Date(range.from.getTime()),
       to: new Date(range.to.getTime()),
     });
-  };
-
-  const handleEmpresaChange = (value: string) => {
-    setEmpresaSelecionada(value);
+    invalidateDashboardQueries();
   };
 
   const periodoInicio = format(dateRange.from, "yyyy-MM-dd");
   const periodoFim = format(dateRange.to, "yyyy-MM-dd");
-  
-  // ID da empresa para filtros (null = todas)
-  const empresaIdFiltro = empresaSelecionada !== "todas" ? empresaSelecionada : undefined;
 
   // Hook UNIFICADO para todos os KPIs do período COM COMPARATIVO
   const {
@@ -377,8 +388,7 @@ export default function Dashboard() {
       icon: <Activity className="h-5 w-5" />
     }];
   }, [kpis, contasPagarResumo, contasReceberResumo, fluxoResumo, channelData]);
-  return <MainLayout title="Dashboard Executivo" subtitle="Visão geral consolidada do seu e-commerce" actions={<div className="flex items-center gap-3 flex-wrap">
-          <EmpresaFilter value={empresaSelecionada} onChange={handleEmpresaChange} showLabel={false} />
+  return <MainLayout title="Dashboard Executivo" subtitle={isConsolidado ? "Visão consolidada de todas as lojas" : "Visão geral do seu e-commerce"} actions={<div className="flex items-center gap-3 flex-wrap">
           <PeriodFilter selectedPeriod={selectedPeriod} onPeriodChange={handlePeriodChange} isLoading={isLoading} />
           <Button className="gap-2">
             <Download className="h-4 w-4" />
@@ -456,7 +466,7 @@ export default function Dashboard() {
           <div className="mt-6 my-[22px]">
             <ModuleCard 
               title="Top 10 Produtos Mais Vendidos" 
-              description={empresaIdFiltro ? "Filtrando por empresa" : "Visão consolidada (todas as empresas)"} 
+              description={isConsolidado ? "Consolidado (todas as lojas)" : "Filtrando por empresa selecionada"} 
               icon={Package}
             >
               {isTopProdutosLoading ? (
@@ -520,7 +530,8 @@ export default function Dashboard() {
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
-                                {produto.anuncioId ? (
+                                {/* Empresa específica: MlThumbnail. Consolidado: fallback para thumbnail/imagem do banco */}
+                                {!isConsolidado && produto.anuncioId ? (
                                   <MlThumbnail anuncioId={produto.anuncioId} size={40} empresaId={empresaIdFiltro} />
                                 ) : produto.thumbnailUrl ? (
                                   <img src={produto.thumbnailUrl} alt={produto.nome} className="w-full h-full object-cover rounded-lg border border-border" />
