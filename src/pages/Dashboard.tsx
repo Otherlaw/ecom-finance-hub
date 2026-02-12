@@ -10,7 +10,7 @@ import { useContasReceber } from "@/hooks/useContasReceber";
 import { useSincronizacaoMEU } from "@/hooks/useSincronizacaoMEU";
 import { EmpresaFilter } from "@/components/EmpresaFilter";
 import { useMemo, useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format, subDays, differenceInDays } from "date-fns";
 import { buildUtcRangeFromStrings } from "@/lib/dateRangeUtc";
@@ -32,14 +32,36 @@ const formatNumber = (value: number): string => {
   return new Intl.NumberFormat("pt-BR").format(value);
 };
 export default function Dashboard() {
+  const queryClient = useQueryClient();
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
   const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
+
+  const invalidateDashboardQueries = () => {
+    queryClient.cancelQueries({ queryKey: ["dashboard-kpis-period"] });
+    queryClient.cancelQueries({ queryKey: ["dashboard-kpis-period-anterior"] });
+    queryClient.cancelQueries({ queryKey: ["top-produtos-vendidos"] });
+    queryClient.cancelQueries({ queryKey: ["top-produtos-vendidos-anterior"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard-kpis-period"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard-kpis-period-anterior"] });
+    queryClient.invalidateQueries({ queryKey: ["top-produtos-vendidos"] });
+    queryClient.invalidateQueries({ queryKey: ["top-produtos-vendidos-anterior"] });
+  };
   
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
-    setDateRange({ from: new Date(range.from.getTime()), to: new Date(range.to.getTime()) });
+    setDateRange({
+      from: new Date(range.from.getTime()),
+      to: new Date(range.to.getTime()),
+    });
+    invalidateDashboardQueries();
   };
+
+  const handleEmpresaChange = (value: string) => {
+    setEmpresaSelecionada(value);
+    invalidateDashboardQueries();
+  };
+
   const periodoInicio = format(dateRange.from, "yyyy-MM-dd");
   const periodoFim = format(dateRange.to, "yyyy-MM-dd");
   
@@ -369,7 +391,7 @@ export default function Dashboard() {
     }];
   }, [kpis, contasPagarResumo, contasReceberResumo, fluxoResumo, channelData]);
   return <MainLayout title="Dashboard Executivo" subtitle="Visão geral consolidada do seu e-commerce" actions={<div className="flex items-center gap-3 flex-wrap">
-          <EmpresaFilter value={empresaSelecionada} onChange={setEmpresaSelecionada} showLabel={false} />
+          <EmpresaFilter value={empresaSelecionada} onChange={handleEmpresaChange} showLabel={false} />
           <PeriodFilter selectedPeriod={selectedPeriod} onPeriodChange={handlePeriodChange} isLoading={isLoading} />
           <Button className="gap-2">
             <Download className="h-4 w-4" />
