@@ -27,7 +27,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
-import { EmpresaSelector } from "@/components/EmpresaSelector";
 import {
   Tooltip,
   TooltipContent,
@@ -230,9 +229,6 @@ export function TopNav() {
           </SheetTitle>
         </SheetHeader>
 
-        <div className="p-3 border-b border-border">
-          <EmpresaSelector />
-        </div>
 
         <div className="overflow-y-auto flex-1 p-3 space-y-4" style={{ maxHeight: "calc(100vh - 180px)" }}>
           {navSections.map((section) => (
@@ -312,11 +308,7 @@ export function TopNav() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Right side: empresa selector + notifications + user */}
-        <div className="hidden md:flex items-center">
-          <EmpresaSelector />
-        </div>
-
+        {/* Right side: notifications + user */}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
