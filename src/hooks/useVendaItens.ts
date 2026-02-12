@@ -26,13 +26,9 @@ export interface VendaItem {
   from_raw_order?: boolean;
 }
 
-/**
- * Extrai itens do raw_order (suporta order_items e items)
- */
-function parseRawOrderItems(
-  rawOrder: any,
-  transactionId: string
-): Array<{
+// ---- Helpers de parsing do raw_order ----
+
+type RawParsedItem = {
   id: string;
   sku_marketplace: string | null;
   anuncio_id: string | null;
@@ -40,7 +36,9 @@ function parseRawOrderItems(
   quantidade: number;
   preco_unitario: number;
   preco_total: number;
-}> {
+};
+
+function parseRawOrderItems(rawOrder: any, transactionId: string): RawParsedItem[] {
   if (!rawOrder || typeof rawOrder !== "object") return [];
 
   const orderItems: any[] = Array.isArray(rawOrder.order_items)
@@ -70,25 +68,19 @@ function parseRawOrderItems(
   });
 }
 
-/**
- * Tenta encontrar um item do banco que corresponda ao rawItem
- */
-function findMatchingDbItem(rawItem: ReturnType<typeof parseRawOrderItems>[0], dbItems: any[]): any | null {
+function findMatchingDbItem(rawItem: RawParsedItem, dbItems: any[]): any | null {
   if (!dbItems || dbItems.length === 0) return null;
 
-  // 1) Match por anuncio_id
   if (rawItem.anuncio_id) {
     const match = dbItems.find((db: any) => db.anuncio_id && String(db.anuncio_id) === String(rawItem.anuncio_id));
     if (match) return match;
   }
 
-  // 2) Match por sku_marketplace
   if (rawItem.sku_marketplace) {
     const match = dbItems.find((db: any) => db.sku_marketplace && db.sku_marketplace === rawItem.sku_marketplace);
     if (match) return match;
   }
 
-  // 3) Fallback: descricao_item semelhante
   if (rawItem.descricao_item) {
     const rawDesc = rawItem.descricao_item.toLowerCase().trim();
     const match = dbItems.find((db: any) => db.descricao_item && db.descricao_item.toLowerCase().trim() === rawDesc);
@@ -99,17 +91,21 @@ function findMatchingDbItem(rawItem: ReturnType<typeof parseRawOrderItems>[0], d
 }
 
 /**
- * Hook para carregar itens de uma transação específica sob demanda.
- * Use quando o usuário expandir uma linha na tabela de vendas.
- * Faz fallback para raw_order quando não há itens na tabela.
+ * Hook para carregar itens de transações de um pedido.
+ * Aceita um array de transaction IDs (necessário para packs com múltiplas orders).
+ * Faz merge raw_order + marketplace_transaction_items.
  */
-export function useVendaItens(transactionId: string | null) {
-  const { data: itens, isLoading, error } = useQuery({
-    queryKey: ["venda-itens", transactionId],
-    queryFn: async () => {
-      if (!transactionId) return [];
+export function useVendaItens(transactionIds: string[] | string | null) {
+  const ids = transactionIds
+    ? (Array.isArray(transactionIds) ? transactionIds : [transactionIds]).filter(Boolean)
+    : [];
 
-      // Buscar itens da transação
+  const { data: itens, isLoading, error } = useQuery({
+    queryKey: ["venda-itens", ...ids],
+    queryFn: async () => {
+      if (ids.length === 0) return [];
+
+      // 1) Buscar itens do banco para TODAS as transactions
       const { data: itemsData, error: itemsError } = await supabase
         .from("marketplace_transaction_items")
         .select(`
@@ -129,52 +125,52 @@ export function useVendaItens(transactionId: string | null) {
             custo_medio
           )
         `)
-        .eq("transaction_id", transactionId);
+        .in("transaction_id", ids);
 
       if (itemsError) {
         console.error("Erro ao buscar itens da venda:", itemsError);
         throw itemsError;
       }
 
-      // Buscar empresa_id, canal e raw_order da transação
-      const { data: txData } = await supabase
+      // 2) Buscar raw_order de TODAS as transactions
+      const { data: txDataArr } = await supabase
         .from("marketplace_transactions")
-        .select("empresa_id, canal, raw_order")
-        .eq("id", transactionId)
-        .single();
+        .select("id, empresa_id, canal, raw_order")
+        .in("id", ids);
 
-      const empresaId = txData?.empresa_id;
-      const canal = txData?.canal;
-      const rawOrder = txData?.raw_order;
+      const transactions = txDataArr || [];
+      const empresaId = transactions[0]?.empresa_id;
 
-      // C) Montar rawItems do raw_order
-      const rawItems = parseRawOrderItems(rawOrder, transactionId);
+      // 3) Montar rawItems de TODOS os raw_orders
+      const allRawItems: RawParsedItem[] = [];
+      for (const tx of transactions) {
+        const parsed = parseRawOrderItems(tx.raw_order, tx.id);
+        allRawItems.push(...parsed);
+      }
+
       const dbItems: any[] = itemsData || [];
 
-      // D) Merge: raw_order como base, enriquecido com dados do banco
+      // 4) Merge: raw_order como base, enriquecido com dados do banco
       const usedDbIds = new Set<string>();
       let baseItems: Array<any & { from_raw_order: boolean }> = [];
 
-      if (rawItems.length > 0) {
-        // Para cada rawItem, buscar match no banco
-        baseItems = rawItems.map((rawItem) => {
+      if (allRawItems.length > 0) {
+        baseItems = allRawItems.map((rawItem) => {
           const dbMatch = findMatchingDbItem(rawItem, dbItems.filter((d: any) => !usedDbIds.has(d.id)));
           if (dbMatch) {
             usedDbIds.add(dbMatch.id);
             return {
               ...dbMatch,
-              // Preferir descrição do raw se banco estiver vazio
               descricao_item: dbMatch.descricao_item || rawItem.descricao_item,
-              quantidade: rawItem.quantidade, // raw_order é fonte de verdade para qty
+              quantidade: rawItem.quantidade,
               preco_unitario: rawItem.preco_unitario || dbMatch.preco_unitario || 0,
               preco_total: rawItem.preco_total || dbMatch.preco_total || 0,
               from_raw_order: false,
             };
           }
-          // Sem match: item vem só do raw_order
           return {
             id: rawItem.id,
-            transaction_id: transactionId,
+            transaction_id: rawItem.id.split("_")[1] || ids[0],
             sku_marketplace: rawItem.sku_marketplace,
             anuncio_id: rawItem.anuncio_id,
             descricao_item: rawItem.descricao_item,
@@ -187,25 +183,23 @@ export function useVendaItens(transactionId: string | null) {
           };
         });
 
-        // E) Anexar itens do banco que não existem no raw_order (caso raro)
+        // Anexar itens do banco sem match no raw_order
         for (const dbItem of dbItems) {
           if (!usedDbIds.has(dbItem.id)) {
             baseItems.push({ ...dbItem, from_raw_order: false });
           }
         }
       } else if (dbItems.length > 0) {
-        // Sem raw_order: usar apenas dados do banco
         baseItems = dbItems.map((d: any) => ({ ...d, from_raw_order: false }));
       }
 
       if (baseItems.length === 0) return [];
 
-      // Coletar SKUs sem produto_id para buscar mapeamento e custos fallback
+      // 5) Buscar mapeamentos e custos (mesma lógica existente)
       const skusSemProduto = baseItems
         .filter((item: any) => !item.produto_id && item.sku_marketplace)
         .map((item: any) => item.sku_marketplace);
 
-      // NOVO: Buscar mapeamentos da tabela produto_marketplace_map
       let mappingsMap: Record<string, { produto_id: string; custo_medio: number; produto_sku: string | null; produto_nome: string | null }> = {};
       if (skusSemProduto.length > 0 && empresaId) {
         const { data: mappings } = await supabase
@@ -224,7 +218,7 @@ export function useVendaItens(transactionId: string | null) {
           .in("sku_marketplace", skusSemProduto);
 
         if (mappings) {
-          mappingsMap = mappings.reduce((acc: Record<string, { produto_id: string; custo_medio: number; produto_sku: string | null; produto_nome: string | null }>, m: any) => {
+          mappingsMap = mappings.reduce((acc: any, m: any) => {
             acc[m.sku_marketplace] = {
               produto_id: m.produto_id,
               custo_medio: m.produto?.custo_medio || 0,
@@ -236,7 +230,6 @@ export function useVendaItens(transactionId: string | null) {
         }
       }
 
-      // Buscar custos da tabela sku_costs para fallback final
       let skuCostsMap: Record<string, number> = {};
       const skusSemMapeamento = skusSemProduto.filter((sku: string) => !mappingsMap[sku]);
       if (skusSemMapeamento.length > 0 && empresaId) {
@@ -254,46 +247,34 @@ export function useVendaItens(transactionId: string | null) {
         }
       }
 
-      // Transformar dados com hierarquia de custo:
-      // 1) produto_id direto -> custo do produto
-      // 2) produto_marketplace_map -> custo do produto mapeado
-      // 3) sku_costs -> custo manual
-      // 4) Fallback 0
+      // 6) Transformar com hierarquia de custo
       const itensTransformados: VendaItem[] = baseItems.map((item: any) => {
         const produto = item.produto;
         const quantidade = item.quantidade || 1;
         const sku = item.sku_marketplace;
-        
+
         let custoMedio = 0;
         let produtoId = item.produto_id;
         let produtoSku = produto?.sku || null;
         let produtoNome = produto?.nome || null;
 
-        // Hierarquia de custo
         if (produto?.custo_medio && produto.custo_medio > 0) {
-          // 1) Produto vinculado diretamente
           custoMedio = produto.custo_medio;
         } else if (sku && mappingsMap[sku]) {
-          // 2) Mapeamento via produto_marketplace_map
           custoMedio = mappingsMap[sku].custo_medio;
           produtoSku = mappingsMap[sku].produto_sku;
           produtoNome = mappingsMap[sku].produto_nome;
-          if (!produtoId) {
-            produtoId = mappingsMap[sku].produto_id;
-          }
+          if (!produtoId) produtoId = mappingsMap[sku].produto_id;
         } else if (sku && skuCostsMap[sku]) {
-          // 3) Custo manual via sku_costs
           custoMedio = skuCostsMap[sku];
         }
 
-        // sem_custo só é true se não tem custo de nenhuma fonte
         const semCusto = custoMedio === 0;
-        // sem_produto só se não tem produto_id E não tem mapeamento
         const semProduto = !produtoId && !(sku && mappingsMap[sku]);
 
         return {
           id: item.id,
-          transaction_id: item.transaction_id || transactionId,
+          transaction_id: item.transaction_id || ids[0],
           sku_marketplace: sku,
           anuncio_id: item.anuncio_id,
           descricao_item: item.descricao_item,
@@ -313,8 +294,8 @@ export function useVendaItens(transactionId: string | null) {
 
       return itensTransformados;
     },
-    enabled: !!transactionId,
-    staleTime: 30 * 1000, // Cache por 30 segundos para permitir refresh rápido após mapeamento
+    enabled: ids.length > 0,
+    staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
   });
 
