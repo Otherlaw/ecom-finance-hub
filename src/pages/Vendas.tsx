@@ -14,6 +14,7 @@ import { AtualizarCustosSkuModal } from "@/components/vendas/AtualizarCustosSkuM
 import { VendasFiltrosAvancados, FiltrosVendas } from "@/components/vendas/VendasFiltrosAvancados";
 import { PeriodFilter, PeriodOption, DateRange, getDateRangeForPeriod } from "@/components/PeriodFilter";
 import { EmpresaFilter } from "@/components/EmpresaFilter";
+import { useEmpresas } from "@/hooks/useEmpresas";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +39,14 @@ export default function Vendas() {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("7days");
   const [dateRange, setDateRange] = useState<DateRange>(getDateRangeForPeriod("7days"));
   const [empresaSelecionada, setEmpresaSelecionada] = useState("todas");
+  const { empresas, isLoading: isLoadingEmpresas } = useEmpresas();
+
+  // Auto-selecionar quando há apenas 1 empresa
+  useEffect(() => {
+    if (!isLoadingEmpresas && empresas.length === 1 && empresaSelecionada === "todas") {
+      setEmpresaSelecionada(empresas[0].id);
+    }
+  }, [isLoadingEmpresas, empresas, empresaSelecionada]);
 
   // Estados de paginação
   const [currentPage, setCurrentPage] = useState(0);
