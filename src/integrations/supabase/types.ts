@@ -2320,6 +2320,7 @@ export type Database = {
           id: string
           origem_extrato: string | null
           outros_descontos: number | null
+          pack_id: string | null
           pedido_id: string | null
           raw_fees: Json | null
           raw_order: Json | null
@@ -2358,6 +2359,7 @@ export type Database = {
           id?: string
           origem_extrato?: string | null
           outros_descontos?: number | null
+          pack_id?: string | null
           pedido_id?: string | null
           raw_fees?: Json | null
           raw_order?: Json | null
@@ -2396,6 +2398,7 @@ export type Database = {
           id?: string
           origem_extrato?: string | null
           outros_descontos?: number | null
+          pack_id?: string | null
           pedido_id?: string | null
           raw_fees?: Json | null
           raw_order?: Json | null

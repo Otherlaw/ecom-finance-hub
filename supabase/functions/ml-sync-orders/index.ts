@@ -1400,6 +1400,7 @@ Deno.serve(async (req) => {
           outros_descontos: 0,
           referencia_externa: String(order.id),
           pedido_id: String(order.pack_id || order.id),
+          pack_id: order.pack_id ? String(order.pack_id) : null,
           origem_extrato: "api_mercado_livre",
           status: order.status === "paid" ? "importado" : "pendente",
           tipo_envio: tipoEnvio,
