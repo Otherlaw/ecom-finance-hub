@@ -126,7 +126,8 @@ export function useDashboardKPIs(
 
       return kpis;
     },
-    staleTime: 10 * 1000,
+    staleTime: 30 * 1000,
+    placeholderData: (previousData) => previousData,
   });
 
   const kpis = data || DEFAULT_KPIS;
