@@ -622,7 +622,7 @@ export function PedidosTableRow({
                       )}
                     </TableCell>
                     <TableCell className="p-1">
-                      <MlThumbnail anuncioId={item.anuncio_id} size={32} />
+                      <MlThumbnail anuncioId={item.anuncio_id} size={32} empresaId={pedido.empresa_id} />
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
