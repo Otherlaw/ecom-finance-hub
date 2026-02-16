@@ -12,7 +12,7 @@ import { ptBR } from "date-fns/locale";
 import { CalendarIcon, Clock, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-export type PeriodOption = "today" | "7days" | "15days" | "30days" | "month" | "year" | "custom";
+export type PeriodOption = "today" | "7days" | "15days" | "30days" | "month" | "year" | "all" | "custom";
 
 export interface DateRange {
   from: Date;
@@ -33,6 +33,7 @@ const periodOptions: { value: PeriodOption; label: string }[] = [
   { value: "30days", label: "30 dias" },
   { value: "month", label: "Mês atual" },
   { value: "year", label: "Ano inteiro" },
+  { value: "all", label: "Todo período" },
   { value: "custom", label: "Personalizado" },
 ];
 
@@ -56,6 +57,11 @@ export function getDateRangeForPeriod(period: PeriodOption, customRange?: DateRa
       return { 
         from: new Date(today.getFullYear(), 0, 1), 
         to: new Date(today.getFullYear(), 11, 31) 
+      };
+    case "all":
+      return {
+        from: new Date(2020, 0, 1),
+        to: endOfDay(new Date(today.getFullYear() + 1, 0, 1)),
       };
     case "custom":
       return customRange || { from: todayStart, to: todayEnd };
