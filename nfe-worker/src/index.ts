@@ -35,7 +35,8 @@ const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
 const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
  const REQUEST_DELAY_MS = 12000; // Delay base entre requisicoes SEFAZ (12s conservador)
  const REQUEST_DELAY_JITTER = 0.25; // Jitter de ±25% para evitar padrões previsíveis
- const SYNC_WINDOW_DAYS = 7; // Janela de 7 dias (alinhado com nfe-ingest)
+ const BOOTSTRAP_WINDOW_DAYS = 30; // Janela de bootstrap: 30 dias
+ const DAILY_WINDOW_HOURS = 24; // Janela diária: 24 horas
 const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos para parar
  
  // ========================================
@@ -96,21 +97,28 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 /**
- * Calcula a data de corte (90 dias atras)
+ * Calcula a data de corte baseado no modo (bootstrap=30d, daily=24h)
  */
-function getCutoffDate(): string {
+function getCutoffDate(mode: 'bootstrap' | 'daily'): string {
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - SYNC_WINDOW_DAYS);
+  if (mode === 'bootstrap') {
+    cutoff.setDate(cutoff.getDate() - BOOTSTRAP_WINDOW_DAYS);
+  } else {
+    cutoff.setHours(cutoff.getHours() - DAILY_WINDOW_HOURS);
+  }
   return cutoff.toISOString().split('T')[0]; // YYYY-MM-DD
 }
 
 /**
- * Verifica se e modo bootstrap (primeira sync)
- * Bootstrap = nao existe estado OU (ult_nsu = 0 E last_sync_at null)
+ * Determina o modo de sync baseado no estado
+ * bootstrap = sem bootstrap_completed_at
+ * daily = bootstrap já concluído
  */
-function isBootstrapMode(syncState: { ult_nsu: number; last_sync_at: string | null } | null): boolean {
-  if (!syncState) return true;
-  return syncState.ult_nsu === 0 && !syncState.last_sync_at;
+function getSyncMode(syncState: { bootstrap_completed_at?: string | null; sync_mode?: string } | null): 'bootstrap' | 'daily' {
+  if (!syncState) return 'bootstrap';
+  if (syncState.bootstrap_completed_at) return 'daily';
+  if (syncState.sync_mode === 'daily') return 'daily';
+  return 'bootstrap';
 }
 
 /**
@@ -281,16 +289,17 @@ async function syncEmpresa(empresaId: string): Promise<{
       maxNSU = syncState.max_nsu || 0;
     }
     
-    const isBootstrap = isBootstrapMode(syncState);
-    const cutoffDate = getCutoffDate();
+    const syncMode = getSyncMode(syncState);
+    const isBootstrap = syncMode === 'bootstrap';
+    const cutoffDate = getCutoffDate(syncMode);
 
     // Log do modo de operacao
     if (isBootstrap) {
-      await supabase.log(empresaId, 'info', `Iniciando BOOTSTRAP (ultimos ${SYNC_WINDOW_DAYS} dias). Cutoff: ${cutoffDate}`);
-      console.log(`[SYNC] Modo BOOTSTRAP - cutoff: ${cutoffDate}`);
+      await supabase.log(empresaId, 'info', `Iniciando BOOTSTRAP (últimos ${BOOTSTRAP_WINDOW_DAYS} dias). Cutoff: ${cutoffDate}`);
+      console.log(`[SYNC] Modo BOOTSTRAP (30 dias) - cutoff: ${cutoffDate}`);
     } else {
-      await supabase.log(empresaId, 'info', `Iniciando sync INCREMENTAL a partir do NSU ${currentNSU}`);
-      console.log(`[SYNC] Modo INCREMENTAL - NSU inicial: ${currentNSU}`);
+      await supabase.log(empresaId, 'info', `Iniciando sync DIÁRIO (últimas ${DAILY_WINDOW_HOURS}h) a partir do NSU ${currentNSU}. Cutoff: ${cutoffDate}`);
+      console.log(`[SYNC] Modo DAILY (24h) - cutoff: ${cutoffDate}, NSU: ${currentNSU}`);
     }
 
      // Log dos limites de proteção
@@ -444,6 +453,7 @@ async function syncEmpresa(empresaId: string): Promise<{
               const ingestResult: IngestResponse = await supabase.ingestDocuments({
                 empresa_id: empresaId,
                 documents: batch,
+                cutoff_date: cutoffDate,
               });
 
               totalDocumentsFetched += ingestResult.total_in_batch;
@@ -588,9 +598,15 @@ async function syncEmpresa(empresaId: string): Promise<{
  
      // SUCESSO COMPLETO
      const finishMessage = isBootstrap
-       ? `Bootstrap concluido: ${totalDocumentsImported} docs importados de ${totalDocumentsFetched} buscados, ${totalCredits} creditos (${sefazRequestCount} requests em ${Math.round(elapsedMs / 1000)}s)`
-       : `Sync incremental concluido: ${totalDocumentsImported} docs importados, ${totalCredits} creditos (${sefazRequestCount} requests em ${Math.round(elapsedMs / 1000)}s)`;
+       ? `Bootstrap concluído: ${totalDocumentsImported} docs importados de ${totalDocumentsFetched} buscados, ${totalCredits} créditos (${sefazRequestCount} requests em ${Math.round(elapsedMs / 1000)}s)`
+       : `Sync diário concluído: ${totalDocumentsImported} docs importados, ${totalCredits} créditos (${sefazRequestCount} requests em ${Math.round(elapsedMs / 1000)}s)`;
  
+     // Se bootstrap concluiu com sucesso (sem pausa), marcar como completo
+     const bootstrapUpdate = isBootstrap && !pauseReason ? {
+       bootstrap_completed_at: new Date().toISOString(),
+       sync_mode: 'daily',
+     } : {};
+
      await supabase.updateSyncState(empresaId, {
        status: 'idle',
        last_sync_at: new Date().toISOString(),
@@ -600,8 +616,8 @@ async function syncEmpresa(empresaId: string): Promise<{
        max_nsu: maxNSU,
        documents_fetched: totalDocumentsFetched,
        credits_created: totalCredits,
-       // Resetar contador de rate limits após sucesso
        rate_limit_count: 0,
+       ...bootstrapUpdate,
      });
 
     lockAcquired = false; // Lock liberado com sucesso
@@ -731,7 +747,7 @@ app.listen(PORT, () => {
   console.log(`NFe Worker rodando na porta ${PORT}`);
   console.log(`Supabase URL: ${SUPABASE_URL}`);
   console.log(`Modo: Proxy via Edge Function (sem SERVICE_ROLE_KEY)`);
-  console.log(`Janela de sincronizacao: ${SYNC_WINDOW_DAYS} dias`);
+  console.log(`Janela bootstrap: ${BOOTSTRAP_WINDOW_DAYS} dias | Janela diária: ${DAILY_WINDOW_HOURS}h`);
    console.log(`Delay entre requests: ${REQUEST_DELAY_MS}ms (±${REQUEST_DELAY_JITTER * 100}% jitter)`);
   console.log(`Threshold bootstrap stop: ${BOOTSTRAP_STOP_THRESHOLD} lotes`);
    console.log(`Rate limit: retry apenas na próxima 00:00 BRT`);

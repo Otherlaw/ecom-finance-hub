@@ -2788,6 +2788,7 @@ export type Database = {
       }
       nfe_sync_state: {
         Row: {
+          bootstrap_completed_at: string | null
           credits_created: number
           documents_fetched: number
           empresa_id: string
@@ -2799,10 +2800,12 @@ export type Database = {
           next_retry_at: string | null
           rate_limit_count: number | null
           status: string
+          sync_mode: string
           ult_nsu: number
           updated_at: string
         }
         Insert: {
+          bootstrap_completed_at?: string | null
           credits_created?: number
           documents_fetched?: number
           empresa_id: string
@@ -2814,10 +2817,12 @@ export type Database = {
           next_retry_at?: string | null
           rate_limit_count?: number | null
           status?: string
+          sync_mode?: string
           ult_nsu?: number
           updated_at?: string
         }
         Update: {
+          bootstrap_completed_at?: string | null
           credits_created?: number
           documents_fetched?: number
           empresa_id?: string
@@ -2829,6 +2834,7 @@ export type Database = {
           next_retry_at?: string | null
           rate_limit_count?: number | null
           status?: string
+          sync_mode?: string
           ult_nsu?: number
           updated_at?: string
         }

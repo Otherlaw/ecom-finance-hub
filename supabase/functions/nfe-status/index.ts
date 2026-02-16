@@ -112,6 +112,9 @@ Deno.serve(async (req) => {
       .order("created_at", { ascending: false })
       .limit(10);
 
+    // Determine sync mode
+    const syncMode = syncState?.bootstrap_completed_at ? "daily" : "bootstrap";
+
     const response = {
       has_certificate: !!certificate,
       certificate: certificate ? {
@@ -127,7 +130,10 @@ Deno.serve(async (req) => {
         last_sync_at: null,
         documents_fetched: 0,
         credits_created: 0,
+        bootstrap_completed_at: null,
+        sync_mode: "bootstrap",
       },
+      sync_mode: syncMode,
       stats: {
         total_documents: documentsCount || 0,
         total_credits_from_sync: creditsCount || 0,

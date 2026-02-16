@@ -34,6 +34,9 @@ export interface NfeSyncState {
   credits_created: number;
   updated_at: string;
   next_retry_at: string | null;
+  // Bootstrap tracking
+  bootstrap_completed_at?: string | null;
+  sync_mode?: 'bootstrap' | 'daily';
   // Campos para throttle/backoff
   last_sefaz_request_at?: string | null;
   rate_limit_count?: number | null;
@@ -50,6 +53,7 @@ export interface NfeDocument {
 export interface IngestPayload {
   empresa_id: string;
   documents: NfeDocument[];
+  cutoff_date?: string; // YYYY-MM-DD, sent by worker based on sync mode
 }
 
 /**
