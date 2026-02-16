@@ -23,7 +23,7 @@ const corsHeaders = {
 };
 
 // Intervalos de verificação
-const MIN_HOURS_SINCE_LAST_SYNC = 1; // 1 hora (mais agressivo para modo automático)
+const MIN_HOURS_SINCE_LAST_SYNC = 24; // 24 horas — rodar no máximo 1x/dia
 const MIN_MINUTES_SINCE_LAST_SEFAZ_REQUEST = 5; // 5 minutos entre requests
 const RUNNING_TIMEOUT_MINUTES = 30; // Timeout para considerar sync travada
 
@@ -168,29 +168,28 @@ Deno.serve(async (req) => {
         }
 
         // ========================================
-        // CONDIÇÃO 4: Precisa de sync?
+        // CONDIÇÃO 4: Precisa de sync? (1x/dia, sem backlog)
         // ========================================
-        const hasBacklog = syncState && syncState.max_nsu > 0 && syncState.ult_nsu < syncState.max_nsu;
-        let needsSync = hasBacklog;
-        let syncReason = hasBacklog ? "backlog" : "";
+        let needsSync = false;
+        let syncReason = "";
 
-        if (!needsSync && syncState?.last_sync_at) {
+        if (syncState?.last_sync_at) {
           const lastSync = new Date(syncState.last_sync_at);
           const hoursSince = (now.getTime() - lastSync.getTime()) / 3600000;
           
           if (hoursSince >= MIN_HOURS_SINCE_LAST_SYNC) {
             needsSync = true;
-            syncReason = `scheduled_${Math.round(hoursSince)}h`;
+            syncReason = `daily_${Math.round(hoursSince)}h`;
           } else {
             results.push({ 
               empresa_id: empresaId, 
               status: "skipped", 
               reason: "recent_sync", 
-              message: `Última sync há ${hoursSince.toFixed(1)}h` 
+              message: `Última sync há ${hoursSince.toFixed(1)}h (mín ${MIN_HOURS_SINCE_LAST_SYNC}h)` 
             });
             continue;
           }
-        } else if (!needsSync && !syncState?.last_sync_at) {
+        } else {
           needsSync = true;
           syncReason = "first_sync";
         }
@@ -217,7 +216,7 @@ Deno.serve(async (req) => {
           empresa_id: empresaId,
           level: "info",
           message: `Auto-sync iniciado (${syncReason})`,
-          meta: { trigger: "cron", reason: syncReason, backlog: hasBacklog },
+          meta: { trigger: "cron", reason: syncReason },
         });
 
         try {
