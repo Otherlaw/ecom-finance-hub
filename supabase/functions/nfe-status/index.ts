@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
     // Ultimas chaves importadas
     const { data: recentDocuments } = await supabase
       .from("nfe_documents")
-      .select("access_key, nsu, schema_type, issue_date, total_value, processed, created_at")
+      .select("access_key, nsu, schema_type, issue_date, total_value, processed, direction, xml_status, created_at")
       .eq("empresa_id", empresaId)
       .order("created_at", { ascending: false })
       .limit(10);

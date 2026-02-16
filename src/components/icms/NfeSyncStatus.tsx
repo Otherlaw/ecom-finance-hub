@@ -414,6 +414,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Chave de Acesso</TableHead>
+                        <TableHead>Tipo</TableHead>
                         <TableHead>Data</TableHead>
                         <TableHead className="text-right">Valor</TableHead>
                         <TableHead>Status</TableHead>
@@ -424,6 +425,11 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                         <TableRow key={doc.access_key}>
                           <TableCell className="font-mono text-xs">
                             {doc.access_key.substring(0, 20)}...
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`text-xs ${doc.direction === 'emitida' ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
+                              {doc.direction === 'emitida' ? 'Emitida' : 'Recebida'}
+                            </Badge>
                           </TableCell>
                           <TableCell>{doc.issue_date || "-"}</TableCell>
                           <TableCell className="text-right">

@@ -54,6 +54,7 @@ export interface IngestPayload {
   empresa_id: string;
   documents: NfeDocument[];
   cutoff_date?: string; // YYYY-MM-DD, sent by worker based on sync mode
+  dry_run?: boolean; // If true, don't persist, just count
 }
 
 /**
