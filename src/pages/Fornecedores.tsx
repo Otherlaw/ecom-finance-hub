@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Plus, Search, Eye, Edit, Building2, Phone, Mail, MoreHorizontal, Ban, Check } from 'lucide-react';
-import { AppSidebar } from '@/components/AppSidebar';
+import { MainLayout } from '@/components/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -177,30 +177,25 @@ export default function Fornecedores() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen w-full bg-background">
-        <AppSidebar />
-        <main className="flex-1 p-6 flex items-center justify-center">
+      <MainLayout title="Cadastro de Fornecedores" subtitle="Carregando fornecedores...">
+        <div className="flex items-center justify-center py-12">
           <p className="text-muted-foreground">Carregando fornecedores...</p>
-        </main>
-      </div>
+        </div>
+      </MainLayout>
     );
   }
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
-      <AppSidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Cadastro de Fornecedores</h1>
-              <p className="text-muted-foreground">Gerencie fornecedores de mercadorias, serviços e créditos</p>
-            </div>
-            <Button onClick={() => { setEditingFornecedor(null); setFormModalOpen(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Fornecedor
-            </Button>
-          </div>
+    <MainLayout
+      title="Cadastro de Fornecedores"
+      subtitle="Gerencie fornecedores de mercadorias, serviços e créditos"
+      actions={
+        <Button onClick={() => { setEditingFornecedor(null); setFormModalOpen(true); }}>
+          <Plus className="h-4 w-4 mr-2" />
+          Novo Fornecedor
+        </Button>
+      }
+    >
 
           <div className="grid grid-cols-4 gap-4">
             <Card>
@@ -371,8 +366,7 @@ export default function Fornecedores() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </main>
+
 
       <FornecedorFormModal
         open={formModalOpen}
@@ -414,6 +408,6 @@ export default function Fornecedores() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </MainLayout>
   );
 }

@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Search, Eye, Edit, Package, Upload, Trash2, Layers, Box, ArrowRight, ImageOff } from "lucide-react";
-import { AppSidebar } from "@/components/AppSidebar";
+import { MainLayout } from "@/components/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -111,27 +111,23 @@ export default function Produtos() {
   };
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
-      <AppSidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Cadastro de Produtos</h1>
-              <p className="text-muted-foreground">Gerencie o catálogo de produtos</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => navigate('/produtos/import-export')}>
-                <Upload className="h-4 w-4 mr-2" />
-                Importar/Exportar
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-              <Button onClick={() => { setEditingProduct(null); setFormModalOpen(true); }}>
-                <Plus className="h-4 w-4 mr-2" />
-                Novo Produto
-              </Button>
-            </div>
-          </div>
+    <MainLayout
+      title="Cadastro de Produtos"
+      subtitle="Gerencie o catálogo de produtos"
+      actions={
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => navigate('/produtos/import-export')}>
+            <Upload className="h-4 w-4 mr-2" />
+            Importar/Exportar
+            <ArrowRight className="h-4 w-4 ml-2" />
+          </Button>
+          <Button onClick={() => { setEditingProduct(null); setFormModalOpen(true); }}>
+            <Plus className="h-4 w-4 mr-2" />
+            Novo Produto
+          </Button>
+        </div>
+      }
+    >
 
           <ProdutoImportJobsPanel empresaId={empresaSelecionada} />
 
@@ -332,8 +328,6 @@ export default function Produtos() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </main>
 
       <ProdutoFormModalV2 
         open={formModalOpen} 
@@ -359,6 +353,6 @@ export default function Produtos() {
         produtoNome={productToDelete?.nome || ""}
         onSuccess={() => refetch()}
       />
-    </div>
+    </MainLayout>
   );
 }

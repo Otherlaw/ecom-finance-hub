@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { MainLayout } from "@/components/MainLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -203,33 +202,24 @@ export default function Integracoes() {
     : logs || [];
 
   return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full">
-        <AppSidebar />
-        <main className="flex-1 p-6 overflow-auto">
-          <div className="max-w-7xl mx-auto space-y-6">
-            {/* Header */}
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h1 className="text-3xl font-bold">Integrações</h1>
-                <p className="text-muted-foreground">
-                  Conecte marketplaces e bancos para automatizar sua operação
-                </p>
-              </div>
-
-              <Select value={empresaId} onValueChange={setEmpresaId}>
-                <SelectTrigger className="w-[280px]">
-                  <SelectValue placeholder="Selecione a empresa" />
-                </SelectTrigger>
-                <SelectContent>
-                  {empresas?.map((empresa) => (
-                    <SelectItem key={empresa.id} value={empresa.id}>
-                      {empresa.nome_fantasia || empresa.razao_social}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+    <MainLayout
+      title="Integrações"
+      subtitle="Conecte marketplaces e bancos para automatizar sua operação"
+      actions={
+        <Select value={empresaId} onValueChange={setEmpresaId}>
+          <SelectTrigger className="w-[280px]">
+            <SelectValue placeholder="Selecione a empresa" />
+          </SelectTrigger>
+          <SelectContent>
+            {empresas?.map((empresa) => (
+              <SelectItem key={empresa.id} value={empresa.id}>
+                {empresa.nome_fantasia || empresa.razao_social}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      }
+    >
 
             <Tabs defaultValue="conexoes" className="space-y-6">
               <TabsList>
@@ -544,9 +534,6 @@ export default function Integracoes() {
                 </Card>
               </TabsContent>
             </Tabs>
-          </div>
-        </main>
-      </div>
 
       {/* Dialog de Configuração */}
       <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
@@ -588,7 +575,7 @@ export default function Integracoes() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </SidebarProvider>
+    </MainLayout>
   );
 }
 

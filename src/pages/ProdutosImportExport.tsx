@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AppSidebar } from "@/components/AppSidebar";
+import { MainLayout } from "@/components/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,25 +13,18 @@ export default function ProdutosImportExport() {
   const [activeTab, setActiveTab] = useState("importar");
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
-      <AppSidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <Link to="/produtos">
-              <Button variant="outline" size="sm">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Voltar
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold">Importar & Exportar Produtos</h1>
-              <p className="text-muted-foreground">
-                Gerencie produtos em massa com suporte a tipos, variações e kits
-              </p>
-            </div>
-          </div>
-        </div>
+    <MainLayout
+      title="Importar & Exportar Produtos"
+      subtitle="Gerencie produtos em massa com suporte a tipos, variações e kits"
+      actions={
+        <Link to="/produtos">
+          <Button variant="outline" size="sm">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Voltar
+          </Button>
+        </Link>
+      }
+    >
 
         {/* Cards informativos sobre tipos de produto */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -109,7 +102,6 @@ export default function ProdutosImportExport() {
             <ProdutoImportJobsPanel />
           </TabsContent>
         </Tabs>
-      </main>
-    </div>
+    </MainLayout>
   );
 }

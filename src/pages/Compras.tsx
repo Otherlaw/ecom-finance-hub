@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Plus, Search, FileText, Package, BarChart3, CheckCircle2, Upload, ChevronRight, ShoppingCart, Truck, Clock, XCircle, LayoutList, AlertTriangle } from "lucide-react";
-import { AppSidebar } from "@/components/AppSidebar";
+import { MainLayout } from "@/components/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -143,26 +143,22 @@ export default function Compras() {
   };
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
-      <AppSidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Módulo de Compras</h1>
-              <p className="text-muted-foreground">Gerencie compras, recebimentos e integração com NFs</p>
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={() => setImportXMLModalOpen(true)}>
-                <Upload className="h-4 w-4 mr-2" />
-                Importar NF-e XML
-              </Button>
-              <Button variant="outline" onClick={() => setCompraManualModalOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Nova Compra Manual
-              </Button>
-            </div>
-          </div>
+    <MainLayout
+      title="Módulo de Compras"
+      subtitle="Gerencie compras, recebimentos e integração com NFs"
+      actions={
+        <div className="flex gap-2">
+          <Button onClick={() => setImportXMLModalOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Importar NF-e XML
+          </Button>
+          <Button variant="outline" onClick={() => setCompraManualModalOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nova Compra Manual
+          </Button>
+        </div>
+      }
+    >
 
           <div className="grid grid-cols-4 gap-4">
             <Card>
@@ -350,8 +346,6 @@ export default function Compras() {
                 </Card>
               </div>
           </div>
-        </div>
-      </main>
 
       <RegistrarRecebimentoModal
         open={recebimentoModalOpen}
@@ -372,6 +366,6 @@ export default function Compras() {
         onOpenChange={setCompraManualModalOpen}
         onSuccess={() => refetch()}
       />
-    </div>
+    </MainLayout>
   );
 }
