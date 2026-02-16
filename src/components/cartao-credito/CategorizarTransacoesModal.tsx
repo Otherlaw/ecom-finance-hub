@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTransacoes } from "@/hooks/useCartoes";
 import { useRegrasCategorizacao } from "@/hooks/useRegrasCategorizacao";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,7 @@ interface CategorizarTransacoesModalProps {
 export function CategorizarTransacoesModal({ open, onOpenChange, faturaId }: CategorizarTransacoesModalProps) {
   const { transacoes, isLoading, updateTransacao } = useTransacoes(faturaId);
   const { getSugestoes, aprenderCategorizacao, incrementarUso } = useRegrasCategorizacao();
+  const { empresaAtiva } = useEmpresaAtiva();
   
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
   const [categoriaSelecionada, setCategoriaSelecionada] = useState<string>("");
@@ -127,12 +129,13 @@ export function CategorizarTransacoesModal({ open, onOpenChange, faturaId }: Cat
         });
 
         // Aprende com a categorização se habilitado
-        if (aprenderAutomatico && t.estabelecimento) {
+        if (aprenderAutomatico && t.estabelecimento && empresaAtiva?.id) {
           await aprenderCategorizacao.mutateAsync({
             estabelecimento: t.estabelecimento,
             categoria_id: categoriaSelecionada || null,
             centro_custo_id: centroCustoSelecionado || null,
             responsavel_id: responsavelSelecionado || null,
+            empresa_id: empresaAtiva.id,
           });
         }
       });

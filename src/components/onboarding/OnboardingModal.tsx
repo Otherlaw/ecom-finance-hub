@@ -17,7 +17,6 @@ import {
 } from "@/hooks/useOnboardingValidado";
 import {
   Building2,
-  FolderTree,
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
@@ -42,9 +41,9 @@ const STEP_CONFIG = [
   },
   {
     num: 2,
-    title: "Plano de Contas",
-    description: "Categorias financeiras obrigatórias e regras de categorização.",
-    icon: FolderTree,
+    title: "Certificado Digital (A1)",
+    description: "Vincule o certificado A1 à empresa para liberar a importação de NF-e e o cálculo automático de ICMS.",
+    icon: Building2,
   },
   {
     num: 3,

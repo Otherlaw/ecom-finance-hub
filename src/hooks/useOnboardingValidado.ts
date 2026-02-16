@@ -29,12 +29,7 @@ export interface OnboardingEmpresa {
   updated_at: string;
 }
 
-const CATEGORIAS_OBRIGATORIAS = [
-  "Receitas",
-  "Custos",
-  "Despesas Operacionais",
-  "Impostos Sobre o Resultado",
-];
+// (removed CATEGORIAS_OBRIGATORIAS — step 2 now validates only certificate A1)
 
 // ── Validation functions ───────────────────────────────
 
@@ -79,24 +74,6 @@ async function validateStep1(empresaId: string): Promise<StepValidation> {
 async function validateStep2(empresaId: string): Promise<StepValidation> {
   const missing: MissingItem[] = [];
 
-  // Check categorias financeiras exist and have required types
-  const { data: categorias } = await supabase
-    .from("categorias_financeiras")
-    .select("tipo")
-    .eq("ativo", true);
-
-  const tiposExistentes = new Set((categorias || []).map((c) => c.tipo));
-
-  for (const tipo of CATEGORIAS_OBRIGATORIAS) {
-    if (!tiposExistentes.has(tipo)) {
-      missing.push({
-        id: `categoria_${tipo}`,
-        label: `Categoria "${tipo}" não encontrada no plano de contas`,
-        actionUrl: "/plano-contas",
-      });
-    }
-  }
-
   // Check if empresa has an active digital certificate (A1)
   const { count: certCount } = await supabase
     .from("nfe_certificates")
@@ -108,7 +85,7 @@ async function validateStep2(empresaId: string): Promise<StepValidation> {
     missing.push({
       id: "certificado_digital",
       label: "Certificado Digital (A1) não vinculado à empresa",
-      actionUrl: "/icms",
+      actionUrl: "/empresas",
     });
   }
 
