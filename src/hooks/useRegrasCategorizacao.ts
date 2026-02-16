@@ -105,16 +105,18 @@ export function useRegrasCategorizacao() {
       categoria_id: string | null;
       centro_custo_id: string | null;
       responsavel_id: string | null;
+      empresa_id: string;
     }) => {
-      if (!data.estabelecimento) return;
+      if (!data.estabelecimento || !data.empresa_id) return;
 
       const pattern = normalizeEstabelecimento(data.estabelecimento);
       
-      // Verifica se já existe regra para este padrão
+      // Verifica se já existe regra para este padrão nesta empresa
       const { data: existente } = await supabase
         .from("regras_categorizacao")
         .select("*")
         .eq("estabelecimento_pattern", pattern)
+        .eq("empresa_id", data.empresa_id)
         .maybeSingle();
 
       if (existente) {
@@ -131,8 +133,7 @@ export function useRegrasCategorizacao() {
 
         if (error) throw error;
       } else {
-        // Cria nova regra - usa empresa_id padrão
-        const DEFAULT_EMPRESA_ID = "d0b0c897-d560-4dc5-aa07-df99d3019bf5";
+        // Cria nova regra vinculada à empresa do usuário
         const { error } = await supabase
           .from("regras_categorizacao")
           .insert({
@@ -140,7 +141,7 @@ export function useRegrasCategorizacao() {
             categoria_id: data.categoria_id,
             centro_custo_id: data.centro_custo_id,
             responsavel_id: data.responsavel_id,
-            empresa_id: DEFAULT_EMPRESA_ID,
+            empresa_id: data.empresa_id,
           });
 
         if (error) throw error;

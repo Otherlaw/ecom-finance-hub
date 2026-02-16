@@ -101,6 +101,7 @@ export function CategorizacaoBancariaModal({
             categoria_id: categoriaId || null,
             centro_custo_id: centroCustoId === "none" ? null : (centroCustoId || null),
             responsavel_id: responsavelId === "none" ? null : (responsavelId || null),
+            empresa_id: transacao.empresa_id,
           }, {
             onSuccess: () => {
               toast.success("Regra de categorização automática salva!");
