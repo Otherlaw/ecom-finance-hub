@@ -90,6 +90,8 @@ export interface NfeDocument {
   issue_date: string | null;
   total_value: number | null;
   processed: boolean;
+  direction: "recebida" | "emitida" | null;
+  xml_status: "resumo" | "xml_ok" | "xml_error" | null;
   created_at: string;
 }
 

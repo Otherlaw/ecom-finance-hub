@@ -2701,6 +2701,7 @@ export type Database = {
           created_at: string
           credits_generated: number
           dest_cnpj: string | null
+          direction: string | null
           empresa_id: string
           id: string
           issue_date: string | null
@@ -2710,12 +2711,14 @@ export type Database = {
           schema_type: string | null
           total_value: number | null
           xml_content: string | null
+          xml_status: string | null
         }
         Insert: {
           access_key: string
           created_at?: string
           credits_generated?: number
           dest_cnpj?: string | null
+          direction?: string | null
           empresa_id: string
           id?: string
           issue_date?: string | null
@@ -2725,12 +2728,14 @@ export type Database = {
           schema_type?: string | null
           total_value?: number | null
           xml_content?: string | null
+          xml_status?: string | null
         }
         Update: {
           access_key?: string
           created_at?: string
           credits_generated?: number
           dest_cnpj?: string | null
+          direction?: string | null
           empresa_id?: string
           id?: string
           issue_date?: string | null
@@ -2740,6 +2745,7 @@ export type Database = {
           schema_type?: string | null
           total_value?: number | null
           xml_content?: string | null
+          xml_status?: string | null
         }
         Relationships: [
           {

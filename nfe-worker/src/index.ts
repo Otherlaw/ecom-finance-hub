@@ -24,6 +24,7 @@ import { SupabaseWorkerClient } from './supabase-client.js';
 import { SefazClient } from './sefaz-client.js';
 import { decrypt } from './crypto.js';
 import type { IngestResponse } from './types.js';
+import { computeSyncWindow, getSyncMode, shouldRunNow, getNextMidnightBRT } from './sync-utils.js';
 
 // Configuracoes
 const PORT = process.env.PORT || 8080;
@@ -33,21 +34,19 @@ const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
 
 // Parametros de sincronizacao
 const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
- const REQUEST_DELAY_MS = 12000; // Delay base entre requisicoes SEFAZ (12s conservador)
- const REQUEST_DELAY_JITTER = 0.25; // Jitter de ±25% para evitar padrões previsíveis
- const BOOTSTRAP_WINDOW_DAYS = 30; // Janela de bootstrap: 30 dias
- const DAILY_WINDOW_HOURS = 24; // Janela diária: 24 horas
+const REQUEST_DELAY_MS = 12000; // Delay base entre requisicoes SEFAZ (12s conservador)
+const REQUEST_DELAY_JITTER = 0.25; // Jitter de ±25% para evitar padrões previsíveis
 const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos para parar
+
+// DRY_RUN mode: log what would be imported without persisting
+const DRY_RUN = process.env.DRY_RUN === 'true' || process.env.DRY_RUN === '1';
  
- // ========================================
- // ANTI-RATE-LIMIT: Limites por execução
- // ========================================
- const MAX_SEFAZ_REQUESTS_PER_RUN = 10; // Máximo de requests à SEFAZ por execução
- const MAX_RUNTIME_MS = 4 * 60 * 1000; // 4 minutos máximo por execução
- const MIN_TIME_BETWEEN_RUNS_MS = 3 * 60 * 1000; // 3 minutos mínimo entre execuções
- 
- // Cooldown para cStat 137 (sem mais documentos) — aguardar próxima execução diária
- // (não mais cooldown de 1h fixo)
+// ========================================
+// ANTI-RATE-LIMIT: Limites por execução
+// ========================================
+const MAX_SEFAZ_REQUESTS_PER_RUN = 10; // Máximo de requests à SEFAZ por execução
+const MAX_RUNTIME_MS = 4 * 60 * 1000; // 4 minutos máximo por execução
+const MIN_TIME_BETWEEN_RUNS_MS = 3 * 60 * 1000; // 3 minutos mínimo entre execuções
 
 // Validar configuracoes
 const missingVars: string[] = [];
@@ -97,31 +96,6 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 /**
- * Calcula a data de corte baseado no modo (bootstrap=30d, daily=24h)
- */
-function getCutoffDate(mode: 'bootstrap' | 'daily'): string {
-  const cutoff = new Date();
-  if (mode === 'bootstrap') {
-    cutoff.setDate(cutoff.getDate() - BOOTSTRAP_WINDOW_DAYS);
-  } else {
-    cutoff.setHours(cutoff.getHours() - DAILY_WINDOW_HOURS);
-  }
-  return cutoff.toISOString().split('T')[0]; // YYYY-MM-DD
-}
-
-/**
- * Determina o modo de sync baseado no estado
- * bootstrap = sem bootstrap_completed_at
- * daily = bootstrap já concluído
- */
-function getSyncMode(syncState: { bootstrap_completed_at?: string | null; sync_mode?: string } | null): 'bootstrap' | 'daily' {
-  if (!syncState) return 'bootstrap';
-  if (syncState.bootstrap_completed_at) return 'daily';
-  if (syncState.sync_mode === 'daily') return 'daily';
-  return 'bootstrap';
-}
-
-/**
  * Verifica se erro eh 656 (Consumo Indevido)
  */
 function isSefazError656(error: unknown): boolean {
@@ -129,22 +103,6 @@ function isSefazError656(error: unknown): boolean {
     return error.message.includes('656') || error.message.includes('Consumo Indevido');
   }
   return false;
-}
-
-/**
- * Calcula a próxima meia-noite (00:00 BRT = 03:00 UTC) para retry diário.
- * Se já passou das 03:00 UTC hoje, retorna 03:00 UTC de amanhã.
- */
-function getNextMidnightBRT(): string {
-  const now = new Date();
-  // Próxima 00:00 BRT = 03:00 UTC
-  const next = new Date(now);
-  next.setUTCHours(3, 0, 0, 0);
-  // Se já passou, avança para amanhã
-  if (next.getTime() <= now.getTime()) {
-    next.setUTCDate(next.getUTCDate() + 1);
-  }
-  return next.toISOString();
 }
 
 /**
@@ -291,16 +249,12 @@ async function syncEmpresa(empresaId: string): Promise<{
     
     const syncMode = getSyncMode(syncState);
     const isBootstrap = syncMode === 'bootstrap';
-    const cutoffDate = getCutoffDate(syncMode);
+    const syncWindow = computeSyncWindow(syncMode);
+    const cutoffDate = syncWindow.cutoffDate;
 
     // Log do modo de operacao
-    if (isBootstrap) {
-      await supabase.log(empresaId, 'info', `Iniciando BOOTSTRAP (últimos ${BOOTSTRAP_WINDOW_DAYS} dias). Cutoff: ${cutoffDate}`);
-      console.log(`[SYNC] Modo BOOTSTRAP (30 dias) - cutoff: ${cutoffDate}`);
-    } else {
-      await supabase.log(empresaId, 'info', `Iniciando sync DIÁRIO (últimas ${DAILY_WINDOW_HOURS}h) a partir do NSU ${currentNSU}. Cutoff: ${cutoffDate}`);
-      console.log(`[SYNC] Modo DAILY (24h) - cutoff: ${cutoffDate}, NSU: ${currentNSU}`);
-    }
+    await supabase.log(empresaId, 'info', `Iniciando ${syncWindow.modeLabel}. Cutoff: ${cutoffDate}${DRY_RUN ? ' [DRY_RUN]' : ''}`);
+    console.log(`[SYNC] Modo ${syncWindow.modeLabel} - cutoff: ${cutoffDate}${DRY_RUN ? ' [DRY_RUN]' : ''}, NSU: ${currentNSU}`);
 
      // Log dos limites de proteção
      console.log(`[SYNC] Limites: max ${MAX_SEFAZ_REQUESTS_PER_RUN} requests, max ${MAX_RUNTIME_MS / 1000}s runtime`);
@@ -454,6 +408,7 @@ async function syncEmpresa(empresaId: string): Promise<{
                 empresa_id: empresaId,
                 documents: batch,
                 cutoff_date: cutoffDate,
+                dry_run: DRY_RUN,
               });
 
               totalDocumentsFetched += ingestResult.total_in_batch;
@@ -747,11 +702,12 @@ app.listen(PORT, () => {
   console.log(`NFe Worker rodando na porta ${PORT}`);
   console.log(`Supabase URL: ${SUPABASE_URL}`);
   console.log(`Modo: Proxy via Edge Function (sem SERVICE_ROLE_KEY)`);
-  console.log(`Janela bootstrap: ${BOOTSTRAP_WINDOW_DAYS} dias | Janela diária: ${DAILY_WINDOW_HOURS}h`);
-   console.log(`Delay entre requests: ${REQUEST_DELAY_MS}ms (±${REQUEST_DELAY_JITTER * 100}% jitter)`);
+  console.log(`Janela: Bootstrap 30d | Diário 24h`);
+  console.log(`DRY_RUN: ${DRY_RUN}`);
+  console.log(`Delay entre requests: ${REQUEST_DELAY_MS}ms (±${REQUEST_DELAY_JITTER * 100}% jitter)`);
   console.log(`Threshold bootstrap stop: ${BOOTSTRAP_STOP_THRESHOLD} lotes`);
-   console.log(`Rate limit: retry apenas na próxima 00:00 BRT`);
-   console.log(`Max requests por run: ${MAX_SEFAZ_REQUESTS_PER_RUN}`);
-   console.log(`Max runtime: ${MAX_RUNTIME_MS / 1000}s`);
+  console.log(`Rate limit: retry apenas na próxima 00:00 BRT`);
+  console.log(`Max requests por run: ${MAX_SEFAZ_REQUESTS_PER_RUN}`);
+  console.log(`Max runtime: ${MAX_RUNTIME_MS / 1000}s`);
   console.log('===========================================');
 });
