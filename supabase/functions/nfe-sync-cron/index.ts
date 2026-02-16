@@ -150,47 +150,28 @@ Deno.serve(async (req) => {
         }
 
         // ========================================
-        // CONDIÇÃO 3: Último request SEFAZ não muito recente
+        // CONDIÇÃO 3: Precisa de sync? (1x/dia, sem backlog)
         // ========================================
-        if (syncState?.last_sefaz_request_at) {
-          const lastRequest = new Date(syncState.last_sefaz_request_at);
-          const minutesSince = (now.getTime() - lastRequest.getTime()) / 60000;
-          
-          if (minutesSince < MIN_MINUTES_SINCE_LAST_SEFAZ_REQUEST) {
-            results.push({ 
-              empresa_id: empresaId, 
-              status: "skipped", 
-              reason: "recent_request", 
-              message: `Último request há ${Math.round(minutesSince)} min` 
-            });
-            continue;
-          }
-        }
+        let needsSync = false;
+        let syncReason = "";
 
-        // ========================================
-        // CONDIÇÃO 4: Precisa de sync?
-        // ========================================
-        const hasBacklog = syncState && syncState.max_nsu > 0 && syncState.ult_nsu < syncState.max_nsu;
-        let needsSync = hasBacklog;
-        let syncReason = hasBacklog ? "backlog" : "";
-
-        if (!needsSync && syncState?.last_sync_at) {
+        if (syncState?.last_sync_at) {
           const lastSync = new Date(syncState.last_sync_at);
           const hoursSince = (now.getTime() - lastSync.getTime()) / 3600000;
           
           if (hoursSince >= MIN_HOURS_SINCE_LAST_SYNC) {
             needsSync = true;
-            syncReason = `scheduled_${Math.round(hoursSince)}h`;
+            syncReason = `daily_${Math.round(hoursSince)}h`;
           } else {
             results.push({ 
               empresa_id: empresaId, 
               status: "skipped", 
               reason: "recent_sync", 
-              message: `Última sync há ${hoursSince.toFixed(1)}h` 
+              message: `Última sync há ${hoursSince.toFixed(1)}h (mín ${MIN_HOURS_SINCE_LAST_SYNC}h)` 
             });
             continue;
           }
-        } else if (!needsSync && !syncState?.last_sync_at) {
+        } else {
           needsSync = true;
           syncReason = "first_sync";
         }

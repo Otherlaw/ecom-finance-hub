@@ -317,6 +317,18 @@ export function useNfeSyncStatus(empresaId?: string) {
     return false;
   }, [syncStatus, nextRetryAt]);
 
+  // Texto amigável para próxima execução
+  const nextExecutionLabel = useMemo(() => {
+    if (nextRetryAt) {
+      const d = new Date(nextRetryAt);
+      return `Próxima execução automática: ${d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
+    }
+    if (syncStatus === "rate_limited") {
+      return "Próxima execução automática: 00:00";
+    }
+    return null;
+  }, [nextRetryAt, syncStatus]);
+
   // isSyncing SOMENTE se não estiver em rate limit
   const isSyncing =
     hasCert &&
@@ -383,6 +395,7 @@ export function useNfeSyncStatus(empresaId?: string) {
     lastError,
     isStuck,
     timeUntilRetry,
+    nextExecutionLabel,
   };
 }
 
