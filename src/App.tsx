@@ -7,6 +7,7 @@ import { EmpresaProvider } from "./contexts/EmpresaContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AssistantChatProvider } from "./contexts/AssistantChatContext";
 import { lazy, Suspense } from "react";
+import { OnboardingBlocker } from "./components/onboarding/OnboardingBlocker";
 
 // Eagerly loaded (public/critical)
 import Landing from "./pages/Landing";
@@ -76,16 +77,16 @@ const App = () => (
                 
                 {/* Rotas protegidas */}
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-                <Route path="/vendas" element={<ProtectedRoute><Vendas /></ProtectedRoute>} />
+                <Route path="/vendas" element={<ProtectedRoute><OnboardingBlocker><Vendas /></OnboardingBlocker></ProtectedRoute>} />
                 <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
-                <Route path="/fechamento" element={<ProtectedRoute><Fechamento /></ProtectedRoute>} />
-                <Route path="/fluxo-caixa" element={<ProtectedRoute><FluxoCaixa /></ProtectedRoute>} />
-                <Route path="/dre" element={<ProtectedRoute><DRE /></ProtectedRoute>} />
-                <Route path="/balanco" element={<ProtectedRoute><Balanco /></ProtectedRoute>} />
-                <Route path="/patrimonio" element={<ProtectedRoute><PatrimonioImobilizado /></ProtectedRoute>} />
-                <Route path="/kpis" element={<ProtectedRoute><KPIs /></ProtectedRoute>} />
-                <Route path="/projecoes" element={<ProtectedRoute><Projecoes /></ProtectedRoute>} />
-                <Route path="/icms" element={<ProtectedRoute><ICMS /></ProtectedRoute>} />
+                <Route path="/fechamento" element={<ProtectedRoute><OnboardingBlocker><Fechamento /></OnboardingBlocker></ProtectedRoute>} />
+                <Route path="/fluxo-caixa" element={<ProtectedRoute><OnboardingBlocker><FluxoCaixa /></OnboardingBlocker></ProtectedRoute>} />
+                <Route path="/dre" element={<ProtectedRoute><OnboardingBlocker><DRE /></OnboardingBlocker></ProtectedRoute>} />
+                <Route path="/balanco" element={<ProtectedRoute><OnboardingBlocker><Balanco /></OnboardingBlocker></ProtectedRoute>} />
+                <Route path="/patrimonio" element={<ProtectedRoute><OnboardingBlocker><PatrimonioImobilizado /></OnboardingBlocker></ProtectedRoute>} />
+                <Route path="/kpis" element={<ProtectedRoute><OnboardingBlocker><KPIs /></OnboardingBlocker></ProtectedRoute>} />
+                <Route path="/projecoes" element={<ProtectedRoute><OnboardingBlocker><Projecoes /></OnboardingBlocker></ProtectedRoute>} />
+                <Route path="/icms" element={<ProtectedRoute><OnboardingBlocker><ICMS /></OnboardingBlocker></ProtectedRoute>} />
                 <Route path="/conciliacao" element={<ProtectedRoute><Conciliacao /></ProtectedRoute>} />
                 <Route path="/checklist-fechamento" element={<ProtectedRoute><ChecklistFechamento /></ProtectedRoute>} />
                 <Route path="/produtos" element={<ProtectedRoute><Produtos /></ProtectedRoute>} />

@@ -1,17 +1,22 @@
 import { useState } from "react";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { useOnboarding } from "@/hooks/useOnboarding";
-import { OnboardingWizard } from "./OnboardingWizard";
+import { useOnboardingValidado } from "@/hooks/useOnboardingValidado";
+import { OnboardingModal } from "./OnboardingModal";
 import { Sparkles, X, ChevronRight } from "lucide-react";
 
 export function OnboardingBanner() {
-  const { deveExibirOnboarding, progresso, proximoPasso } = useOnboarding();
+  const { isComplete, isLoading, currentStep, progressPercent } = useOnboardingValidado();
   const [wizardOpen, setWizardOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
-  // Não exibir se onboarding completo ou foi dispensado
-  if (!deveExibirOnboarding || dismissed) return null;
+  if (isLoading || isComplete || dismissed) return null;
+
+  const stepLabels: Record<number, string> = {
+    1: "Empresa e Integrações",
+    2: "Plano de Contas",
+    3: "Revisão Final",
+  };
 
   return (
     <>
@@ -20,32 +25,30 @@ export function OnboardingBanner() {
           <div className="flex items-center gap-4 flex-1 min-w-0">
             <div className="hidden sm:flex items-center gap-2 text-primary">
               <Sparkles className="h-5 w-5" />
-              <span className="font-medium text-sm">Configuração Inicial</span>
+              <span className="font-medium text-sm">Etapa {currentStep}/3</span>
             </div>
-            
+
             <div className="flex-1 max-w-xs">
-              <Progress value={progresso} className="h-2" />
+              <Progress value={progressPercent} className="h-2" />
             </div>
-            
+
             <span className="text-sm text-muted-foreground whitespace-nowrap">
-              {progresso}% concluído
+              {progressPercent}% concluído
             </span>
           </div>
 
           <div className="flex items-center gap-2">
-            {proximoPasso && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setWizardOpen(true)}
-                className="gap-1 text-primary hover:text-primary"
-              >
-                <span className="hidden sm:inline">Próximo:</span>
-                <span className="font-medium">{proximoPasso.title}</span>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            )}
-            
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setWizardOpen(true)}
+              className="gap-1 text-primary hover:text-primary"
+            >
+              <span className="hidden sm:inline">Próximo:</span>
+              <span className="font-medium">{stepLabels[currentStep]}</span>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+
             <Button
               variant="ghost"
               size="icon"
@@ -59,7 +62,7 @@ export function OnboardingBanner() {
         </div>
       </div>
 
-      <OnboardingWizard open={wizardOpen} onOpenChange={setWizardOpen} />
+      <OnboardingModal open={wizardOpen} onOpenChange={setWizardOpen} />
     </>
   );
 }
