@@ -15,7 +15,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-worker-token",
 };
 
-// Janela de sincronizacao em dias
+// Janela de sincronizacao em dias (apenas últimos 7 dias com XML/créditos)
 const SYNC_WINDOW_DAYS = 7;
 
 interface NFeDocument {
@@ -258,13 +258,14 @@ Deno.serve(async (req) => {
       
       if (!isProcNFe || !doc.xml) {
         // Documento sem XML completo (resumo/evento) - salva referencia apenas
-        await supabase.from("nfe_documents").insert({
+        // Usar upsert para idempotência (proteção contra corrida)
+        await supabase.from("nfe_documents").upsert({
           empresa_id: payload.empresa_id,
           access_key: doc.access_key,
           nsu: doc.nsu,
           schema_type: doc.schema,
-          processed: true, // Marca como processado para nao reprocessar
-        });
+          processed: true,
+        }, { onConflict: "empresa_id,access_key", ignoreDuplicates: true });
         skippedNoXml++;
         existingKeys.add(doc.access_key);
         continue;
@@ -274,14 +275,14 @@ Deno.serve(async (req) => {
       const nfe = parseNFeXML(doc.xml);
       if (!nfe) {
         errors.push(`Falha ao parsear XML: ${doc.access_key}`);
-        // Mesmo com erro, registra para nao reprocessar
-        await supabase.from("nfe_documents").insert({
+        // Mesmo com erro, registra para nao reprocessar (upsert para idempotência)
+        await supabase.from("nfe_documents").upsert({
           empresa_id: payload.empresa_id,
           access_key: doc.access_key,
           nsu: doc.nsu,
           schema_type: doc.schema,
           processed: true,
-        });
+        }, { onConflict: "empresa_id,access_key", ignoreDuplicates: true });
         existingKeys.add(doc.access_key);
         continue;
       }
@@ -292,8 +293,8 @@ Deno.serve(async (req) => {
         skippedOldDocs++;
         console.log(`Doc ${doc.access_key.substring(0,15)}... ignorado (emissao: ${docDate} < cutoff: ${cutoffDate})`);
         
-        // Salva referencia para controle de NSU, sem XML nem creditos
-        await supabase.from("nfe_documents").insert({
+        // Salva referencia para controle de NSU, sem XML nem creditos (upsert para idempotência)
+        await supabase.from("nfe_documents").upsert({
           empresa_id: payload.empresa_id,
           access_key: doc.access_key,
           nsu: doc.nsu,
@@ -301,7 +302,7 @@ Deno.serve(async (req) => {
           issue_date: docDate,
           total_value: nfe.valorTotal,
           processed: true,
-        });
+        }, { onConflict: "empresa_id,access_key", ignoreDuplicates: true });
         existingKeys.add(doc.access_key);
         continue;
       }
@@ -309,9 +310,10 @@ Deno.serve(async (req) => {
       // Documento dentro da janela de 90 dias - importar completo
       console.log(`Doc ${doc.access_key.substring(0,15)}... importando (emissao: ${docDate})`);
       
+      // Upsert para idempotência — se já existir, atualiza com dados completos
       const { data: insertedDoc, error: docError } = await supabase
         .from("nfe_documents")
-        .insert({
+        .upsert({
           empresa_id: payload.empresa_id,
           access_key: doc.access_key,
           nsu: doc.nsu,
@@ -322,7 +324,7 @@ Deno.serve(async (req) => {
           issue_date: nfe.dataEmissao || null,
           total_value: nfe.valorTotal,
           processed: false,
-        })
+        }, { onConflict: "empresa_id,access_key" })
         .select()
         .single();
 
