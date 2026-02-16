@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Package, Search, AlertTriangle, TrendingDown, TrendingUp, ArrowUpDown, Warehouse } from 'lucide-react';
-import { AppSidebar } from '@/components/AppSidebar';
+import { MainLayout } from '@/components/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -112,30 +112,25 @@ export default function EstoqueSKU() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen w-full bg-background">
-        <AppSidebar />
-        <main className="flex-1 p-6 flex items-center justify-center">
+      <MainLayout title="Estoque por SKU" subtitle="Carregando estoque...">
+        <div className="flex items-center justify-center py-12">
           <p className="text-muted-foreground">Carregando estoque...</p>
-        </main>
-      </div>
+        </div>
+      </MainLayout>
     );
   }
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
-      <AppSidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Estoque por SKU</h1>
-              <p className="text-muted-foreground">Controle de estoque por produto e armazém</p>
-            </div>
-            <Button onClick={() => setAjusteModalOpen(true)}>
-              <ArrowUpDown className="h-4 w-4 mr-2" />
-              Ajustar Estoque
-            </Button>
-          </div>
+    <MainLayout
+      title="Estoque por SKU"
+      subtitle="Controle de estoque por produto e armazém"
+      actions={
+        <Button onClick={() => setAjusteModalOpen(true)}>
+          <ArrowUpDown className="h-4 w-4 mr-2" />
+          Ajustar Estoque
+        </Button>
+      }
+    >
 
           {/* Cards de Estatísticas */}
           <div className="grid grid-cols-4 gap-4">
@@ -283,14 +278,12 @@ export default function EstoqueSKU() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </main>
 
       <AjusteEstoqueModal
         open={ajusteModalOpen}
         onOpenChange={setAjusteModalOpen}
         onSuccess={() => refetch()}
       />
-    </div>
+    </MainLayout>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { AppSidebar } from '@/components/AppSidebar';
+import { MainLayout } from '@/components/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -665,23 +665,11 @@ export default function Precificacao() {
       }
     });
   };
-  return <div className="flex min-h-screen w-full bg-background">
-      <AppSidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <Calculator className="h-6 w-6 text-primary" />
-                Precificação
-              </h1>
-              <p className="text-muted-foreground">
-                Calcule o preço de venda ideal com base no custo efetivo e margem desejada
-              </p>
-            </div>
-            <AskAssistantButton onClick={handleAskAssistant} label="Perguntar ao Assis.Fin" />
-          </div>
+  return <MainLayout
+      title="Precificação"
+      subtitle="Calcule o preço de venda ideal com base no custo efetivo e margem desejada"
+      actions={<AskAssistantButton onClick={handleAskAssistant} label="Perguntar ao Assis.Fin" />}
+    >
 
           {/* Bloco 1 - Contexto */}
           <Card>
@@ -1580,8 +1568,6 @@ export default function Precificacao() {
                 </Card>
               </div>
             </div>}
-        </div>
-      </main>
 
       {/* Modal Seleção NF da Base */}
       <Dialog open={nfModalOpen} onOpenChange={setNfModalOpen}>
@@ -2011,5 +1997,5 @@ export default function Precificacao() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>;
+    </MainLayout>;
 }

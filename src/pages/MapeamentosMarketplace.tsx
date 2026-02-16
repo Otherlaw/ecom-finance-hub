@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link2, Search, Trash2, Package, Store, AlertCircle, Check, Plus } from "lucide-react";
-import { AppSidebar } from "@/components/AppSidebar";
+import { MainLayout } from "@/components/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -122,25 +122,16 @@ export default function MapeamentosMarketplace() {
   };
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
-      <AppSidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <Link2 className="h-6 w-6 text-primary" />
-                Mapeamentos MLB ↔ SKU
-              </h1>
-              <p className="text-muted-foreground">
-                Vincule os códigos de anúncio do marketplace aos produtos internos
-              </p>
-            </div>
-            <Button onClick={() => setShowNovoModal(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Mapeamento
-            </Button>
-          </div>
+    <MainLayout
+      title="Mapeamentos MLB ↔ SKU"
+      subtitle="Vincule os códigos de anúncio do marketplace aos produtos internos"
+      actions={
+        <Button onClick={() => setShowNovoModal(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Novo Mapeamento
+        </Button>
+      }
+    >
 
           <div className="grid grid-cols-3 gap-4">
             <Card>
@@ -313,8 +304,6 @@ export default function MapeamentosMarketplace() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </main>
 
       <Dialog open={!!editingMapping} onOpenChange={(open) => !open && setEditingMapping(null)}>
         <DialogContent className="max-w-lg">
@@ -392,6 +381,6 @@ export default function MapeamentosMarketplace() {
         empresaId={empresaId}
         onSuccess={() => refetch()}
       />
-    </div>
+    </MainLayout>
   );
 }

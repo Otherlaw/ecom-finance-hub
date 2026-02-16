@@ -17,7 +17,7 @@ import {
   Play,
   Loader2
 } from "lucide-react";
-import { AppSidebar } from "@/components/AppSidebar";
+import { MainLayout } from "@/components/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -112,44 +112,35 @@ export default function CMVRelatorio() {
   const isLoading = isLoadingEmpresas || isLoadingCMV || isLoadingPorProduto;
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
-      <AppSidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <BarChart3 className="h-6 w-6 text-primary" />
-                Relatório de CMV & Margem
-              </h1>
-              <p className="text-muted-foreground">
-                Custo de Mercadoria Vendida
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="default" 
-                size="sm" 
-                onClick={handleProcessarCMV}
-                disabled={!empresaId || processarCMVLote.isPending}
-              >
-                {processarCMVLote.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4 mr-2" />
-                )}
-                Processar CMV
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => refetch()}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Atualizar
-              </Button>
-              <Button variant="outline" size="sm" disabled>
-                <Download className="h-4 w-4 mr-2" />
-                Exportar
-              </Button>
-            </div>
-          </div>
+    <MainLayout
+      title="Relatório de CMV & Margem"
+      subtitle="Custo de Mercadoria Vendida"
+      actions={
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="default" 
+            size="sm" 
+            onClick={handleProcessarCMV}
+            disabled={!empresaId || processarCMVLote.isPending}
+          >
+            {processarCMVLote.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4 mr-2" />
+            )}
+            Processar CMV
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Atualizar
+          </Button>
+          <Button variant="outline" size="sm" disabled>
+            <Download className="h-4 w-4 mr-2" />
+            Exportar
+          </Button>
+        </div>
+      }
+    >
 
           <Card>
             <CardHeader className="pb-3">
@@ -474,8 +465,6 @@ export default function CMVRelatorio() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </main>
-    </div>
+    </MainLayout>
   );
 }
