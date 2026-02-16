@@ -277,6 +277,7 @@ export default function Dashboard() {
         imagemUrl: p.produto_imagem_url,
         anuncioId: p.produto_anuncio_id || null,
         thumbnailUrl: p.produto_thumbnail_url || null,
+        empresaId: p.produto_empresa_id || null,
         qtdTotal,
         totalFaturado,
         totalAds,
@@ -533,9 +534,8 @@ export default function Dashboard() {
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
-                                {/* Empresa específica: MlThumbnail. Consolidado: fallback para thumbnail/imagem do banco */}
-                                {!isConsolidado && produto.anuncioId ? (
-                                  <MlThumbnail anuncioId={produto.anuncioId} size={40} empresaId={empresaIdFiltro} />
+                                {produto.anuncioId ? (
+                                  <MlThumbnail anuncioId={produto.anuncioId} size={40} empresaId={isConsolidado ? produto.empresaId ?? undefined : empresaIdFiltro} />
                                 ) : produto.thumbnailUrl ? (
                                   <img src={produto.thumbnailUrl} alt={produto.nome} className="w-full h-full object-cover rounded-lg border border-border" />
                                 ) : produto.imagemUrl ? (
