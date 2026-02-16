@@ -64,6 +64,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     isStuck,
     timeUntilRetry,
     nextExecutionLabel,
+    syncMode,
   } = useNfeSyncStatus(empresaId);
 
   if (isLoading) {
@@ -340,7 +341,12 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
             {/* Estatisticas */}
             {syncState && (
               <div className="p-4 rounded-lg border bg-card">
-                <div className="text-sm font-medium mb-2">Estatisticas</div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-medium">Estatísticas</div>
+                  <Badge variant="outline" className="text-xs">
+                    {syncMode === "bootstrap" ? "Importação inicial (30 dias)" : "Diário (24h)"}
+                  </Badge>
+                </div>
                 <div className="grid grid-cols-4 gap-4 text-sm">
                   <div>
                     <div className="text-muted-foreground">Documentos</div>

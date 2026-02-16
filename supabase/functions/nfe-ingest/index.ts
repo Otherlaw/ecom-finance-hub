@@ -15,8 +15,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-worker-token",
 };
 
-// Janela de sincronizacao em dias (apenas últimos 7 dias com XML/créditos)
-const SYNC_WINDOW_DAYS = 7;
+// Janela de sincronizacao: bootstrap=30d, daily=24h
+// A função recebe o cutoff_date do worker, então usa como fallback
+const DEFAULT_SYNC_WINDOW_DAYS = 30;
 
 interface NFeDocument {
   access_key: string;
@@ -28,6 +29,7 @@ interface NFeDocument {
 interface IngestPayload {
   empresa_id: string;
   documents: NFeDocument[];
+  cutoff_date?: string; // YYYY-MM-DD, sent by worker
 }
 
 interface NFeItem {
@@ -59,10 +61,10 @@ interface ParsedNFe {
   valorTotal: number;
 }
 
-// Calcula data de corte (90 dias atras)
-function getCutoffDate(): string {
+// Calcula data de corte (fallback se cutoff_date não vier no payload)
+function getCutoffDate(windowDays: number = DEFAULT_SYNC_WINDOW_DAYS): string {
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - SYNC_WINDOW_DAYS);
+  cutoff.setDate(cutoff.getDate() - windowDays);
   return cutoff.toISOString().split("T")[0]; // YYYY-MM-DD
 }
 
@@ -235,8 +237,8 @@ Deno.serve(async (req) => {
     // Tipo de credito para a empresa
     const tipoCredito = await getEmpresaTipoCredito(supabaseUrl, supabaseServiceKey, payload.empresa_id);
 
-    // Data de corte (ultimos 90 dias)
-    const cutoffDate = getCutoffDate();
+    // Data de corte — usar cutoff_date do payload se disponível
+    const cutoffDate = payload.cutoff_date || getCutoffDate();
     console.log(`Cutoff date: ${cutoffDate} (docs mais antigos serao registrados sem XML/creditos)`);
 
     let inserted = 0;

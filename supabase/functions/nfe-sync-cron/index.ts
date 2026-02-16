@@ -8,6 +8,7 @@
  * - 1 sync por empresa por execução (máx 1x/dia)
  * - Sem retry no mesmo dia — se der erro, próximo ciclo é amanhã 00:00
  * - Respeita cooldown (next_retry_at) e lock de concorrência
+ * - Bootstrap (30d) para empresas novas, daily (24h) para recorrentes
  * 
  * SEGURANÇA: Chama worker com x-worker-sync-token
  */
@@ -21,7 +22,7 @@ const corsHeaders = {
 
 // Sync diário: mínimo 24h entre execuções
 const MIN_HOURS_SINCE_LAST_SYNC = 24;
-const RUNNING_TIMEOUT_MINUTES = 30; // Timeout para considerar sync travada
+const RUNNING_TIMEOUT_MINUTES = 30;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -58,7 +59,6 @@ Deno.serve(async (req) => {
     }
 
     const workerEndpoint = new URL("/sync", workerBaseUrl).toString();
-    console.log(`[nfe-sync-cron] Worker endpoint: ${workerEndpoint}`);
 
     // Buscar empresas com certificado ativo
     const { data: certificates, error: certError } = await supabase
@@ -72,7 +72,6 @@ Deno.serve(async (req) => {
     }
 
     if (!certificates || certificates.length === 0) {
-      console.log("[nfe-sync-cron] Nenhuma empresa com certificado ativo");
       return new Response(
         JSON.stringify({ success: true, message: "Nenhuma empresa", empresas_processadas: 0 }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -81,7 +80,7 @@ Deno.serve(async (req) => {
 
     console.log(`[nfe-sync-cron] ${certificates.length} empresas com certificado ativo`);
 
-    const results: { empresa_id: string; status: string; reason?: string; message?: string }[] = [];
+    const results: { empresa_id: string; status: string; mode?: string; reason?: string; message?: string }[] = [];
 
     for (const cert of certificates) {
       const empresaId = cert.empresa_id;
@@ -104,16 +103,10 @@ Deno.serve(async (req) => {
           const diffMinutes = (now.getTime() - lastUpdate.getTime()) / 60000;
           
           if (diffMinutes < RUNNING_TIMEOUT_MINUTES) {
-            results.push({ 
-              empresa_id: empresaId, 
-              status: "skipped", 
-              reason: "sync_running", 
-              message: `Em andamento há ${Math.round(diffMinutes)} min` 
-            });
+            results.push({ empresa_id: empresaId, status: "skipped", reason: "sync_running", message: `Em andamento há ${Math.round(diffMinutes)} min` });
             continue;
           }
           console.log(`[nfe-sync-cron] ${empresaNome}: Travada há ${Math.round(diffMinutes)} min, resetando`);
-          
           await supabase.from("nfe_sync_state").update({
             status: "idle",
             last_error: `Timeout: sync travada por ${Math.round(diffMinutes)} min`,
@@ -126,21 +119,21 @@ Deno.serve(async (req) => {
           const nextRetry = new Date(syncState.next_retry_at);
           if (now < nextRetry) {
             const minutesLeft = Math.round((nextRetry.getTime() - now.getTime()) / 60000);
-            results.push({ 
-              empresa_id: empresaId, 
-              status: "skipped", 
-              reason: "cooldown", 
-              message: `Cooldown: ${minutesLeft} min restantes` 
-            });
+            results.push({ empresa_id: empresaId, status: "skipped", reason: "cooldown", message: `Cooldown: ${minutesLeft} min restantes` });
             continue;
           }
         }
 
-        // CONDIÇÃO 3: Última sync há pelo menos 24h (ou primeiro sync)
+        // CONDIÇÃO 3: Determinar modo e verificar intervalo
+        const syncMode = syncState?.bootstrap_completed_at ? "daily" : "bootstrap";
         let needsSync = false;
         let syncReason = "";
 
-        if (syncState?.last_sync_at) {
+        if (syncMode === "bootstrap") {
+          // Bootstrap: sempre executar se não está running
+          needsSync = true;
+          syncReason = "bootstrap";
+        } else if (syncState?.last_sync_at) {
           const lastSync = new Date(syncState.last_sync_at);
           const hoursSince = (now.getTime() - lastSync.getTime()) / 3600000;
           
@@ -148,12 +141,7 @@ Deno.serve(async (req) => {
             needsSync = true;
             syncReason = `daily_${Math.round(hoursSince)}h`;
           } else {
-            results.push({ 
-              empresa_id: empresaId, 
-              status: "skipped", 
-              reason: "recent_sync", 
-              message: `Última sync há ${hoursSince.toFixed(1)}h (mín ${MIN_HOURS_SINCE_LAST_SYNC}h)` 
-            });
+            results.push({ empresa_id: empresaId, status: "skipped", mode: syncMode, reason: "recent_sync", message: `Última sync há ${hoursSince.toFixed(1)}h` });
             continue;
           }
         } else {
@@ -162,12 +150,12 @@ Deno.serve(async (req) => {
         }
 
         if (!needsSync) {
-          results.push({ empresa_id: empresaId, status: "skipped", reason: "no_need" });
+          results.push({ empresa_id: empresaId, status: "skipped", mode: syncMode, reason: "no_need" });
           continue;
         }
 
         // DISPARAR SYNC via Worker
-        console.log(`[nfe-sync-cron] ${empresaNome}: Iniciando sync (${syncReason})`);
+        console.log(`[nfe-sync-cron] ${empresaNome}: Iniciando sync (${syncReason}, modo: ${syncMode})`);
 
         await supabase.from("nfe_sync_state").upsert({
           empresa_id: empresaId,
@@ -179,8 +167,8 @@ Deno.serve(async (req) => {
         await supabase.from("nfe_sync_logs").insert({
           empresa_id: empresaId,
           level: "info",
-          message: `Auto-sync diário iniciado (${syncReason})`,
-          meta: { trigger: "cron", reason: syncReason },
+          message: `Auto-sync diário iniciado (${syncReason}, modo: ${syncMode})`,
+          meta: { trigger: "cron", reason: syncReason, mode: syncMode },
         });
 
         try {
@@ -198,7 +186,7 @@ Deno.serve(async (req) => {
           });
 
           if (workerResponse.ok) {
-            results.push({ empresa_id: empresaId, status: "started", reason: syncReason });
+            results.push({ empresa_id: empresaId, status: "started", mode: syncMode, reason: syncReason });
           } else {
             const errorBody = await workerResponse.text().catch(() => "");
             console.error(`[nfe-sync-cron] Worker error ${workerResponse.status}: ${errorBody.slice(0, 200)}`);
@@ -209,16 +197,10 @@ Deno.serve(async (req) => {
               updated_at: now.toISOString(),
             }).eq("empresa_id", empresaId);
             
-            results.push({ 
-              empresa_id: empresaId, 
-              status: "error", 
-              message: `Worker ${workerResponse.status}: ${errorBody.slice(0, 100)}` 
-            });
+            results.push({ empresa_id: empresaId, status: "error", message: `Worker ${workerResponse.status}` });
           }
         } catch (fetchError) {
           const errorMsg = fetchError instanceof Error ? fetchError.message : "Erro conexão";
-          console.error(`[nfe-sync-cron] Fetch error: ${errorMsg}`);
-          
           await supabase.from("nfe_sync_state").update({
             status: "error",
             last_error: `Cron: ${errorMsg}`,
@@ -233,7 +215,6 @@ Deno.serve(async (req) => {
 
       } catch (empresaError) {
         const message = empresaError instanceof Error ? empresaError.message : "Erro";
-        console.error(`[nfe-sync-cron] Erro empresa ${empresaId}: ${message}`);
         results.push({ empresa_id: empresaId, status: "error", message });
       }
     }
@@ -243,19 +224,14 @@ Deno.serve(async (req) => {
     const skipped = results.filter(r => r.status === "skipped").length;
     const errors = results.filter(r => r.status === "error").length;
 
-    console.log("[nfe-sync-cron] ========================================");
-    console.log(`[nfe-sync-cron] Concluído em ${duration}ms`);
-    console.log(`[nfe-sync-cron] Iniciadas: ${started}, Puladas: ${skipped}, Erros: ${errors}`);
-    console.log("[nfe-sync-cron] ========================================");
+    console.log(`[nfe-sync-cron] Concluído em ${duration}ms | Iniciadas: ${started}, Puladas: ${skipped}, Erros: ${errors}`);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         duration_ms: duration, 
         empresas_processadas: certificates.length, 
-        iniciadas: started, 
-        puladas: skipped, 
-        erros: errors, 
+        iniciadas: started, puladas: skipped, erros: errors, 
         detalhes: results 
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -263,9 +239,7 @@ Deno.serve(async (req) => {
 
   } catch (error: unknown) {
     const duration = Date.now() - startTime;
-    console.error("[nfe-sync-cron] Erro geral:", error);
     const message = error instanceof Error ? error.message : "Erro interno";
-    
     return new Response(
       JSON.stringify({ success: false, error: message, duration_ms: duration }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
