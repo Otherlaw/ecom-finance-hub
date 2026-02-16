@@ -63,9 +63,9 @@ async function validateStep1(empresaId: string): Promise<StepValidation> {
     missing.push({ id: "regime_tributario", label: "Regime tributário não definido", actionUrl: "/empresas" });
   }
 
-  // Check integrations (at least 1 marketplace connected OR manual flag)
+  // Check integrations (at least 1 marketplace connected via integracao_tokens)
   const { count } = await supabase
-    .from("marketplace_tokens" as any)
+    .from("integracao_tokens")
     .select("*", { count: "exact", head: true })
     .eq("empresa_id", empresaId);
 
