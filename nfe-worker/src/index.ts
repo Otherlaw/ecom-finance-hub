@@ -35,10 +35,8 @@ const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
 const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
  const REQUEST_DELAY_MS = 12000; // Delay base entre requisicoes SEFAZ (12s conservador)
  const REQUEST_DELAY_JITTER = 0.25; // Jitter de ±25% para evitar padrões previsíveis
- const SYNC_WINDOW_DAYS = 90; // Janela de 90 dias (alinhado com nfe-ingest)
+ const SYNC_WINDOW_DAYS = 7; // Janela de 7 dias (alinhado com nfe-ingest)
 const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos para parar
- const RATE_LIMIT_BASE_COOLDOWN_MS = 60 * 60 * 1000; // 1 hora base em milissegundos
- const RATE_LIMIT_MAX_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 horas máximo
  
  // ========================================
  // ANTI-RATE-LIMIT: Limites por execução
@@ -47,8 +45,8 @@ const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos 
  const MAX_RUNTIME_MS = 4 * 60 * 1000; // 4 minutos máximo por execução
  const MIN_TIME_BETWEEN_RUNS_MS = 3 * 60 * 1000; // 3 minutos mínimo entre execuções
  
- // Cooldown para cStat 137 (sem mais documentos)
- const CSTAT_137_COOLDOWN_MS = 60 * 60 * 1000; // 1 hora
+ // Cooldown para cStat 137 (sem mais documentos) — aguardar próxima execução diária
+ // (não mais cooldown de 1h fixo)
 
 // Validar configuracoes
 const missingVars: string[] = [];
@@ -126,22 +124,19 @@ function isSefazError656(error: unknown): boolean {
 }
 
 /**
- * Calcula a data/hora do próximo retry com backoff exponencial
- * @param rateLimitCount Número de rate limits consecutivos (0 = primeira vez = 1h)
+ * Calcula a próxima meia-noite (00:00 BRT = 03:00 UTC) para retry diário.
+ * Se já passou das 03:00 UTC hoje, retorna 03:00 UTC de amanhã.
  */
- function getNextRetryAt(rateLimitCount: number = 0): string {
-   // Backoff exponencial: 1h, 2h, 4h, 6h (teto)
-   const multiplier = Math.pow(2, Math.min(rateLimitCount, 2)); // max 2^2 = 4
-   let cooldownMs = RATE_LIMIT_BASE_COOLDOWN_MS * multiplier;
-   
-   // Aplicar teto
-   if (cooldownMs > RATE_LIMIT_MAX_COOLDOWN_MS) {
-     cooldownMs = RATE_LIMIT_MAX_COOLDOWN_MS;
-   }
-   
-  const nextRetry = new Date();
-   nextRetry.setTime(nextRetry.getTime() + cooldownMs);
-  return nextRetry.toISOString();
+function getNextMidnightBRT(): string {
+  const now = new Date();
+  // Próxima 00:00 BRT = 03:00 UTC
+  const next = new Date(now);
+  next.setUTCHours(3, 0, 0, 0);
+  // Se já passou, avança para amanhã
+  if (next.getTime() <= now.getTime()) {
+    next.setUTCDate(next.getUTCDate() + 1);
+  }
+  return next.toISOString();
 }
 
 /**
@@ -402,8 +397,8 @@ async function syncEmpresa(empresaId: string): Promise<{
          // CSTAT 137: SEFAZ sem mais documentos (resposta vazia final)
          // ========================================
          if (result.documents.length === 0 && !hasMore) {
-           const nextRetryAt = new Date(Date.now() + CSTAT_137_COOLDOWN_MS).toISOString();
-           const cooldownMessage = `SEFAZ cStat 137: Consulta sem documentos novos. Cooldown de 1h ativado.`;
+            const nextRetryAt = getNextMidnightBRT();
+            const cooldownMessage = `SEFAZ cStat 137: Consulta sem documentos novos. Próxima execução: 00:00 BRT.`;
            
            console.log(`[SYNC] ★ ${cooldownMessage}`);
            await supabase.log(empresaId, 'info', cooldownMessage, {
@@ -506,13 +501,12 @@ async function syncEmpresa(empresaId: string): Promise<{
       } catch (error) {
         // ========================================
         // TRATAMENTO ESPECIAL PARA ERRO SEFAZ 656 (Consumo Indevido)
+        // Não faz retry no mesmo dia — agenda para próxima 00:00 BRT
         // ========================================
         if (isSefazError656(error)) {
-           // Incrementar contador de rate limits
            const currentRateLimitCount = (syncState?.rate_limit_count || 0) + 1;
-           const nextRetryAt = getNextRetryAt(currentRateLimitCount - 1);
-           const cooldownHours = Math.round((new Date(nextRetryAt).getTime() - Date.now()) / 3600000);
-           const errorMsg = `Erro SEFAZ 656: Consumo Indevido. Cooldown de ${cooldownHours}h (tentativa #${currentRateLimitCount}).`;
+           const nextRetryAt = getNextMidnightBRT();
+           const errorMsg = `Erro SEFAZ 656: Consumo Indevido. Próxima tentativa: 00:00 BRT (tentativa #${currentRateLimitCount}).`;
           
           console.error(`[SYNC] ★ ERRO 656 DETECTADO`);
           console.error(`[SYNC] ${errorMsg}`);
@@ -526,9 +520,8 @@ async function syncEmpresa(empresaId: string): Promise<{
              sefaz_requests_this_run: sefazRequestCount,
           });
           
-          // ★ ATUALIZAR ESTADO COM STATUS='error' E next_retry_at
           await supabase.updateSyncState(empresaId, {
-            status: 'error',
+            status: 'rate_limited',
             last_error: errorMsg,
             ult_nsu: currentNSU,
             max_nsu: maxNSU,
@@ -537,8 +530,8 @@ async function syncEmpresa(empresaId: string): Promise<{
              last_rate_limit_at: new Date().toISOString(),
           });
 
-          lockAcquired = false; // Lock foi liberado (status != running)
-          console.log('[SYNC] Lock liberado (status=error com next_retry_at)');
+          lockAcquired = false;
+          console.log('[SYNC] Lock liberado (status=rate_limited, próximo retry 00:00 BRT)');
 
           return {
             success: false,
@@ -741,7 +734,7 @@ app.listen(PORT, () => {
   console.log(`Janela de sincronizacao: ${SYNC_WINDOW_DAYS} dias`);
    console.log(`Delay entre requests: ${REQUEST_DELAY_MS}ms (±${REQUEST_DELAY_JITTER * 100}% jitter)`);
   console.log(`Threshold bootstrap stop: ${BOOTSTRAP_STOP_THRESHOLD} lotes`);
-   console.log(`Rate limit cooldown base: ${RATE_LIMIT_BASE_COOLDOWN_MS / 60000} minutos (max: ${RATE_LIMIT_MAX_COOLDOWN_MS / 3600000}h)`);
+   console.log(`Rate limit: retry apenas na próxima 00:00 BRT`);
    console.log(`Max requests por run: ${MAX_SEFAZ_REQUESTS_PER_RUN}`);
    console.log(`Max runtime: ${MAX_RUNTIME_MS / 1000}s`);
   console.log('===========================================');

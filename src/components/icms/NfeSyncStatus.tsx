@@ -63,6 +63,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     refetch,
     isStuck,
     timeUntilRetry,
+    nextExecutionLabel,
   } = useNfeSyncStatus(empresaId);
 
   if (isLoading) {
@@ -378,11 +379,11 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
             )}
 
             {/* Rate Limited Warning */}
-            {isRateLimited && nextRetryAt && (
+            {isRateLimited && (
               <Alert className="bg-warning/10 border-warning/30">
                 <Clock className="h-4 w-4 text-warning" />
                 <AlertDescription className="text-warning">
-                  Rate limited pela SEFAZ (erro 656). Aguarde até {formatNextRetry()} para tentar novamente.
+                  Rate limited pela SEFAZ (erro 656). {nextExecutionLabel || "Aguardando próxima execução automática às 00:00."}
                 {timeUntilRetry && <span className="font-medium"> ({timeUntilRetry} restantes)</span>}
                   <br />
                   O progresso foi salvo (NSU atual: {syncState?.ult_nsu || 0}).
@@ -509,10 +510,12 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                      <Loader2 className="h-3 w-3 animate-spin" />
                      Sincronização em andamento...
                    </span>
+                 ) : nextExecutionLabel ? (
+                   <span>{nextExecutionLabel}</span>
                  ) : nextRetryAt && new Date(nextRetryAt) > new Date() ? (
-                   <span>Próxima tentativa: {formatNextSync()}</span>
+                   <span>Próxima execução: {formatNextSync()}</span>
                  ) : (
-                   <span>Sincronização automática ativa</span>
+                   <span>Sincronização automática ativa (diária às 00:00)</span>
                  )}
                </div>
  

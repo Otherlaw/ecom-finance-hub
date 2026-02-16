@@ -16,7 +16,7 @@ const corsHeaders = {
 };
 
 // Janela de sincronizacao em dias
-const SYNC_WINDOW_DAYS = 90;
+const SYNC_WINDOW_DAYS = 7;
 
 interface NFeDocument {
   access_key: string;
