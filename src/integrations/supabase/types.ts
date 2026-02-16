@@ -2854,6 +2854,56 @@ export type Database = {
           },
         ]
       }
+      onboarding_empresa: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          current_step: number
+          empresa_id: string
+          id: string
+          missing_items: Json | null
+          onboarding_completo: boolean
+          step1_completed: boolean
+          step2_completed: boolean
+          step3_completed: boolean
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          current_step?: number
+          empresa_id: string
+          id?: string
+          missing_items?: Json | null
+          onboarding_completo?: boolean
+          step1_completed?: boolean
+          step2_completed?: boolean
+          step3_completed?: boolean
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          current_step?: number
+          empresa_id?: string
+          id?: string
+          missing_items?: Json | null
+          onboarding_completo?: boolean
+          step1_completed?: boolean
+          step2_completed?: boolean
+          step3_completed?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "onboarding_empresa_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       onboarding_status: {
         Row: {
           centros_custo_revisados: boolean
