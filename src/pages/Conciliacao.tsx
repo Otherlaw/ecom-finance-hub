@@ -188,16 +188,16 @@ function BancariaTab() {
   const [busca, setBusca] = useState("");
 
   // Período com PeriodFilter
-  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("30days");
-  const [dateRange, setDateRange] = useState<DateRange>(() => getDateRangeForPeriod("30days"));
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>("all");
+  const [dateRange, setDateRange] = useState<DateRange>(() => getDateRangeForPeriod("all"));
   
   const handlePeriodChange = (period: PeriodOption, range: DateRange) => {
     setSelectedPeriod(period);
     setDateRange(range);
   };
   
-  const periodoInicio = format(dateRange.from, "yyyy-MM-dd");
-  const periodoFim = format(dateRange.to, "yyyy-MM-dd");
+  const periodoInicio = selectedPeriod === "all" ? undefined : format(dateRange.from, "yyyy-MM-dd");
+  const periodoFim = selectedPeriod === "all" ? undefined : format(dateRange.to, "yyyy-MM-dd");
   const {
     empresas
   } = useEmpresas();

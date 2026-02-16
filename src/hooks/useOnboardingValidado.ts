@@ -76,7 +76,7 @@ async function validateStep1(empresaId: string): Promise<StepValidation> {
   return { ok: missing.length === 0, missing };
 }
 
-async function validateStep2(_empresaId: string): Promise<StepValidation> {
+async function validateStep2(empresaId: string): Promise<StepValidation> {
   const missing: MissingItem[] = [];
 
   // Check categorias financeiras exist and have required types
@@ -97,17 +97,18 @@ async function validateStep2(_empresaId: string): Promise<StepValidation> {
     }
   }
 
-  // Check at least 1 categorization rule exists
-  const { count: regrasCount } = await supabase
-    .from("regras_categorizacao" as any)
+  // Check if empresa has an active digital certificate (A1)
+  const { count: certCount } = await supabase
+    .from("nfe_certificates")
     .select("*", { count: "exact", head: true })
-    .eq("ativo", true);
+    .eq("empresa_id", empresaId)
+    .eq("is_active", true);
 
-  if (!regrasCount || regrasCount === 0) {
+  if (!certCount || certCount === 0) {
     missing.push({
-      id: "regra_mapeamento",
-      label: "Nenhuma regra de categorização automática criada",
-      actionUrl: "/regras-categorizacao",
+      id: "certificado_digital",
+      label: "Certificado Digital (A1) não vinculado à empresa",
+      actionUrl: "/icms",
     });
   }
 
