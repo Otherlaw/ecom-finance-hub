@@ -3,7 +3,7 @@
  * Servidor Express para sincronizacao de NF-e via Distribuicao DF-e
  * 
  * Modos de operacao:
- * - Bootstrap: primeira sincronizacao, busca docs dos ultimos 90 dias
+ * - Bootstrap: primeira sincronizacao, busca docs dos ultimos 30 dias
  * - Incremental: syncs seguintes, continua do ultimo NSU
  * 
  * Regras importantes:
@@ -557,9 +557,9 @@ async function syncEmpresa(empresaId: string): Promise<{
        : `Sync diário concluído: ${totalDocumentsImported} docs importados, ${totalCredits} créditos (${sefazRequestCount} requests em ${Math.round(elapsedMs / 1000)}s)`;
  
      // Se bootstrap concluiu com sucesso (sem pausa), marcar como completo
-     const bootstrapUpdate = isBootstrap && !pauseReason ? {
+     const bootstrapUpdate: Partial<import('./types.js').NfeSyncState> = isBootstrap && !pauseReason ? {
        bootstrap_completed_at: new Date().toISOString(),
-       sync_mode: 'daily',
+       sync_mode: 'daily' as const,
      } : {};
 
      await supabase.updateSyncState(empresaId, {
