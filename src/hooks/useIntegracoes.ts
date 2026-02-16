@@ -68,9 +68,9 @@ interface UseIntegracoesParams {
 export const useIntegracoes = ({ empresaId }: UseIntegracoesParams = {}) => {
   const queryClient = useQueryClient();
 
-  // Buscar tokens
+  // Buscar tokens (permite buscar todos se empresaId não informado)
   const { data: tokens, isLoading: loadingTokens } = useQuery({
-    queryKey: ["integracao_tokens", empresaId],
+    queryKey: ["integracao_tokens", empresaId ?? "all"],
     queryFn: async () => {
       let query = supabase
         .from("integracao_tokens")
@@ -85,12 +85,11 @@ export const useIntegracoes = ({ empresaId }: UseIntegracoesParams = {}) => {
       if (error) throw error;
       return data as IntegracaoToken[];
     },
-    enabled: !!empresaId,
   });
 
   // Buscar configurações
   const { data: configs, isLoading: loadingConfigs } = useQuery({
-    queryKey: ["integracao_config", empresaId],
+    queryKey: ["integracao_config", empresaId ?? "all"],
     queryFn: async () => {
       let query = supabase
         .from("integracao_config")
@@ -105,7 +104,6 @@ export const useIntegracoes = ({ empresaId }: UseIntegracoesParams = {}) => {
       if (error) throw error;
       return data as IntegracaoConfig[];
     },
-    enabled: !!empresaId,
   });
 
   // Buscar logs recentes

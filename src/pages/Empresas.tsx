@@ -336,16 +336,22 @@ export default function Empresas() {
                     </h4>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                       {MARKETPLACES_SUPORTADOS.map((mp) => {
-                        const token = integracoesEmpresa.find(t => t.provider === mp.provider);
-                        const isExpired = token?.expires_at && new Date(token.expires_at) <= new Date();
-                        const isConnected = token && !isExpired;
+                        const mpTokens = integracoesEmpresa.filter(t => t.provider === mp.provider);
+                        const validTokens = mpTokens.filter(t => !t.expires_at || new Date(t.expires_at) > new Date());
+                        const expiredWithRefresh = mpTokens.filter(t => t.expires_at && new Date(t.expires_at) <= new Date() && t.refresh_token);
+                        const isConnected = validTokens.length > 0 || expiredWithRefresh.length > 0;
+                        const isExpired = mpTokens.length > 0 && !isConnected;
+                        const accountCount = validTokens.length + expiredWithRefresh.length;
+                        const needsReauth = expiredWithRefresh.length > 0 && validTokens.length === 0;
                         
                         return (
                           <div
                             key={mp.provider}
                             className={`p-4 rounded-xl border ${
                               isConnected 
-                                ? "bg-card border-success/30" 
+                                ? needsReauth
+                                  ? "bg-amber-50/50 border-amber-300 dark:bg-amber-950/20"
+                                  : "bg-card border-success/30"
                                 : isExpired 
                                   ? "bg-amber-50/50 border-amber-300 dark:bg-amber-950/20"
                                   : "bg-secondary/30 border-dashed"
@@ -359,8 +365,11 @@ export default function Empresas() {
                                 <Store className="h-5 w-5" style={{ color: mp.color }} />
                               </div>
                               {isConnected ? (
-                                <Badge className="bg-success/10 text-success border-success/20">
-                                  Conectado
+                                <Badge className={needsReauth 
+                                  ? "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/50 dark:text-amber-400"
+                                  : "bg-success/10 text-success border-success/20"
+                                }>
+                                  {needsReauth ? "Reautenticando" : accountCount > 1 ? `Conectado (${accountCount} contas)` : "Conectado"}
                                 </Badge>
                               ) : isExpired ? (
                                 <Badge className="bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/50 dark:text-amber-400">
@@ -371,11 +380,11 @@ export default function Empresas() {
                               )}
                             </div>
                             <h4 className="font-medium">{mp.name}</h4>
-                            {isConnected && token?.expires_at ? (
+                            {isConnected && !needsReauth && validTokens[0]?.expires_at ? (
                               <p className="text-xs text-muted-foreground mt-1">
-                                Expira: {format(new Date(token.expires_at), "dd/MM/yyyy HH:mm")}
+                                Expira: {format(new Date(validTokens[0].expires_at), "dd/MM/yyyy HH:mm")}
                               </p>
-                            ) : isExpired ? (
+                            ) : (isExpired || needsReauth) ? (
                               <Button 
                                 variant="link" 
                                 className="p-0 h-auto text-sm text-amber-600"
@@ -383,7 +392,7 @@ export default function Empresas() {
                               >
                                 Reconectar
                               </Button>
-                            ) : (
+                            ) : !isConnected ? (
                               <Button 
                                 variant="link" 
                                 className="p-0 h-auto text-sm text-primary"
@@ -391,7 +400,7 @@ export default function Empresas() {
                               >
                                 Conectar agora
                               </Button>
-                            )}
+                            ) : null}
                           </div>
                         );
                       })}
