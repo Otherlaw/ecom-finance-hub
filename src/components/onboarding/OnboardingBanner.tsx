@@ -14,7 +14,7 @@ export function OnboardingBanner() {
 
   const stepLabels: Record<number, string> = {
     1: "Empresa e Integrações",
-    2: "Plano de Contas",
+    2: "Certificado Digital (A1)",
     3: "Revisão Final",
   };
 

@@ -85,7 +85,7 @@ async function validateStep2(empresaId: string): Promise<StepValidation> {
     missing.push({
       id: "certificado_digital",
       label: "Certificado Digital (A1) não vinculado à empresa",
-      actionUrl: "/empresas",
+      actionUrl: "/empresas?section=certificado",
     });
   }
 
@@ -225,6 +225,7 @@ export function useOnboardingValidado() {
 
   // Force re-validation
   const revalidar = () => {
+    toast.info("Revalidando configuração...");
     queryClient.invalidateQueries({ queryKey: ["onboarding-validations", empresaId] });
   };
 
