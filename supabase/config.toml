@@ -78,3 +78,6 @@ verify_jwt = false
 
 [functions.ml-item-thumb]
 verify_jwt = false
+
+[functions.ml-margin-lookup]
+verify_jwt = false
