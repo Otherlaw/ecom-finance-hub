@@ -42,6 +42,7 @@ import {
   Info,
   Loader2,
   RotateCcw,
+  Play,
 } from "lucide-react";
 import { useNfeSyncStatus } from "@/hooks/useNfeSyncStatus";
 
@@ -60,6 +61,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     nextRetryAt, 
     lastError, 
     resetSync,
+    startSync,
     refetch,
     isStuck,
     timeUntilRetry,
@@ -532,6 +534,20 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                </div>
  
               <Button
+                variant="default"
+                className="gap-2"
+                onClick={() => startSync.mutate()}
+                disabled={isSyncing || isRateLimited || isStuck || startSync.isPending}
+              >
+                {startSync.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                Forçar Sincronização
+              </Button>
+
+              <Button
                 variant="ghost"
                 className="gap-2"
                 onClick={() => refetch()}
@@ -543,6 +559,23 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Botão de sync rápido */}
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1"
+        onClick={() => startSync.mutate()}
+        disabled={isSyncing || isRateLimited || isStuck || startSync.isPending || !hasCertificate}
+        title={!hasCertificate ? "Configure um certificado primeiro" : "Iniciar sincronização manual"}
+      >
+        {startSync.isPending ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Play className="h-3.5 w-3.5" />
+        )}
+        Sincronizar
+      </Button>
 
       {/* Badge de status */}
       {getStatusBadge()}
