@@ -419,6 +419,32 @@ async function syncEmpresa(empresaId: string): Promise<{
               console.log(`[SYNC] ${logMsg}`);
               await supabase.log(empresaId, 'info', logMsg);
 
+              // ========================================
+              // MANIFESTAÇÃO: Ciência da Operação para resumos (resNFe)
+              // Documentos com schema != procNFe são resumos de notas de entrada.
+              // Enviar Ciência para que a SEFAZ libere o XML completo nas próximas consultas.
+              // ========================================
+              const resumos = batch.filter(
+                (d) => d.access_key && d.access_key.length === 44 &&
+                       d.schema !== 'procNFe_v4.00' && !d.schema.includes('procNFe')
+              );
+
+              if (resumos.length > 0) {
+                console.log(`[SYNC] ${resumos.length} resumos para manifestar Ciência da Operação`);
+                for (const resumo of resumos) {
+                  try {
+                    const ok = await sefaz.manifestarCiencia(certificate.cnpj, resumo.access_key);
+                    const statusMsg = ok ? 'OK' : 'Rejeitado';
+                    console.log(`[SYNC] Ciência ${statusMsg} para chave ${resumo.access_key}`);
+                    await supabase.log(empresaId, ok ? 'info' : 'warn', `Ciência da Operação ${statusMsg}: ${resumo.access_key}`);
+                  } catch (manifError) {
+                    const errMsg = manifError instanceof Error ? manifError.message : String(manifError);
+                    console.error(`[SYNC] Erro na manifestação para ${resumo.access_key}: ${errMsg}`);
+                    await supabase.log(empresaId, 'error', `Erro Ciência da Operação ${resumo.access_key}: ${errMsg}`);
+                    // NÃO interromper o loop - continuar com os demais
+                }
+              }
+
               // Logica de parada do bootstrap
               if (isBootstrap) {
                 const batchSize = ingestResult.total_in_batch;
