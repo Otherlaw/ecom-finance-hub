@@ -121,7 +121,7 @@ export function useVendasPorPedido({
   );
   console.debug("[Vendas] Filtros aplicados:", filtrosSanitizados, "Paginação:", { page, pageSize });
 
-  // Buscar resumo agregado via RPC
+  // Buscar resumo agregado via RPC V2 otimizada (sem CMV pesado)
   const { data: resumoAgregado, isLoading: isLoadingResumo } = useQuery({
     queryKey: ["vendas-por-pedido-resumo", empresaParam, dataInicio, dataFim],
     queryFn: async () => {
@@ -130,16 +130,25 @@ export function useVendasPorPedido({
         p_data_inicio: dataInicio,
         p_data_fim: dataFim,
       };
-      console.debug("[Vendas][Resumo] RPC params:", rpcParams);
+      console.debug(
+        `%c[Vendas][Resumo V2] SQL equivalente:%c\n` +
+        `  select * from get_vendas_por_pedido_resumo_v2(\n` +
+        `    ${empresaParam ? `'${empresaParam}'::uuid` : 'NULL::uuid'},\n` +
+        `    '${dataInicio}'::text,\n` +
+        `    '${dataFim}'::text\n` +
+        `  );`,
+        'color: #2196F3; font-weight: bold',
+        'color: inherit'
+      );
       
-      const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_resumo", rpcParams);
+      const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_resumo_v2", rpcParams);
 
       if (error) {
-        console.error("[Vendas][Resumo] ERRO RPC:", error.message, error.details, error.hint);
+        console.error("[Vendas][Resumo V2] ERRO RPC:", error.message, error.details, error.hint);
         return null;
       }
 
-      console.debug("[Vendas][Resumo] Resposta bruta:", data);
+      console.debug("[Vendas][Resumo V2] Resposta bruta:", data);
       const resultado = Array.isArray(data) ? data[0] : data;
       if (!resultado) return null;
 

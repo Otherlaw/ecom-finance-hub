@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { differenceInDays, parseISO } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { ResumoPedidosAgregado } from "./useVendasPorPedido";
 import { usePeriodoAnterior, calcularVariacao, VariacaoPeriodo, formatarLabelPeriodoAnterior } from "./usePeriodoComparativo";
@@ -33,14 +34,24 @@ export function useVendasComparativo({
 }) {
   const empresaParam = empresaId && empresaId !== "todas" ? empresaId : null;
   
+  // Desativar comparativo para períodos > 15 dias (evita timeout)
+  const diasPeriodo = useMemo(() => {
+    try {
+      return differenceInDays(parseISO(periodoFim), parseISO(periodoInicio));
+    } catch {
+      return 0;
+    }
+  }, [periodoInicio, periodoFim]);
+  const habilitarComparativo = diasPeriodo <= 15;
+
   // Calcular datas do período anterior
   const { inicioAnterior, fimAnterior } = usePeriodoAnterior(periodoInicio, periodoFim);
   
-  // Buscar resumo do período anterior
+  // Buscar resumo do período anterior (usa V2 otimizada, desativado para períodos longos)
   const { data: resumoAnterior, isLoading: isLoadingAnterior } = useQuery({
     queryKey: ["vendas-por-pedido-resumo-anterior", empresaParam, inicioAnterior, fimAnterior],
     queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_resumo", {
+      const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_resumo_v2", {
         p_empresa_id: empresaParam,
         p_data_inicio: inicioAnterior,
         p_data_fim: fimAnterior,
@@ -70,6 +81,7 @@ export function useVendasComparativo({
         pedidos_sem_cmv: Number(resultado.pedidos_sem_cmv) || 0,
       } as ResumoPedidosAgregado;
     },
+    enabled: habilitarComparativo,
     staleTime: 60 * 1000,
     placeholderData: (previousData) => previousData,
   });

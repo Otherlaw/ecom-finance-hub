@@ -128,6 +128,7 @@ export default function Vendas() {
   });
 
   // Hook antigo apenas para métricas por tipo de envio (dashboard)
+  // Desativado no consolidado para evitar timeout
   const {
     metricasPorTipoEnvio
   } = useVendasPaginadas({
@@ -135,7 +136,7 @@ export default function Vendas() {
     pageSize: 1,
     periodoInicio: format(dateRange.from, "yyyy-MM-dd"),
     periodoFim: format(dateRange.to, "yyyy-MM-dd"),
-    empresaId
+    empresaId: empresaId || "__disabled__" // Desativa no consolidado passando ID inválido
   });
 
   // Hook de comparativo com período anterior
@@ -156,12 +157,15 @@ export default function Vendas() {
 
   // Combina loading inicial + refetch
   const carregando = isLoading;
+
+  // Desativar pendentes no consolidado (evita timeout com muitos dados)
+  const habilitarPendentes = !!empresaId;
   const {
     resumo: resumoPendentes,
     reprocessarMapeamentos
-  } = useVendasPendentes({
+  } = useVendasPendentes(habilitarPendentes ? {
     empresaId
-  });
+  } : undefined);
 
   // Hook de categorização automática
   const {
