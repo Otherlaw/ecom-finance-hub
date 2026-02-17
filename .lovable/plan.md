@@ -1,83 +1,105 @@
 
-# Resolver "Unsupported PKCS12 PFX data" de vez -- Re-encriptar PFX com OpenSSL 3
 
-## Problema raiz
+# Corrigir SSL (CA chain) e remover fallback inseguro
 
-O Node.js 20 usa OpenSSL 3, que rejeita certificados PFX encriptados com cifras legadas (RC2, 3DES antigas). Isso quebra tanto o `https.Agent` nativo quanto o `node-forge` ao tentar parsear o PFX. Ate agora removemos o node-forge do caminho HTTPS, mas o erro persiste porque o proprio OpenSSL 3 do Node.js rejeita o PFX no handshake TLS.
+## Resumo
 
-A solucao definitiva (conforme o artigo compartilhado) e **re-encriptar o PFX usando o CLI do OpenSSL**, que automaticamente usa cifras modernas (AES-256-CBC). Depois disso, tanto o `https.Agent` quanto o `node-forge` (para assinatura XML) aceitam o certificado sem erros.
+Duas alteracoes cirurgicas no nfe-worker:
 
-## Fluxo da solucao
+1. **Dockerfile**: instalar `ca-certificates` e definir `NODE_EXTRA_CA_CERTS` apontando para o bundle ICP-Brasil, garantindo que o Node confie na cadeia de CAs da SEFAZ sem precisar de `rejectUnauthorized: false`.
 
-```text
-PFX original (cifra legada)
-    |
-    v
-openssl pkcs12 -in legado.pfx -nodes -legacy -out temp.pem
-    |
-    v
-openssl pkcs12 -in temp.pem -export -out moderno.pfx
-    |
-    v
-PFX re-encriptado (AES-256-CBC) --> funciona no Node.js 20 / OpenSSL 3
-```
+2. **sefaz-client.ts**: remover o metodo `soapRequestFallback` e o fallback automatico para `rejectUnauthorized: false`. Erros SSL serao propagados diretamente (facilitando diagnostico). O `createHttpsAgent` passara a usar `rejectUnauthorized: true` sempre.
+
+O erro 656 (Consumo Indevido) nao requer alteracao de codigo -- o fluxo V2 ja persiste `ult_nsu` corretamente e trata o 656 com cooldown. O erro ocorreu porque o estado foi resetado durante testes (NSU voltou a 0). A correcao e operacional: aguardar o cooldown expirar e nao resetar o estado manualmente.
+
+---
 
 ## Alteracoes
 
-### 1. Dockerfile -- instalar openssl CLI
+### 1. nfe-worker/Dockerfile
 
-O `node:20-alpine` inclui libssl mas nao o binario `openssl`. Adicionar:
-
-```
-RUN apk add --no-cache openssl
-```
-
-### 2. SefazClient -- metodo `upgradePfxIfNeeded()`
-
-Novo metodo privado no construtor que:
-
-1. Salva o PFX em arquivo temporario
-2. Executa `openssl pkcs12 -in tmp.pfx -nodes -legacy -out tmp.pem -passin pass:SENHA`
-3. Executa `openssl pkcs12 -in tmp.pem -export -out upgraded.pfx -passout pass:SENHA`
-4. Le o PFX atualizado de volta para `this.pfxBuffer`
-5. Remove arquivos temporarios
-6. Se qualquer etapa falhar, mantem o PFX original (fallback silencioso)
-
-Chamado no construtor **antes** de qualquer uso do PFX.
-
-### 3. Construtor do SefazClient -- chamar upgrade
+Adicionar `ca-certificates` na instalacao de pacotes e definir variaveis de ambiente para SSL:
 
 ```text
-constructor(pfxBase64, passphrase, ambiente, uf) {
-  this.pfxBuffer = Buffer.from(normalizeBase64(pfxBase64), 'base64');
-  this.passphrase = passphrase;
-  this.upgradePfxIfNeeded();   // <-- novo
-  ...
-}
+FROM node:20-alpine
+
+RUN apk add --no-cache openssl ca-certificates && update-ca-certificates
+
+WORKDIR /app
+... (restante igual)
+
+# Copiar certs para dist manualmente
+RUN cp -r certs dist/ 2>/dev/null || true
+
+# Forcar Node a usar CAs do sistema + bundle ICP-Brasil
+ENV NODE_OPTIONS="--use-openssl-ca"
+ENV NODE_EXTRA_CA_CERTS="/app/certs/icp-brasil.pem"
+
+# Limpar dependencias de desenvolvimento
+RUN npm prune --production
+...
 ```
 
-### 4. Sem outras alteracoes
+### 2. nfe-worker/src/sefaz-client.ts
 
-- `createHttpsAgent` e `soapRequestFallback` continuam usando PFX direto (ja corrigidos)
-- `extractPemFromPfx` (node-forge) continua existindo para `signXml` -- mas agora vai funcionar porque o PFX foi re-encriptado com cifra moderna
-- Nenhum outro arquivo muda
+**createHttpsAgent** -- sempre `rejectUnauthorized: true`:
+
+Linha 232: mudar de `rejectUnauthorized: !!icpBrasilCA` para `rejectUnauthorized: true`.
+Com `NODE_EXTRA_CA_CERTS` e `--use-openssl-ca` no ambiente, o Node confia na cadeia ICP-Brasil mesmo sem o `ca` explicito.
+
+**soapRequest** -- remover fallback SSL (linhas 297-306):
+
+Em vez de capturar erros SSL e chamar `soapRequestFallback`, simplesmente propagar o erro. Isso torna o diagnostico mais claro e elimina o risco de operar sem validacao SSL.
+
+Substituir o bloco `req.on('error')` por:
+```text
+req.on('error', (err) => {
+  console.error('[SEFAZ] Erro na requisicao SOAP:', err.message);
+  reject(err);
+});
+```
+
+**Remover metodo `soapRequestFallback`** inteiro (linhas 317-351).
+
+### 3. Expandir paths de busca do CA (bonus)
+
+Adicionar mais caminhos na lista `CA_PATHS` para cobrir o layout do Docker:
+
+```text
+const CA_PATHS = [
+  path.join(__dirname, 'certs', 'icp-brasil.pem'),           // dist/certs/
+  path.join(__dirname, '..', 'certs', 'icp-brasil.pem'),     // existente
+  path.join(process.cwd(), 'certs', 'icp-brasil.pem'),       // existente
+  path.join(process.cwd(), 'dist', 'certs', 'icp-brasil.pem'),
+  '/app/certs/icp-brasil.pem',                                // Docker fixo
+  '/opt/render/project/src/nfe-worker/certs/icp-brasil.pem',  // existente
+];
+```
+
+---
+
+## Sobre o erro 656
+
+Nenhuma alteracao de codigo necessaria. O fluxo V2 ja:
+- Persiste `ult_nsu` imediatamente apos resposta da SEFAZ
+- Trata 656 com cooldown ate 00:00 BRT
+- Nao volta NSU para 0 automaticamente
+
+O erro ocorreu porque o estado foi resetado via "Hard Reset (DEV)" durante testes, fazendo o worker consultar NSU 0 novamente. A SEFAZ interpretou como consumo indevido. Basta aguardar o cooldown expirar (1h) e o proximo sync usara o `ult_nsu` correto.
+
+---
 
 ## Arquivos alterados
 
 | Arquivo | Alteracao |
 |---|---|
-| `nfe-worker/Dockerfile` | Adicionar `apk add --no-cache openssl` |
-| `nfe-worker/src/sefaz-client.ts` | Adicionar metodo `upgradePfxIfNeeded()` e chamar no construtor |
+| `nfe-worker/Dockerfile` | Adicionar `ca-certificates`, `ENV NODE_OPTIONS`, `ENV NODE_EXTRA_CA_CERTS` |
+| `nfe-worker/src/sefaz-client.ts` | Expandir CA_PATHS, forcar `rejectUnauthorized: true`, remover `soapRequestFallback` |
 
 ## Como testar
 
-1. Fazer deploy do worker no Render
-2. Vincular certificado A1 na UI
-3. Disparar sync -- deve logar `[SEFAZ] PFX re-encriptado com sucesso` e conectar sem erro
-4. Se o certificado ja for moderno, deve logar `[SEFAZ] PFX ja compativel, sem necessidade de upgrade` e funcionar normalmente
+1. Rebuild e deploy no Render
+2. Logs devem mostrar `[SEFAZ] CA bundle ICP-Brasil carregado de: /app/certs/icp-brasil.pem` (ou similar)
+3. Nao deve mais aparecer "tentando sem validacao" nos logs
+4. Aguardar cooldown do 656 expirar, entao disparar sync -- deve conectar com SSL validado e consultar com o `ult_nsu` correto
 
-## Riscos e mitigacao
-
-- **openssl nao disponivel**: o Dockerfile garante a instalacao. O metodo tem try/catch e usa o PFX original como fallback.
-- **Arquivos temporarios**: usados em `/tmp` com nomes unicos e removidos no `finally`.
-- **Senha com caracteres especiais**: passada via `stdin` ou arquivo temp em vez de argumento CLI para evitar problemas de shell escaping.
