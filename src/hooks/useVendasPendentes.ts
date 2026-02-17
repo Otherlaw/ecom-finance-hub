@@ -25,6 +25,7 @@ export function useVendasPendentes(params?: UseVendasPendentesParams) {
   // Buscar SKUs únicos sem produto vinculado
   const { data: skusPendentes = [], isLoading, refetch } = useQuery({
     queryKey: ["vendas-skus-pendentes", params?.empresaId, params?.canal],
+    enabled: !!params?.empresaId,
     queryFn: async () => {
       // Buscar itens sem produto_id
       let query = supabase
