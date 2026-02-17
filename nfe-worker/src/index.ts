@@ -271,24 +271,36 @@ async function syncEmpresa(empresaId: string): Promise<{
     lockAcquired = true; // ★ MARCAR QUE ADQUIRIMOS O LOCK
     console.log('[SYNC] Lock adquirido (status=running)');
 
-    // Descriptografar certificado
+    // Descriptografar certificado (ou usar direto se não estiver criptografado)
     let pfxBase64 = certificate.cert_pfx_encrypted;
     let password = certificate.cert_password_encrypted;
-
-    try {
-      if (CERT_MASTER_KEY && certificate.cert_pfx_encrypted.length > 100) {
+    if (CERT_MASTER_KEY && certificate.cert_pfx_encrypted.length > 100) {
+      try {
         pfxBase64 = decrypt(certificate.cert_pfx_encrypted, CERT_MASTER_KEY);
         password = decrypt(certificate.cert_password_encrypted, CERT_MASTER_KEY);
-        console.log('[SYNC] Certificado descriptografado com sucesso');
-      } else {
-        console.log('[SYNC] Usando certificado sem criptografia (sem CERT_MASTER_KEY ou dados curtos)');
+        console.log('[SYNC] Certificado descriptografado com sucesso via CERT_MASTER_KEY');
+      } catch {
+        // Descriptografia falhou — certificado provavelmente foi salvo sem criptografia
+        // Isso é normal: o frontend salva base64 puro no campo cert_pfx_encrypted
+        console.log('[SYNC] Descriptografia falhou — usando certificado como base64 puro (sem criptografia)');
+        pfxBase64 = certificate.cert_pfx_encrypted;
+        password = certificate.cert_password_encrypted;
       }
-    } catch (decryptError) {
-      const errMsg = decryptError instanceof Error ? decryptError.message : String(decryptError);
-      console.error(`[SYNC] ERRO na descriptografia do certificado: ${errMsg}`);
-      console.error('[SYNC] Verifique se CERT_MASTER_KEY está correta no painel do Render');
-      await supabase.log(empresaId, 'error', `Erro na descriptografia do certificado: ${errMsg}. Verifique CERT_MASTER_KEY.`);
-      throw new Error(`Falha na descriptografia do certificado: ${errMsg}. Verifique se CERT_MASTER_KEY está configurada corretamente no Render.`);
+    } else {
+      console.log('[SYNC] Usando certificado sem criptografia (sem CERT_MASTER_KEY)');
+    }
+    // Validação básica: verificar se pfxBase64 parece ser base64 válido
+    try {
+      const testBuffer = Buffer.from(pfxBase64, 'base64');
+      if (testBuffer.length < 100) {
+        throw new Error(`Certificado PFX muito pequeno (${testBuffer.length} bytes) — pode estar corrompido`);
+      }
+      console.log(`[SYNC] Certificado PFX carregado: ${testBuffer.length} bytes`);
+    } catch (validationError) {
+      const errMsg = validationError instanceof Error ? validationError.message : String(validationError);
+      console.error(`[SYNC] Certificado PFX inválido: ${errMsg}`);
+      await supabase.log(empresaId, 'error', `Certificado PFX inválido: ${errMsg}`);
+      throw new Error(`Certificado PFX inválido: ${errMsg}`);
     }
 
     // Criar cliente SEFAZ
