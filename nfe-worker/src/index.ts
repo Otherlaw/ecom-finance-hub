@@ -182,7 +182,7 @@ async function syncEmpresa(empresaId: string): Promise<{
 
     await supabase.log(empresaId, 'info',
       isFirstRun
-        ? `Primeira sincronização. NSU avançará sem importar documentos antigos.`
+        ? `Primeira sincronização. Importando documentos recentes (cutoff: ontem).`
         : `Sincronização contínua. Cutoff: ${cutoffDate}${DRY_RUN ? ' [DRY_RUN]' : ''}`
     );
     console.log(`[SYNC] firstSuccessAt=${firstSuccessAt}, cutoff=${cutoffDate}, NSU=${currentNSU}${DRY_RUN ? ' [DRY_RUN]' : ''}`);
@@ -274,8 +274,6 @@ async function syncEmpresa(empresaId: string): Promise<{
           console.log(`[SYNC] ★ first_success_at = ${firstSuccessAt}`);
 
           // Recomputar cutoff agora que temos first_success_at
-          // Mas na primeira rodada não importamos nada (cutoff = agora - 24h)
-          // Os documentos retornados nesta chamada são históricos — ignorar
         }
 
         // Recalcular cutoff com first_success_at (pode ter sido setado agora)
@@ -319,7 +317,7 @@ async function syncEmpresa(empresaId: string): Promise<{
               const ingestResult: IngestResponse = await supabase.ingestDocuments({
                 empresa_id: empresaId,
                 documents: batch,
-                cutoff_date: currentCutoff || undefined, // null = skip all (first run before first_success_at)
+                cutoff_date: currentCutoff,
                 dry_run: DRY_RUN,
               });
 
