@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 20px;
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .logo h1 {
+      font-size: 16px;
+      color: #38bdf8;
+      font-weight: 700;
+    }
+    .logo p {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 4px;
+    }
+    .status-bar {
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+    .status-dot.connected { background: #22c55e; }
+    .status-text { font-size: 12px; color: #94a3b8; }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px 12px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 13px;
+      outline: none;
+    }
+    input:focus, select:focus {
+      border-color: #38bdf8;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #0ea5e9;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    button:hover { background: #0284c7; }
+    button.logout {
+      background: transparent;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      margin-top: 12px;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .error {
+      color: #ef4444;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+    .hidden { display: none; }
+    .empresa-info {
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+    .empresa-info p {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .empresa-info strong {
+      color: #e2e8f0;
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    <h1>💰 ECOM Finance</h1>
+    <p>Margem de Contribuição no ML</p>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-text" id="statusText">Desconectado</span>
+  </div>
+
+  <!-- Login Form -->
+  <div id="loginSection">
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="email" placeholder="seu@email.com">
+    </div>
+    <div class="form-group">
+      <label>Senha</label>
+      <input type="password" id="password" placeholder="••••••••">
+    </div>
+    <div class="error hidden" id="loginError"></div>
+    <button id="loginBtn">Entrar</button>
+  </div>
+
+  <!-- Connected Section -->
+  <div id="connectedSection" class="hidden">
+    <div class="form-group">
+      <label>Empresa</label>
+      <select id="empresaSelect">
+        <option value="">Selecione...</option>
+      </select>
+    </div>
+    <div class="empresa-info" id="empresaInfo" class="hidden">
+      <p>Margem será calculada para a empresa selecionada em todas as páginas do Mercado Livre.</p>
+    </div>
+    <button class="logout" id="logoutBtn">Sair</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
