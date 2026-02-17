@@ -9,6 +9,7 @@ import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { execFileSync } from 'child_process';
 import { parseStringPromise } from 'xml2js';
 import pako from 'pako';
 import forge from 'node-forge';
@@ -66,9 +67,81 @@ export class SefazClient {
   constructor(pfxBase64: string, passphrase: string, ambiente: 'producao' | 'homologacao', uf: string) {
     this.pfxBuffer = Buffer.from(SefazClient.normalizeBase64(pfxBase64), 'base64');
     this.passphrase = passphrase;
+    this.upgradePfxIfNeeded();
     this.ambiente = ambiente;
     this.uf = uf;
     console.log(`[SEFAZ] PFX carregado: ${this.pfxBuffer.length} bytes, ambiente: ${ambiente}, UF: ${uf}`);
+  }
+
+  /**
+   * Re-encripta PFX com cifra moderna (AES-256-CBC) usando OpenSSL CLI.
+   * Certificados A1 brasileiros frequentemente usam cifras legadas (RC2/3DES)
+   * que o OpenSSL 3 (Node.js 20+) rejeita com "Unsupported PKCS12 PFX data".
+   */
+  private upgradePfxIfNeeded(): void {
+    const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    const tmpDir = '/tmp';
+    const originalPfx = path.join(tmpDir, `pfx_orig_${id}.pfx`);
+    const decryptedPem = path.join(tmpDir, `pfx_dec_${id}.pem`);
+    const upgradedPfx = path.join(tmpDir, `pfx_up_${id}.pfx`);
+    // Gravar senha em arquivo temporário para evitar problemas de shell escaping
+    const passFile = path.join(tmpDir, `pfx_pass_${id}.txt`);
+
+    try {
+      fs.writeFileSync(originalPfx, this.pfxBuffer);
+      fs.writeFileSync(passFile, this.passphrase, 'utf8');
+
+      // Passo 1: Extrair PEM usando -legacy (aceita cifras antigas)
+      execFileSync('openssl', [
+        'pkcs12', '-in', originalPfx, '-nodes', '-legacy',
+        '-out', decryptedPem,
+        '-passin', `file:${passFile}`,
+      ], { timeout: 15000 });
+
+      // Passo 2: Re-exportar PFX com cifra moderna (AES-256-CBC)
+      execFileSync('openssl', [
+        'pkcs12', '-in', decryptedPem, '-export',
+        '-out', upgradedPfx,
+        '-passout', `file:${passFile}`,
+      ], { timeout: 15000 });
+
+      const upgraded = fs.readFileSync(upgradedPfx);
+      if (upgraded.length > 0) {
+        this.pfxBuffer = upgraded;
+        console.log('[SEFAZ] PFX re-encriptado com sucesso (cifra moderna AES-256-CBC)');
+      } else {
+        console.warn('[SEFAZ] PFX re-encriptado vazio, mantendo original');
+      }
+    } catch (err: any) {
+      // Se o openssl falhar (ex.: PFX já é moderno e -legacy não é necessário),
+      // tentar sem -legacy como fallback
+      try {
+        execFileSync('openssl', [
+          'pkcs12', '-in', originalPfx, '-nodes',
+          '-out', decryptedPem,
+          '-passin', `file:${passFile}`,
+        ], { timeout: 15000 });
+
+        execFileSync('openssl', [
+          'pkcs12', '-in', decryptedPem, '-export',
+          '-out', upgradedPfx,
+          '-passout', `file:${passFile}`,
+        ], { timeout: 15000 });
+
+        const upgraded = fs.readFileSync(upgradedPfx);
+        if (upgraded.length > 0) {
+          this.pfxBuffer = upgraded;
+          console.log('[SEFAZ] PFX ja compativel, re-exportado sem -legacy');
+        }
+      } catch {
+        console.warn('[SEFAZ] Nao foi possivel re-encriptar PFX, usando original como fallback');
+      }
+    } finally {
+      // Limpar arquivos temporários
+      for (const f of [originalPfx, decryptedPem, upgradedPfx, passFile]) {
+        try { fs.unlinkSync(f); } catch { /* ignore */ }
+      }
+    }
   }
 
   /**
