@@ -209,6 +209,8 @@ async function syncEmpresa(empresaId: string): Promise<{
          const msg = `Última requisição SEFAZ foi há menos de ${MIN_TIME_BETWEEN_RUNS_MS / 60000} minutos. Aguarde.`;
          console.log(`[SYNC] BLOQUEADO: ${msg}`);
          await supabase.log(empresaId, 'debug', msg);
+         // Resetar status para idle para não travar em "queued" indefinidamente
+         await supabase.updateSyncState(empresaId, { status: 'idle', last_error: msg });
          return {
            success: false,
            documentsProcessed: 0,
