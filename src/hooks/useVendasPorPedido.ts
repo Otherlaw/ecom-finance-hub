@@ -106,29 +106,40 @@ export function useVendasPorPedido({
     temCusto,
   });
 
-  // Log para debug: mostrar periodo e filtros aplicados
-  console.debug("[Vendas] Query executada:", {
-    periodo: { inicio: dataInicio, fim: dataFim },
-    empresa: empresaParam,
-    filtrosAplicados: filtrosSanitizados,
-    paginacao: { page, pageSize },
-  });
+  // Log detalhado para debug: mostrar SQL equivalente que seria executado
+  console.debug(
+    `%c[Vendas] RPC chamada — SQL equivalente:%c\n` +
+    `  select * from get_vendas_por_pedido_resumo(\n` +
+    `    ${empresaParam ? `'${empresaParam}'::uuid` : 'NULL::uuid'},\n` +
+    `    '${dataInicio}'::text,\n` +
+    `    '${dataFim}'::text\n` +
+    `  );\n` +
+    `  Modo: ${empresaParam ? 'Empresa específica' : 'CONSOLIDADO (todas)'}\n` +
+    `  Período: ${dataInicio} → ${dataFim}`,
+    'color: #4CAF50; font-weight: bold',
+    'color: inherit'
+  );
+  console.debug("[Vendas] Filtros aplicados:", filtrosSanitizados, "Paginação:", { page, pageSize });
 
   // Buscar resumo agregado via RPC
   const { data: resumoAgregado, isLoading: isLoadingResumo } = useQuery({
     queryKey: ["vendas-por-pedido-resumo", empresaParam, dataInicio, dataFim],
     queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_resumo", {
+      const rpcParams = {
         p_empresa_id: empresaParam,
         p_data_inicio: dataInicio,
         p_data_fim: dataFim,
-      });
+      };
+      console.debug("[Vendas][Resumo] RPC params:", rpcParams);
+      
+      const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_resumo", rpcParams);
 
       if (error) {
-        console.error("Erro ao buscar resumo de pedidos:", error);
+        console.error("[Vendas][Resumo] ERRO RPC:", error.message, error.details, error.hint);
         return null;
       }
 
+      console.debug("[Vendas][Resumo] Resposta bruta:", data);
       const resultado = Array.isArray(data) ? data[0] : data;
       if (!resultado) return null;
 
@@ -167,18 +178,22 @@ export function useVendasPorPedido({
       filtrosSanitizados.p_tem_custo,
     ],
     queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_count", {
+      const rpcParams = {
         p_empresa_id: empresaParam,
         p_data_inicio: dataInicio,
         p_data_fim: dataFim,
         ...filtrosSanitizados,
-      });
+      };
+      console.debug("[Vendas][Count] RPC params:", rpcParams);
+      
+      const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido_count", rpcParams);
 
       if (error) {
-        console.error("Erro ao buscar contagem de pedidos:", error);
+        console.error("[Vendas][Count] ERRO RPC:", error.message, error.details, error.hint);
         return 0;
       }
 
+      console.debug("[Vendas][Count] Resultado:", data);
       return Number(data) || 0;
     },
     staleTime: 60 * 1000,
@@ -208,20 +223,24 @@ export function useVendasPorPedido({
       pageSize,
     ],
     queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido", {
+      const rpcParams = {
         p_empresa_id: empresaParam,
         p_data_inicio: dataInicio,
         p_data_fim: dataFim,
         ...filtrosSanitizados,
         p_limit: pageSize,
         p_offset: page * pageSize,
-      });
+      };
+      console.debug("[Vendas][Pedidos] RPC params:", rpcParams);
+      
+      const { data, error } = await (supabase.rpc as any)("get_vendas_por_pedido", rpcParams);
 
       if (error) {
-        console.error("Erro ao buscar pedidos paginados:", error);
-        // Não dar throw para manter dados anteriores via placeholderData
+        console.error("[Vendas][Pedidos] ERRO RPC:", error.message, error.details, error.hint);
         return undefined;
       }
+      
+      console.debug(`[Vendas][Pedidos] Retornou ${(data || []).length} registros`);
 
       const pedidos: PedidoAgregado[] = (data || []).map((p: any) => ({
         pedido_id: p.pedido_id,
