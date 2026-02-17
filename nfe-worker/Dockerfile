@@ -1,6 +1,6 @@
 FROM node:20-alpine
 
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl ca-certificates && update-ca-certificates
 
 WORKDIR /app
 
@@ -18,6 +18,10 @@ RUN npm run build
 
 # Copiar certs para dist manualmente
 RUN cp -r certs dist/ 2>/dev/null || true
+
+# Forcar Node a usar CAs do sistema + bundle ICP-Brasil
+ENV NODE_OPTIONS="--use-openssl-ca"
+ENV NODE_EXTRA_CA_CERTS="/app/certs/icp-brasil.pem"
 
 # Limpar dependencias de desenvolvimento
 RUN npm prune --production

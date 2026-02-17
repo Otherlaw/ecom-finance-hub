@@ -25,10 +25,13 @@ const XMLDSIG_NS = 'http://www.w3.org/2000/09/xmldsig#';
 // Carregar CA bundle ICP-Brasil (se disponivel)
 let icpBrasilCA: string | undefined;
 const CA_PATHS = [
-  path.join(process.cwd(), 'certs', 'icp-brasil.pem'),
+  path.join(__dirname, 'certs', 'icp-brasil.pem'),           // dist/certs/
+  path.join(__dirname, '..', 'certs', 'icp-brasil.pem'),     // dist/../certs/
+  path.join(process.cwd(), 'certs', 'icp-brasil.pem'),       // cwd/certs/
   path.join(process.cwd(), 'src', 'certs', 'icp-brasil.pem'),
-  '/opt/render/project/src/nfe-worker/certs/icp-brasil.pem',
-  path.join(__dirname, '..', 'certs', 'icp-brasil.pem'),
+  path.join(process.cwd(), 'dist', 'certs', 'icp-brasil.pem'),
+  '/app/certs/icp-brasil.pem',                                // Docker fixo
+  '/opt/render/project/src/nfe-worker/certs/icp-brasil.pem',  // Render
 ];
 
 for (const caPath of CA_PATHS) {
@@ -229,7 +232,7 @@ export class SefazClient {
       pfx: this.pfxBuffer,
       passphrase: this.passphrase,
       ca: icpBrasilCA ? [icpBrasilCA] : undefined,
-      rejectUnauthorized: !!icpBrasilCA,
+      rejectUnauthorized: true,
     });
   }
 
@@ -295,14 +298,8 @@ export class SefazClient {
       );
 
       req.on('error', (err) => {
-        if (err.message.includes('unable to get local issuer certificate') ||
-            err.message.includes('self signed certificate') ||
-            err.message.includes('certificate')) {
-          console.warn('[SEFAZ] Erro SSL, tentando sem validacao:', err.message);
-          this.soapRequestFallback(url, envelope, soapAction).then(resolve).catch(reject);
-        } else {
-          reject(err);
-        }
+        console.error('[SEFAZ] Erro na requisicao SOAP:', err.message);
+        reject(err);
       });
 
       req.write(envelope);
@@ -310,45 +307,6 @@ export class SefazClient {
     });
   }
 
-  /**
-   * Fallback: requisicao SOAP sem validacao SSL, mas mantendo mTLS via PFX nativo
-   * NÃO usa node-forge — usa PFX direto como createHttpsAgent
-   */
-  private async soapRequestFallback(url: string, envelope: string, soapAction: string): Promise<string> {
-    console.log('[SEFAZ] Usando fallback SSL (rejectUnauthorized=false)');
-    const parsedUrl = new URL(url);
-
-    const agent = new https.Agent({
-      pfx: this.pfxBuffer,
-      passphrase: this.passphrase,
-      rejectUnauthorized: false,
-    });
-
-    return new Promise((resolve, reject) => {
-      const req = https.request(
-        {
-          hostname: parsedUrl.hostname,
-          port: 443,
-          path: parsedUrl.pathname,
-          method: 'POST',
-          agent,
-          headers: {
-            'Content-Type': `application/soap+xml; charset=utf-8; action="${soapAction}"`,
-            'Content-Length': Buffer.byteLength(envelope, 'utf8'),
-          },
-        },
-        (res) => {
-          let data = '';
-          res.on('data', (chunk) => (data += chunk));
-          res.on('end', () => resolve(data));
-        }
-      );
-
-      req.on('error', reject);
-      req.write(envelope);
-      req.end();
-    });
-  }
 
   /**
    * Parseia resposta SOAP da Distribuicao e extrai documentos
