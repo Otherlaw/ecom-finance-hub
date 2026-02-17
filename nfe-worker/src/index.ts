@@ -279,9 +279,16 @@ async function syncEmpresa(empresaId: string): Promise<{
       if (CERT_MASTER_KEY && certificate.cert_pfx_encrypted.length > 100) {
         pfxBase64 = decrypt(certificate.cert_pfx_encrypted, CERT_MASTER_KEY);
         password = decrypt(certificate.cert_password_encrypted, CERT_MASTER_KEY);
+        console.log('[SYNC] Certificado descriptografado com sucesso');
+      } else {
+        console.log('[SYNC] Usando certificado sem criptografia (sem CERT_MASTER_KEY ou dados curtos)');
       }
-    } catch {
-      console.log('[SYNC] Usando certificado sem criptografia');
+    } catch (decryptError) {
+      const errMsg = decryptError instanceof Error ? decryptError.message : String(decryptError);
+      console.error(`[SYNC] ERRO na descriptografia do certificado: ${errMsg}`);
+      console.error('[SYNC] Verifique se CERT_MASTER_KEY está correta no painel do Render');
+      await supabase.log(empresaId, 'error', `Erro na descriptografia do certificado: ${errMsg}. Verifique CERT_MASTER_KEY.`);
+      throw new Error(`Falha na descriptografia do certificado: ${errMsg}. Verifique se CERT_MASTER_KEY está configurada corretamente no Render.`);
     }
 
     // Criar cliente SEFAZ

@@ -134,17 +134,29 @@ export class SefazClient {
   /**
    * Cria agente HTTPS com certificado para mutual TLS
    */
+  /**
+   * Cria agente HTTPS com certificado para mutual TLS
+   * Usa PFX diretamente via Node.js nativo (OpenSSL) para suportar
+   * certificados brasileiros com criptografia moderna (AES-256-CBC)
+   */
   private createHttpsAgent(): https.Agent {
-    const { privateKey, certificate, caList } = this.extractPemFromPfx();
-
-    const allCAs = [...caList];
+    const allCAs: string[] = [];
     if (icpBrasilCA) {
       allCAs.push(icpBrasilCA);
     }
 
+    // Tentar extrair CAs intermediárias do PFX via node-forge
+    // Não é obrigatório — apenas melhora a cadeia de confiança
+    try {
+      const { caList } = this.extractPemFromPfx();
+      allCAs.push(...caList);
+      console.log(`[SEFAZ] CAs extraídas do PFX via node-forge: ${caList.length}`);
+    } catch (e) {
+      console.warn('[SEFAZ] node-forge não suporta este formato PFX — usando PFX direto via OpenSSL (OK)');
+    }
+
+    // PFX direto = Node.js/OpenSSL cuida de tudo (suporta AES-256-CBC, RC2, etc)
     return new https.Agent({
-      key: privateKey,
-      cert: certificate,
       pfx: this.pfxBuffer,
       passphrase: this.passphrase,
       ca: allCAs.length > 0 ? allCAs : undefined,
@@ -428,7 +440,17 @@ export class SefazClient {
    * usando a chave privada do certificado A1.
    */
   private signXml(xmlContent: string, referenceUri: string): string {
-    const { privateKey, certDer } = this.extractPemFromPfx();
+    let privateKey: string;
+    let certDer: string;
+    try {
+      const extracted = this.extractPemFromPfx();
+      privateKey = extracted.privateKey;
+      certDer = extracted.certDer;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[SEFAZ] node-forge não suporta este PFX para assinatura XML: ${errMsg}`);
+      throw new Error(`Certificado PFX não suportado para assinatura XML (node-forge). Considere converter o certificado para formato compatível. Erro: ${errMsg}`);
+    }
 
     // 1. Canonicalizar o conteúdo (C14N simples: remover declaração XML, normalizar whitespace)
     // Para simplificação, usamos o XML como está e computamos o digest
