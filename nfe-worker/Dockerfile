@@ -11,8 +11,11 @@ RUN npm ci
 # Copiar codigo fonte
 COPY . .
 
-# Build TypeScript
+# Build TypeScript (certs fica em src/ e nao precisa copiar para dist)
 RUN npm run build
+
+# Copiar certs para dist manualmente
+RUN cp -r certs dist/ 2>/dev/null || true
 
 # Limpar dependencias de desenvolvimento
 RUN npm prune --production
