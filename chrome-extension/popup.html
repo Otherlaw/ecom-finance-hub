@@ -3,30 +3,39 @@
 <head>
   <meta charset="UTF-8">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
       width: 320px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #111111;
       color: #e2e8f0;
       padding: 20px;
     }
+
     .logo {
       text-align: center;
       margin-bottom: 16px;
     }
+
     .logo h1 {
       font-size: 16px;
-      color: #38bdf8;
+      color: #9C64FB;
       font-weight: 700;
     }
+
     .logo p {
       font-size: 11px;
       color: #94a3b8;
       margin-top: 4px;
     }
+
     .status-bar {
-      background: #1e293b;
+      background: #1a1a1a;
       border-radius: 8px;
       padding: 12px;
       margin-bottom: 16px;
@@ -34,17 +43,27 @@
       align-items: center;
       gap: 8px;
     }
+
     .status-dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
       background: #ef4444;
     }
-    .status-dot.connected { background: #22c55e; }
-    .status-text { font-size: 12px; color: #94a3b8; }
+
+    .status-dot.connected {
+      background: #22c55e;
+    }
+
+    .status-text {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
     .form-group {
       margin-bottom: 12px;
     }
+
     label {
       display: block;
       font-size: 11px;
@@ -53,23 +72,28 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
-    input, select {
+
+    input,
+    select {
       width: 100%;
       padding: 8px 12px;
-      background: #1e293b;
-      border: 1px solid #334155;
+      background: #1a1a1a;
+      border: 1px solid #333333;
       border-radius: 6px;
       color: #e2e8f0;
       font-size: 13px;
       outline: none;
     }
-    input:focus, select:focus {
-      border-color: #38bdf8;
+
+    input:focus,
+    select:focus {
+      border-color: #9C64FB;
     }
+
     button {
       width: 100%;
       padding: 10px;
-      background: #0ea5e9;
+      background: #9C64FB;
       color: white;
       border: none;
       border-radius: 6px;
@@ -78,42 +102,47 @@
       cursor: pointer;
       margin-top: 8px;
     }
-    button:hover { background: #0284c7; }
+
+    button:hover {
+      background: #8B52EA;
+    }
+
     button.logout {
       background: transparent;
-      border: 1px solid #334155;
+      border: 1px solid #333333;
       color: #94a3b8;
       margin-top: 12px;
     }
+
     button:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
+
     .error {
       color: #ef4444;
       font-size: 11px;
       margin-top: 4px;
     }
-    .hidden { display: none; }
+
+    .hidden {
+      display: none;
+    }
+
     .empresa-info {
-      background: #1e293b;
+      background: #1a1a1a;
       border-radius: 8px;
       padding: 12px;
       margin-top: 12px;
-    }
-    .empresa-info p {
       font-size: 12px;
       color: #94a3b8;
-    }
-    .empresa-info strong {
-      color: #e2e8f0;
     }
   </style>
 </head>
 <body>
   <div class="logo">
-    <h1>💰 ECOM Finance</h1>
-    <p>Margem de Contribuição no ML</p>
+    <h1>ECOM Finance</h1>
+    <p>Margem de Contribuicao no ML</p>
   </div>
 
   <div class="status-bar">
@@ -121,21 +150,21 @@
     <span class="status-text" id="statusText">Desconectado</span>
   </div>
 
-  <!-- Login Form -->
+  <!-- Login -->
   <div id="loginSection">
     <div class="form-group">
       <label>Email</label>
-      <input type="email" id="email" placeholder="seu@email.com">
+      <input type="email" id="email" placeholder="seu@email.com" />
     </div>
     <div class="form-group">
       <label>Senha</label>
-      <input type="password" id="password" placeholder="••••••••">
+      <input type="password" id="password" placeholder="********" />
     </div>
     <div class="error hidden" id="loginError"></div>
     <button id="loginBtn">Entrar</button>
   </div>
 
-  <!-- Connected Section -->
+  <!-- Conectado -->
   <div id="connectedSection" class="hidden">
     <div class="form-group">
       <label>Empresa</label>
@@ -143,8 +172,9 @@
         <option value="">Selecione...</option>
       </select>
     </div>
-    <div class="empresa-info" id="empresaInfo" class="hidden">
-      <p>Margem será calculada para a empresa selecionada em todas as páginas do Mercado Livre.</p>
+    <div class="empresa-info">
+      A margem sera calculada para a empresa selecionada em todas as paginas do
+      Mercado Livre.
     </div>
     <button class="logout" id="logoutBtn">Sair</button>
   </div>

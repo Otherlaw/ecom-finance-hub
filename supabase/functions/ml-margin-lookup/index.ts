@@ -1,38 +1,50 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Origin": "https://www.mercadolivre.com.br",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, content-type, apikey",
 };
 
 interface RequestItem {
-  sku?: string;
-  anuncio_id?: string;
+  sku?: string | null;
+  anuncio_id?: string | null;
   preco_final: number;
-  quantidade?: number;
+  quantidade?: number | null;
+  comissao?: number | null;
+  tarifa_fixa?: number | null;
+  frete_vendedor?: number | null;
+  ads?: number | null;
+  outros_descontos?: number | null;
+  impostos?: number | null;
 }
 
 interface MarginResult {
   sku: string | null;
   anuncio_id: string | null;
   preco_final: number;
-  custo_unitario: number;
+  quantidade: number;
+  custo_unitario: number | null;
   comissao: number;
   tarifa_fixa: number;
   frete_vendedor: number;
+  ads: number;
+  outros_descontos: number;
   imposto: number;
-  margem: number;
-  margem_pct: number;
+  margem: number | null;
+  margem_pct: number | null;
   fonte_custo: "produto" | "sku_costs" | "nao_encontrado";
 }
 
-// Tarifa fixa do ML baseada no preço (valores aproximados 2024/2025)
 function estimarTarifaFixaML(preco: number): number {
   if (preco <= 29) return 6.0;
   if (preco <= 50) return 6.5;
   if (preco <= 79) return 7.0;
-  return 0; // Acima de R$79 geralmente sem tarifa fixa
+  return 0;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 Deno.serve(async (req) => {
@@ -40,12 +52,14 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
+
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(
-        JSON.stringify({ error: "Token de autenticação necessário" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "Token de autenticacao necessario" }),
+        { status: 401, headers: jsonHeaders }
       );
     }
 
@@ -55,56 +69,66 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    // Verificar autenticação
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    // Verificar usuario
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
     if (authError || !user) {
       return new Response(
-        JSON.stringify({ error: "Usuário não autenticado" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "Usuario nao autenticado" }),
+        { status: 401, headers: jsonHeaders }
       );
     }
 
-    const { empresa_id, items } = await req.json() as {
-      empresa_id: string;
-      items: RequestItem[];
-    };
+    const body = await req.json();
+    const empresa_id: string = body.empresa_id;
+    const items: RequestItem[] = body.items;
 
-    if (!empresa_id || !items?.length) {
+    if (!empresa_id || !Array.isArray(items) || items.length === 0) {
       return new Response(
-        JSON.stringify({ error: "empresa_id e items são obrigatórios" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "empresa_id e items sao obrigatorios" }),
+        { status: 400, headers: jsonHeaders }
       );
     }
 
-    // Verificar acesso à empresa
-    const { data: userEmpresas } = await supabase
+    // Verificar acesso a empresa
+    const { data: acesso } = await supabase
       .from("user_empresas")
       .select("empresa_id")
       .eq("user_id", user.id)
       .eq("empresa_id", empresa_id);
 
-    if (!userEmpresas?.length) {
+    if (!acesso || acesso.length === 0) {
       return new Response(
         JSON.stringify({ error: "Sem acesso a esta empresa" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 403, headers: jsonHeaders }
       );
     }
 
-    // Buscar config fiscal da empresa
+    // Buscar aliquota de imposto
     const { data: configFiscal } = await supabase
       .from("empresas_config_fiscal")
       .select("aliquota_imposto_vendas")
       .eq("empresa_id", empresa_id)
       .maybeSingle();
 
-    const aliquotaImposto = configFiscal?.aliquota_imposto_vendas ?? 6.0;
+    const aliquota = configFiscal?.aliquota_imposto_vendas ?? 6.0;
 
-    // Coletar SKUs e anuncio_ids para busca em batch
-    const skus = items.map((i) => i.sku).filter(Boolean) as string[];
-    const anuncioIds = items.map((i) => i.anuncio_id).filter(Boolean) as string[];
+    // Coletar SKUs e anuncio_ids unicos
+    const skus: string[] = [];
+    const anuncioIds: string[] = [];
+    for (const item of items) {
+      if (item.sku) skus.push(item.sku);
+      if (item.anuncio_id) anuncioIds.push(item.anuncio_id);
+    }
 
-    // Buscar mapeamentos produto-marketplace (por anuncio_id ou sku)
-    let mappings: Record<string, { produto_id: string; sku_marketplace: string }> = {};
+    // Buscar mapeamentos produto_marketplace_map
+    const mappings: Record<
+      string,
+      { produto_id: string; sku_marketplace: string | null }
+    > = {};
+
     if (anuncioIds.length > 0 || skus.length > 0) {
       let query = supabase
         .from("produto_marketplace_map")
@@ -112,7 +136,6 @@ Deno.serve(async (req) => {
         .eq("empresa_id", empresa_id)
         .eq("ativo", true);
 
-      // Buscar por anuncio_id ou sku
       if (anuncioIds.length > 0 && skus.length > 0) {
         query = query.or(
           `anuncio_id.in.(${anuncioIds.join(",")}),sku_marketplace.in.(${skus.join(",")})`
@@ -126,15 +149,26 @@ Deno.serve(async (req) => {
       const { data: maps } = await query;
       if (maps) {
         for (const m of maps) {
-          if (m.anuncio_id) mappings[`anuncio:${m.anuncio_id}`] = m;
-          if (m.sku_marketplace) mappings[`sku:${m.sku_marketplace}`] = m;
+          if (m.anuncio_id)
+            mappings[`anuncio:${m.anuncio_id}`] = {
+              produto_id: m.produto_id,
+              sku_marketplace: m.sku_marketplace,
+            };
+          if (m.sku_marketplace)
+            mappings[`sku:${m.sku_marketplace}`] = {
+              produto_id: m.produto_id,
+              sku_marketplace: m.sku_marketplace,
+            };
         }
       }
     }
 
-    // Buscar custos dos produtos mapeados
-    const produtoIds = [...new Set(Object.values(mappings).map((m) => m.produto_id))];
-    let produtoCustos: Record<string, number> = {};
+    // Buscar custo_medio dos produtos mapeados
+    const produtoIds = [
+      ...new Set(Object.values(mappings).map((m) => m.produto_id)),
+    ];
+    const produtoCustos: Record<string, number> = {};
+
     if (produtoIds.length > 0) {
       const { data: produtos } = await supabase
         .from("produtos")
@@ -143,15 +177,16 @@ Deno.serve(async (req) => {
 
       if (produtos) {
         for (const p of produtos) {
-          if (p.custo_medio && p.custo_medio > 0) {
-            produtoCustos[p.id] = Number(p.custo_medio);
+          const custo = Number(p.custo_medio);
+          if (custo > 0) {
+            produtoCustos[p.id] = custo;
           }
         }
       }
     }
 
     // Buscar fallback sku_costs
-    let skuCosts: Record<string, number> = {};
+    const skuCosts: Record<string, number> = {};
     if (skus.length > 0) {
       const { data: costs } = await supabase
         .from("sku_costs")
@@ -161,7 +196,8 @@ Deno.serve(async (req) => {
 
       if (costs) {
         for (const c of costs) {
-          skuCosts[c.sku] = Number(c.custo_unitario);
+          const custo = Number(c.custo_unitario);
+          if (custo > 0) skuCosts[c.sku] = custo;
         }
       }
     }
@@ -169,60 +205,89 @@ Deno.serve(async (req) => {
     // Calcular margem para cada item
     const results: MarginResult[] = items.map((item) => {
       const preco = item.preco_final;
-      const qty = item.quantidade || 1;
+      const qty = item.quantidade ?? 1;
 
-      // Resolver custo
-      let custoUnitario = 0;
+      // === 1) Resolver custo ===
+      let custoUnitario: number | null = null;
       let fonteCusto: MarginResult["fonte_custo"] = "nao_encontrado";
 
-      // 1) Buscar por anuncio_id -> produto
-      const mapByAnuncio = item.anuncio_id ? mappings[`anuncio:${item.anuncio_id}`] : null;
-      if (mapByAnuncio && produtoCustos[mapByAnuncio.produto_id]) {
-        custoUnitario = produtoCustos[mapByAnuncio.produto_id];
-        fonteCusto = "produto";
-      }
-
-      // 2) Buscar por SKU -> produto
-      if (fonteCusto === "nao_encontrado" && item.sku) {
-        const mapBySku = mappings[`sku:${item.sku}`];
-        if (mapBySku && produtoCustos[mapBySku.produto_id]) {
-          custoUnitario = produtoCustos[mapBySku.produto_id];
+      // a) por anuncio_id
+      if (item.anuncio_id) {
+        const map = mappings[`anuncio:${item.anuncio_id}`];
+        if (map && produtoCustos[map.produto_id]) {
+          custoUnitario = produtoCustos[map.produto_id];
           fonteCusto = "produto";
         }
       }
 
-      // 3) Fallback: sku_costs
+      // b) por sku_marketplace
+      if (fonteCusto === "nao_encontrado" && item.sku) {
+        const map = mappings[`sku:${item.sku}`];
+        if (map && produtoCustos[map.produto_id]) {
+          custoUnitario = produtoCustos[map.produto_id];
+          fonteCusto = "produto";
+        }
+      }
+
+      // c) fallback sku_costs
       if (fonteCusto === "nao_encontrado" && item.sku && skuCosts[item.sku]) {
         custoUnitario = skuCosts[item.sku];
         fonteCusto = "sku_costs";
       }
 
-      // Estimar comissão e tarifa
-      const comissao = preco * 0.12; // 12% padrão ML
-      const tarifaFixa = estimarTarifaFixaML(preco);
-      const freteVendedor = 0; // Sem dados no contexto da extensão
-      const imposto = preco * (aliquotaImposto / 100);
+      // === 2) Comissao/tarifa: usar valores enviados ou estimar ===
+      const comissao =
+        item.comissao != null ? item.comissao : round2(preco * 0.12);
+      const tarifaFixa =
+        item.tarifa_fixa != null
+          ? item.tarifa_fixa
+          : estimarTarifaFixaML(preco);
+      const freteVendedor = item.frete_vendedor ?? 0;
+      const ads = item.ads ?? 0;
+      const outrosDescontos = item.outros_descontos ?? 0;
 
-      const margem = preco - (custoUnitario * qty) - comissao - tarifaFixa - freteVendedor - imposto;
-      const margemPct = preco > 0 ? (margem / preco) * 100 : 0;
+      // === 3) Impostos: usar enviado ou calcular ===
+      const imposto =
+        item.impostos != null ? item.impostos : round2(preco * (aliquota / 100));
+
+      // === 4) Margem ===
+      let margem: number | null = null;
+      let margemPct: number | null = null;
+
+      if (custoUnitario !== null) {
+        margem = round2(
+          preco -
+            custoUnitario * qty -
+            comissao -
+            tarifaFixa -
+            freteVendedor -
+            ads -
+            outrosDescontos -
+            imposto
+        );
+        margemPct = preco > 0 ? round2((margem / preco) * 100) : 0;
+      }
 
       return {
         sku: item.sku || null,
         anuncio_id: item.anuncio_id || null,
         preco_final: preco,
+        quantidade: qty,
         custo_unitario: custoUnitario,
-        comissao: Math.round(comissao * 100) / 100,
-        tarifa_fixa: tarifaFixa,
-        frete_vendedor: freteVendedor,
-        imposto: Math.round(imposto * 100) / 100,
-        margem: Math.round(margem * 100) / 100,
-        margem_pct: Math.round(margemPct * 100) / 100,
+        comissao: round2(comissao),
+        tarifa_fixa: round2(tarifaFixa),
+        frete_vendedor: round2(freteVendedor),
+        ads: round2(ads),
+        outros_descontos: round2(outrosDescontos),
+        imposto: round2(imposto),
+        margem,
+        margem_pct: margemPct,
         fonte_custo: fonteCusto,
       };
     });
 
     return new Response(JSON.stringify({ results }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: jsonHeaders,
     });
   } catch (error) {
     console.error("Erro no ml-margin-lookup:", error);

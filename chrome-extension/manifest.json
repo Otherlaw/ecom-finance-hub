@@ -2,10 +2,10 @@
   "manifest_version": 3,
   "name": "ECOM Finance - Margem ML",
   "version": "1.0.0",
-  "description": "Visualize a margem de contribuição das suas vendas diretamente no Mercado Livre",
-  "permissions": ["storage", "activeTab"],
+  "description": "Visualize a margem de contribuicao das suas vendas diretamente no Mercado Livre",
+  "permissions": ["storage", "alarms"],
   "host_permissions": [
-    "https://*.mercadolivre.com.br/*",
+    "https://www.mercadolivre.com.br/*",
     "https://bwfbozwyqujlykgaueez.supabase.co/*"
   ],
   "background": {
@@ -13,10 +13,7 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://*.mercadolivre.com.br/vendas/*",
-        "https://*.mercadolivre.com.br/anuncios/*"
-      ],
+      "matches": ["https://www.mercadolivre.com.br/*"],
       "js": ["content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"

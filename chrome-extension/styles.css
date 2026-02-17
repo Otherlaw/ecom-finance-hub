@@ -7,28 +7,29 @@
   border-radius: 4px;
   font-size: 12px;
   font-weight: 600;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   margin-left: 8px;
   cursor: pointer;
   position: relative;
   vertical-align: middle;
-  transition: transform 0.15s ease;
-}
-
-.ecom-margin-badge:hover {
-  transform: scale(1.05);
 }
 
 .ecom-margin-badge.ecom-positive {
   background: rgba(34, 197, 94, 0.15);
-  color: #16a34a;
+  color: #22c55e;
   border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
 .ecom-margin-badge.ecom-negative {
   background: rgba(239, 68, 68, 0.15);
-  color: #dc2626;
+  color: #ef4444;
   border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.ecom-margin-badge.ecom-unknown {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
 /* ====== Tooltip ====== */
@@ -39,14 +40,14 @@
   top: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  background: #0f172a;
+  background: #111111;
   color: #e2e8f0;
-  border: 1px solid #334155;
+  border: 1px solid #333333;
   border-radius: 8px;
   padding: 12px 16px;
-  width: 260px;
+  width: 280px;
   z-index: 999999;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   font-size: 12px;
   font-weight: 400;
 }
@@ -58,10 +59,10 @@
 .ecom-tooltip-title {
   font-size: 13px;
   font-weight: 700;
-  color: #38bdf8;
+  color: #9C64FB;
   margin-bottom: 10px;
   padding-bottom: 6px;
-  border-bottom: 1px solid #1e293b;
+  border-bottom: 1px solid #222222;
 }
 
 .ecom-tooltip-row {
@@ -72,7 +73,7 @@
 
 .ecom-tooltip-divider {
   height: 1px;
-  background: #334155;
+  background: #333333;
   margin: 8px 0;
 }
 
@@ -87,20 +88,26 @@
   color: #64748b;
 }
 
-.ecom-positive-text { color: #22c55e; }
-.ecom-negative-text { color: #ef4444; }
+.ecom-pos-text {
+  color: #22c55e;
+}
+
+.ecom-neg-text {
+  color: #ef4444;
+}
 
 /* ====== Painel de Detalhe ====== */
 
 .ecom-detail-panel {
-  background: #0f172a;
-  border: 1px solid #1e293b;
+  background: #111111;
+  border: 1px solid #222222;
   border-radius: 12px;
   padding: 0;
   margin: 16px 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  max-width: 400px;
 }
 
 .ecom-panel-header {
@@ -108,18 +115,14 @@
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: #1e293b;
-  border-bottom: 1px solid #334155;
-}
-
-.ecom-panel-icon {
-  font-size: 16px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333333;
 }
 
 .ecom-panel-title {
   font-size: 13px;
   font-weight: 700;
-  color: #38bdf8;
+  color: #9C64FB;
 }
 
 .ecom-panel-body {
@@ -136,7 +139,7 @@
 
 .ecom-panel-divider {
   height: 1px;
-  background: #334155;
+  background: #333333;
   margin: 8px 0;
 }
 
@@ -154,7 +157,7 @@
 .ecom-panel-source {
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px solid #1e293b;
+  border-top: 1px solid #222222;
   font-size: 10px;
   color: #64748b;
 }
