@@ -117,8 +117,9 @@ export function useDashboardKPIs(
 
       // Log para debug
       if (process.env.NODE_ENV === 'development') {
-        console.log(`[Dashboard KPIs] Período: ${periodoInicio} a ${periodoFim}`);
-        console.log(`  Faturamento: R$ ${kpis.faturamento_bruto.toFixed(2)}`);
+        const modo = empresaParam ? `Empresa: ${empresaParam}` : 'Consolidado (todas)';
+        console.log(`[Dashboard KPIs] ${modo} | Período: ${periodoInicio} a ${periodoFim}`);
+        console.log(`  Faturamento: R$ ${kpis.faturamento_bruto.toFixed(2)} | Pedidos: ${kpis.pedidos_unicos}`);
         console.log(`  CMV: R$ ${kpis.cmv_total.toFixed(2)} (${kpis.cmv_itens_com_custo}/${kpis.cmv_total_itens} itens com custo)`);
         console.log(`  Despesas: R$ ${kpis.despesas_operacionais_total.toFixed(2)}`);
         console.log(`  Lucro Líquido: R$ ${kpis.lucro_liquido.toFixed(2)}`);

@@ -29,6 +29,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 
 const formSchema = z.object({
   estabelecimento_pattern: z.string().min(1, "Padrão é obrigatório"),
@@ -55,6 +56,7 @@ interface RegraFormModalProps {
 
 export function RegraFormModal({ open, onOpenChange, regra }: RegraFormModalProps) {
   const queryClient = useQueryClient();
+  const { empresaAtiva } = useEmpresaAtiva();
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -127,17 +129,19 @@ export function RegraFormModal({ open, onOpenChange, regra }: RegraFormModalProp
     },
   });
 
-  const DEFAULT_EMPRESA_ID = "d0b0c897-d560-4dc5-aa07-df99d3019bf5";
-
   const mutation = useMutation({
     mutationFn: async (data: FormData) => {
+      if (!empresaAtiva?.id) {
+        throw new Error("Selecione uma empresa para criar regra.");
+      }
+
       const payload = {
         estabelecimento_pattern: data.estabelecimento_pattern.toLowerCase().trim(),
         categoria_id: data.categoria_id || null,
         centro_custo_id: data.centro_custo_id || null,
         responsavel_id: data.responsavel_id || null,
         ativo: data.ativo,
-        empresa_id: DEFAULT_EMPRESA_ID,
+        empresa_id: empresaAtiva.id,
       };
 
       if (regra) {
