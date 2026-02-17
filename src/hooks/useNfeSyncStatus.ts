@@ -308,6 +308,36 @@ export function useNfeSyncStatus(empresaId?: string) {
     },
   });
 
+  // Mutation para hard reset (DEV/TESTE) - zera NSU e bootstrap
+  const devResetState = useMutation({
+    mutationFn: async () => {
+      if (!empresaId) throw new Error("Empresa nao selecionada");
+
+      const { error } = await supabase
+        .from("nfe_sync_state")
+        .update({
+          ult_nsu: 0,
+          max_nsu: 0,
+          status: "idle" as const,
+          next_retry_at: null,
+          last_error: null,
+          bootstrap_completed_at: null,
+          rate_limit_count: 0,
+        })
+        .eq("empresa_id", empresaId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Hard Reset concluído. NSU zerado, pronto para fast-forward.");
+      setIsStuck(false);
+      queryClient.invalidateQueries({ queryKey: ["nfe-sync-status", empresaId] });
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro no hard reset: ${error.message}`);
+    },
+  });
+
   // Calcular estados derivados com segurança
   const nextRetryAt = data?.sync_state?.next_retry_at;
   const syncStatus = data?.sync_state?.status;
@@ -398,6 +428,7 @@ export function useNfeSyncStatus(empresaId?: string) {
     refetch,
     startSync,
     resetSync,
+    devResetState,
     isSyncing,
     isRateLimited,
     nextRetryAt,

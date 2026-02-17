@@ -43,6 +43,7 @@ import {
   Loader2,
   RotateCcw,
   Play,
+  Trash2,
 } from "lucide-react";
 import { useNfeSyncStatus } from "@/hooks/useNfeSyncStatus";
 
@@ -62,6 +63,7 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
     lastError, 
     resetSync,
     startSync,
+    devResetState,
     refetch,
     isStuck,
     timeUntilRetry,
@@ -545,6 +547,24 @@ export function NfeSyncStatus({ empresaId }: NfeSyncStatusProps) {
                   <Play className="h-4 w-4" />
                 )}
                 Forçar Sincronização
+              </Button>
+
+              <Button
+                variant="destructive"
+                className="gap-2"
+                onClick={() => {
+                  if (window.confirm("ATENÇÃO: Isso vai zerar o NSU e o bootstrap_completed_at, simulando uma empresa nova. Continuar?")) {
+                    devResetState.mutate();
+                  }
+                }}
+                disabled={isSyncing || devResetState.isPending}
+              >
+                {devResetState.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                Hard Reset (DEV)
               </Button>
 
               <Button
