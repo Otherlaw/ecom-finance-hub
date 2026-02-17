@@ -510,8 +510,16 @@ async function syncEmpresa(empresaId: string): Promise<{
         // ========================================
         if (isSefazError656(error)) {
            const currentRateLimitCount = (syncState?.rate_limit_count || 0) + 1;
-           const nextRetryAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-           const errorMsg = `Erro SEFAZ 656: Consumo Indevido. Próxima tentativa em 1 hora (tentativa #${currentRateLimitCount}).`;
+           
+           // Backoff exponencial: 1h, 2h, 4h, 8h, max 24h
+           const backoffHours = Math.min(Math.pow(2, currentRateLimitCount - 1), 24);
+           const nextRetryAt = new Date(Date.now() + backoffHours * 60 * 60 * 1000).toISOString();
+           
+           // Após 5 tentativas sem sucesso, parar de tentar automaticamente
+           const shouldStopRetrying = currentRateLimitCount >= 5;
+           const errorMsg = shouldStopRetrying
+             ? `Erro SEFAZ 656: Consumo Indevido após ${currentRateLimitCount} tentativas. Verifique se o certificado está habilitado para Distribuição DF-e. Sync automático pausado.`
+             : `Erro SEFAZ 656: Consumo Indevido. Próxima tentativa em ${backoffHours}h (tentativa #${currentRateLimitCount}).`;
           
           console.error(`[SYNC] ★ ERRO 656 DETECTADO`);
           console.error(`[SYNC] ${errorMsg}`);
@@ -526,17 +534,17 @@ async function syncEmpresa(empresaId: string): Promise<{
           });
           
           await supabase.updateSyncState(empresaId, {
-            status: 'rate_limited',
+            status: shouldStopRetrying ? 'error' : 'rate_limited',
             last_error: errorMsg,
             ult_nsu: currentNSU,
             max_nsu: maxNSU,
-            next_retry_at: nextRetryAt,
+            next_retry_at: shouldStopRetrying ? null : nextRetryAt,
              rate_limit_count: currentRateLimitCount,
              last_rate_limit_at: new Date().toISOString(),
           });
 
            lockAcquired = false;
-           console.log('[SYNC] Lock liberado (status=rate_limited, próximo retry em 1 hora)');
+           console.log(`[SYNC] Lock liberado (status=${shouldStopRetrying ? 'error' : 'rate_limited'}, próximo retry em ${shouldStopRetrying ? 'PARADO' : backoffHours + 'h'})`);
 
           return {
             success: false,

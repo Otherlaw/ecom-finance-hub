@@ -142,13 +142,13 @@ export class SefazClient {
       allCAs.push(icpBrasilCA);
     }
 
-    const hasValidCA = allCAs.length > 0;
-
     return new https.Agent({
       key: privateKey,
       cert: certificate,
-      ca: hasValidCA ? allCAs : undefined,
-      rejectUnauthorized: hasValidCA,
+      pfx: this.pfxBuffer,
+      passphrase: this.passphrase,
+      ca: allCAs.length > 0 ? allCAs : undefined,
+      rejectUnauthorized: allCAs.length > 0,
     });
   }
 
@@ -202,9 +202,8 @@ export class SefazClient {
           method: 'POST',
           agent,
           headers: {
-            'Content-Type': 'application/soap+xml; charset=utf-8',
+            'Content-Type': `application/soap+xml; charset=utf-8; action="${soapAction}"`,
             'Content-Length': Buffer.byteLength(envelope, 'utf8'),
-            SOAPAction: soapAction,
           },
         },
         (res) => {
@@ -252,9 +251,8 @@ export class SefazClient {
           method: 'POST',
           agent,
           headers: {
-            'Content-Type': 'application/soap+xml; charset=utf-8',
+            'Content-Type': `application/soap+xml; charset=utf-8; action="${soapAction}"`,
             'Content-Length': Buffer.byteLength(envelope, 'utf8'),
-            SOAPAction: soapAction,
           },
         },
         (res) => {
