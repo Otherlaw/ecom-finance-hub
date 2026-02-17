@@ -53,11 +53,22 @@ export class SefazClient {
   private ambiente: 'producao' | 'homologacao';
   private uf: string;
 
+  /**
+   * Normaliza base64: remove DataURL prefix, quebras de linha, espaços
+   */
+  private static normalizeBase64(input: string): string {
+    return (input || '')
+      .trim()
+      .replace(/^data:.*?;base64,/, '')
+      .replace(/\s+/g, '');
+  }
+
   constructor(pfxBase64: string, passphrase: string, ambiente: 'producao' | 'homologacao', uf: string) {
-    this.pfxBuffer = Buffer.from(pfxBase64, 'base64');
+    this.pfxBuffer = Buffer.from(SefazClient.normalizeBase64(pfxBase64), 'base64');
     this.passphrase = passphrase;
     this.ambiente = ambiente;
     this.uf = uf;
+    console.log(`[SEFAZ] PFX carregado: ${this.pfxBuffer.length} bytes, ambiente: ${ambiente}, UF: ${uf}`);
   }
 
   /**
@@ -229,13 +240,16 @@ export class SefazClient {
   /**
    * Fallback: requisicao SOAP sem validacao SSL
    */
+  /**
+   * Fallback: requisicao SOAP sem validacao SSL, mas mantendo mTLS via PFX nativo (OpenSSL)
+   * NÃO usa node-forge — usa PFX direto como createHttpsAgent
+   */
   private async soapRequestFallback(url: string, envelope: string, soapAction: string): Promise<string> {
     const parsedUrl = new URL(url);
-    const { privateKey, certificate } = this.extractPemFromPfx();
 
     const agent = new https.Agent({
-      key: privateKey,
-      cert: certificate,
+      pfx: this.pfxBuffer,
+      passphrase: this.passphrase,
       rejectUnauthorized: false,
     });
 
