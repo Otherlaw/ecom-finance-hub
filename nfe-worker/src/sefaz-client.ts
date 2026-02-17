@@ -238,13 +238,11 @@ export class SefazClient {
   }
 
   /**
-   * Fallback: requisicao SOAP sem validacao SSL
-   */
-  /**
-   * Fallback: requisicao SOAP sem validacao SSL, mas mantendo mTLS via PFX nativo (OpenSSL)
+   * Fallback: requisicao SOAP sem validacao SSL, mas mantendo mTLS via PFX nativo
    * NÃO usa node-forge — usa PFX direto como createHttpsAgent
    */
   private async soapRequestFallback(url: string, envelope: string, soapAction: string): Promise<string> {
+    console.log('[SEFAZ] Usando fallback SSL (rejectUnauthorized=false)');
     const parsedUrl = new URL(url);
 
     const agent = new https.Agent({
