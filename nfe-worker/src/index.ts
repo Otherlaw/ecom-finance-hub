@@ -442,6 +442,7 @@ async function syncEmpresa(empresaId: string): Promise<{
                     console.error(`[SYNC] Erro na manifestação para ${resumo.access_key}: ${errMsg}`);
                     await supabase.log(empresaId, 'error', `Erro Ciência da Operação ${resumo.access_key}: ${errMsg}`);
                     // NÃO interromper o loop - continuar com os demais
+                  }
                 }
               }
 
