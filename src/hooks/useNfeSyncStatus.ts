@@ -66,13 +66,17 @@ export interface NfeSyncState {
   credits_created: number;
   next_retry_at: string | null;
   updated_at?: string;
-  // Bootstrap tracking
+  // Bootstrap tracking (legacy)
   bootstrap_completed_at?: string | null;
   sync_mode?: "bootstrap" | "daily";
   // Anti-rate-limit fields
   last_sefaz_request_at?: string | null;
   rate_limit_count?: number;
   last_rate_limit_at?: string | null;
+  // V2 fields
+  first_success_at?: string | null;
+  last_success_at?: string | null;
+  sync_enabled?: boolean;
 }
 
 export interface NfeSyncLog {
@@ -99,10 +103,12 @@ export interface NfeStatusResponse {
   has_certificate: boolean;
   certificate: NfeCertificate | null;
   sync_state: NfeSyncState;
-  sync_mode: "bootstrap" | "daily";
+  sync_mode: "bootstrap" | "daily" | "continuous" | "awaiting_first_sync";
   stats: {
     total_documents: number;
     total_credits_from_sync: number;
+    manifest_pending?: number;
+    manifest_success?: number;
   };
   recent_documents: NfeDocument[];
   logs: NfeSyncLog[];
@@ -419,7 +425,8 @@ export function useNfeSyncStatus(empresaId?: string) {
   }, [isRateLimited, nextRetryAt, computeTimeUntilRetry, refetch]);
 
   // Sync mode
-  const syncMode = data?.sync_mode || "bootstrap";
+  const syncMode = data?.sync_mode || "awaiting_first_sync";
+  const firstSuccessAt = data?.sync_state?.first_success_at || null;
 
   return {
     status: data,
@@ -437,6 +444,7 @@ export function useNfeSyncStatus(empresaId?: string) {
     timeUntilRetry,
     nextExecutionLabel,
     syncMode,
+    firstSuccessAt,
   };
 }
 

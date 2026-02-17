@@ -1,21 +1,16 @@
 /**
- * NFe Worker - Entry Point
- * Servidor Express para sincronizacao de NF-e via Distribuicao DF-e
+ * NFe Worker - Entry Point (V2)
  * 
- * Modos de operacao:
- * - Bootstrap: primeira sincronizacao, busca docs dos ultimos 30 dias
- * - Incremental: syncs seguintes, continua do ultimo NSU
+ * Sincronização NF-e via Distribuição DF-e
  * 
- * Regras importantes:
- * - NSU SEMPRE avanca, mesmo quando docs sao ignorados por data
- * - Bootstrap para apos N lotes consecutivos com 100% docs antigos
- * - Erro SEFAZ 656 (Consumo Indevido): para imediatamente, seta status rate_limited
- * 
- * Anti-Rate-Limit:
- * - MAX_SEFAZ_REQUESTS_PER_RUN: limita requests por execução para evitar 656
- * - MAX_RUNTIME_MS: tempo máximo de execução
- * - Delay com jitter randômico entre requests
- * - Backoff exponencial para erros 656 consecutivos
+ * Regras V2:
+ * - Não importar histórico antigo automaticamente
+ * - first_success_at marca quando o sistema "começou a valer"
+ * - Cutoff = first_success_at - 24h (tolerância)
+ * - NSU SEMPRE avança, mesmo quando docs são ignorados
+ * - Manifestação (Ciência) é enfileirada na manifest_queue
+ * - Erro 656: next_retry_at = próxima 00:00 BRT
+ * - 1x por dia às 00:00 BRT (cron)
  */
 
 import 'dotenv/config';
@@ -24,7 +19,7 @@ import { SupabaseWorkerClient } from './supabase-client.js';
 import { SefazClient } from './sefaz-client.js';
 import { decrypt } from './crypto.js';
 import type { IngestResponse } from './types.js';
-import { computeSyncWindow, getSyncMode, shouldRunNow } from './sync-utils.js';
+import { computeCutoffDate, getNextMidnightBRT } from './sync-utils.js';
 
 // Configuracoes
 const PORT = process.env.PORT || 8080;
@@ -33,20 +28,15 @@ const WORKER_INGEST_TOKEN = process.env.WORKER_INGEST_TOKEN!;
 const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
 
 // Parametros de sincronizacao
-const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
-const REQUEST_DELAY_MS = 12000; // Delay base entre requisicoes SEFAZ (12s conservador)
-const REQUEST_DELAY_JITTER = 0.25; // Jitter de ±25% para evitar padrões previsíveis
-// BOOTSTRAP_STOP_THRESHOLD removido — fast-forward do NSU substitui lógica antiga
-
-// DRY_RUN mode: log what would be imported without persisting
+const BATCH_SIZE = 50;
+const REQUEST_DELAY_MS = 12000;
+const REQUEST_DELAY_JITTER = 0.25;
 const DRY_RUN = process.env.DRY_RUN === 'true' || process.env.DRY_RUN === '1';
- 
-// ========================================
-// ANTI-RATE-LIMIT: Limites por execução
-// ========================================
-const MAX_SEFAZ_REQUESTS_PER_RUN = 10; // Máximo de requests à SEFAZ por execução
-const MAX_RUNTIME_MS = 4 * 60 * 1000; // 4 minutos máximo por execução
-const MIN_TIME_BETWEEN_RUNS_MS = 3 * 60 * 1000; // 3 minutos mínimo entre execuções
+
+// Anti-rate-limit
+const MAX_SEFAZ_REQUESTS_PER_RUN = 10;
+const MAX_RUNTIME_MS = 4 * 60 * 1000; // 4 min
+const MIN_TIME_BETWEEN_RUNS_MS = 3 * 60 * 1000; // 3 min
 
 // Validar configuracoes
 const missingVars: string[] = [];
@@ -55,49 +45,28 @@ if (!WORKER_INGEST_TOKEN) missingVars.push('WORKER_INGEST_TOKEN');
 if (!CERT_MASTER_KEY) missingVars.push('CERT_MASTER_KEY');
 
 if (missingVars.length > 0) {
-  console.error('===========================================');
-  console.error('ERRO: Variaveis de ambiente obrigatorias faltando:');
-  missingVars.forEach(v => console.error(`  - ${v}`));
-  console.error('===========================================');
-  console.error('Configure estas variaveis no painel do Render:');
-  console.error('  Dashboard -> Environment -> Add Environment Variable');
-  console.error('===========================================');
+  console.error('ERRO: Variaveis faltando:', missingVars.join(', '));
   process.exit(1);
 }
 
-// Cliente Supabase (via proxy)
 const supabase = new SupabaseWorkerClient(SUPABASE_URL, WORKER_INGEST_TOKEN);
-
-// Express app
 const app = express();
 app.use(express.json());
 
-/**
- * Middleware de autenticação para endpoints de sync
- */
- function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
-   const syncToken = req.headers['x-worker-sync-token'];
-   const expectedToken = WORKER_INGEST_TOKEN;
-   
-   if (!syncToken || syncToken !== expectedToken) {
-     console.warn('[AUTH] Token invalido ou ausente');
-     res.status(401).json({ error: 'Unauthorized: x-worker-sync-token invalido' });
-     return;
-   }
-   
-   next();
- }
- 
- /**
- * Health check
- */
+// Auth middleware
+function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const syncToken = req.headers['x-worker-sync-token'];
+  if (!syncToken || syncToken !== WORKER_INGEST_TOKEN) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  next();
+}
+
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-/**
- * Verifica se erro eh 656 (Consumo Indevido)
- */
 function isSefazError656(error: unknown): boolean {
   if (error instanceof Error) {
     return error.message.includes('656') || error.message.includes('Consumo Indevido');
@@ -105,28 +74,20 @@ function isSefazError656(error: unknown): boolean {
   return false;
 }
 
-/**
- * Calcula delay com jitter randômico
- */
- function getDelayWithJitter(): number {
-   // Jitter de ±25%
-   const jitterFactor = 1 + (Math.random() * 2 - 1) * REQUEST_DELAY_JITTER;
-   return Math.round(REQUEST_DELAY_MS * jitterFactor);
- }
- 
- /**
- * Verifica se última requisição SEFAZ foi muito recente
- */
- function isLastSefazRequestTooRecent(lastSefazRequestAt: string | null): boolean {
-   if (!lastSefazRequestAt) return false;
-   const lastRequest = new Date(lastSefazRequestAt);
-   const now = new Date();
-   const diffMs = now.getTime() - lastRequest.getTime();
-   return diffMs < MIN_TIME_BETWEEN_RUNS_MS;
+function getDelayWithJitter(): number {
+  const jitterFactor = 1 + (Math.random() * 2 - 1) * REQUEST_DELAY_JITTER;
+  return Math.round(REQUEST_DELAY_MS * jitterFactor);
+}
+
+function isLastSefazRequestTooRecent(lastSefazRequestAt: string | null): boolean {
+  if (!lastSefazRequestAt) return false;
+  const lastRequest = new Date(lastSefazRequestAt);
+  const now = new Date();
+  return (now.getTime() - lastRequest.getTime()) < MIN_TIME_BETWEEN_RUNS_MS;
 }
 
 /**
- * Sincroniza uma empresa especifica
+ * Sincroniza uma empresa especifica (V2)
  */
 async function syncEmpresa(empresaId: string): Promise<{
   success: boolean;
@@ -135,33 +96,29 @@ async function syncEmpresa(empresaId: string): Promise<{
   creditsCreated: number;
   error?: string;
   rateLimited?: boolean;
-   paused?: boolean;
-   pauseReason?: string;
+  paused?: boolean;
+  pauseReason?: string;
 }> {
-  // ★ LOG INICIAL - ANTES de qualquer try/catch para garantir visibilidade
   console.log(`[SYNC] ========================================`);
-  console.log(`[SYNC] Iniciando syncEmpresa para empresa ${empresaId}`);
+  console.log(`[SYNC] Iniciando syncEmpresa V2 para empresa ${empresaId}`);
   console.log(`[SYNC] Timestamp: ${new Date().toISOString()}`);
   console.log(`[SYNC] ========================================`);
 
-  // Tentar registrar log no Supabase imediatamente
   try {
-    await supabase.log(empresaId, 'info', 'Worker iniciou processamento da sincronizacao');
+    await supabase.log(empresaId, 'info', 'Worker V2 iniciou sincronização');
   } catch (logError) {
-    console.error('[SYNC] Erro ao registrar log inicial no Supabase:', logError);
+    console.error('[SYNC] Erro ao registrar log inicial:', logError);
   }
 
-  // ========================================
-  // VARIÁVEIS DE ESTADO PARA FINALLY
-  // ========================================
   let lockAcquired = false;
   let currentNSU = 0;
   let maxNSU = 0;
   let totalDocumentsFetched = 0;
   let totalDocumentsImported = 0;
   let totalCredits = 0;
-   let sefazRequestCount = 0;
-   const runStartTime = Date.now();
+  let sefazRequestCount = 0;
+  const runStartTime = Date.now();
+  let firstSuccessAt: string | null = null;
 
   try {
     // Buscar certificado
@@ -170,300 +127,199 @@ async function syncEmpresa(empresaId: string): Promise<{
     if (!certificate) {
       throw new Error('Certificado nao encontrado');
     }
-    console.log('[SYNC] Certificado encontrado com sucesso');
+    console.log('[SYNC] Certificado encontrado');
 
     // Buscar estado atual
-    console.log('[SYNC] Buscando estado de sincronizacao...');
     const syncState = await supabase.getSyncState(empresaId);
-    console.log(`[SYNC] Estado atual: status=${syncState?.status}, ult_nsu=${syncState?.ult_nsu}, next_retry_at=${syncState?.next_retry_at}`);
-    
+    console.log(`[SYNC] Estado: status=${syncState?.status}, ult_nsu=${syncState?.ult_nsu}, first_success_at=${syncState?.first_success_at}`);
+
+    // Guardar first_success_at atual
+    firstSuccessAt = syncState?.first_success_at || null;
+
     // ========================================
-    // BLOQUEIO REAL ANTES DE CHAMAR SEFAZ
-     // Ordem: (1) next_retry_at (2) last_sefaz_request_at (3) running lock (4) setar running
+    // BLOQUEIOS
     // ========================================
     if (syncState) {
-      // PRIMEIRO: Verificar se next_retry_at existe e ainda esta no cooldown
+      // 1) Cooldown
       if (syncState.next_retry_at) {
         const nextRetry = new Date(syncState.next_retry_at);
-        const now = new Date();
-        
-        if (now < nextRetry) {
-           const msg = `Bloqueio de rate limit ativo. Próximo retry: ${syncState.next_retry_at}`;
-          console.log(`[SYNC] BLOQUEADO: ${msg}`);
-          await supabase.log(empresaId, 'warn', `Bloqueio ativo: ${msg}`);
-          return {
-            success: false,
-            documentsProcessed: 0,
-            documentsImported: 0,
-            creditsCreated: 0,
-            error: msg,
-            rateLimited: true,
-          };
-        }
-        // Se ja passou do tempo, limpar e continuar
-        await supabase.log(empresaId, 'info', 'Periodo de rate limit expirou, retomando sincronizacao');
-      }
-
-       // SEGUNDO: Verificar se última requisição SEFAZ foi muito recente
-       if (isLastSefazRequestTooRecent(syncState.last_sefaz_request_at || null)) {
-         const msg = `Última requisição SEFAZ foi há menos de ${MIN_TIME_BETWEEN_RUNS_MS / 60000} minutos. Aguarde.`;
-         console.log(`[SYNC] BLOQUEADO: ${msg}`);
-         await supabase.log(empresaId, 'debug', msg);
-         // Resetar status para idle para não travar em "queued" indefinidamente
-         await supabase.updateSyncState(empresaId, { status: 'idle', last_error: msg });
-         return {
-           success: false,
-           documentsProcessed: 0,
-           documentsImported: 0,
-           creditsCreated: 0,
-           error: msg,
-           paused: true,
-           pauseReason: 'throttle',
-         };
-       }
- 
-       // TERCEIRO: Verificar se running e updated_at < 30 min (lock de concorrencia)
-      if (syncState.status === 'running') {
-        const updatedAt = new Date(syncState.updated_at);
-        const now = new Date();
-        const diffMinutes = (now.getTime() - updatedAt.getTime()) / 60000;
-        
-        if (diffMinutes < 30) {
-          const msg = `Sincronizacao ja em andamento (iniciada ha ${Math.round(diffMinutes)} minutos)`;
+        if (new Date() < nextRetry) {
+          const msg = `Bloqueio de cooldown ativo até ${syncState.next_retry_at}`;
           console.log(`[SYNC] BLOQUEADO: ${msg}`);
           await supabase.log(empresaId, 'warn', msg);
-          return {
-            success: false,
-            documentsProcessed: 0,
-            documentsImported: 0,
-            creditsCreated: 0,
-            error: msg,
-          };
+          return { success: false, documentsProcessed: 0, documentsImported: 0, creditsCreated: 0, error: msg, rateLimited: true };
         }
-        // Se passou de 30 min, consideramos timeout e continuamos
+        await supabase.log(empresaId, 'info', 'Cooldown expirou, retomando');
+      }
+
+      // 2) Throttle
+      if (isLastSefazRequestTooRecent(syncState.last_sefaz_request_at || null)) {
+        const msg = `Última requisição SEFAZ muito recente. Aguarde.`;
+        console.log(`[SYNC] BLOQUEADO: ${msg}`);
+        await supabase.updateSyncState(empresaId, { status: 'idle', last_error: msg });
+        return { success: false, documentsProcessed: 0, documentsImported: 0, creditsCreated: 0, error: msg, paused: true, pauseReason: 'throttle' };
+      }
+
+      // 3) Concurrency lock
+      if (syncState.status === 'running') {
+        const updatedAt = new Date(syncState.updated_at);
+        const diffMinutes = (new Date().getTime() - updatedAt.getTime()) / 60000;
+        if (diffMinutes < 30) {
+          const msg = `Sync já em andamento (há ${Math.round(diffMinutes)} min)`;
+          console.log(`[SYNC] BLOQUEADO: ${msg}`);
+          return { success: false, documentsProcessed: 0, documentsImported: 0, creditsCreated: 0, error: msg };
+        }
         await supabase.log(empresaId, 'warn', 'Sync anterior expirou (timeout 30min), reiniciando');
       }
 
-      // Inicializar NSU do estado anterior
       currentNSU = syncState.ult_nsu || 0;
       maxNSU = syncState.max_nsu || 0;
     }
-    
-    const syncMode = getSyncMode(syncState);
-    const isBootstrap = syncMode === 'bootstrap';
-    const syncWindow = computeSyncWindow(syncMode);
-    const cutoffDate = syncWindow.cutoffDate;
 
-    // Log do modo de operacao
-    await supabase.log(empresaId, 'info', `Iniciando ${syncWindow.modeLabel}. Cutoff: ${cutoffDate}${DRY_RUN ? ' [DRY_RUN]' : ''}`);
-    console.log(`[SYNC] Modo ${syncWindow.modeLabel} - cutoff: ${cutoffDate}${DRY_RUN ? ' [DRY_RUN]' : ''}, NSU: ${currentNSU}`);
+    // ★ Computar cutoff baseado em first_success_at
+    const cutoffDate = computeCutoffDate(firstSuccessAt);
+    const isFirstRun = !firstSuccessAt;
 
-     // Log dos limites de proteção
-     console.log(`[SYNC] Limites: max ${MAX_SEFAZ_REQUESTS_PER_RUN} requests, max ${MAX_RUNTIME_MS / 1000}s runtime`);
-     await supabase.log(empresaId, 'debug', `Limites: max ${MAX_SEFAZ_REQUESTS_PER_RUN} requests, max ${MAX_RUNTIME_MS / 1000}s runtime`);
- 
-     // QUARTO: Setar status = running (apos passar pelas verificacoes)
-    await supabase.updateSyncState(empresaId, { 
+    await supabase.log(empresaId, 'info',
+      isFirstRun
+        ? `Primeira sincronização. NSU avançará sem importar documentos antigos.`
+        : `Sincronização contínua. Cutoff: ${cutoffDate}${DRY_RUN ? ' [DRY_RUN]' : ''}`
+    );
+    console.log(`[SYNC] firstSuccessAt=${firstSuccessAt}, cutoff=${cutoffDate}, NSU=${currentNSU}${DRY_RUN ? ' [DRY_RUN]' : ''}`);
+
+    // Setar status = running
+    await supabase.updateSyncState(empresaId, {
       status: 'running',
       next_retry_at: null,
       last_error: null,
     });
-    lockAcquired = true; // ★ MARCAR QUE ADQUIRIMOS O LOCK
-    console.log('[SYNC] Lock adquirido (status=running)');
+    lockAcquired = true;
 
-    // Descriptografar certificado (ou usar direto se não estiver criptografado)
+    // Descriptografar certificado
     let pfxBase64 = certificate.cert_pfx_encrypted;
     let password = certificate.cert_password_encrypted;
     if (CERT_MASTER_KEY && certificate.cert_pfx_encrypted.length > 100) {
       try {
         pfxBase64 = decrypt(certificate.cert_pfx_encrypted, CERT_MASTER_KEY);
         password = decrypt(certificate.cert_password_encrypted, CERT_MASTER_KEY);
-        console.log('[SYNC] Certificado descriptografado com sucesso via CERT_MASTER_KEY');
+        console.log('[SYNC] Certificado descriptografado via CERT_MASTER_KEY');
       } catch {
-        // Descriptografia falhou — certificado provavelmente foi salvo sem criptografia
-        // Isso é normal: o frontend salva base64 puro no campo cert_pfx_encrypted
-        console.log('[SYNC] Descriptografia falhou — usando certificado como base64 puro (sem criptografia)');
+        console.log('[SYNC] Usando certificado como base64 puro');
         pfxBase64 = certificate.cert_pfx_encrypted;
         password = certificate.cert_password_encrypted;
       }
-    } else {
-      console.log('[SYNC] Usando certificado sem criptografia (sem CERT_MASTER_KEY)');
-    }
-    // Validação básica: verificar se pfxBase64 parece ser base64 válido
-    try {
-      const testBuffer = Buffer.from(pfxBase64, 'base64');
-      if (testBuffer.length < 100) {
-        throw new Error(`Certificado PFX muito pequeno (${testBuffer.length} bytes) — pode estar corrompido`);
-      }
-      console.log(`[SYNC] Certificado PFX carregado: ${testBuffer.length} bytes`);
-    } catch (validationError) {
-      const errMsg = validationError instanceof Error ? validationError.message : String(validationError);
-      console.error(`[SYNC] Certificado PFX inválido: ${errMsg}`);
-      await supabase.log(empresaId, 'error', `Certificado PFX inválido: ${errMsg}`);
-      throw new Error(`Certificado PFX inválido: ${errMsg}`);
     }
 
-    // Criar cliente SEFAZ
+    // Validar PFX
+    const testBuffer = Buffer.from(pfxBase64, 'base64');
+    if (testBuffer.length < 100) {
+      throw new Error(`Certificado PFX muito pequeno (${testBuffer.length} bytes)`);
+    }
+    console.log(`[SYNC] PFX: ${testBuffer.length} bytes`);
+
     const sefaz = new SefazClient(pfxBase64, password, certificate.ambiente, certificate.uf);
 
     let hasMore = true;
+    let pauseReason: string | null = null;
 
-    // (consecutiveOldOnlyBatches removido — fast-forward substitui bootstrap antigo)
-     
-     // Motivo da pausa (se houver)
-     let pauseReason: string | null = null;
-
-    // Iterar ate nao ter mais documentos
     while (hasMore) {
-       // ========================================
-       // VERIFICAR LIMITES DE PROTEÇÃO
-       // ========================================
-       const elapsedMs = Date.now() - runStartTime;
-       
-       // Limite de tempo
-       if (elapsedMs >= MAX_RUNTIME_MS) {
-         pauseReason = `Tempo máximo de execução atingido (${Math.round(elapsedMs / 1000)}s). Continuará na próxima execução.`;
-         console.log(`[SYNC] ★ PAUSA: ${pauseReason}`);
-         await supabase.log(empresaId, 'info', pauseReason, {
-           elapsed_ms: elapsedMs,
-           sefaz_requests: sefazRequestCount,
-           ult_nsu: currentNSU,
-           max_nsu: maxNSU,
-         });
-         hasMore = false;
-         break;
-       }
-       
-       // Limite de requests
-       if (sefazRequestCount >= MAX_SEFAZ_REQUESTS_PER_RUN) {
-         pauseReason = `Limite de ${MAX_SEFAZ_REQUESTS_PER_RUN} requisições SEFAZ atingido. Continuará na próxima execução.`;
-         console.log(`[SYNC] ★ PAUSA: ${pauseReason}`);
-         await supabase.log(empresaId, 'info', pauseReason, {
-           elapsed_ms: elapsedMs,
-           sefaz_requests: sefazRequestCount,
-           ult_nsu: currentNSU,
-           max_nsu: maxNSU,
-         });
-         hasMore = false;
-         break;
-       }
- 
-      await supabase.log(empresaId, 'debug', `Consultando NSU ${currentNSU} (max: ${maxNSU || '?'})`);
-       console.log(`[SYNC] [${sefazRequestCount + 1}/${MAX_SEFAZ_REQUESTS_PER_RUN}] Consultando NSU ${currentNSU}...`);
+      // Limites de proteção
+      const elapsedMs = Date.now() - runStartTime;
+      if (elapsedMs >= MAX_RUNTIME_MS) {
+        pauseReason = `Tempo máximo atingido (${Math.round(elapsedMs / 1000)}s)`;
+        console.log(`[SYNC] ★ PAUSA: ${pauseReason}`);
+        await supabase.log(empresaId, 'info', pauseReason, { ult_nsu: currentNSU, max_nsu: maxNSU });
+        break;
+      }
+      if (sefazRequestCount >= MAX_SEFAZ_REQUESTS_PER_RUN) {
+        pauseReason = `Limite de ${MAX_SEFAZ_REQUESTS_PER_RUN} requests atingido`;
+        console.log(`[SYNC] ★ PAUSA: ${pauseReason}`);
+        await supabase.log(empresaId, 'info', pauseReason, { ult_nsu: currentNSU, max_nsu: maxNSU });
+        break;
+      }
+
+      console.log(`[SYNC] [${sefazRequestCount + 1}/${MAX_SEFAZ_REQUESTS_PER_RUN}] NSU ${currentNSU}...`);
 
       try {
-         // Registrar timestamp da requisição ANTES de fazer a chamada
-         await supabase.updateSyncState(empresaId, {
-           last_sefaz_request_at: new Date().toISOString(),
-         });
-         
+        // Registrar timestamp antes da chamada
+        await supabase.updateSyncState(empresaId, {
+          last_sefaz_request_at: new Date().toISOString(),
+        });
+
         const result = await sefaz.consultarDistribuicao(certificate.cnpj, currentNSU);
-         sefazRequestCount++;
-        
-        // ========================================
-        // ★ PERSISTIR NSU CEDO - antes de qualquer processamento
-        // ========================================
-        const previousNSU = currentNSU;
+        sefazRequestCount++;
+
+        // ★ PERSISTIR NSU CEDO
         currentNSU = result.ultNSU;
         maxNSU = result.maxNSU;
         hasMore = result.hasMore;
 
-        console.log(`[SYNC] SEFAZ retornou ${result.documents.length} docs. ultNSU: ${currentNSU}, maxNSU: ${maxNSU}`);
+        console.log(`[SYNC] SEFAZ: ${result.documents.length} docs, ultNSU=${currentNSU}, maxNSU=${maxNSU}`);
 
-        // ========================================
-        // ★ FAST-FORWARD: Primeira sincronização — pular histórico
-        // ========================================
-        if (previousNSU === 0 && result.maxNSU > 0) {
-          // Era NSU 0 antes desta chamada (primeira vez)
-          // O ultNSU já foi atribuído acima, mas precisamos do maxNSU para fast-forward
-          const ffMsg = `[SYNC] Primeira sincronização: Histórico ignorado. Avançando NSU de 0 para ${result.maxNSU}`;
-          console.log(ffMsg);
-          await supabase.log(empresaId, 'info', ffMsg);
-
-          await supabase.updateSyncState(empresaId, {
-            ult_nsu: result.maxNSU,
-            max_nsu: result.maxNSU,
-            status: 'idle',
-            sync_mode: 'daily',
-            bootstrap_completed_at: new Date().toISOString(),
-            last_sync_at: new Date().toISOString(),
-            last_error: null,
-            next_retry_at: null,
-            documents_fetched: 0,
-            credits_created: 0,
-            rate_limit_count: 0,
-          });
-
-          lockAcquired = false;
-          console.log('[SYNC] Lock liberado (fast-forward concluído)');
-
-          return {
-            success: true,
-            documentsProcessed: 0,
-            documentsImported: 0,
-            creditsCreated: 0,
-          };
-        }
-
-        // Salvar NSU imediatamente ANTES do ingest
+        // ★ PERSISTIR NSU imediatamente
         await supabase.updateSyncState(empresaId, {
           ult_nsu: currentNSU,
           max_nsu: maxNSU,
         });
-        console.log(`[SYNC] ★ NSU ${currentNSU} persistido (antes do ingest)`);
 
-         // ========================================
-         // CSTAT 137: SEFAZ sem mais documentos (resposta vazia final)
-         // ========================================
-         if (result.documents.length === 0 && !hasMore) {
-            const nextRetryAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-            const cooldownMessage = `SEFAZ cStat 137: Consulta sem documentos novos. Próxima tentativa em 1 hora.`;
-           
-           console.log(`[SYNC] ★ ${cooldownMessage}`);
-           await supabase.log(empresaId, 'info', cooldownMessage, {
-             cStat: 137,
-             ult_nsu: currentNSU,
-             max_nsu: maxNSU,
-             next_retry_at: nextRetryAt,
-             sefaz_requests_this_run: sefazRequestCount,
-           });
-           
-           // Finalizar com cooldown para evitar consultas desnecessárias
-           await supabase.updateSyncState(empresaId, {
-             status: 'idle',
-             last_sync_at: new Date().toISOString(),
-             last_error: null,
-             next_retry_at: nextRetryAt,
-             ult_nsu: currentNSU,
-             max_nsu: maxNSU,
-             documents_fetched: totalDocumentsFetched,
-             credits_created: totalCredits,
-             rate_limit_count: 0,
-           });
-           
-           lockAcquired = false;
-           console.log('[SYNC] Lock liberado (status=idle, cStat 137 cooldown)');
-           
-           return {
-             success: true,
-             documentsProcessed: totalDocumentsFetched,
-             documentsImported: totalDocumentsImported,
-             creditsCreated: totalCredits,
-             paused: true,
-             pauseReason: cooldownMessage,
-           };
-         }
- 
+        // ★ DEFINIR first_success_at se ainda não existe
+        if (!firstSuccessAt) {
+          firstSuccessAt = new Date().toISOString();
+          await supabase.updateSyncState(empresaId, {
+            first_success_at: firstSuccessAt,
+            sync_mode: 'daily',
+            bootstrap_completed_at: firstSuccessAt, // backward compat
+          });
+          await supabase.log(empresaId, 'info', `★ first_success_at definido: ${firstSuccessAt}. Sistema ativado.`);
+          console.log(`[SYNC] ★ first_success_at = ${firstSuccessAt}`);
+
+          // Recomputar cutoff agora que temos first_success_at
+          // Mas na primeira rodada não importamos nada (cutoff = agora - 24h)
+          // Os documentos retornados nesta chamada são históricos — ignorar
+        }
+
+        // Recalcular cutoff com first_success_at (pode ter sido setado agora)
+        const currentCutoff = computeCutoffDate(firstSuccessAt);
+
+        // cStat 137 (sem docs novos)
+        if (result.documents.length === 0 && !hasMore) {
+          const nextRetryAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+          const msg = `SEFAZ: sem documentos novos. Próxima tentativa em 1h.`;
+          console.log(`[SYNC] ${msg}`);
+          await supabase.log(empresaId, 'info', msg, { ult_nsu: currentNSU, max_nsu: maxNSU });
+
+          await supabase.updateSyncState(empresaId, {
+            status: 'idle',
+            last_sync_at: new Date().toISOString(),
+            last_success_at: new Date().toISOString(),
+            last_error: null,
+            next_retry_at: nextRetryAt,
+            ult_nsu: currentNSU,
+            max_nsu: maxNSU,
+            documents_fetched: totalDocumentsFetched,
+            credits_created: totalCredits,
+            rate_limit_count: 0,
+          });
+
+          lockAcquired = false;
+          return {
+            success: true,
+            documentsProcessed: totalDocumentsFetched,
+            documentsImported: totalDocumentsImported,
+            creditsCreated: totalCredits,
+          };
+        }
+
         if (result.documents.length > 0) {
-          // Enviar em lotes
+          // ★ Enviar para ingest com cutoff
           for (let i = 0; i < result.documents.length; i += BATCH_SIZE) {
             const batch = result.documents.slice(i, i + BATCH_SIZE);
-            
+
             try {
               const ingestResult: IngestResponse = await supabase.ingestDocuments({
                 empresa_id: empresaId,
                 documents: batch,
-                cutoff_date: cutoffDate,
+                cutoff_date: currentCutoff || undefined, // null = skip all (first run before first_success_at)
                 dry_run: DRY_RUN,
               });
 
@@ -471,311 +327,234 @@ async function syncEmpresa(empresaId: string): Promise<{
               totalDocumentsImported += ingestResult.inserted;
               totalCredits += ingestResult.credits_created;
 
-              const logMsg = `Lote: ${ingestResult.inserted} importados, ${ingestResult.skipped_old} antigos, ${ingestResult.duplicates} duplicados, ${ingestResult.credits_created} creditos`;
+              const logMsg = `Lote: ${ingestResult.inserted} importados, ${ingestResult.skipped_old} antigos, ${ingestResult.duplicates} dup, ${ingestResult.credits_created} créditos`;
               console.log(`[SYNC] ${logMsg}`);
               await supabase.log(empresaId, 'info', logMsg);
 
-              // ========================================
-              // MANIFESTAÇÃO: Ciência da Operação para resumos (resNFe)
-              // Documentos com schema != procNFe são resumos de notas de entrada.
-              // Enviar Ciência para que a SEFAZ libere o XML completo nas próximas consultas.
-              // ========================================
+              // ★ ENFILEIRAR MANIFESTAÇÃO para resumos (resNFe) DENTRO do cutoff
               const resumos = batch.filter(
                 (d) => d.access_key && d.access_key.length === 44 &&
                        d.schema !== 'procNFe_v4.00' && !d.schema.includes('procNFe')
               );
 
-              if (resumos.length > 0) {
-                console.log(`[SYNC] ${resumos.length} resumos para manifestar Ciência da Operação`);
+              if (resumos.length > 0 && currentCutoff) {
+                console.log(`[SYNC] Enfileirando ${resumos.length} resumos na manifest_queue`);
                 for (const resumo of resumos) {
                   try {
-                    const ok = await sefaz.manifestarCiencia(certificate.cnpj, resumo.access_key);
-                    const statusMsg = ok ? 'OK' : 'Rejeitado';
-                    console.log(`[SYNC] Ciência ${statusMsg} para chave ${resumo.access_key}`);
-                    await supabase.log(empresaId, ok ? 'info' : 'warn', `Ciência da Operação ${statusMsg}: ${resumo.access_key}`);
-                  } catch (manifError) {
-                    const errMsg = manifError instanceof Error ? manifError.message : String(manifError);
-                    console.error(`[SYNC] Erro na manifestação para ${resumo.access_key}: ${errMsg}`);
-                    await supabase.log(empresaId, 'error', `Erro Ciência da Operação ${resumo.access_key}: ${errMsg}`);
-                    // NÃO interromper o loop - continuar com os demais
+                    await supabase.enqueueManifest(empresaId, resumo.access_key);
+                  } catch (mqError) {
+                    console.error(`[SYNC] Erro ao enfileirar manifest ${resumo.access_key}:`, mqError);
                   }
                 }
+                await supabase.log(empresaId, 'info', `${resumos.length} resumos enfileirados para Ciência da Operação`);
               }
-
-              // (Lógica antiga de bootstrap removida — fast-forward do NSU substitui)
             } catch (error) {
               const errMsg = error instanceof Error ? error.message : String(error);
-              console.error('[SYNC] Erro no lote de ingestao:', errMsg);
+              console.error('[SYNC] Erro no ingest:', errMsg);
               await supabase.log(empresaId, 'error', `Erro no ingest: ${errMsg}`);
             }
           }
         }
 
-        // Atualizar estado com contadores
+        // Atualizar contadores
         await supabase.updateSyncState(empresaId, {
           documents_fetched: totalDocumentsFetched,
           credits_created: totalCredits,
         });
 
-         // Delay com jitter para respeitar rate limit da SEFAZ
+        // Delay
         if (hasMore) {
-           const delay = getDelayWithJitter();
-           console.log(`[SYNC] Aguardando ${delay}ms antes da proxima requisicao (base: ${REQUEST_DELAY_MS}ms ±${REQUEST_DELAY_JITTER * 100}%)...`);
-           await new Promise((resolve) => setTimeout(resolve, delay));
+          const delay = getDelayWithJitter();
+          console.log(`[SYNC] Aguardando ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
-
       } catch (error) {
-        // ========================================
-        // TRATAMENTO ESPECIAL PARA ERRO SEFAZ 656 (Consumo Indevido)
-        // Não faz retry no mesmo dia — agenda para próxima 00:00 BRT
-        // ========================================
+        // Erro 656
         if (isSefazError656(error)) {
-           const currentRateLimitCount = (syncState?.rate_limit_count || 0) + 1;
-           
-           // Backoff exponencial: 1h, 2h, 4h, 8h, max 24h
-           const backoffHours = Math.min(Math.pow(2, currentRateLimitCount - 1), 24);
-           const nextRetryAt = new Date(Date.now() + backoffHours * 60 * 60 * 1000).toISOString();
-           
-           // Após 5 tentativas sem sucesso, parar de tentar automaticamente
-           const shouldStopRetrying = currentRateLimitCount >= 5;
-           const errorMsg = shouldStopRetrying
-             ? `Erro SEFAZ 656: Consumo Indevido após ${currentRateLimitCount} tentativas. Verifique se o certificado está habilitado para Distribuição DF-e. Sync automático pausado.`
-             : `Erro SEFAZ 656: Consumo Indevido. Próxima tentativa em ${backoffHours}h (tentativa #${currentRateLimitCount}).`;
-          
-          console.error(`[SYNC] ★ ERRO 656 DETECTADO`);
-          console.error(`[SYNC] ${errorMsg}`);
-          
-          await supabase.log(empresaId, 'error', errorMsg, {
-            cStat: 656,
-            ult_nsu: currentNSU,
-            max_nsu: maxNSU,
-            next_retry_at: nextRetryAt,
-             rate_limit_count: currentRateLimitCount,
-             sefaz_requests_this_run: sefazRequestCount,
-          });
-          
+          const nextRetryAt = getNextMidnightBRT();
+          const currentRateLimitCount = (syncState?.rate_limit_count || 0) + 1;
+          const shouldStop = currentRateLimitCount >= 5;
+          const errorMsg = shouldStop
+            ? `Erro 656 após ${currentRateLimitCount} tentativas. Sync pausado.`
+            : `Erro 656: Consumo Indevido. Próxima tentativa: 00:00 BRT (#${currentRateLimitCount}).`;
+
+          console.error(`[SYNC] ★ ERRO 656: ${errorMsg}`);
+          await supabase.log(empresaId, 'error', errorMsg, { ult_nsu: currentNSU, max_nsu: maxNSU, next_retry_at: nextRetryAt });
+
           await supabase.updateSyncState(empresaId, {
-            status: shouldStopRetrying ? 'error' : 'rate_limited',
+            status: shouldStop ? 'error' : 'rate_limited',
             last_error: errorMsg,
             ult_nsu: currentNSU,
             max_nsu: maxNSU,
-            next_retry_at: shouldStopRetrying ? null : nextRetryAt,
-             rate_limit_count: currentRateLimitCount,
-             last_rate_limit_at: new Date().toISOString(),
+            next_retry_at: shouldStop ? null : nextRetryAt,
+            rate_limit_count: currentRateLimitCount,
+            last_rate_limit_at: new Date().toISOString(),
           });
 
-           lockAcquired = false;
-           console.log(`[SYNC] Lock liberado (status=${shouldStopRetrying ? 'error' : 'rate_limited'}, próximo retry em ${shouldStopRetrying ? 'PARADO' : backoffHours + 'h'})`);
-
-          return {
-            success: false,
-            documentsProcessed: totalDocumentsFetched,
-            documentsImported: totalDocumentsImported,
-            creditsCreated: totalCredits,
-            error: errorMsg,
-            rateLimited: true,
-          };
+          lockAcquired = false;
+          return { success: false, documentsProcessed: totalDocumentsFetched, documentsImported: totalDocumentsImported, creditsCreated: totalCredits, error: errorMsg, rateLimited: true };
         }
-
-        // Outros erros SEFAZ
         throw error;
       }
     }
 
-     // ========================================
-     // FINALIZAR: sucesso ou pausa
-     // ========================================
-     const elapsedMs = Date.now() - runStartTime;
-     const hasBacklog = currentNSU < maxNSU;
+    // ★ PROCESSAR MANIFEST QUEUE (background, não trava o loop)
+    try {
+      await processManifestQueue(empresaId, sefaz, certificate.cnpj);
+    } catch (mqErr) {
+      console.error('[SYNC] Erro ao processar manifest_queue:', mqErr);
+      await supabase.log(empresaId, 'warn', `Erro no processamento da manifest_queue: ${mqErr instanceof Error ? mqErr.message : String(mqErr)}`);
+    }
 
-     if (pauseReason) {
-       // PAUSA GRACEFUL: ainda há trabalho pendente
-       const pauseMessage = `Pausado: ${pauseReason} (${sefazRequestCount} requests em ${Math.round(elapsedMs / 1000)}s). Backlog: ${hasBacklog ? 'sim' : 'não'}`;
-       
-       await supabase.updateSyncState(empresaId, {
-         status: 'idle', // idle permite que cron retome
-         last_error: pauseReason,
-         next_retry_at: null, // sem bloqueio de rate limit
-         ult_nsu: currentNSU,
-         max_nsu: maxNSU,
-         documents_fetched: totalDocumentsFetched,
-         credits_created: totalCredits,
-         // rate_limit_count resetado pois não foi erro 656
-         rate_limit_count: 0,
-       });
- 
-       lockAcquired = false;
-       console.log('[SYNC] Lock liberado (status=idle, pausado)');
- 
-       await supabase.log(empresaId, 'info', pauseMessage);
-       console.log(`[SYNC] ${pauseMessage}`);
- 
-       return {
-         success: true, // Sucesso parcial
-         documentsProcessed: totalDocumentsFetched,
-         documentsImported: totalDocumentsImported,
-         creditsCreated: totalCredits,
-         paused: true,
-         pauseReason,
-       };
-     }
- 
-     // SUCESSO COMPLETO
-     const finishMessage = isBootstrap
-       ? `Bootstrap concluído: ${totalDocumentsImported} docs importados de ${totalDocumentsFetched} buscados, ${totalCredits} créditos (${sefazRequestCount} requests em ${Math.round(elapsedMs / 1000)}s)`
-       : `Sync diário concluído: ${totalDocumentsImported} docs importados, ${totalCredits} créditos (${sefazRequestCount} requests em ${Math.round(elapsedMs / 1000)}s)`;
- 
-     // Se bootstrap concluiu com sucesso (sem pausa), marcar como completo
-     const bootstrapUpdate: Partial<import('./types.js').NfeSyncState> = isBootstrap && !pauseReason ? {
-       bootstrap_completed_at: new Date().toISOString(),
-       sync_mode: 'daily' as const,
-     } : {};
+    // Finalizar
+    const elapsedMs = Date.now() - runStartTime;
 
-     await supabase.updateSyncState(empresaId, {
-       status: 'idle',
-       last_sync_at: new Date().toISOString(),
-       last_error: null,
-       next_retry_at: null,
-       ult_nsu: currentNSU,
-       max_nsu: maxNSU,
-       documents_fetched: totalDocumentsFetched,
-       credits_created: totalCredits,
-       rate_limit_count: 0,
-       ...bootstrapUpdate,
-     });
+    if (pauseReason) {
+      await supabase.updateSyncState(empresaId, {
+        status: 'idle',
+        last_error: pauseReason,
+        next_retry_at: null,
+        ult_nsu: currentNSU,
+        max_nsu: maxNSU,
+        documents_fetched: totalDocumentsFetched,
+        credits_created: totalCredits,
+        rate_limit_count: 0,
+      });
+      lockAcquired = false;
+      const msg = `Pausado: ${pauseReason} (${sefazRequestCount} requests em ${Math.round(elapsedMs / 1000)}s)`;
+      await supabase.log(empresaId, 'info', msg);
+      return { success: true, documentsProcessed: totalDocumentsFetched, documentsImported: totalDocumentsImported, creditsCreated: totalCredits, paused: true, pauseReason };
+    }
 
-    lockAcquired = false; // Lock liberado com sucesso
-    console.log('[SYNC] Lock liberado (status=idle, sucesso)');
+    // Sucesso completo
+    const finishMsg = `Sync V2 concluído: ${totalDocumentsImported} importados, ${totalCredits} créditos (${sefazRequestCount} req em ${Math.round(elapsedMs / 1000)}s)`;
+    await supabase.updateSyncState(empresaId, {
+      status: 'idle',
+      last_sync_at: new Date().toISOString(),
+      last_success_at: new Date().toISOString(),
+      last_error: null,
+      next_retry_at: null,
+      ult_nsu: currentNSU,
+      max_nsu: maxNSU,
+      documents_fetched: totalDocumentsFetched,
+      credits_created: totalCredits,
+      rate_limit_count: 0,
+    });
 
-    await supabase.log(empresaId, 'info', finishMessage);
-    console.log(`[SYNC] ${finishMessage}`);
+    lockAcquired = false;
+    await supabase.log(empresaId, 'info', finishMsg);
+    console.log(`[SYNC] ${finishMsg}`);
 
-    return {
-      success: true,
-      documentsProcessed: totalDocumentsFetched,
-      documentsImported: totalDocumentsImported,
-      creditsCreated: totalCredits,
-    };
+    return { success: true, documentsProcessed: totalDocumentsFetched, documentsImported: totalDocumentsImported, creditsCreated: totalCredits };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro desconhecido';
     console.error(`[SYNC] Erro fatal: ${message}`);
 
-    // ★ SEMPRE liberar lock em caso de erro
     try {
-      await supabase.updateSyncState(empresaId, {
-        status: 'error',
-        last_error: message,
-      });
+      await supabase.updateSyncState(empresaId, { status: 'error', last_error: message });
       lockAcquired = false;
-      console.log('[SYNC] Lock liberado (status=error)');
     } catch (updateError) {
       console.error('[SYNC] Falha ao liberar lock:', updateError);
     }
 
-    await supabase.log(empresaId, 'error', `Erro na sincronizacao: ${message}`);
-
-    return {
-      success: false,
-      documentsProcessed: totalDocumentsFetched,
-      documentsImported: totalDocumentsImported,
-      creditsCreated: totalCredits,
-      error: message,
-    };
+    await supabase.log(empresaId, 'error', `Erro fatal: ${message}`);
+    return { success: false, documentsProcessed: totalDocumentsFetched, documentsImported: totalDocumentsImported, creditsCreated: totalCredits, error: message };
   } finally {
-    // ★ GARANTIA FINAL: Se ainda temos o lock, liberá-lo
     if (lockAcquired) {
-      console.error('[SYNC] ★ FINALLY: Lock ainda estava ativo, liberando...');
+      console.error('[SYNC] ★ FINALLY: Lock ativo, liberando...');
       try {
-        await supabase.updateSyncState(empresaId, {
-          status: 'error',
-          last_error: 'Sincronizacao interrompida inesperadamente',
-        });
-        console.log('[SYNC] Lock liberado no finally');
+        await supabase.updateSyncState(empresaId, { status: 'error', last_error: 'Sync interrompida inesperadamente' });
       } catch (finallyError) {
-        console.error('[SYNC] Falha ao liberar lock no finally:', finallyError);
+        console.error('[SYNC] Falha no finally:', finallyError);
       }
-      await supabase.log(empresaId, 'error', 'Sincronizacao interrompida inesperadamente (finally cleanup)');
+      await supabase.log(empresaId, 'error', 'Sync interrompida inesperadamente (finally)');
     }
   }
 }
 
 /**
- * Endpoint para sincronizar empresa especifica
+ * Processa fila de manifestação (Ciência da Operação)
+ * Executa em segundo plano, erros não travam o sync principal
  */
- app.post('/sync', authMiddleware, async (req: Request, res: Response) => {
-  const { empresa_id } = req.body;
+async function processManifestQueue(empresaId: string, sefaz: SefazClient, cnpj: string) {
+  const pending = await supabase.getPendingManifests(empresaId, 5);
+  if (!pending || pending.length === 0) return;
 
+  console.log(`[MANIFEST] Processando ${pending.length} itens na fila`);
+
+  for (const item of pending) {
+    try {
+      const ok = await sefaz.manifestarCiencia(cnpj, item.ch_nfe);
+      if (ok) {
+        await supabase.updateManifestStatus(item.id, 'success');
+        console.log(`[MANIFEST] Ciência OK: ${item.ch_nfe}`);
+      } else {
+        const attempts = (item.attempts || 0) + 1;
+        const nextTryAt = new Date(Date.now() + Math.min(Math.pow(2, attempts) * 60 * 60 * 1000, 24 * 60 * 60 * 1000)).toISOString();
+        await supabase.updateManifestStatus(item.id, attempts >= item.max_attempts ? 'error' : 'pending', 'Rejeitado pela SEFAZ', attempts, nextTryAt);
+        console.log(`[MANIFEST] Rejeitado: ${item.ch_nfe} (attempt ${attempts})`);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const attempts = (item.attempts || 0) + 1;
+      const nextTryAt = new Date(Date.now() + Math.min(Math.pow(2, attempts) * 60 * 60 * 1000, 24 * 60 * 60 * 1000)).toISOString();
+      await supabase.updateManifestStatus(item.id, attempts >= item.max_attempts ? 'error' : 'pending', errMsg, attempts, nextTryAt);
+      console.error(`[MANIFEST] Erro ${item.ch_nfe}: ${errMsg}`);
+    }
+  }
+}
+
+// ========================================
+// ENDPOINTS
+// ========================================
+
+app.post('/sync', authMiddleware, async (req: Request, res: Response) => {
+  const { empresa_id } = req.body;
   if (!empresa_id) {
     res.status(400).json({ error: 'empresa_id obrigatorio' });
     return;
   }
 
-  // Log imediato para confirmar recebimento
-  console.log(`[SYNC] ========================================`);
   console.log(`[SYNC] Recebido request para empresa ${empresa_id}`);
-  console.log(`[SYNC] Timestamp: ${new Date().toISOString()}`);
-  console.log(`[SYNC] ========================================`);
 
-  // Executar sync em background MAS com tratamento de erro visível
   syncEmpresa(empresa_id).catch(async (err) => {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error('[SYNC] ========================================');
-    console.error('[SYNC] ERRO NAO TRATADO NO BACKGROUND:');
-    console.error(`[SYNC] Empresa: ${empresa_id}`);
-    console.error(`[SYNC] Erro: ${errorMessage}`);
-    console.error('[SYNC] Stack:', err instanceof Error ? err.stack : 'N/A');
-    console.error('[SYNC] ========================================');
-    
-    // Tentar registrar no Supabase mesmo em caso de erro fatal
+    console.error(`[SYNC] ERRO BACKGROUND: ${errorMessage}`);
     try {
-      await supabase.log(empresa_id, 'error', `Erro fatal nao tratado: ${errorMessage}`);
-      await supabase.updateSyncState(empresa_id, {
-        status: 'error',
-        last_error: `Erro fatal: ${errorMessage}`,
-      });
-      console.log('[SYNC] Erro registrado no Supabase com sucesso');
+      await supabase.log(empresa_id, 'error', `Erro fatal: ${errorMessage}`);
+      await supabase.updateSyncState(empresa_id, { status: 'error', last_error: `Erro fatal: ${errorMessage}` });
     } catch (logError) {
-      console.error('[SYNC] Falha ao registrar erro no Supabase:', logError);
+      console.error('[SYNC] Falha ao registrar erro:', logError);
     }
   });
 
   res.json({ message: 'Sincronizacao iniciada', empresa_id });
 });
 
-/**
- * Endpoint para sincronizar todas as empresas
- */
- app.post('/sync-all', authMiddleware, async (_req: Request, res: Response) => {
+app.post('/sync-all', authMiddleware, async (_req: Request, res: Response) => {
   try {
     const companies = await supabase.getActiveCompanies();
-    
-    console.log(`[SYNC-ALL] Iniciando sincronizacao de ${companies.length} empresas`);
+    console.log(`[SYNC-ALL] ${companies.length} empresas`);
 
-    // Executar em sequencia para evitar sobrecarga
     for (const company of companies) {
       await syncEmpresa(company.empresa_id);
-      // Delay entre empresas (5 segundos)
       await new Promise((resolve) => setTimeout(resolve, 5000));
     }
 
-    res.json({ message: 'Sincronizacao de todas as empresas concluida', count: companies.length });
+    res.json({ message: 'Concluido', count: companies.length });
   } catch (error) {
     console.error('[SYNC-ALL] Erro:', error);
-    res.status(500).json({ error: 'Erro ao sincronizar empresas' });
+    res.status(500).json({ error: 'Erro ao sincronizar' });
   }
 });
 
-// Iniciar servidor
 app.listen(PORT, () => {
   console.log('===========================================');
-  console.log(`NFe Worker rodando na porta ${PORT}`);
-  console.log(`Supabase URL: ${SUPABASE_URL}`);
-  console.log(`Modo: Proxy via Edge Function (sem SERVICE_ROLE_KEY)`);
-  console.log(`Janela: Fast-forward NSU na 1ª sync | Diário 24h`);
+  console.log(`NFe Worker V2 na porta ${PORT}`);
+  console.log(`Supabase: ${SUPABASE_URL}`);
+  console.log(`Modo: first_success_at cutoff (sem histórico)`);
   console.log(`DRY_RUN: ${DRY_RUN}`);
-  console.log(`Delay entre requests: ${REQUEST_DELAY_MS}ms (±${REQUEST_DELAY_JITTER * 100}% jitter)`);
-  console.log(`Rate limit: retry em 1 hora`);
-  console.log(`Max requests por run: ${MAX_SEFAZ_REQUESTS_PER_RUN}`);
+  console.log(`Max requests/run: ${MAX_SEFAZ_REQUESTS_PER_RUN}`);
   console.log(`Max runtime: ${MAX_RUNTIME_MS / 1000}s`);
   console.log('===========================================');
 });

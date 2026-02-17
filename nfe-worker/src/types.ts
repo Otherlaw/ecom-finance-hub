@@ -34,13 +34,17 @@ export interface NfeSyncState {
   credits_created: number;
   updated_at: string;
   next_retry_at: string | null;
-  // Bootstrap tracking
+  // Bootstrap tracking (legacy, kept for compatibility)
   bootstrap_completed_at?: string | null;
   sync_mode?: 'bootstrap' | 'daily';
   // Campos para throttle/backoff
   last_sefaz_request_at?: string | null;
   rate_limit_count?: number | null;
   last_rate_limit_at?: string | null;
+  // ★ NEW: first_success_at / last_success_at / sync_enabled
+  first_success_at?: string | null;
+  last_success_at?: string | null;
+  sync_enabled?: boolean;
 }
 
 export interface NfeDocument {
@@ -53,20 +57,18 @@ export interface NfeDocument {
 export interface IngestPayload {
   empresa_id: string;
   documents: NfeDocument[];
-  cutoff_date?: string; // YYYY-MM-DD, sent by worker based on sync mode
-  dry_run?: boolean; // If true, don't persist, just count
+  cutoff_date?: string; // YYYY-MM-DD — computed from first_success_at - 24h
+  dry_run?: boolean;
 }
 
 /**
  * Resposta do endpoint de ingestao
- * Inclui contadores para logica de bootstrap no worker
  */
 export interface IngestResponse {
   success: boolean;
   inserted: number;
   duplicates: number;
   credits_created: number;
-  // Campos adicionais para logica de bootstrap
   skipped_old: number;
   skipped_no_xml: number;
   total_in_batch: number;

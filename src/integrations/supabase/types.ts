@@ -2757,6 +2757,53 @@ export type Database = {
           },
         ]
       }
+      nfe_manifest_queue: {
+        Row: {
+          attempts: number
+          ch_nfe: string
+          created_at: string
+          empresa_id: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          next_try_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          ch_nfe: string
+          created_at?: string
+          empresa_id: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          next_try_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          ch_nfe?: string
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          next_try_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nfe_manifest_queue_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       nfe_sync_logs: {
         Row: {
           created_at: string
@@ -2798,14 +2845,17 @@ export type Database = {
           credits_created: number
           documents_fetched: number
           empresa_id: string
+          first_success_at: string | null
           last_error: string | null
           last_rate_limit_at: string | null
           last_sefaz_request_at: string | null
+          last_success_at: string | null
           last_sync_at: string | null
           max_nsu: number
           next_retry_at: string | null
           rate_limit_count: number | null
           status: string
+          sync_enabled: boolean
           sync_mode: string
           ult_nsu: number
           updated_at: string
@@ -2815,14 +2865,17 @@ export type Database = {
           credits_created?: number
           documents_fetched?: number
           empresa_id: string
+          first_success_at?: string | null
           last_error?: string | null
           last_rate_limit_at?: string | null
           last_sefaz_request_at?: string | null
+          last_success_at?: string | null
           last_sync_at?: string | null
           max_nsu?: number
           next_retry_at?: string | null
           rate_limit_count?: number | null
           status?: string
+          sync_enabled?: boolean
           sync_mode?: string
           ult_nsu?: number
           updated_at?: string
@@ -2832,14 +2885,17 @@ export type Database = {
           credits_created?: number
           documents_fetched?: number
           empresa_id?: string
+          first_success_at?: string | null
           last_error?: string | null
           last_rate_limit_at?: string | null
           last_sefaz_request_at?: string | null
+          last_success_at?: string | null
           last_sync_at?: string | null
           max_nsu?: number
           next_retry_at?: string | null
           rate_limit_count?: number | null
           status?: string
+          sync_enabled?: boolean
           sync_mode?: string
           ult_nsu?: number
           updated_at?: string
