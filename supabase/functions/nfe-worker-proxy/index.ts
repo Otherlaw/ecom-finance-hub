@@ -1,15 +1,6 @@
 /**
  * NFe Worker Proxy - Edge Function
- * 
- * Proxy seguro para operações do worker externo no Render.
- * Autenticado via WORKER_INGEST_TOKEN para evitar necessidade de SERVICE_ROLE_KEY no worker.
- * 
- * Ações suportadas:
- * - get-active-companies: Lista empresas com certificado ativo
- * - get-certificate: Busca certificado A1 de uma empresa
- * - get-sync-state: Retorna estado de sincronização
- * - update-sync-state: Atualiza estado de sincronização
- * - log: Registra log em nfe_sync_logs
+ * V2: Inclui manifest_queue operations
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -20,38 +11,28 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // Validar token do worker
     const workerToken = req.headers.get('x-worker-token');
     const expectedToken = Deno.env.get('WORKER_INGEST_TOKEN');
 
     if (!expectedToken) {
-      console.error('WORKER_INGEST_TOKEN não configurado');
-      return new Response(
-        JSON.stringify({ error: 'Configuração inválida do servidor' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'WORKER_INGEST_TOKEN não configurado' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     if (workerToken !== expectedToken) {
-      console.warn('Token inválido recebido');
-      return new Response(
-        JSON.stringify({ error: 'Token inválido' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'Token inválido' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Criar cliente Supabase com service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Extrair action da URL
     const url = new URL(req.url);
     const action = url.searchParams.get('action');
     const empresaId = url.searchParams.get('empresa_id');
@@ -65,26 +46,15 @@ Deno.serve(async (req) => {
           .select('empresa_id, cnpj, uf, ambiente')
           .eq('is_active', true);
 
-        if (error) {
-          console.error('Erro ao buscar empresas:', error);
-          return new Response(
-            JSON.stringify({ error: error.message }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-
-        return new Response(
-          JSON.stringify({ companies: data || [] }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        if (error) throw error;
+        return new Response(JSON.stringify({ companies: data || [] }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
       case 'get-certificate': {
         if (!empresaId) {
-          return new Response(
-            JSON.stringify({ error: 'empresa_id obrigatório' }),
-            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          return new Response(JSON.stringify({ error: 'empresa_id obrigatório' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
         const { data, error } = await supabase
@@ -94,32 +64,19 @@ Deno.serve(async (req) => {
           .eq('is_active', true)
           .single();
 
-        if (error) {
-          if (error.code === 'PGRST116') {
-            return new Response(
-              JSON.stringify({ certificate: null }),
-              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-          }
-          console.error('Erro ao buscar certificado:', error);
-          return new Response(
-            JSON.stringify({ error: error.message }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+        if (error && error.code === 'PGRST116') {
+          return new Response(JSON.stringify({ certificate: null }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
-
-        return new Response(
-          JSON.stringify({ certificate: data }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        if (error) throw error;
+        return new Response(JSON.stringify({ certificate: data }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
       case 'get-sync-state': {
         if (!empresaId) {
-          return new Response(
-            JSON.stringify({ error: 'empresa_id obrigatório' }),
-            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          return new Response(JSON.stringify({ error: 'empresa_id obrigatório' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
         const { data, error } = await supabase
@@ -128,116 +85,163 @@ Deno.serve(async (req) => {
           .eq('empresa_id', empresaId)
           .single();
 
-        if (error) {
-          if (error.code === 'PGRST116') {
-            return new Response(
-              JSON.stringify({ sync_state: null }),
-              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-          }
-          console.error('Erro ao buscar sync state:', error);
-          return new Response(
-            JSON.stringify({ error: error.message }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+        if (error && error.code === 'PGRST116') {
+          return new Response(JSON.stringify({ sync_state: null }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
-
-        return new Response(
-          JSON.stringify({ sync_state: data }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        if (error) throw error;
+        return new Response(JSON.stringify({ sync_state: data }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
       case 'update-sync-state': {
         if (req.method !== 'POST') {
-          return new Response(
-            JSON.stringify({ error: 'Método deve ser POST' }),
-            { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          return new Response(JSON.stringify({ error: 'POST obrigatório' }),
+            { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
         const body = await req.json();
         const { empresa_id, updates } = body;
 
         if (!empresa_id || !updates) {
-          return new Response(
-            JSON.stringify({ error: 'empresa_id e updates obrigatórios' }),
-            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          return new Response(JSON.stringify({ error: 'empresa_id e updates obrigatórios' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
         const { error } = await supabase
           .from('nfe_sync_state')
-          .upsert({
-            empresa_id,
-            ...updates,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'empresa_id' });
+          .upsert({ empresa_id, ...updates, updated_at: new Date().toISOString() }, { onConflict: 'empresa_id' });
 
-        if (error) {
-          console.error('Erro ao atualizar sync state:', error);
-          return new Response(
-            JSON.stringify({ error: error.message }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-
-        return new Response(
-          JSON.stringify({ success: true }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        if (error) throw error;
+        return new Response(JSON.stringify({ success: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
       case 'log': {
         if (req.method !== 'POST') {
-          return new Response(
-            JSON.stringify({ error: 'Método deve ser POST' }),
-            { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          return new Response(JSON.stringify({ error: 'POST obrigatório' }),
+            { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
         const body = await req.json();
-        const { empresa_id, level, message, meta } = body;
+        const { empresa_id: logEmpresaId, level, message, meta } = body;
 
-        if (!empresa_id || !level || !message) {
-          return new Response(
-            JSON.stringify({ error: 'empresa_id, level e message obrigatórios' }),
-            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+        if (!logEmpresaId || !level || !message) {
+          return new Response(JSON.stringify({ error: 'campos obrigatórios faltando' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
+        await supabase.from('nfe_sync_logs').insert({ empresa_id: logEmpresaId, level, message, meta });
+
+        return new Response(JSON.stringify({ success: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      // ★ MANIFEST QUEUE OPERATIONS
+
+      case 'enqueue-manifest': {
+        if (req.method !== 'POST') {
+          return new Response(JSON.stringify({ error: 'POST obrigatório' }),
+            { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        const body = await req.json();
+        const { empresa_id: mqEmpresaId, ch_nfe } = body;
+
+        if (!mqEmpresaId || !ch_nfe) {
+          return new Response(JSON.stringify({ error: 'empresa_id e ch_nfe obrigatórios' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        // Upsert (idempotente)
         const { error } = await supabase
-          .from('nfe_sync_logs')
-          .insert({
-            empresa_id,
-            level,
-            message,
-            meta,
-          });
+          .from('nfe_manifest_queue')
+          .upsert(
+            { empresa_id: mqEmpresaId, ch_nfe, status: 'pending', attempts: 0 },
+            { onConflict: 'empresa_id,ch_nfe', ignoreDuplicates: true }
+          );
 
         if (error) {
-          console.error('Erro ao registrar log:', error);
-          // Não retornamos erro para não interromper o fluxo
+          console.error('Erro ao enfileirar manifest:', error);
+          return new Response(JSON.stringify({ error: error.message }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
-        return new Response(
-          JSON.stringify({ success: true }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return new Response(JSON.stringify({ success: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      case 'get-pending-manifests': {
+        if (!empresaId) {
+          return new Response(JSON.stringify({ error: 'empresa_id obrigatório' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        const limit = parseInt(url.searchParams.get('limit') || '5');
+        const now = new Date().toISOString();
+
+        const { data, error } = await supabase
+          .from('nfe_manifest_queue')
+          .select('*')
+          .eq('empresa_id', empresaId)
+          .in('status', ['pending', 'error'])
+          .lte('next_try_at', now)
+          .order('created_at', { ascending: true })
+          .limit(limit);
+
+        if (error) {
+          console.error('Erro ao buscar manifests:', error);
+          return new Response(JSON.stringify({ manifests: [] }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        return new Response(JSON.stringify({ manifests: data || [] }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      case 'update-manifest': {
+        if (req.method !== 'POST') {
+          return new Response(JSON.stringify({ error: 'POST obrigatório' }),
+            { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        const body = await req.json();
+        const { id, status: mStatus, last_error, attempts, next_try_at } = body;
+
+        if (!id || !mStatus) {
+          return new Response(JSON.stringify({ error: 'id e status obrigatórios' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        const updates: Record<string, unknown> = {
+          status: mStatus,
+          updated_at: new Date().toISOString(),
+        };
+        if (last_error !== undefined) updates.last_error = last_error;
+        if (attempts !== undefined) updates.attempts = attempts;
+        if (next_try_at !== undefined) updates.next_try_at = next_try_at;
+
+        const { error } = await supabase
+          .from('nfe_manifest_queue')
+          .update(updates)
+          .eq('id', id);
+
+        if (error) {
+          console.error('Erro ao atualizar manifest:', error);
+        }
+
+        return new Response(JSON.stringify({ success: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
       default:
-        return new Response(
-          JSON.stringify({ error: `Ação desconhecida: ${action}` }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return new Response(JSON.stringify({ error: `Ação desconhecida: ${action}` }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Erro interno';
     console.error('[nfe-worker-proxy] Erro:', errorMessage);
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ error: errorMessage }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });

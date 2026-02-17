@@ -1,11 +1,20 @@
 /**
  * Cliente para comunicação com Supabase via Edge Function Proxy
- * 
- * Não usa SDK Supabase diretamente - todas as operações passam pelo nfe-worker-proxy
- * para evitar necessidade de SUPABASE_SERVICE_ROLE_KEY no worker externo.
+ * V2: Inclui manifest_queue operations
  */
 
 import type { NfeCertificate, NfeSyncState, IngestPayload, IngestResponse } from './types.js';
+
+export interface ManifestQueueItem {
+  id: string;
+  empresa_id: string;
+  ch_nfe: string;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  next_try_at: string | null;
+  last_error: string | null;
+}
 
 export class SupabaseWorkerClient {
   private supabaseUrl: string;
@@ -16,177 +25,129 @@ export class SupabaseWorkerClient {
     this.ingestToken = ingestToken;
   }
 
-  /**
-   * Busca todas as empresas com certificados ativos
-   */
   async getActiveCompanies(): Promise<Array<{ empresa_id: string; cnpj: string; uf: string; ambiente: string }>> {
     const response = await fetch(
       `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=get-active-companies`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-worker-token': this.ingestToken,
-        },
-      }
+      { method: 'GET', headers: { 'Content-Type': 'application/json', 'x-worker-token': this.ingestToken } }
     );
-
     if (!response.ok) {
       const error = await response.json();
-      console.error('Erro ao buscar empresas ativas:', error);
       throw new Error(error.error || 'Erro ao buscar empresas');
     }
-
     const data = await response.json();
     return data.companies || [];
   }
 
-  /**
-   * Busca certificado de uma empresa
-   */
   async getCertificate(empresaId: string): Promise<NfeCertificate | null> {
     const response = await fetch(
       `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=get-certificate&empresa_id=${encodeURIComponent(empresaId)}`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-worker-token': this.ingestToken,
-        },
-      }
+      { method: 'GET', headers: { 'Content-Type': 'application/json', 'x-worker-token': this.ingestToken } }
     );
-
     if (!response.ok) {
       const error = await response.json();
-      console.error('Erro ao buscar certificado:', error);
       throw new Error(error.error || 'Erro ao buscar certificado');
     }
-
     const data = await response.json();
     return data.certificate || null;
   }
 
-  /**
-   * Busca estado de sincronizacao
-   */
   async getSyncState(empresaId: string): Promise<NfeSyncState | null> {
     const response = await fetch(
       `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=get-sync-state&empresa_id=${encodeURIComponent(empresaId)}`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-worker-token': this.ingestToken,
-        },
-      }
+      { method: 'GET', headers: { 'Content-Type': 'application/json', 'x-worker-token': this.ingestToken } }
     );
-
     if (!response.ok) {
       const error = await response.json();
-      console.error('Erro ao buscar sync state:', error);
-      throw new Error(error.error || 'Erro ao buscar estado de sincronização');
+      throw new Error(error.error || 'Erro ao buscar estado');
     }
-
     const data = await response.json();
     return data.sync_state || null;
   }
 
-  /**
-   * Atualiza estado de sincronizacao
-   */
   async updateSyncState(empresaId: string, updates: Partial<NfeSyncState>): Promise<void> {
     const response = await fetch(
       `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=update-sync-state`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-worker-token': this.ingestToken,
-        },
-        body: JSON.stringify({
-          empresa_id: empresaId,
-          updates,
-        }),
+        headers: { 'Content-Type': 'application/json', 'x-worker-token': this.ingestToken },
+        body: JSON.stringify({ empresa_id: empresaId, updates }),
       }
     );
-
     if (!response.ok) {
       const error = await response.json();
-      console.error('Erro ao atualizar sync state:', error);
       throw new Error(error.error || 'Erro ao atualizar estado');
     }
   }
 
-  /**
-   * Registra log de sincronizacao
-   */
-  async log(
-    empresaId: string,
-    level: 'info' | 'warn' | 'error' | 'debug',
-    message: string,
-    meta?: Record<string, unknown>
-  ): Promise<void> {
+  async log(empresaId: string, level: 'info' | 'warn' | 'error' | 'debug', message: string, meta?: Record<string, unknown>): Promise<void> {
     try {
-      const response = await fetch(
+      await fetch(
         `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=log`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-worker-token': this.ingestToken,
-          },
-          body: JSON.stringify({
-            empresa_id: empresaId,
-            level,
-            message,
-            meta,
-          }),
+          headers: { 'Content-Type': 'application/json', 'x-worker-token': this.ingestToken },
+          body: JSON.stringify({ empresa_id: empresaId, level, message, meta }),
         }
       );
-
-      if (!response.ok) {
-        console.error('Erro ao registrar log');
-      }
     } catch (error) {
-      // Não propaga erro de log para não interromper o fluxo
       console.error('Erro ao registrar log:', error);
     }
   }
 
-  /**
-   * Envia documentos para o endpoint de ingestao
-   */
   async ingestDocuments(payload: IngestPayload): Promise<IngestResponse> {
     const url = `${this.supabaseUrl}/functions/v1/nfe-ingest`;
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-worker-token': this.ingestToken,
-      },
+      headers: { 'Content-Type': 'application/json', 'x-worker-token': this.ingestToken },
       body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
       let bodyText: string;
-      try {
-        bodyText = await response.text();
-      } catch {
-        bodyText = '(não foi possível ler o body da resposta)';
-      }
-      throw new Error(`Ingest falhou (${response.status}) em ${url}: ${bodyText}`);
+      try { bodyText = await response.text(); } catch { bodyText = '(body ilegível)'; }
+      throw new Error(`Ingest falhou (${response.status}): ${bodyText}`);
     }
 
     let resultText: string;
-    try {
-      resultText = await response.text();
-    } catch {
-      throw new Error(`Ingest OK (${response.status}) mas falhou ao ler body em ${url}`);
+    try { resultText = await response.text(); } catch { throw new Error(`Ingest OK mas body ilegível`); }
+    try { return JSON.parse(resultText) as IngestResponse; } catch { throw new Error(`Ingest OK mas não é JSON: ${resultText.substring(0, 500)}`); }
+  }
+
+  // ★ MANIFEST QUEUE OPERATIONS
+
+  async enqueueManifest(empresaId: string, chNFe: string): Promise<void> {
+    const response = await fetch(
+      `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=enqueue-manifest`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-worker-token': this.ingestToken },
+        body: JSON.stringify({ empresa_id: empresaId, ch_nfe: chNFe }),
+      }
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Erro desconhecido' }));
+      throw new Error(error.error || 'Erro ao enfileirar manifest');
     }
-    try {
-      return JSON.parse(resultText) as IngestResponse;
-    } catch {
-      throw new Error(`Ingest OK (${response.status}) mas body não é JSON válido em ${url}: ${resultText.substring(0, 500)}`);
-    }
+  }
+
+  async getPendingManifests(empresaId: string, limit: number = 5): Promise<ManifestQueueItem[]> {
+    const response = await fetch(
+      `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=get-pending-manifests&empresa_id=${encodeURIComponent(empresaId)}&limit=${limit}`,
+      { method: 'GET', headers: { 'Content-Type': 'application/json', 'x-worker-token': this.ingestToken } }
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.manifests || [];
+  }
+
+  async updateManifestStatus(id: string, status: string, lastError?: string, attempts?: number, nextTryAt?: string): Promise<void> {
+    await fetch(
+      `${this.supabaseUrl}/functions/v1/nfe-worker-proxy?action=update-manifest`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-worker-token': this.ingestToken },
+        body: JSON.stringify({ id, status, last_error: lastError, attempts, next_try_at: nextTryAt }),
+      }
+    );
   }
 }
