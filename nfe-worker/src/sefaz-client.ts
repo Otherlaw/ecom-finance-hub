@@ -335,17 +335,18 @@ export class SefazClient {
    * A SEFAZ envia pacotes em formato GZIP (não ZLIB puro)
    */
   private unzipDocument(base64Content: string): string {
+    const compressed = Buffer.from(base64Content, 'base64');
+    const uint8 = new Uint8Array(compressed);
+
+    // Tentar GZIP primeiro (formato padrão SEFAZ)
     try {
-      const compressed = Buffer.from(base64Content, 'base64');
-      // Usar ungzip pois a SEFAZ envia GZIP, não ZLIB
-      const decompressed = pako.ungzip(compressed);
-      return new TextDecoder('utf-8').decode(decompressed);
+      const decompressed = pako.ungzip(uint8);
+      return Buffer.from(decompressed).toString('utf-8');
     } catch (gzipError) {
       // Fallback: tentar inflate (ZLIB) caso não seja GZIP
       try {
-        const compressed = Buffer.from(base64Content, 'base64');
-        const decompressed = pako.inflate(compressed);
-        return new TextDecoder('utf-8').decode(decompressed);
+        const decompressed = pako.inflate(uint8);
+        return Buffer.from(decompressed).toString('utf-8');
       } catch (inflateError) {
         console.error('[SEFAZ] Falha ao descompactar documento (tentou ungzip e inflate):', gzipError);
         throw new Error(`Falha na descompactacao: ${gzipError instanceof Error ? gzipError.message : String(gzipError)}`);
