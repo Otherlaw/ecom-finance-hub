@@ -19,10 +19,16 @@ export interface SyncState {
 /**
  * Computes the cutoff date for document ingestion.
  * - If first_success_at exists: first_success_at - 24h
- * - If not yet set: returns null (don't ingest anything yet)
+ * - If not yet set (primeira sync): usa "ontem" como cutoff para importar NFs recentes
+ * Nunca retorna null — sempre importa documentos.
  */
-export function computeCutoffDate(firstSuccessAt: string | null | undefined): string | null {
-  if (!firstSuccessAt) return null;
+export function computeCutoffDate(firstSuccessAt: string | null | undefined): string {
+  if (!firstSuccessAt) {
+    // Primeira sync: usar ontem como cutoff (pega NFs recentes sem trazer historico longo)
+    const yesterday = new Date();
+    yesterday.setHours(yesterday.getHours() - 24);
+    return yesterday.toISOString().split('T')[0]; // YYYY-MM-DD
+  }
   const date = new Date(firstSuccessAt);
   date.setHours(date.getHours() - 24); // 24h tolerance
   return date.toISOString().split('T')[0]; // YYYY-MM-DD
