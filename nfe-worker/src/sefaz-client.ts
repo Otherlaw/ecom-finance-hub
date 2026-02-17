@@ -136,31 +136,16 @@ export class SefazClient {
    */
   /**
    * Cria agente HTTPS com certificado para mutual TLS
-   * Usa PFX diretamente via Node.js nativo (OpenSSL) para suportar
-   * certificados brasileiros com criptografia moderna (AES-256-CBC)
+   * Usa PFX diretamente via Node.js/OpenSSL — NÃO usa node-forge
    */
   private createHttpsAgent(): https.Agent {
-    const allCAs: string[] = [];
-    if (icpBrasilCA) {
-      allCAs.push(icpBrasilCA);
-    }
-
-    // Tentar extrair CAs intermediárias do PFX via node-forge
-    // Não é obrigatório — apenas melhora a cadeia de confiança
-    try {
-      const { caList } = this.extractPemFromPfx();
-      allCAs.push(...caList);
-      console.log(`[SEFAZ] CAs extraídas do PFX via node-forge: ${caList.length}`);
-    } catch (e) {
-      console.warn('[SEFAZ] node-forge não suporta este formato PFX — usando PFX direto via OpenSSL (OK)');
-    }
-
-    // PFX direto = Node.js/OpenSSL cuida de tudo (suporta AES-256-CBC, RC2, etc)
+    console.log('[SEFAZ] Criando agente HTTPS com PFX direto (Node.js/OpenSSL)');
+    
     return new https.Agent({
       pfx: this.pfxBuffer,
       passphrase: this.passphrase,
-      ca: allCAs.length > 0 ? allCAs : undefined,
-      rejectUnauthorized: allCAs.length > 0,
+      ca: icpBrasilCA ? [icpBrasilCA] : undefined,
+      rejectUnauthorized: !!icpBrasilCA,
     });
   }
 
