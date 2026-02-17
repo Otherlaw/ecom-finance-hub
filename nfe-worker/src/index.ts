@@ -24,7 +24,7 @@ import { SupabaseWorkerClient } from './supabase-client.js';
 import { SefazClient } from './sefaz-client.js';
 import { decrypt } from './crypto.js';
 import type { IngestResponse } from './types.js';
-import { computeSyncWindow, getSyncMode, shouldRunNow, getNextMidnightBRT } from './sync-utils.js';
+import { computeSyncWindow, getSyncMode, shouldRunNow } from './sync-utils.js';
 
 // Configuracoes
 const PORT = process.env.PORT || 8080;
@@ -36,7 +36,7 @@ const CERT_MASTER_KEY = process.env.CERT_MASTER_KEY!;
 const BATCH_SIZE = 50; // Maximo de docs por lote para ingestao
 const REQUEST_DELAY_MS = 12000; // Delay base entre requisicoes SEFAZ (12s conservador)
 const REQUEST_DELAY_JITTER = 0.25; // Jitter de ±25% para evitar padrões previsíveis
-const BOOTSTRAP_STOP_THRESHOLD = 3; // Lotes consecutivos com 100% docs antigos para parar
+// BOOTSTRAP_STOP_THRESHOLD removido — fast-forward do NSU substitui lógica antiga
 
 // DRY_RUN mode: log what would be imported without persisting
 const DRY_RUN = process.env.DRY_RUN === 'true' || process.env.DRY_RUN === '1';
@@ -287,8 +287,7 @@ async function syncEmpresa(empresaId: string): Promise<{
 
     let hasMore = true;
 
-    // Contadores para logica de parada do bootstrap
-    let consecutiveOldOnlyBatches = 0;
+    // (consecutiveOldOnlyBatches removido — fast-forward substitui bootstrap antigo)
      
      // Motivo da pausa (se houver)
      let pauseReason: string | null = null;
@@ -343,11 +342,47 @@ async function syncEmpresa(empresaId: string): Promise<{
         // ========================================
         // ★ PERSISTIR NSU CEDO - antes de qualquer processamento
         // ========================================
+        const previousNSU = currentNSU;
         currentNSU = result.ultNSU;
         maxNSU = result.maxNSU;
         hasMore = result.hasMore;
 
         console.log(`[SYNC] SEFAZ retornou ${result.documents.length} docs. ultNSU: ${currentNSU}, maxNSU: ${maxNSU}`);
+
+        // ========================================
+        // ★ FAST-FORWARD: Primeira sincronização — pular histórico
+        // ========================================
+        if (previousNSU === 0 && result.maxNSU > 0) {
+          // Era NSU 0 antes desta chamada (primeira vez)
+          // O ultNSU já foi atribuído acima, mas precisamos do maxNSU para fast-forward
+          const ffMsg = `[SYNC] Primeira sincronização: Histórico ignorado. Avançando NSU de 0 para ${result.maxNSU}`;
+          console.log(ffMsg);
+          await supabase.log(empresaId, 'info', ffMsg);
+
+          await supabase.updateSyncState(empresaId, {
+            ult_nsu: result.maxNSU,
+            max_nsu: result.maxNSU,
+            status: 'idle',
+            sync_mode: 'daily',
+            bootstrap_completed_at: new Date().toISOString(),
+            last_sync_at: new Date().toISOString(),
+            last_error: null,
+            next_retry_at: null,
+            documents_fetched: 0,
+            credits_created: 0,
+            rate_limit_count: 0,
+          });
+
+          lockAcquired = false;
+          console.log('[SYNC] Lock liberado (fast-forward concluído)');
+
+          return {
+            success: true,
+            documentsProcessed: 0,
+            documentsImported: 0,
+            creditsCreated: 0,
+          };
+        }
 
         // Salvar NSU imediatamente ANTES do ingest
         await supabase.updateSyncState(empresaId, {
@@ -360,8 +395,8 @@ async function syncEmpresa(empresaId: string): Promise<{
          // CSTAT 137: SEFAZ sem mais documentos (resposta vazia final)
          // ========================================
          if (result.documents.length === 0 && !hasMore) {
-            const nextRetryAt = getNextMidnightBRT();
-            const cooldownMessage = `SEFAZ cStat 137: Consulta sem documentos novos. Próxima execução: 00:00 BRT.`;
+            const nextRetryAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+            const cooldownMessage = `SEFAZ cStat 137: Consulta sem documentos novos. Próxima tentativa em 1 hora.`;
            
            console.log(`[SYNC] ★ ${cooldownMessage}`);
            await supabase.log(empresaId, 'info', cooldownMessage, {
@@ -446,29 +481,7 @@ async function syncEmpresa(empresaId: string): Promise<{
                 }
               }
 
-              // Logica de parada do bootstrap
-              if (isBootstrap) {
-                const batchSize = ingestResult.total_in_batch;
-                const nonImported = ingestResult.skipped_old + ingestResult.duplicates + (ingestResult.skipped_no_xml || 0);
-                const allOld = batchSize > 0 && nonImported === batchSize;
-
-                if (allOld) {
-                  consecutiveOldOnlyBatches++;
-                  console.log(`[SYNC] Lote sem novos docs (${consecutiveOldOnlyBatches}/${BOOTSTRAP_STOP_THRESHOLD})`);
-                  await supabase.log(empresaId, 'info', `Lote sem novos docs (${consecutiveOldOnlyBatches}/${BOOTSTRAP_STOP_THRESHOLD})`);
-                } else {
-                  consecutiveOldOnlyBatches = 0;
-                }
-
-                if (consecutiveOldOnlyBatches >= BOOTSTRAP_STOP_THRESHOLD) {
-                  const stopMsg = `Bootstrap encerrado: ${BOOTSTRAP_STOP_THRESHOLD} lotes consecutivos sem docs novos`;
-                  await supabase.log(empresaId, 'info', stopMsg);
-                  console.log(`[SYNC] ${stopMsg}`);
-                  hasMore = false;
-                  break;
-                }
-              }
-
+              // (Lógica antiga de bootstrap removida — fast-forward do NSU substitui)
             } catch (error) {
               const errMsg = error instanceof Error ? error.message : String(error);
               console.error('[SYNC] Erro no lote de ingestao:', errMsg);
@@ -497,8 +510,8 @@ async function syncEmpresa(empresaId: string): Promise<{
         // ========================================
         if (isSefazError656(error)) {
            const currentRateLimitCount = (syncState?.rate_limit_count || 0) + 1;
-           const nextRetryAt = getNextMidnightBRT();
-           const errorMsg = `Erro SEFAZ 656: Consumo Indevido. Próxima tentativa: 00:00 BRT (tentativa #${currentRateLimitCount}).`;
+           const nextRetryAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+           const errorMsg = `Erro SEFAZ 656: Consumo Indevido. Próxima tentativa em 1 hora (tentativa #${currentRateLimitCount}).`;
           
           console.error(`[SYNC] ★ ERRO 656 DETECTADO`);
           console.error(`[SYNC] ${errorMsg}`);
@@ -522,8 +535,8 @@ async function syncEmpresa(empresaId: string): Promise<{
              last_rate_limit_at: new Date().toISOString(),
           });
 
-          lockAcquired = false;
-          console.log('[SYNC] Lock liberado (status=rate_limited, próximo retry 00:00 BRT)');
+           lockAcquired = false;
+           console.log('[SYNC] Lock liberado (status=rate_limited, próximo retry em 1 hora)');
 
           return {
             success: false,
@@ -729,11 +742,10 @@ app.listen(PORT, () => {
   console.log(`NFe Worker rodando na porta ${PORT}`);
   console.log(`Supabase URL: ${SUPABASE_URL}`);
   console.log(`Modo: Proxy via Edge Function (sem SERVICE_ROLE_KEY)`);
-  console.log(`Janela: Bootstrap 30d | Diário 24h`);
+  console.log(`Janela: Fast-forward NSU na 1ª sync | Diário 24h`);
   console.log(`DRY_RUN: ${DRY_RUN}`);
   console.log(`Delay entre requests: ${REQUEST_DELAY_MS}ms (±${REQUEST_DELAY_JITTER * 100}% jitter)`);
-  console.log(`Threshold bootstrap stop: ${BOOTSTRAP_STOP_THRESHOLD} lotes`);
-  console.log(`Rate limit: retry apenas na próxima 00:00 BRT`);
+  console.log(`Rate limit: retry em 1 hora`);
   console.log(`Max requests por run: ${MAX_SEFAZ_REQUESTS_PER_RUN}`);
   console.log(`Max runtime: ${MAX_RUNTIME_MS / 1000}s`);
   console.log('===========================================');
