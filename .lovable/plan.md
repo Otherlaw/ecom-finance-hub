@@ -1,100 +1,51 @@
 
-## Diagnóstico Definitivo: Bug do Frete no Flex
+## Problema Identificado: Conflito de Overload na Função `get_vendas_por_pedido`
 
-### O que está acontecendo
+### Causa Raiz
 
-Para pedidos do Mercado Livre com `tipo_envio = 'flex'`, a API do ML **não retorna** o custo do frete do vendedor no campo `frete_vendedor`. Esse campo fica `NULL` na tabela `marketplace_transactions`.
+O log do console revela o erro exato:
 
-A RPC `get_vendas_por_pedido` exibe `frete_vendedor_total = NULL` corretamente — o problema está em **como o custo operacional configurado (`logistica_plataforma_config`) deveria ser aplicado**, e atualmente ele **não está sendo aplicado** na RPC principal.
-
-O valor R$9,90 que aparece incorretamente na tela vem da tabela `logistica_plataforma_config` onde:
-- Mercado Livre / Flex = **R$10,90** (correto)
-- Shopee / Flex = **R$9,90** (incorreto — está sendo mostrado no lugar do ML)
-
-Há um componente ou lógica no frontend que está lendo o custo da configuração sem filtrar pelo canal do pedido.
-
-### Lógica de negócio correta (conforme explicado pelo usuário)
-
-Para um pedido Flex do Mercado Livre:
-- Custo operacional pago à empresa de flex: **R$10,90** (configurado)
-- Bônus por envio recebido do ML: **R$1,10** (crédito)
-- **Frete Vendedor Líquido real = R$10,90 - R$1,10 = R$9,80**
-
-O campo `bonus_envio` nas transações está zerado porque o ML ainda não enviou esse dado como evento separado — ele aparece na tela do Mercado Livre mas não chega via API de forma direta.
-
-### Plano de Correção
-
-#### Ação 1 — Corrigir a RPC `get_vendas_por_pedido`
-
-Adicionar uma CTE `config_logistica_plataforma` que busca o custo configurado por `canal` e `tipo_envio` em `logistica_plataforma_config`. Quando `frete_vendedor` for `NULL` e o pedido for `flex` ou `flex_turbo`, usar o custo configurado **menos** o `bonus_envio`:
-
-```sql
-config_logistica_plataforma AS (
-  SELECT lpc.empresa_id, lpc.canal, lpc.tipo_envio, lpc.custo
-  FROM logistica_plataforma_config lpc
-  WHERE lpc.empresa_id = ANY(v_empresa_ids)
-),
+```
+Could not choose the best candidate function between:
+  public.get_vendas_por_pedido(p_data_inicio => date, ...)
+  public.get_vendas_por_pedido(p_empresa_id => uuid, p_data_inicio => text, ...)
 ```
 
-No SELECT final do `resultado`, substituir:
-```sql
-vb.frete_vendedor_agg AS frete_vendedor_total,
-```
-Por:
-```sql
-CASE
-  -- Se frete_vendedor veio da API, usar ele
-  WHEN vb.frete_vendedor_agg IS NOT NULL THEN vb.frete_vendedor_agg
-  -- Se é flex/flex_turbo sem frete_vendedor, aplicar custo configurado menos bonus_envio
-  WHEN vb.tipo_envio IN ('flex', 'flex_turbo') THEN
-    GREATEST(0, COALESCE(lpc.custo, 0) - COALESCE(vb.bonus_envio_agg, 0))
-  ELSE NULL
-END AS frete_vendedor_total,
-```
+Existem **duas versões** da função `get_vendas_por_pedido` no banco ao mesmo tempo:
 
-O JOIN com `config_logistica_plataforma` filtra por `canal` e `tipo_envio`:
+| # | OID | Assinatura | Origem |
+|---|-----|-----------|--------|
+| Antiga | 122093 | `p_data_inicio date, p_data_fim date, p_empresa_id uuid, ...` | Criada antes das correções |
+| Nova | 122133 | `p_empresa_id uuid, p_data_inicio text, p_data_fim text, ...` | Criada pela migração `20260218060144` |
+
+A migração anterior tentou remover a função antiga com `DROP FUNCTION IF EXISTS public.get_vendas_por_pedido(uuid,text,text,text,text,text,text,text,text,integer,integer)` — mas essa assinatura **não batia** com a versão antiga (que usa `date`), então ela sobreviveu.
+
+O PostgREST/PostgreSQL não consegue escolher qual usar quando o frontend envia os parâmetros, e retorna erro. A contagem (`get_vendas_por_pedido_count`) funciona porque só existe uma versão dela. Os dados somem enquanto a contagem aparece correta — exatamente o que o usuário está vendo.
+
+### O Que Será Feito
+
+**1 migração SQL apenas** — cirúrgica e sem riscos:
+
 ```sql
-LEFT JOIN config_logistica_plataforma lpc 
-  ON lpc.empresa_id = vb.empresa_id 
-  AND lpc.canal = vb.canal 
-  AND lpc.tipo_envio = vb.tipo_envio
+-- Remove a versão ANTIGA com parâmetros DATE
+DROP FUNCTION IF EXISTS public.get_vendas_por_pedido(
+  date, date, uuid, text, text, text, integer, integer, text, text, text
+);
 ```
 
-O mesmo ajuste deve ser feito no cálculo do `valor_liquido_calculado` e `margem_contribuicao` para que a dedução seja consistente.
+Nada mais precisa ser alterado:
+- A função nova (com parâmetros `text`, OID 122133) **já está correta** com toda a lógica de flex/bonus_envio
+- O hook `useVendasPorPedido.ts` já usa `p_page` e `p_page_size` corretamente
+- O `get_vendas_por_pedido_count` e `get_vendas_por_pedido_resumo_v2` não têm conflito
 
-#### Ação 2 — Corrigir a RPC `get_vendas_por_pedido_resumo_v2`
+### Nenhum Arquivo de Frontend será Alterado
 
-Esta RPC de resumo (usada nos cards de totais) referencia a tabela antiga `empresa_logistica_config` com colunas `flex_custo`/`flex_turbo_custo` — que não filtra por canal. Precisa ser atualizada para usar `logistica_plataforma_config` com filtro por canal.
-
-Atualmente (linha 65-67):
-```sql
-config_logistica AS (
-  SELECT elc.empresa_id, COALESCE(elc.flex_custo, 0) AS flex_custo, COALESCE(elc.flex_turbo_custo, 0) AS flex_turbo_custo
-  FROM empresa_logistica_config elc
-```
-
-Isso mistura canais sem distinguir ML de Shopee, resultando nos valores incorretos.
-
-#### Resultado esperado após a correção
-
-Para o pedido `2000011604513427` (ML / Flex / R$20,90):
-| Campo | Antes | Depois |
-|---|---|---|
-| `frete_vendedor_total` | NULL | R$9,80 (R$10,90 - R$1,10 de bônus) |
-| `valor_liquido_calculado` | R$9,22 | R$9,22 - R$9,80 = valor correto |
-| `margem_contribuicao` | calculado sem frete | calculado com frete flex |
-
-### Arquivos Afetados
-
-- **Migração SQL** (1 novo arquivo): corrige as RPCs `get_vendas_por_pedido` e `get_vendas_por_pedido_resumo_v2` para usar `logistica_plataforma_config` com filtro por canal e tipo de envio, aplicando o custo operacional quando `frete_vendedor` for NULL em pedidos flex.
-
-Nenhum arquivo de frontend precisa ser alterado.
+A única mudança é a remoção da função duplicada do banco.
 
 ### Como Testar
 
-1. Abrir aba Vendas e filtrar por **Tipo de Envio = Flex**
-2. Pedido `...4513427` (R$20,90 ML Flex) deve mostrar:
-   - Frete Vendedor = R$9,80 (R$10,90 - R$1,10)
-   - Margem corretamente deduzida
-3. Pedidos Flex com `frete_vendedor` já preenchido pela API (ex: R$24,95) devem continuar exibindo esse valor sem alteração
-4. Pedidos Full e Coleta não devem ser afetados
+1. Abrir a aba **Vendas** e selecionar uma empresa
+2. A tabela deve exibir os pedidos do período (antes aparecia vazia mesmo com "3339 pedidos • Página 1 de 67")
+3. Testar filtros de Tipo de Envio (Flex, Full, Coleta) — todos devem mostrar resultados
+4. Verificar que o cálculo de Frete Vendedor em pedidos Flex (ex: R$10,90 - R$11,00 bônus = R$0) está correto
+5. Verificar que pedidos Full/Coleta mostram o frete real da API sem alteração
