@@ -28,16 +28,31 @@ const logisticTypeMap: Record<string, string> = {
 
 /**
  * Resolve o tipo_envio final considerando casos especiais do ML.
- * "self_service" com sender_cost > 0 é Coleta Flex — classificar como "flex".
- * Coleta simples tem sender_cost = 0 (ML paga o frete inteiramente).
+ *
+ * "self_service" tem TRÊS cenários:
+ *   1. Coleta Flex pago pelo vendedor: sender_cost > 0 → "flex"
+ *   2. Coleta Flex 100% subsidiado ML: sender_cost = 0, receiver discount = loyal/ratio → "flex"
+ *   3. Coleta real (comprador paga): sender_cost = 0, sem discount loyal/ratio → "coleta"
+ *
+ * A distinção entre cenário 2 e 3 é feita via receiver discounts:
+ * - "loyal" = ML banca 100% via programa de fidelidade/pontos
+ * - "ratio"  = ML divide parte do frete com o vendedor
  */
 function resolveLogisticType(rawLogisticType: string, shippingCosts: any): string {
   const base = logisticTypeMap[rawLogisticType] || rawLogisticType || "coleta";
 
-  if (rawLogisticType === "self_service" && base === "coleta") {
-    const senderCost = shippingCosts?.sender_cost ?? 0;
-    if (senderCost > 0) {
-      // Coleta Flex: o vendedor paga parte do frete (com possível subsídio ML)
+  if (rawLogisticType === "self_service") {
+    // Cenário 1: vendedor pagou parte do frete → Coleta Flex
+    if ((shippingCosts?.sender_cost ?? 0) > 0) {
+      return "flex";
+    }
+
+    // Cenário 2: ML subsidiou 100% via programa Loyal/Pontos → também é Coleta Flex
+    const receiverDiscounts: any[] = shippingCosts?.raw_receiver?.discounts ?? [];
+    const hasFlexSubsidy = receiverDiscounts.some(
+      (d: any) => d.type === "loyal" || d.type === "ratio"
+    );
+    if (hasFlexSubsidy) {
       return "flex";
     }
   }
