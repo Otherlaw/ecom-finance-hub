@@ -84,7 +84,8 @@ export function MapearItensPedidoModal({
 
   const { produtos, isLoading: loadingProdutos } = useProdutos({ 
     empresaId, 
-    status: "ativo" 
+    status: "ativo",
+    apenasRaiz: false,
   });
   
   const { criarOuAtualizarMapping } = useMarketplaceSkuMappings({ empresaId });
@@ -392,6 +393,9 @@ export function MapearItensPedidoModal({
                                                 <span className="font-medium">{produto.nome}</span>
                                                 <span className="text-xs text-muted-foreground">
                                                   SKU: {produto.sku} • Custo: {(produto.custo_medio || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                                                  {produto.tipo === "variation_parent" && " • Pai (sem custo próprio)"}
+                                                  {produto.tipo === "variation_child" && ` • Variação${produto.atributos_variacao && Object.keys(produto.atributos_variacao).length > 0 ? ": " + Object.entries(produto.atributos_variacao).map(([k,v]) => `${k}: ${v}`).join(", ") : ""}`}
+                                                  {produto.tipo === "kit" && " • Kit"}
                                                 </span>
                                               </div>
                                             </CommandItem>

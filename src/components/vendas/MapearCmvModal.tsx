@@ -348,6 +348,9 @@ export function MapearCmvModal({
                                     style: "currency",
                                     currency: "BRL",
                                   })}
+                                  {produto.tipo === "variation_parent" && " • Pai (sem custo próprio)"}
+                                  {produto.tipo === "variation_child" && ` • Variação${produto.atributos_variacao && Object.keys(produto.atributos_variacao).length > 0 ? ": " + Object.entries(produto.atributos_variacao).map(([k,v]) => `${k}: ${v}`).join(", ") : ""}`}
+                                  {produto.tipo === "kit" && " • Kit"}
                                 </span>
                               </div>
                             </CommandItem>
