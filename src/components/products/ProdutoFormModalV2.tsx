@@ -413,6 +413,12 @@ export function ProdutoFormModalV2({
       onSuccess?.(produtoCriado);
     } catch (error) {
       console.error("Erro ao salvar produto:", error);
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("duplicate key") && msg.includes("sku")) {
+        toast.error(`O SKU "${sku}" já está cadastrado para esta empresa. Use um SKU diferente.`);
+      } else {
+        toast.error(`Erro ao criar produto: ${msg}`);
+      }
     }
   };
 
