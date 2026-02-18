@@ -4151,8 +4151,8 @@ export type Database = {
               p_data_fim?: string
               p_data_inicio?: string
               p_empresa_id?: string
-              p_limit?: number
-              p_offset?: number
+              p_page?: number
+              p_page_size?: number
               p_status?: string
               p_tem_custo?: string
               p_tipo_envio?: string
@@ -4169,9 +4169,11 @@ export type Database = {
               data_repasse: string
               empresa_id: string
               empresa_nome_fantasia: string
+              fonte_custo: string
               frete_vendedor_total: number
               impostos_total: number
               margem_contribuicao: number
+              margem_contribuicao_pct: number
               outros_descontos_total: number
               pedido_id: string
               primeiro_anuncio_id: string
@@ -4179,9 +4181,9 @@ export type Database = {
               rebate_total: number
               status: string
               tarifa_fixa_total: number
-              tem_cmv: boolean
+              tem_custo: boolean
               tipo_envio: string
-              valor_liquido_calculado: number
+              valor_liquido: number
               valor_produto: number
             }[]
           }
