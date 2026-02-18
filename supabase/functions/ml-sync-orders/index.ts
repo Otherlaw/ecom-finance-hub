@@ -14,15 +14,36 @@ const FINANCING_FEE_RATE = 0.05;
 const TOKEN_BUFFER_MS = 5 * 60 * 1000;
 
 // Mapear logistic_type para tipo_envio amigável
+// NOTA: "self_service" pode ser Coleta simples (sender_cost=0) ou Coleta Flex (sender_cost>0)
+// A distinção é feita em resolveLogisticType() com base no custo do sender.
 const logisticTypeMap: Record<string, string> = {
   "fulfillment": "full",
   "xd_drop_off": "flex",
-  "self_service": "coleta",
+  "self_service": "coleta",   // fallback — pode ser sobrescrito por resolveLogisticType
   "cross_docking": "flex",
   "drop_off": "coleta",
   "custom": "retirada",
   "not_specified": "coleta",
 };
+
+/**
+ * Resolve o tipo_envio final considerando casos especiais do ML.
+ * "self_service" com sender_cost > 0 é Coleta Flex — classificar como "flex".
+ * Coleta simples tem sender_cost = 0 (ML paga o frete inteiramente).
+ */
+function resolveLogisticType(rawLogisticType: string, shippingCosts: any): string {
+  const base = logisticTypeMap[rawLogisticType] || rawLogisticType || "coleta";
+
+  if (rawLogisticType === "self_service" && base === "coleta") {
+    const senderCost = shippingCosts?.sender_cost ?? 0;
+    if (senderCost > 0) {
+      // Coleta Flex: o vendedor paga parte do frete (com possível subsídio ML)
+      return "flex";
+    }
+  }
+
+  return base;
+}
 
 // Interface COMPLETA do pedido ML (com todos os campos que precisamos)
 interface MLOrderItem {
@@ -1318,7 +1339,7 @@ Deno.serve(async (req) => {
         const shippingCosts = shippingCostsMap.get(order.id);
         if (shippingCosts) {
           const rawLogisticType = shippingCosts.logistic_type || "";
-          tipoEnvio = logisticTypeMap[rawLogisticType] || rawLogisticType || null;
+          tipoEnvio = resolveLogisticType(rawLogisticType, shippingCosts);
           freteComprador = shippingCosts.receiver_cost || 0;
           
           if (freteVendedor === 0 && shippingCosts.sender_cost > 0) {
