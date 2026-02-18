@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 function getCorsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("Origin") ?? "";
+  const origin = req.headers.get("origin") ?? ""; // lowercase para compatibilidade
   const allowedExact = new Set([
     "https://www.mercadolivre.com.br",
     "https://mercadolivre.com.br",
@@ -9,10 +9,11 @@ function getCorsHeaders(req: Request): Record<string, string> {
     "https://www.ecomfinance.lovable.app",
   ]);
   const isChromeExt = origin.startsWith("chrome-extension://");
+  // Se não tiver origin (alguns fetch diretos), usa "*" para não quebrar
   const allowOrigin =
-    allowedExact.has(origin) || isChromeExt
-      ? origin
-      : "https://www.mercadolivre.com.br";
+    origin === "" ? "*" :
+    (allowedExact.has(origin) || isChromeExt) ? origin :
+    "https://www.mercadolivre.com.br";
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
