@@ -1,90 +1,51 @@
 
-## Problema: "Coleta" com Frete Vendedor - Erro no Cálculo de Margem
-
-### O que foi encontrado
-
-Após investigação detalhada do banco, foi identificado que o Mercado Livre usa o valor `self_service` no campo `logistic_type` para **dois cenários distintos**:
-
-| Cenário | logistic_type | Característica | Tratamento atual |
-|---|---|---|---|
-| Coleta simples (Correios/Agência) | self_service | `frete_vendedor = 0`, sem bônus | Coleta → usa frete_api diretamente |
-| **Coleta Flex** (ponto de coleta parceiro) | **self_service** | frete_vendedor ≈ custo_flex, **bonus_envio > 0** | ❌ Também trata como coleta simples |
-
-O pedido reportado (`#06433945`) tem:
-- `logistic_type = self_service` → classificado como "Coleta"
-- `frete_vendedor = R$9,90` (custo real pago pelo vendedor)
-- `bonus_envio = R$1,10` (subsídio do ML)
-- **R$9,90 + R$1,10 = R$10,90 = exatamente o `flex_custo` configurado na empresa**
-
-Ou seja, este pedido **É** um serviço de Coleta Flex (o ML subsidia parte do frete), mas o sistema não está aproveitando o bônus no cálculo da margem — tratando o frete vendedor como R$9,90 em vez de descontar o bônus.
-
-**Escala do problema:**
-- 201 pedidos `self_service` com `frete_vendedor = R$9,90` (padrão coleta flex)
-- 3 desses têm `bonus_envio > 0` (bônus já capturado da API)
-- Os demais 198 têm `bonus_envio = 0` — precisam ser resincronizados para capturar o bônus
+## Problema Identificado: Conflito de Overload na Função `get_vendas_por_pedido`
 
 ### Causa Raiz
 
-A RPC `get_vendas_por_pedido` só aplica a lógica de bônus para `tipo_envio IN ('flex', 'flex_turbo')`:
+O log do console revela o erro exato:
 
-```sql
-CASE
-  WHEN ta.tipo_envio IN ('flex', 'flex_turbo') THEN
-    GREATEST(0, COALESCE(l.custo, 0) - ta.bonus_envio_agg)
-  ELSE
-    ta.frete_vendedor_api  -- ← self_service cai aqui, bônus ignorado
-END AS frete_efetivo
 ```
+Could not choose the best candidate function between:
+  public.get_vendas_por_pedido(p_data_inicio => date, ...)
+  public.get_vendas_por_pedido(p_empresa_id => uuid, p_data_inicio => text, ...)
+```
+
+Existem **duas versões** da função `get_vendas_por_pedido` no banco ao mesmo tempo:
+
+| # | OID | Assinatura | Origem |
+|---|-----|-----------|--------|
+| Antiga | 122093 | `p_data_inicio date, p_data_fim date, p_empresa_id uuid, ...` | Criada antes das correções |
+| Nova | 122133 | `p_empresa_id uuid, p_data_inicio text, p_data_fim text, ...` | Criada pela migração `20260218060144` |
+
+A migração anterior tentou remover a função antiga com `DROP FUNCTION IF EXISTS public.get_vendas_por_pedido(uuid,text,text,text,text,text,text,text,text,integer,integer)` — mas essa assinatura **não batia** com a versão antiga (que usa `date`), então ela sobreviveu.
+
+O PostgREST/PostgreSQL não consegue escolher qual usar quando o frontend envia os parâmetros, e retorna erro. A contagem (`get_vendas_por_pedido_count`) funciona porque só existe uma versão dela. Os dados somem enquanto a contagem aparece correta — exatamente o que o usuário está vendo.
 
 ### O Que Será Feito
 
-**Abordagem cirúrgica** — sem alterar a classificação visual do `tipo_envio` (permanece "Coleta"), apenas corrigindo a lógica de cálculo do frete efetivo:
-
-**1. Atualizar a RPC `get_vendas_por_pedido`**
-
-A lógica do CASE será expandida para incluir pedidos com `bonus_envio > 0`, independente do `tipo_envio`:
+**1 migração SQL apenas** — cirúrgica e sem riscos:
 
 ```sql
-CASE
-  WHEN ta.tipo_envio IN ('flex', 'flex_turbo') THEN
-    GREATEST(0, COALESCE(l.custo, 0) - ta.bonus_envio_agg)
-  WHEN ta.bonus_envio_agg > 0 THEN
-    -- self_service (Coleta Flex) ou qualquer outro tipo com subsídio
-    GREATEST(0, ta.frete_vendedor_api - ta.bonus_envio_agg)
-  ELSE
-    ta.frete_vendedor_api
-END AS frete_efetivo
+-- Remove a versão ANTIGA com parâmetros DATE
+DROP FUNCTION IF EXISTS public.get_vendas_por_pedido(
+  date, date, uuid, text, text, text, integer, integer, text, text, text
+);
 ```
 
-Isso garante que:
-- **Flex/Flex Turbo**: custo_config - bonus (lógica atual, inalterada)
-- **Coleta com bônus (Coleta Flex)**: frete_api - bonus (novo)
-- **Full/Coleta sem bônus**: frete_api diretamente (inalterado)
+Nada mais precisa ser alterado:
+- A função nova (com parâmetros `text`, OID 122133) **já está correta** com toda a lógica de flex/bonus_envio
+- O hook `useVendasPorPedido.ts` já usa `p_page` e `p_page_size` corretamente
+- O `get_vendas_por_pedido_count` e `get_vendas_por_pedido_resumo_v2` não têm conflito
 
-**2. Nenhuma alteração no `tipo_envio` armazenado**
+### Nenhum Arquivo de Frontend será Alterado
 
-A classificação visual continua como "Coleta" no banco — o ML define assim via API. O que muda é apenas o cálculo financeiro do frete efetivo.
-
-**3. Nenhuma alteração em arquivos de frontend**
-
-Apenas 1 migration SQL será criada.
-
-### Impacto Esperado
-
-Para o pedido `#06433945`:
-- Receita bruta: R$82,10
-- Comissão: -R$7,69
-- Frete Vendedor (antes): -R$9,90 ❌
-- Frete Vendedor (depois): -R$8,80 ✓ (R$9,90 - R$1,10 bônus)
-- Impostos: -R$7,39
-- CMV: -R$42,00
-- **MC (antes)**: R$15,12 (18,4%) — valor já considerando bônus pela lógica anterior errada
-- **MC (depois)**: R$16,22 (19,8%) — correto com bônus deduzido do frete
+A única mudança é a remoção da função duplicada do banco.
 
 ### Como Testar
 
-1. Abrir Vendas e localizar o pedido `#2000011606433945` (tipo "Coleta")
-2. Verificar que o Frete Vendedor exibe R$8,80 (não R$9,90)
-3. Verificar que a Margem de Contribuição aumentou proporcionalmente
-4. Confirmar que pedidos Full e Coleta sem bônus continuam inalterados
-5. Confirmar que pedidos Flex continuam usando `custo_config - bonus` (não `frete_api - bonus`)
+1. Abrir a aba **Vendas** e selecionar uma empresa
+2. A tabela deve exibir os pedidos do período (antes aparecia vazia mesmo com "3339 pedidos • Página 1 de 67")
+3. Testar filtros de Tipo de Envio (Flex, Full, Coleta) — todos devem mostrar resultados
+4. Verificar que o cálculo de Frete Vendedor em pedidos Flex (ex: R$10,90 - R$11,00 bônus = R$0) está correto
+5. Verificar que pedidos Full/Coleta mostram o frete real da API sem alteração
