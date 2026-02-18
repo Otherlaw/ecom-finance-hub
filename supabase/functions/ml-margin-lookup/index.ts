@@ -1,10 +1,26 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "https://www.mercadolivre.com.br",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, content-type, apikey",
-};
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") ?? "";
+  const allowedExact = new Set([
+    "https://www.mercadolivre.com.br",
+    "https://mercadolivre.com.br",
+    "https://ecomfinance.lovable.app",
+    "https://www.ecomfinance.lovable.app",
+  ]);
+  const isChromeExt = origin.startsWith("chrome-extension://");
+  const allowOrigin =
+    allowedExact.has(origin) || isChromeExt
+      ? origin
+      : "https://www.mercadolivre.com.br";
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
+  };
+}
 
 interface RequestItem {
   sku?: string | null;
@@ -48,11 +64,13 @@ function round2(n: number): number {
 }
 
 Deno.serve(async (req) => {
+  const cors = getCorsHeaders(req);
+
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: cors });
   }
 
-  const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
+  const jsonHeaders = { ...cors, "Content-Type": "application/json" };
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -293,7 +311,7 @@ Deno.serve(async (req) => {
     console.error("Erro no ml-margin-lookup:", error);
     return new Response(
       JSON.stringify({ error: "Erro interno do servidor" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 500, headers: jsonHeaders }
     );
   }
 });
