@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Info, Loader2 } from "lucide-react";
 import {
   RegimeTributario,
@@ -26,6 +27,8 @@ import {
 } from "@/lib/empresas-data";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { CertificadoSection } from "./CertificadoSection";
+import { ConfiguracaoFinanceiraEmpresa } from "./ConfiguracaoFinanceiraEmpresa";
+
 
 interface EmpresaFormModalProps {
   open: boolean;
@@ -175,7 +178,7 @@ export function EmpresaFormModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {isEditing ? "Editar Empresa" : "Nova Empresa"}
@@ -185,183 +188,199 @@ export function EmpresaFormModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="razao_social">Razão Social *</Label>
-            <Input
-              id="razao_social"
-              value={formData.razao_social}
-              onChange={(e) => handleChange("razao_social", e.target.value)}
-              placeholder="Ex: Minha Empresa Ltda"
-              className={errors.razao_social ? "border-destructive" : ""}
-            />
-            {errors.razao_social && (
-              <span className="text-xs text-destructive">{errors.razao_social}</span>
+        <Tabs defaultValue="dados" className="w-full">
+          <TabsList className="w-full">
+            <TabsTrigger value="dados" className="flex-1">Dados Cadastrais</TabsTrigger>
+            {isEditing && (
+              <TabsTrigger value="financeiro" className="flex-1">Configurações Financeiras</TabsTrigger>
             )}
-          </div>
+          </TabsList>
 
-          <div className="space-y-2">
-            <Label htmlFor="nome_fantasia">Nome Fantasia</Label>
-            <Input
-              id="nome_fantasia"
-              value={formData.nome_fantasia}
-              onChange={(e) => handleChange("nome_fantasia", e.target.value)}
-              placeholder="Ex: Minha Empresa"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="cnpj">CNPJ *</Label>
-            <Input
-              id="cnpj"
-              value={formData.cnpj}
-              onChange={(e) => handleChange("cnpj", e.target.value)}
-              placeholder="00.000.000/0000-00"
-              maxLength={18}
-              className={errors.cnpj ? "border-destructive" : ""}
-            />
-            {errors.cnpj && (
-              <span className="text-xs text-destructive">{errors.cnpj}</span>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="regime_tributario">Regime Tributário *</Label>
-            <Select
-              value={formData.regime_tributario}
-              onValueChange={(value) => handleChange("regime_tributario", value)}
-            >
-              <SelectTrigger className={errors.regime_tributario ? "border-destructive" : ""}>
-                <SelectValue placeholder="Selecione o regime tributário" />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(REGIME_TRIBUTARIO_CONFIG).map(([key, config]) => (
-                  <SelectItem key={key} value={key}>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={`${config.bgColor} ${config.color} border`}>
-                        {config.shortLabel}
-                      </Badge>
-                      {config.label}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.regime_tributario && (
-              <span className="text-xs text-destructive">{errors.regime_tributario}</span>
-            )}
-          </div>
-
-          {showSimplesWarning && (
-            <Alert className="bg-blue-50 border-blue-200">
-              <Info className="h-4 w-4 text-blue-600" />
-              <AlertDescription className="text-blue-800 text-sm">
-                <strong>Simples Nacional:</strong> Empresas neste regime não utilizam créditos de ICMS para compensação tributária da mesma forma que Lucro Presumido/Real.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
+          <TabsContent value="dados" className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="inscricao_estadual">Inscrição Estadual</Label>
+              <Label htmlFor="razao_social">Razão Social *</Label>
               <Input
-                id="inscricao_estadual"
-                value={formData.inscricao_estadual}
-                onChange={(e) => handleChange("inscricao_estadual", e.target.value)}
-                placeholder="Opcional"
+                id="razao_social"
+                value={formData.razao_social}
+                onChange={(e) => handleChange("razao_social", e.target.value)}
+                placeholder="Ex: Minha Empresa Ltda"
+                className={errors.razao_social ? "border-destructive" : ""}
+              />
+              {errors.razao_social && (
+                <span className="text-xs text-destructive">{errors.razao_social}</span>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="nome_fantasia">Nome Fantasia</Label>
+              <Input
+                id="nome_fantasia"
+                value={formData.nome_fantasia}
+                onChange={(e) => handleChange("nome_fantasia", e.target.value)}
+                placeholder="Ex: Minha Empresa"
               />
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="telefone">Telefone</Label>
+              <Label htmlFor="cnpj">CNPJ *</Label>
               <Input
-                id="telefone"
-                value={formData.telefone}
-                onChange={(e) => handleChange("telefone", e.target.value)}
-                placeholder="(00) 00000-0000"
+                id="cnpj"
+                value={formData.cnpj}
+                onChange={(e) => handleChange("cnpj", e.target.value)}
+                placeholder="00.000.000/0000-00"
+                maxLength={18}
+                className={errors.cnpj ? "border-destructive" : ""}
               />
+              {errors.cnpj && (
+                <span className="text-xs text-destructive">{errors.cnpj}</span>
+              )}
             </div>
-          </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="email">E-mail</Label>
-            <Input
-              id="email"
-              type="email"
-              value={formData.email}
-              onChange={(e) => handleChange("email", e.target.value)}
-              placeholder="empresa@email.com"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="endereco">Endereço</Label>
-            <Input
-              id="endereco"
-              value={formData.endereco}
-              onChange={(e) => handleChange("endereco", e.target.value)}
-              placeholder="Rua, número, cidade - UF"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="ativo">Status</Label>
-            <Select
-              value={formData.ativo ? "ativo" : "inativo"}
-              onValueChange={(value) => handleChange("ativo", value === "ativo")}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ativo">Ativo</SelectItem>
-                <SelectItem value="inativo">Inativo</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Bloco de Patrimônio / Capital */}
-          <div className="pt-4 border-t">
-            <h4 className="font-medium text-sm text-muted-foreground mb-3">Patrimônio / Capital</h4>
             <div className="space-y-2">
-              <Label htmlFor="capital_inicial">K Inicial (Capital Inicial)</Label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">R$</span>
+              <Label htmlFor="regime_tributario">Regime Tributário *</Label>
+              <Select
+                value={formData.regime_tributario}
+                onValueChange={(value) => handleChange("regime_tributario", value)}
+              >
+                <SelectTrigger className={errors.regime_tributario ? "border-destructive" : ""}>
+                  <SelectValue placeholder="Selecione o regime tributário" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(REGIME_TRIBUTARIO_CONFIG).map(([key, config]) => (
+                    <SelectItem key={key} value={key}>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className={`${config.bgColor} ${config.color} border`}>
+                          {config.shortLabel}
+                        </Badge>
+                        {config.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.regime_tributario && (
+                <span className="text-xs text-destructive">{errors.regime_tributario}</span>
+              )}
+            </div>
+
+            {showSimplesWarning && (
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertDescription className="text-sm">
+                  <strong>Simples Nacional:</strong> Empresas neste regime não utilizam créditos de ICMS para compensação tributária da mesma forma que Lucro Presumido/Real.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="inscricao_estadual">Inscrição Estadual</Label>
                 <Input
-                  id="capital_inicial"
-                  value={formatCurrencyInput(formData.capital_inicial)}
-                  onChange={(e) => {
-                    const value = parseCurrencyInput(e.target.value);
-                    if (value >= 0) {
-                      handleChange("capital_inicial", value);
-                    }
-                  }}
-                  placeholder="0,00"
-                  className="pl-10"
+                  id="inscricao_estadual"
+                  value={formData.inscricao_estadual}
+                  onChange={(e) => handleChange("inscricao_estadual", e.target.value)}
+                  placeholder="Opcional"
                 />
               </div>
-              <p className="text-xs text-muted-foreground">
-                Valor total investido pelos sócios na abertura da empresa (capital inicial).
-              </p>
+              <div className="space-y-2">
+                <Label htmlFor="telefone">Telefone</Label>
+                <Input
+                  id="telefone"
+                  value={formData.telefone}
+                  onChange={(e) => handleChange("telefone", e.target.value)}
+                  placeholder="(00) 00000-0000"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Certificado Digital A1 - somente em modo edição */}
-          <CertificadoSection 
-            empresaId={isEditing ? empresa?.id : undefined}
-            empresaCnpj={isEditing ? empresa?.cnpj : formData.cnpj}
-          />
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="email">E-mail</Label>
+              <Input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => handleChange("email", e.target.value)}
+                placeholder="empresa@email.com"
+              />
+            </div>
 
-        <div className="flex justify-end gap-3 pt-4 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-            Cancelar
-          </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {isEditing ? "Salvar Alterações" : "Cadastrar Empresa"}
-          </Button>
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="endereco">Endereço</Label>
+              <Input
+                id="endereco"
+                value={formData.endereco}
+                onChange={(e) => handleChange("endereco", e.target.value)}
+                placeholder="Rua, número, cidade - UF"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="ativo">Status</Label>
+              <Select
+                value={formData.ativo ? "ativo" : "inativo"}
+                onValueChange={(value) => handleChange("ativo", value === "ativo")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ativo">Ativo</SelectItem>
+                  <SelectItem value="inativo">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Bloco de Patrimônio / Capital */}
+            <div className="pt-4 border-t">
+              <h4 className="font-medium text-sm text-muted-foreground mb-3">Patrimônio / Capital</h4>
+              <div className="space-y-2">
+                <Label htmlFor="capital_inicial">K Inicial (Capital Inicial)</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">R$</span>
+                  <Input
+                    id="capital_inicial"
+                    value={formatCurrencyInput(formData.capital_inicial)}
+                    onChange={(e) => {
+                      const value = parseCurrencyInput(e.target.value);
+                      if (value >= 0) {
+                        handleChange("capital_inicial", value);
+                      }
+                    }}
+                    placeholder="0,00"
+                    className="pl-10"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Valor total investido pelos sócios na abertura da empresa (capital inicial).
+                </p>
+              </div>
+            </div>
+
+            {/* Certificado Digital A1 - somente em modo edição */}
+            <CertificadoSection 
+              empresaId={isEditing ? empresa?.id : undefined}
+              empresaCnpj={isEditing ? empresa?.cnpj : formData.cnpj}
+            />
+
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSubmit} disabled={loading}>
+                {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {isEditing ? "Salvar Alterações" : "Cadastrar Empresa"}
+              </Button>
+            </div>
+          </TabsContent>
+
+          {isEditing && (
+            <TabsContent value="financeiro" className="py-4">
+              <ConfiguracaoFinanceiraEmpresa empresaId={empresa?.id} />
+            </TabsContent>
+          )}
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
 }
+

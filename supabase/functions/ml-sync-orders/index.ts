@@ -1313,6 +1313,7 @@ Deno.serve(async (req) => {
         let tipoEnvio: string | null = null;
         let freteComprador = 0;
         let freteVendedor = freteVendedorFromBilling;
+        let bonusEnvio = 0; // Bônus pago pelo ML ao vendedor (desconto no frete do sender)
 
         const shippingCosts = shippingCostsMap.get(order.id);
         if (shippingCosts) {
@@ -1323,12 +1324,22 @@ Deno.serve(async (req) => {
           if (freteVendedor === 0 && shippingCosts.sender_cost > 0) {
             freteVendedor = shippingCosts.sender_cost;
           }
+
+          // Capturar bônus por envio: campo 'save' nos raw_senders
+          // Quando o ML concede desconto (promoção/campanha de logística), ele reduz o custo
+          // do vendedor pelo valor do bônus. Esse valor aparece como crédito separado.
+          if (shippingCosts.raw_senders && Array.isArray(shippingCosts.raw_senders)) {
+            bonusEnvio = shippingCosts.raw_senders.reduce((sum: number, s: any) => {
+              return sum + (Number(s.save) || 0);
+            }, 0);
+          }
         }
 
         // ========== CALCULAR VALORES ==========
         const taxasLegado = comissao + tarifaFinanceira;
         const tarifasLegado = tarifaFixa;
-        const valorLiquido = valorBruto - taxasLegado - tarifasLegado - freteVendedor;
+        // valor_liquido = bruto - taxas - tarifas - frete_vendedor + bonus_envio
+        const valorLiquido = valorBruto - taxasLegado - tarifasLegado - freteVendedor + bonusEnvio;
 
         const taxasFoiEstimada = usouFallback;
         const fretePendente = freteVendedor === 0 && ordersWithShipping.some(o => o.id === order.id);
@@ -1406,12 +1417,14 @@ Deno.serve(async (req) => {
           tipo_envio: tipoEnvio,
           frete_comprador: freteComprador,
           frete_vendedor: fretePendente ? null : freteVendedor,
+          bonus_envio: bonusEnvio > 0 ? bonusEnvio : 0,
           raw_order: rawOrder,
           raw_fees: rawFees,
           raw_shipping_costs: shippingCosts ? {
             logistic_type: shippingCosts.logistic_type,
             sender_cost: shippingCosts.sender_cost,
             receiver_cost: shippingCosts.receiver_cost,
+            bonus_envio: bonusEnvio,
             raw_senders: shippingCosts.raw_senders,
             raw_receiver: shippingCosts.raw_receiver,
           } : null,
