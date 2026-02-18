@@ -284,37 +284,37 @@ export function CriarProdutoRapidoForm({
       {tipo === "kit" && (
         <div className="space-y-3 border-t pt-3">
           <Label className="text-xs">Componentes do Kit</Label>
-          {kitComponentes.map((comp, idx) => (
-            <div key={idx} className="flex gap-2 items-end">
-              <div className="flex-1 space-y-1">
+      {kitComponentes.map((comp, idx) => (
+            <div key={idx} className="space-y-1.5 p-2 border rounded bg-background">
+              <div className="flex items-center justify-between">
                 <Label className="text-[10px] text-muted-foreground">Produto Componente</Label>
-                <KitComponenteSelector
-                  produtos={produtosParaKit}
-                  selectedSku={comp.sku}
-                  onSelect={(p) => selectKitProduto(idx, p)}
-                />
+                {kitComponentes.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 w-5 p-0 text-destructive hover:text-destructive"
+                    onClick={() => removeKitComponente(idx)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
               </div>
-              <div className="w-20 space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Qtd</Label>
+              <KitComponenteSelector
+                produtos={produtosParaKit}
+                selectedSku={comp.sku}
+                onSelect={(p) => selectKitProduto(idx, p)}
+              />
+              <div className="flex items-center gap-2">
+                <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Quantidade:</Label>
                 <Input
                   type="number"
                   min="1"
                   value={comp.quantidade}
                   onChange={(e) => updateKitQuantidade(idx, parseInt(e.target.value) || 1)}
-                  className="h-8 text-xs"
+                  className="h-7 text-xs w-20"
                 />
               </div>
-              {kitComponentes.length > 1 && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-2 text-destructive"
-                  onClick={() => removeKitComponente(idx)}
-                >
-                  X
-                </Button>
-              )}
             </div>
           ))}
           <Button type="button" variant="outline" size="sm" onClick={addKitComponente} className="text-xs">
@@ -393,16 +393,16 @@ function KitComponenteSelector({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 w-full justify-start text-xs font-normal truncate"
+          className="h-auto min-h-[2rem] w-full justify-start text-xs font-normal text-left whitespace-normal py-1.5"
         >
           {produtoSelecionado ? (
-            <span className="truncate">{produtoSelecionado.sku} - {produtoSelecionado.nome}</span>
+            <span className="break-words"><strong>{produtoSelecionado.sku}</strong> — {produtoSelecionado.nome}</span>
           ) : (
             <span className="text-muted-foreground">Buscar produto...</span>
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 p-2" align="start">
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[280px] p-2" align="start">
         <div className="flex items-center gap-1 mb-2">
           <Search className="h-3 w-3 text-muted-foreground" />
           <Input
