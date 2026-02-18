@@ -157,6 +157,16 @@ export function ProdutoFormModalV2({
     [produtosDisponiveis, novoComponenteSku]
   );
 
+  // Custo calculado automaticamente para kits (soma dos componentes)
+  const custoMedioKit = useMemo(() => {
+    if (tipo !== "kit" || kitComponentes.length === 0) return null;
+    return kitComponentes.reduce((acc, comp) => {
+      const produtoComp = produtosDisponiveis.find(p => p.sku === comp.sku);
+      const custoUnitario = produtoComp?.custo_medio ?? 0;
+      return acc + custoUnitario * comp.quantidade;
+    }, 0);
+  }, [tipo, kitComponentes, produtosDisponiveis]);
+
   // Reset form when modal opens
   useEffect(() => {
     if (open) {
@@ -357,7 +367,7 @@ export function ProdutoFormModalV2({
         cfop_venda: cfopVenda || undefined,
         cfop_compra: cfopCompra || undefined,
         fornecedor_nome: fornecedorNome || undefined,
-        custo_medio: custoMedio,
+        custo_medio: custoMedioKit !== null ? custoMedioKit : custoMedio,
         preco_venda: precoVenda,
         peso_kg: pesoKg,
         altura_cm: alturaCm,
@@ -652,13 +662,20 @@ export function ProdutoFormModalV2({
                 </Popover>
               </div>
               <div className="space-y-2">
-                <Label>Custo Médio (R$)</Label>
+                <Label>
+                  Custo Médio (R$)
+                  {custoMedioKit !== null && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">calculado pelo kit</span>
+                  )}
+                </Label>
                 <Input
                   type="number"
                   step="0.01"
                   min="0"
-                  value={custoMedio || ""}
-                  onChange={(e) => setCustoMedio(parseFloat(e.target.value) || 0)}
+                  value={custoMedioKit !== null ? custoMedioKit.toFixed(2) : (custoMedio || "")}
+                  onChange={(e) => { if (custoMedioKit === null) setCustoMedio(parseFloat(e.target.value) || 0); }}
+                  readOnly={custoMedioKit !== null}
+                  className={custoMedioKit !== null ? "bg-muted text-muted-foreground cursor-not-allowed" : ""}
                 />
               </div>
               <div className="space-y-2">
