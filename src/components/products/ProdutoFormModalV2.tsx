@@ -443,36 +443,33 @@ export function ProdutoFormModalV2({
 
           <TabsContent value="geral" className="space-y-6 mt-4">
             {/* Tipo de Produto */}
-            <div className="space-y-3">
-              <Label>Tipo de Produto *</Label>
-              {isEditing && (
-                <p className="text-xs text-muted-foreground">
-                  Atenção: alterar o tipo pode exigir reconfiguração de componentes/variações.
-                </p>
-              )}
-              <div className="grid grid-cols-3 gap-3">
-                {TIPOS_PRODUTO.map((t) => (
-                  <Card
-                    key={t.value}
-                    className={cn(
-                      "cursor-pointer transition-all hover:border-primary",
-                      tipo === t.value && "border-primary bg-primary/5"
-                    )}
-                    onClick={() => setTipo(t.value as TipoProduto)}
-                  >
-                    <CardContent className="pt-4">
-                      <div className="flex items-center gap-3">
-                        <t.icon className={cn("h-8 w-8", tipo === t.value ? "text-primary" : "text-muted-foreground")} />
-                        <div>
-                          <div className="font-medium">{t.label}</div>
-                          <div className="text-xs text-muted-foreground">{t.description}</div>
+            {!isEditing && (
+              <div className="space-y-3">
+                <Label>Tipo de Produto *</Label>
+                <div className="grid grid-cols-3 gap-3">
+                  {TIPOS_PRODUTO.map((t) => (
+                    <Card
+                      key={t.value}
+                      className={cn(
+                        "cursor-pointer transition-all hover:border-primary",
+                        tipo === t.value && "border-primary bg-primary/5"
+                      )}
+                      onClick={() => setTipo(t.value as TipoProduto)}
+                    >
+                      <CardContent className="pt-4">
+                        <div className="flex items-center gap-3">
+                          <t.icon className={cn("h-8 w-8", tipo === t.value ? "text-primary" : "text-muted-foreground")} />
+                          <div>
+                            <div className="font-medium">{t.label}</div>
+                            <div className="text-xs text-muted-foreground">{t.description}</div>
+                          </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* SKU e Nome */}
             <div className="grid grid-cols-2 gap-4">

@@ -1,14 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-function buildCorsHeaders(_req: Request) {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Max-Age": "86400",
-  };
-}
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "https://www.mercadolivre.com.br",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, content-type, apikey",
+};
 
 interface RequestItem {
   sku?: string | null;
@@ -52,7 +48,6 @@ function round2(n: number): number {
 }
 
 Deno.serve(async (req) => {
-  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
