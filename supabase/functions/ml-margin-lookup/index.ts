@@ -27,12 +27,18 @@ interface RequestItem {
   anuncio_id?: string | null;
   preco_final: number;
   quantidade?: number | null;
-  comissao?: number | null;
-  tarifa_fixa?: number | null;
-  frete_vendedor?: number | null;
+  // Campos reais capturados pelo detalhe
+  comissao?: number | null;       // tarifa percentual em R$ (real)
+  tarifa_fixa?: number | null;    // custo fixo em R$ (real)
+  tarifa_total?: number | null;   // fallback: preco - total_recebido (real)
+  imposto?: number | null;        // imposto do produto em R$ (real)
+  shipping_mode?: string | null;  // 'full' | 'flex' | 'flex_turbo'
+  rebate?: number | null;         // rebate/campanha em R$ (crédito)
   ads?: number | null;
   outros_descontos?: number | null;
+  // Legado (mantido para compatibilidade)
   impostos?: number | null;
+  frete_vendedor?: number | null;
 }
 
 interface MarginResult {
@@ -47,9 +53,13 @@ interface MarginResult {
   ads: number;
   outros_descontos: number;
   imposto: number;
+  rebate: number;
   margem: number | null;
   margem_pct: number | null;
   fonte_custo: "produto" | "sku_costs" | "nao_encontrado";
+  shipping_mode: string | null;
+  usando_tarifas_reais: boolean;
+  usando_imposto_real: boolean;
 }
 
 function estimarTarifaFixaML(preco: number): number {
@@ -124,14 +134,23 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Buscar aliquota de imposto
-    const { data: configFiscal } = await supabase
-      .from("empresas_config_fiscal")
-      .select("aliquota_imposto_vendas")
-      .eq("empresa_id", empresa_id)
-      .maybeSingle();
+    // Buscar configurações em paralelo: aliquota fiscal + config logística
+    const [configFiscalRes, logisticaRes] = await Promise.all([
+      supabase
+        .from("empresas_config_fiscal")
+        .select("aliquota_imposto_vendas")
+        .eq("empresa_id", empresa_id)
+        .maybeSingle(),
+      supabase
+        .from("empresa_logistica_config")
+        .select("flex_custo, flex_turbo_custo")
+        .eq("empresa_id", empresa_id)
+        .maybeSingle(),
+    ]);
 
-    const aliquota = configFiscal?.aliquota_imposto_vendas ?? 6.0;
+    const aliquota = configFiscalRes.data?.aliquota_imposto_vendas ?? 6.0;
+    const flexCusto = Number(logisticaRes.data?.flex_custo ?? 0);
+    const flexTurboCusto = Number(logisticaRes.data?.flex_turbo_custo ?? 0);
 
     // Coletar SKUs e anuncio_ids unicos
     const skus: string[] = [];
@@ -253,35 +272,80 @@ Deno.serve(async (req) => {
         fonteCusto = "sku_costs";
       }
 
-      // === 2) Comissao/tarifa: usar valores enviados ou estimar ===
-      const comissao =
-        item.comissao != null ? item.comissao : round2(preco * 0.12);
-      const tarifaFixa =
-        item.tarifa_fixa != null
-          ? item.tarifa_fixa
-          : estimarTarifaFixaML(preco);
-      const freteVendedor = item.frete_vendedor ?? 0;
+      // === 2) Comissão / tarifa ===
+      // Prioridade:
+      //   a) comissao + tarifa_fixa reais → usar diretamente
+      //   b) tarifa_total real → comissao = tarifa_total - tarifa_fixa (ou tarifa_total inteiro)
+      //   c) fallback estimado
+      let comissao: number;
+      let tarifaFixa: number;
+      let usandoTarifasReais = false;
+
+      if (item.comissao != null && item.comissao > 0) {
+        // Caso a: temos comissão percentual real
+        comissao = item.comissao;
+        tarifaFixa = item.tarifa_fixa != null ? item.tarifa_fixa : 0;
+        usandoTarifasReais = true;
+      } else if (item.tarifa_total != null && item.tarifa_total > 0) {
+        // Caso b: temos tarifa_total (preco - total_recebido)
+        tarifaFixa = item.tarifa_fixa != null ? item.tarifa_fixa : 0;
+        // comissão percentual = tarifa_total - custo_fixo
+        comissao = round2(Math.max(0, item.tarifa_total - tarifaFixa));
+        // Se não temos custo_fixo separado, coloca tudo em comissao
+        if (item.tarifa_fixa == null) {
+          comissao = item.tarifa_total;
+          tarifaFixa = 0;
+        }
+        usandoTarifasReais = true;
+      } else {
+        // Caso c: fallback estimado
+        comissao = round2(preco * 0.12);
+        tarifaFixa = item.tarifa_fixa != null ? item.tarifa_fixa : estimarTarifaFixaML(preco);
+        usandoTarifasReais = false;
+      }
+
+      // === 3) Frete vendedor: custo de FLEX/FLEX TURBO da config da empresa ===
+      let freteVendedor = item.frete_vendedor ?? 0;
+      const shippingMode = item.shipping_mode ?? null;
+      if (shippingMode === "flex_turbo" && flexTurboCusto > 0) {
+        freteVendedor = flexTurboCusto;
+      } else if (shippingMode === "flex" && flexCusto > 0) {
+        freteVendedor = flexCusto;
+      }
+
+      // === 4) Ads (placeholder — sempre 0 por enquanto) ===
       const ads = item.ads ?? 0;
       const outrosDescontos = item.outros_descontos ?? 0;
 
-      // === 3) Impostos: usar enviado ou calcular ===
-      const imposto =
-        item.impostos != null ? item.impostos : round2(preco * (aliquota / 100));
+      // === 5) Impostos: real (campo imposto) > legado (impostos) > estimado ===
+      let imposto: number;
+      let usandoImpostoReal = false;
+      const impostoReal = item.imposto ?? item.impostos ?? null;
+      if (impostoReal != null) {
+        imposto = impostoReal;
+        usandoImpostoReal = true;
+      } else {
+        imposto = round2(preco * (aliquota / 100));
+      }
 
-      // === 4) Margem ===
+      // === 6) Rebate (crédito: entra positivo na margem) ===
+      const rebate = item.rebate ?? 0;
+
+      // === 7) Margem final ===
       let margem: number | null = null;
       let margemPct: number | null = null;
 
       if (custoUnitario !== null) {
         margem = round2(
-          preco -
-            custoUnitario * qty -
-            comissao -
-            tarifaFixa -
-            freteVendedor -
-            ads -
-            outrosDescontos -
-            imposto
+          preco
+          - custoUnitario * qty
+          - comissao
+          - tarifaFixa
+          - freteVendedor
+          - ads
+          - outrosDescontos
+          - imposto
+          + rebate  // rebate AUMENTA a margem
         );
         margemPct = preco > 0 ? round2((margem / preco) * 100) : 0;
       }
@@ -298,9 +362,13 @@ Deno.serve(async (req) => {
         ads: round2(ads),
         outros_descontos: round2(outrosDescontos),
         imposto: round2(imposto),
+        rebate: round2(rebate),
         margem,
         margem_pct: margemPct,
         fonte_custo: fonteCusto,
+        shipping_mode: shippingMode,
+        usando_tarifas_reais: usandoTarifasReais,
+        usando_imposto_real: usandoImpostoReal,
       };
     });
 

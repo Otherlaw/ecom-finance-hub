@@ -1442,6 +1442,35 @@ export type Database = {
         }
         Relationships: []
       }
+      empresa_logistica_config: {
+        Row: {
+          empresa_id: string
+          flex_custo: number
+          flex_turbo_custo: number
+          updated_at: string
+        }
+        Insert: {
+          empresa_id: string
+          flex_custo?: number
+          flex_turbo_custo?: number
+          updated_at?: string
+        }
+        Update: {
+          empresa_id?: string
+          flex_custo?: number
+          flex_turbo_custo?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_logistica_config_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresas: {
         Row: {
           ativo: boolean
