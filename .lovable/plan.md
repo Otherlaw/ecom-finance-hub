@@ -1,93 +1,100 @@
 
-## Diagnóstico do Bug
+## Diagnóstico Definitivo: Bug do Frete no Flex
 
-### Causa Raiz Confirmada
+### O que está acontecendo
 
-Existem **duas versões da RPC `get_vendas_por_pedido`** no banco simultaneamente:
+Para pedidos do Mercado Livre com `tipo_envio = 'flex'`, a API do ML **não retorna** o custo do frete do vendedor no campo `frete_vendedor`. Esse campo fica `NULL` na tabela `marketplace_transactions`.
 
-| Versão | Parâmetros de paginação | Parâmetros de data | Lógica CMV |
-|--------|------------------------|--------------------|------------|
-| **V-TEXT** (usada pelo hook) | `p_limit`, `p_offset` | `TEXT` | ❌ Só busca em `sku_costs` — ignora `produtos.custo_medio` |
-| **V-DATE** (versão correta) | `p_page`, `p_page_size` | `DATE` | ✅ Busca em `produtos` com fallback `sku_costs` |
+A RPC `get_vendas_por_pedido` exibe `frete_vendedor_total = NULL` corretamente — o problema está em **como o custo operacional configurado (`logistica_plataforma_config`) deveria ser aplicado**, e atualmente ele **não está sendo aplicado** na RPC principal.
 
-O hook `useVendasPorPedido.ts` chama a versão com `p_limit`/`p_offset` (V-TEXT), que tem a CTE `itens_agg` assim:
+O valor R$9,90 que aparece incorretamente na tela vem da tabela `logistica_plataforma_config` onde:
+- Mercado Livre / Flex = **R$10,90** (correto)
+- Shopee / Flex = **R$9,90** (incorreto — está sendo mostrado no lugar do ML)
+
+Há um componente ou lógica no frontend que está lendo o custo da configuração sem filtrar pelo canal do pedido.
+
+### Lógica de negócio correta (conforme explicado pelo usuário)
+
+Para um pedido Flex do Mercado Livre:
+- Custo operacional pago à empresa de flex: **R$10,90** (configurado)
+- Bônus por envio recebido do ML: **R$1,10** (crédito)
+- **Frete Vendedor Líquido real = R$10,90 - R$1,10 = R$9,80**
+
+O campo `bonus_envio` nas transações está zerado porque o ML ainda não enviou esse dado como evento separado — ele aparece na tela do Mercado Livre mas não chega via API de forma direta.
+
+### Plano de Correção
+
+#### Ação 1 — Corrigir a RPC `get_vendas_por_pedido`
+
+Adicionar uma CTE `config_logistica_plataforma` que busca o custo configurado por `canal` e `tipo_envio` em `logistica_plataforma_config`. Quando `frete_vendedor` for `NULL` e o pedido for `flex` ou `flex_turbo`, usar o custo configurado **menos** o `bonus_envio`:
 
 ```sql
--- ERRADO: só verifica sku_costs, nunca produtos.custo_medio
-CASE 
-  WHEN bool_and(mti.produto_id IS NOT NULL AND sc.custo_unitario IS NOT NULL AND sc.custo_unitario > 0)
-  THEN SUM(mti.quantidade * COALESCE(sc.custo_unitario, 0))
-  ELSE NULL
-END AS cmv_total
+config_logistica_plataforma AS (
+  SELECT lpc.empresa_id, lpc.canal, lpc.tipo_envio, lpc.custo
+  FROM logistica_plataforma_config lpc
+  WHERE lpc.empresa_id = ANY(v_empresa_ids)
+),
 ```
 
-Como a tabela `sku_costs` está vazia (0 registros), **todos os pedidos retornam `cmv_total = NULL`** e `tem_cmv = false`.
-
-A versão correta (V-DATE) usa:
+No SELECT final do `resultado`, substituir:
 ```sql
--- CORRETO: prioriza produtos.custo_medio, fallback sku_costs
-LEFT JOIN produtos p ON p.id = mti.produto_id AND COALESCE(p.custo_medio, 0) > 0
-LEFT JOIN sku_costs sc ON sc.sku = mti.sku_marketplace AND sc.empresa_id = mt2.empresa_id
-
+vb.frete_vendedor_agg AS frete_vendedor_total,
+```
+Por:
+```sql
 CASE
-  WHEN bool_and(COALESCE(p.custo_medio, 0) > 0 OR COALESCE(sc.custo_unitario, 0) > 0)
-  THEN SUM(mti.quantidade * COALESCE(NULLIF(p.custo_medio, 0), NULLIF(sc.custo_unitario, 0)))
+  -- Se frete_vendedor veio da API, usar ele
+  WHEN vb.frete_vendedor_agg IS NOT NULL THEN vb.frete_vendedor_agg
+  -- Se é flex/flex_turbo sem frete_vendedor, aplicar custo configurado menos bonus_envio
+  WHEN vb.tipo_envio IN ('flex', 'flex_turbo') THEN
+    GREATEST(0, COALESCE(lpc.custo, 0) - COALESCE(vb.bonus_envio_agg, 0))
   ELSE NULL
-END AS cmv_total
+END AS frete_vendedor_total,
 ```
 
-### Verificação Manual Confirmou
-- Pedido `2000011607460473`: produto `FI-DU-FA-MA` com `custo_medio = 4` ✅ existe
-- CMV calculado manualmente: `1 × 4 = R$ 4,00` ✅ correto
-- CMV retornado pela RPC errada (V-TEXT): `NULL` ❌
-
----
-
-## Plano de Correção
-
-### Ação 1 — Migração SQL: corrigir a versão TEXT da RPC
-
-Substituir a CTE `itens_agg` da versão com parâmetros `p_limit`/`p_offset` para usar a mesma lógica correta da versão DATE:
-
+O JOIN com `config_logistica_plataforma` filtra por `canal` e `tipo_envio`:
 ```sql
--- Substituir a CTE itens_agg na versão TEXT por:
-itens_agg AS (
-  SELECT
-    COALESCE(mt2.pack_id, mt2.pedido_id) AS grp_pedido_id,
-    mt2.empresa_id,
-    SUM(mti.quantidade) AS qtd_itens,
-    CASE
-      WHEN bool_and(COALESCE(p.custo_medio, 0) > 0 OR COALESCE(sc.custo_unitario, 0) > 0)
-      THEN SUM(mti.quantidade * COALESCE(NULLIF(p.custo_medio, 0), NULLIF(sc.custo_unitario, 0)))
-      ELSE NULL
-    END AS cmv_total,
-    bool_and(COALESCE(p.custo_medio, 0) > 0 OR COALESCE(sc.custo_unitario, 0) > 0) AS tem_cmv,
-    (array_agg(DISTINCT mti.anuncio_id ...) ...)[1] AS primeiro_anuncio_id,
-    ARRAY(...) AS anuncio_ids
-  FROM marketplace_transaction_items mti
-  JOIN marketplace_transactions mt2 ON mt2.id = mti.transaction_id
-  LEFT JOIN produtos p ON p.id = mti.produto_id AND COALESCE(p.custo_medio, 0) > 0
-  LEFT JOIN sku_costs sc ON sc.sku = mti.sku_marketplace AND sc.empresa_id = mt2.empresa_id
-  WHERE ...
-  GROUP BY COALESCE(mt2.pack_id, mt2.pedido_id), mt2.empresa_id
-)
+LEFT JOIN config_logistica_plataforma lpc 
+  ON lpc.empresa_id = vb.empresa_id 
+  AND lpc.canal = vb.canal 
+  AND lpc.tipo_envio = vb.tipo_envio
 ```
 
-Também corrigir o SELECT final para incluir `fonte_custo` e ajustar o cálculo de `valor_liquido_calculado` com imposto e logística.
+O mesmo ajuste deve ser feito no cálculo do `valor_liquido_calculado` e `margem_contribuicao` para que a dedução seja consistente.
 
-### Ação 2 — Garantir consistência do retorno
+#### Ação 2 — Corrigir a RPC `get_vendas_por_pedido_resumo_v2`
 
-A versão TEXT também precisa retornar `fonte_custo` no resultado (campo presente no tipo `PedidoAgregado` do frontend mas ausente na versão TEXT atual).
+Esta RPC de resumo (usada nos cards de totais) referencia a tabela antiga `empresa_logistica_config` com colunas `flex_custo`/`flex_turbo_custo` — que não filtra por canal. Precisa ser atualizada para usar `logistica_plataforma_config` com filtro por canal.
 
-### Arquivos afetados
+Atualmente (linha 65-67):
+```sql
+config_logistica AS (
+  SELECT elc.empresa_id, COALESCE(elc.flex_custo, 0) AS flex_custo, COALESCE(elc.flex_turbo_custo, 0) AS flex_turbo_custo
+  FROM empresa_logistica_config elc
+```
 
-- **Migração SQL** (novo arquivo em `supabase/migrations/`): reescreve a versão TEXT da RPC com a lógica correta de CMV
+Isso mistura canais sem distinguir ML de Shopee, resultando nos valores incorretos.
 
-Nenhum arquivo de frontend precisa mudar — o hook já está correto, o problema é 100% no banco.
+#### Resultado esperado após a correção
 
-### Como testar após a correção
+Para o pedido `2000011604513427` (ML / Flex / R$20,90):
+| Campo | Antes | Depois |
+|---|---|---|
+| `frete_vendedor_total` | NULL | R$9,80 (R$10,90 - R$1,10 de bônus) |
+| `valor_liquido_calculado` | R$9,22 | R$9,22 - R$9,80 = valor correto |
+| `margem_contribuicao` | calculado sem frete | calculado com frete flex |
 
-1. Abrir aba Vendas com o período de hoje (18/02/2026)
-2. O pedido `...07460473` (FI-DU-FA-MA, custo R$ 4,00) deve aparecer com CMV = R$ 4,00 e margem calculada
-3. Outros pedidos com produtos mapeados também devem mostrar CMV corretamente
-4. Pedidos sem produto mapeado continuam mostrando "Sem custo" — comportamento esperado
+### Arquivos Afetados
+
+- **Migração SQL** (1 novo arquivo): corrige as RPCs `get_vendas_por_pedido` e `get_vendas_por_pedido_resumo_v2` para usar `logistica_plataforma_config` com filtro por canal e tipo de envio, aplicando o custo operacional quando `frete_vendedor` for NULL em pedidos flex.
+
+Nenhum arquivo de frontend precisa ser alterado.
+
+### Como Testar
+
+1. Abrir aba Vendas e filtrar por **Tipo de Envio = Flex**
+2. Pedido `...4513427` (R$20,90 ML Flex) deve mostrar:
+   - Frete Vendedor = R$9,80 (R$10,90 - R$1,10)
+   - Margem corretamente deduzida
+3. Pedidos Flex com `frete_vendedor` já preenchido pela API (ex: R$24,95) devem continuar exibindo esse valor sem alteração
+4. Pedidos Full e Coleta não devem ser afetados
