@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { EmpresaFormModal } from "@/components/empresas/EmpresaFormModal";
 import { ColaboradoresModal } from "@/components/empresas/ColaboradoresModal";
+import { ConfigFiscalLogisticaModal } from "@/components/empresas/ConfigFiscalLogisticaModal";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useIntegracoes } from "@/hooks/useIntegracoes";
 import { useAllNfeCertificates } from "@/hooks/useAllNfeCertificates";
