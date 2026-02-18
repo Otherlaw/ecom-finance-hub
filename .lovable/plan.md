@@ -1,111 +1,93 @@
 
+## Diagnóstico do Bug
 
-# Corrigir mapeamento de produtos na aba Vendas
+### Causa Raiz Confirmada
 
-## Problemas identificados
+Existem **duas versões da RPC `get_vendas_por_pedido`** no banco simultaneamente:
 
-1. **Dois botoes "Mapear"**: Na coluna CMV da tabela de pedidos, existe um botao "Mapear" que apenas expande a linha. Ao expandir, cada item tambem tem seu proprio botao "Mapear SKU". O botao da coluna CMV e redundante e deve ser removido.
+| Versão | Parâmetros de paginação | Parâmetros de data | Lógica CMV |
+|--------|------------------------|--------------------|------------|
+| **V-TEXT** (usada pelo hook) | `p_limit`, `p_offset` | `TEXT` | ❌ Só busca em `sku_costs` — ignora `produtos.custo_medio` |
+| **V-DATE** (versão correta) | `p_page`, `p_page_size` | `DATE` | ✅ Busca em `produtos` com fallback `sku_costs` |
 
-2. **Criacao rapida so cria produto "unico"**: O formulario `CriarProdutoRapidoForm` sempre cria com `tipo: "unico"`. Nao ha opcao para criar produto com variacao (`variation_parent` + `variation_child`) nem kit.
+O hook `useVendasPorPedido.ts` chama a versão com `p_limit`/`p_offset` (V-TEXT), que tem a CTE `itens_agg` assim:
 
-3. **Variacao/kit nao aparece corretamente nos seletores**: O modal `MapearItensPedidoModal` usa `apenasRaiz: true` (default), o que oculta `variation_child`. Isso impede de vincular a variacao correta. Ja o `MapearCmvModal` usa `apenasRaiz: false`, o que mostra tudo, mas sem distincao visual entre parent e child.
+```sql
+-- ERRADO: só verifica sku_costs, nunca produtos.custo_medio
+CASE 
+  WHEN bool_and(mti.produto_id IS NOT NULL AND sc.custo_unitario IS NOT NULL AND sc.custo_unitario > 0)
+  THEN SUM(mti.quantidade * COALESCE(sc.custo_unitario, 0))
+  ELSE NULL
+END AS cmv_total
+```
+
+Como a tabela `sku_costs` está vazia (0 registros), **todos os pedidos retornam `cmv_total = NULL`** e `tem_cmv = false`.
+
+A versão correta (V-DATE) usa:
+```sql
+-- CORRETO: prioriza produtos.custo_medio, fallback sku_costs
+LEFT JOIN produtos p ON p.id = mti.produto_id AND COALESCE(p.custo_medio, 0) > 0
+LEFT JOIN sku_costs sc ON sc.sku = mti.sku_marketplace AND sc.empresa_id = mt2.empresa_id
+
+CASE
+  WHEN bool_and(COALESCE(p.custo_medio, 0) > 0 OR COALESCE(sc.custo_unitario, 0) > 0)
+  THEN SUM(mti.quantidade * COALESCE(NULLIF(p.custo_medio, 0), NULLIF(sc.custo_unitario, 0)))
+  ELSE NULL
+END AS cmv_total
+```
+
+### Verificação Manual Confirmou
+- Pedido `2000011607460473`: produto `FI-DU-FA-MA` com `custo_medio = 4` ✅ existe
+- CMV calculado manualmente: `1 × 4 = R$ 4,00` ✅ correto
+- CMV retornado pela RPC errada (V-TEXT): `NULL` ❌
 
 ---
 
-## Alteracoes planejadas
+## Plano de Correção
 
-### 1. Remover botao duplicado "Mapear" da coluna CMV
+### Ação 1 — Migração SQL: corrigir a versão TEXT da RPC
 
-**Arquivo**: `src/components/vendas/PedidosTableRow.tsx`
+Substituir a CTE `itens_agg` da versão com parâmetros `p_limit`/`p_offset` para usar a mesma lógica correta da versão DATE:
 
-Na coluna CMV (linhas 329-351), quando `semCMV` e verdadeiro, existe um botao "Mapear" que so faz expandir a linha. Esse botao sera substituido por um simples indicador textual "Sem custo" (igual ao tooltip da coluna Margem), ja que o mapeamento real e feito nos itens expandidos.
-
-### 2. Mostrar variações e kits nos seletores de produto
-
-**Arquivo**: `src/components/vendas/MapearItensPedidoModal.tsx`
-
-Mudar a chamada de `useProdutos` para `apenasRaiz: false`, permitindo que variações (children) aparecam no seletor. Adicionar indicacao visual do tipo do produto na lista:
-- `variation_parent` -> exibir "(Pai - sem custo proprio)"
-- `variation_child` -> exibir os atributos de variacao (cor, tamanho, etc.)
-- `kit` -> exibir "(Kit)"
-
-**Arquivo**: `src/components/vendas/MapearCmvModal.tsx`
-
-Ja usa `apenasRaiz: false`. Adicionar a mesma distincao visual de tipo na lista de produtos.
-
-### 3. Permitir criar produto com variacao ou kit no formulario rapido
-
-**Arquivo**: `src/components/vendas/CriarProdutoRapidoForm.tsx`
-
-Adicionar um seletor de tipo de produto com 3 opcoes:
-- **Produto Unico** (padrao) - comportamento atual
-- **Variacao** - cria como `variation_child`, com campo extra para selecionar o produto pai (parent_id) e campo de atributos (ex: "Cor: Azul, Tamanho: M")
-- **Kit** - cria como `kit`, com campo para informar os componentes (SKU + quantidade)
-
-O formulario tera os mesmos campos minimos (SKU, Nome, Custo) mais os campos adicionais conforme o tipo selecionado.
-
----
-
-## Detalhes tecnicos
-
-### PedidosTableRow.tsx - Coluna CMV (linhas 329-351)
-
-Antes:
-```text
-semCMV -> botao "Mapear" (chama handleToggleExpand)
+```sql
+-- Substituir a CTE itens_agg na versão TEXT por:
+itens_agg AS (
+  SELECT
+    COALESCE(mt2.pack_id, mt2.pedido_id) AS grp_pedido_id,
+    mt2.empresa_id,
+    SUM(mti.quantidade) AS qtd_itens,
+    CASE
+      WHEN bool_and(COALESCE(p.custo_medio, 0) > 0 OR COALESCE(sc.custo_unitario, 0) > 0)
+      THEN SUM(mti.quantidade * COALESCE(NULLIF(p.custo_medio, 0), NULLIF(sc.custo_unitario, 0)))
+      ELSE NULL
+    END AS cmv_total,
+    bool_and(COALESCE(p.custo_medio, 0) > 0 OR COALESCE(sc.custo_unitario, 0) > 0) AS tem_cmv,
+    (array_agg(DISTINCT mti.anuncio_id ...) ...)[1] AS primeiro_anuncio_id,
+    ARRAY(...) AS anuncio_ids
+  FROM marketplace_transaction_items mti
+  JOIN marketplace_transactions mt2 ON mt2.id = mti.transaction_id
+  LEFT JOIN produtos p ON p.id = mti.produto_id AND COALESCE(p.custo_medio, 0) > 0
+  LEFT JOIN sku_costs sc ON sc.sku = mti.sku_marketplace AND sc.empresa_id = mt2.empresa_id
+  WHERE ...
+  GROUP BY COALESCE(mt2.pack_id, mt2.pedido_id), mt2.empresa_id
+)
 ```
 
-Depois:
-```text
-semCMV -> texto "Sem custo" com icone de alerta (sem acao de clique)
-```
+Também corrigir o SELECT final para incluir `fonte_custo` e ajustar o cálculo de `valor_liquido_calculado` com imposto e logística.
 
-A acao de expandir ja existe ao clicar na linha inteira.
+### Ação 2 — Garantir consistência do retorno
 
-### MapearItensPedidoModal.tsx - useProdutos (linha 85-88)
+A versão TEXT também precisa retornar `fonte_custo` no resultado (campo presente no tipo `PedidoAgregado` do frontend mas ausente na versão TEXT atual).
 
-Antes:
-```text
-useProdutos({ empresaId, status: "ativo" })  // apenasRaiz default true
-```
+### Arquivos afetados
 
-Depois:
-```text
-useProdutos({ empresaId, status: "ativo", apenasRaiz: false })
-```
+- **Migração SQL** (novo arquivo em `supabase/migrations/`): reescreve a versão TEXT da RPC com a lógica correta de CMV
 
-Na lista de produtos (CommandItem), mostrar tipo e atributos:
-```text
-"Camiseta Azul M" 
-SKU: CAM-AZL-M | Custo: R$ 15,00 | Variacao
-```
+Nenhum arquivo de frontend precisa mudar — o hook já está correto, o problema é 100% no banco.
 
-### CriarProdutoRapidoForm.tsx - Seletor de tipo
+### Como testar após a correção
 
-Adicionar Select com opcoes:
-- "Produto Unico" (tipo: "unico")
-- "Variacao de produto existente" (tipo: "variation_child") 
-  - Campo adicional: Selecionar produto pai (Select com produtos tipo variation_parent)
-  - Campo adicional: Atributos (ex: "Cor: Azul")
-- "Kit" (tipo: "kit")
-  - Campo adicional: Componentes (lista de SKU + quantidade)
-
----
-
-## Arquivos alterados
-
-| Arquivo | Alteracao |
-|---|---|
-| `src/components/vendas/PedidosTableRow.tsx` | Remover botao "Mapear" duplicado da coluna CMV |
-| `src/components/vendas/MapearItensPedidoModal.tsx` | Usar `apenasRaiz: false` e adicionar indicacao de tipo |
-| `src/components/vendas/MapearCmvModal.tsx` | Adicionar indicacao visual de tipo no seletor |
-| `src/components/vendas/CriarProdutoRapidoForm.tsx` | Adicionar seletor de tipo (unico/variacao/kit) com campos extras |
-
-## Como testar
-
-1. Abrir aba Vendas, expandir um pedido sem CMV
-2. Verificar que a coluna CMV mostra "Sem custo" (sem botao clicavel)
-3. Clicar em "Mapear SKU" de um item -> no seletor de produto, verificar que variacoes e kits aparecem com indicacao visual
-4. No mesmo modal, clicar em "+ Criar Produto Rapido" -> verificar que e possivel escolher tipo Variacao ou Kit
-5. Criar uma variacao: selecionar produto pai, preencher atributos, e confirmar que o mapeamento funciona
-
+1. Abrir aba Vendas com o período de hoje (18/02/2026)
+2. O pedido `...07460473` (FI-DU-FA-MA, custo R$ 4,00) deve aparecer com CMV = R$ 4,00 e margem calculada
+3. Outros pedidos com produtos mapeados também devem mostrar CMV corretamente
+4. Pedidos sem produto mapeado continuam mostrando "Sem custo" — comportamento esperado
