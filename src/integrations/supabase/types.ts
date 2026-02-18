@@ -2332,6 +2332,7 @@ export type Database = {
         Row: {
           atualizado_em: string
           batch_id: string | null
+          bonus_envio: number | null
           canal: string
           canal_venda: string | null
           categoria_id: string | null
@@ -2354,6 +2355,7 @@ export type Database = {
           raw_fees: Json | null
           raw_order: Json | null
           raw_shipping_costs: Json | null
+          rebate: number | null
           referencia_externa: string
           responsavel_id: string | null
           seller_id: string | null
@@ -2371,6 +2373,7 @@ export type Database = {
         Insert: {
           atualizado_em?: string
           batch_id?: string | null
+          bonus_envio?: number | null
           canal: string
           canal_venda?: string | null
           categoria_id?: string | null
@@ -2393,6 +2396,7 @@ export type Database = {
           raw_fees?: Json | null
           raw_order?: Json | null
           raw_shipping_costs?: Json | null
+          rebate?: number | null
           referencia_externa: string
           responsavel_id?: string | null
           seller_id?: string | null
@@ -2410,6 +2414,7 @@ export type Database = {
         Update: {
           atualizado_em?: string
           batch_id?: string | null
+          bonus_envio?: number | null
           canal?: string
           canal_venda?: string | null
           categoria_id?: string | null
@@ -2432,6 +2437,7 @@ export type Database = {
           raw_fees?: Json | null
           raw_order?: Json | null
           raw_shipping_costs?: Json | null
+          rebate?: number | null
           referencia_externa?: string
           responsavel_id?: string | null
           seller_id?: string | null
@@ -4074,6 +4080,7 @@ export type Database = {
         Returns: {
           ads_total: number
           anuncio_ids: string[]
+          bonus_envio_total: number
           canal: string
           cmv_total: number
           comissao_total: number
@@ -4089,6 +4096,7 @@ export type Database = {
           pedido_id: string
           primeiro_anuncio_id: string
           qtd_itens: number
+          rebate_total: number
           status: string
           tarifa_fixa_total: number
           tem_cmv: boolean
