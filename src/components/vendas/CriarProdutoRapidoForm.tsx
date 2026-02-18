@@ -4,8 +4,8 @@
  * Suporta tipos: único, variação (variation_child) e kit
  */
 
-import { useState } from "react";
-import { Plus, Loader2, ArrowLeft } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Plus, Loader2, ArrowLeft, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useProdutos, Produto } from "@/hooks/useProdutos";
 import { toast } from "sonner";
 
@@ -48,14 +53,20 @@ export function CriarProdutoRapidoForm({
   const [parentId, setParentId] = useState<string>("");
   const [atributos, setAtributos] = useState<string>("");
 
-  // Campos para kit
-  const [kitComponentes, setKitComponentes] = useState<{ sku: string; quantidade: number }[]>([
-    { sku: "", quantidade: 1 },
+  // Campos para kit - agora com produto_id
+  const [kitComponentes, setKitComponentes] = useState<{ produto_id: string; sku: string; quantidade: number }[]>([
+    { produto_id: "", sku: "", quantidade: 1 },
   ]);
 
   // Filtrar produtos pai disponíveis
   const produtosPai = todosProdutos.filter(
     (p) => p.tipo === "variation_parent"
+  );
+
+  // Produtos disponíveis para componentes de kit (excluir kits e pais)
+  const produtosParaKit = useMemo(() => 
+    todosProdutos.filter(p => p.tipo !== "variation_parent" && p.tipo !== "kit"),
+    [todosProdutos]
   );
 
   const handleSalvar = async () => {
@@ -77,7 +88,6 @@ export function CriarProdutoRapidoForm({
       // Montar atributos_variacao se for variação
       let atributosObj: Record<string, string> = {};
       if (tipo === "variation_child" && atributos.trim()) {
-        // Formato esperado: "Cor: Azul, Tamanho: M"
         atributos.split(",").forEach((par) => {
           const [chave, valor] = par.split(":").map((s) => s.trim());
           if (chave && valor) atributosObj[chave] = valor;
@@ -87,7 +97,9 @@ export function CriarProdutoRapidoForm({
       // Montar kit_componentes se for kit
       let kitComp: { sku: string; quantidade: number }[] = [];
       if (tipo === "kit") {
-        kitComp = kitComponentes.filter((c) => c.sku.trim() && c.quantidade > 0);
+        kitComp = kitComponentes
+          .filter((c) => c.sku.trim() && c.quantidade > 0)
+          .map(c => ({ sku: c.sku, quantidade: c.quantidade }));
       }
 
       const result = await criarProduto.mutateAsync({
@@ -144,16 +156,22 @@ export function CriarProdutoRapidoForm({
   };
 
   const addKitComponente = () => {
-    setKitComponentes((prev) => [...prev, { sku: "", quantidade: 1 }]);
+    setKitComponentes((prev) => [...prev, { produto_id: "", sku: "", quantidade: 1 }]);
   };
 
   const removeKitComponente = (idx: number) => {
     setKitComponentes((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const updateKitComponente = (idx: number, field: "sku" | "quantidade", value: string | number) => {
+  const selectKitProduto = (idx: number, produto: Produto) => {
     setKitComponentes((prev) =>
-      prev.map((c, i) => (i === idx ? { ...c, [field]: value } : c))
+      prev.map((c, i) => (i === idx ? { ...c, produto_id: produto.id, sku: produto.sku } : c))
+    );
+  };
+
+  const updateKitQuantidade = (idx: number, value: number) => {
+    setKitComponentes((prev) =>
+      prev.map((c, i) => (i === idx ? { ...c, quantidade: value } : c))
     );
   };
 
@@ -269,12 +287,11 @@ export function CriarProdutoRapidoForm({
           {kitComponentes.map((comp, idx) => (
             <div key={idx} className="flex gap-2 items-end">
               <div className="flex-1 space-y-1">
-                <Label className="text-[10px] text-muted-foreground">SKU Componente</Label>
-                <Input
-                  value={comp.sku}
-                  onChange={(e) => updateKitComponente(idx, "sku", e.target.value)}
-                  placeholder="SKU do componente"
-                  className="h-8 text-xs"
+                <Label className="text-[10px] text-muted-foreground">Produto Componente</Label>
+                <KitComponenteSelector
+                  produtos={produtosParaKit}
+                  selectedSku={comp.sku}
+                  onSelect={(p) => selectKitProduto(idx, p)}
                 />
               </div>
               <div className="w-20 space-y-1">
@@ -283,7 +300,7 @@ export function CriarProdutoRapidoForm({
                   type="number"
                   min="1"
                   value={comp.quantidade}
-                  onChange={(e) => updateKitComponente(idx, "quantidade", parseInt(e.target.value) || 1)}
+                  onChange={(e) => updateKitQuantidade(idx, parseInt(e.target.value) || 1)}
                   className="h-8 text-xs"
                 />
               </div>
@@ -339,5 +356,90 @@ export function CriarProdutoRapidoForm({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Seletor de produto com busca para componentes de kit */
+function KitComponenteSelector({
+  produtos,
+  selectedSku,
+  onSelect,
+}: {
+  produtos: Produto[];
+  selectedSku: string;
+  onSelect: (p: Produto) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busca, setBusca] = useState("");
+
+  const filtrados = useMemo(() => {
+    if (!busca.trim()) return produtos.slice(0, 20);
+    const term = busca.toLowerCase();
+    return produtos.filter(
+      (p) =>
+        p.nome.toLowerCase().includes(term) ||
+        p.sku.toLowerCase().includes(term)
+    ).slice(0, 20);
+  }, [produtos, busca]);
+
+  const produtoSelecionado = selectedSku
+    ? produtos.find((p) => p.sku === selectedSku)
+    : null;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 w-full justify-start text-xs font-normal truncate"
+        >
+          {produtoSelecionado ? (
+            <span className="truncate">{produtoSelecionado.sku} - {produtoSelecionado.nome}</span>
+          ) : (
+            <span className="text-muted-foreground">Buscar produto...</span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-2" align="start">
+        <div className="flex items-center gap-1 mb-2">
+          <Search className="h-3 w-3 text-muted-foreground" />
+          <Input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar por SKU ou nome..."
+            className="h-7 text-xs"
+            autoFocus
+          />
+        </div>
+        <div className="max-h-40 overflow-y-auto space-y-0.5">
+          {filtrados.length === 0 ? (
+            <p className="text-xs text-muted-foreground p-2 text-center">Nenhum produto encontrado</p>
+          ) : (
+            filtrados.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent transition-colors"
+                onClick={() => {
+                  onSelect(p);
+                  setOpen(false);
+                  setBusca("");
+                }}
+              >
+                <span className="font-medium">{p.sku}</span>
+                <span className="text-muted-foreground ml-1 truncate">— {p.nome}</span>
+                {p.custo_medio > 0 && (
+                  <span className="text-muted-foreground ml-1">
+                    (R$ {p.custo_medio.toFixed(2)})
+                  </span>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

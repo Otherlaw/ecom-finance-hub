@@ -348,14 +348,11 @@ export function PedidosTableRow({
         <TableCell className={cn("text-right text-xs font-medium", margemColor)} onClick={(e) => e.stopPropagation()}>
           {semCMV ? (
             <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={handleToggleExpand}
-                  className="flex items-center justify-end gap-1 text-amber-500 hover:text-amber-600"
-                >
+              <TooltipTrigger>
+                <span className="inline-flex items-center gap-1 text-amber-500 text-[10px]">
                   <AlertTriangle className="h-3 w-3" />
-                  <span className="text-xs">Pendente</span>
-                </button>
+                  Pendente
+                </span>
               </TooltipTrigger>
               <TooltipContent>
                 <p className="text-xs">
