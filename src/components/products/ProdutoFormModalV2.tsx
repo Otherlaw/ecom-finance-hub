@@ -927,16 +927,29 @@ export function ProdutoFormModalV2({
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {kitComponentes.map((comp) => (
-                        <div key={comp.sku} className="flex items-center gap-4 p-3 border rounded bg-muted/30">
-                          <span className="font-mono text-sm">{comp.sku}</span>
-                          <span className="flex-1 text-sm">{comp.nome || "-"}</span>
-                          <Badge variant="secondary">Qtd: {comp.quantidade}</Badge>
-                          <Button variant="ghost" size="icon" onClick={() => removerComponenteKit(comp.sku)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      ))}
+                      {kitComponentes.map((comp) => {
+                        const produtoComp = produtosDisponiveis.find(p => p.sku === comp.sku);
+                        const custoUnitario = produtoComp?.custo_medio ?? 0;
+                        const custoTotal = custoUnitario * comp.quantidade;
+                        return (
+                          <div key={comp.sku} className="flex items-center gap-3 p-3 border rounded bg-muted/30">
+                            <span className="font-mono text-xs text-muted-foreground shrink-0">{comp.sku}</span>
+                            <span className="flex-1 text-sm truncate">{comp.nome || "-"}</span>
+                            <Badge variant="secondary" className="shrink-0">Qtd: {comp.quantidade}</Badge>
+                            {custoUnitario > 0 ? (
+                              <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
+                                R$ {custoUnitario.toFixed(2)}/un
+                                <span className="ml-1 font-medium text-foreground">= R$ {custoTotal.toFixed(2)}</span>
+                              </span>
+                            ) : (
+                              <span className="text-xs text-warning shrink-0">Sem custo</span>
+                            )}
+                            <Button variant="ghost" size="icon" onClick={() => removerComponenteKit(comp.sku)}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>
