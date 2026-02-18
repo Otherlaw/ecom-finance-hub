@@ -117,6 +117,8 @@ export function ProdutoFormModalV2({
   const [kitComponentes, setKitComponentes] = useState<KitComponente[]>([]);
   const [novoComponenteSku, setNovoComponenteSku] = useState("");
   const [novoComponenteQtd, setNovoComponenteQtd] = useState(1);
+  const [componenteOpen, setComponenteOpen] = useState(false);
+  const [componenteBusca, setComponenteBusca] = useState("");
   
   // Fornecedor search
   const [fornecedorOpen, setFornecedorOpen] = useState(false);
@@ -141,6 +143,19 @@ export function ProdutoFormModalV2({
       p.tipo === "unico" || p.tipo === "variation_child"
     );
   }, [produtosExistentes]);
+
+  const produtosDisponiveisFiltrados = useMemo(() => {
+    if (!componenteBusca.trim()) return produtosDisponiveis.slice(0, 30);
+    const term = componenteBusca.toLowerCase();
+    return produtosDisponiveis
+      .filter(p => p.sku.toLowerCase().includes(term) || p.nome.toLowerCase().includes(term))
+      .slice(0, 30);
+  }, [produtosDisponiveis, componenteBusca]);
+
+  const produtoSelecionadoComponente = useMemo(() => 
+    produtosDisponiveis.find(p => p.sku === novoComponenteSku) ?? null,
+    [produtosDisponiveis, novoComponenteSku]
+  );
 
   // Reset form when modal opens
   useEffect(() => {
@@ -835,16 +850,64 @@ export function ProdutoFormModalV2({
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex gap-2">
-                    <Select value={novoComponenteSku} onValueChange={setNovoComponenteSku}>
-                      <SelectTrigger className="flex-1">
-                        <SelectValue placeholder="Selecionar produto..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {produtosDisponiveis.map((p) => (
-                          <SelectItem key={p.id} value={p.sku}>{p.sku} - {p.nome}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={componenteOpen} onOpenChange={setComponenteOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          className="flex-1 justify-between font-normal truncate"
+                        >
+                          <span className="truncate">
+                            {produtoSelecionadoComponente
+                              ? `${produtoSelecionadoComponente.sku} — ${produtoSelecionadoComponente.nome}`
+                              : "Buscar produto por nome ou SKU..."}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[420px] p-0" align="start">
+                        <div className="flex items-center border-b px-3">
+                          <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                          <Input
+                            placeholder="Digite o nome ou SKU..."
+                            value={componenteBusca}
+                            onChange={(e) => setComponenteBusca(e.target.value)}
+                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="max-h-[220px] overflow-y-auto p-1">
+                          {produtosDisponiveisFiltrados.length === 0 ? (
+                            <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                              Nenhum produto encontrado
+                            </div>
+                          ) : (
+                            produtosDisponiveisFiltrados.map((p) => (
+                              <div
+                                key={p.id}
+                                className={cn(
+                                  "flex cursor-pointer items-center rounded-sm px-2 py-2 text-sm hover:bg-accent gap-2",
+                                  novoComponenteSku === p.sku && "bg-accent"
+                                )}
+                                onClick={() => {
+                                  setNovoComponenteSku(p.sku);
+                                  setComponenteOpen(false);
+                                  setComponenteBusca("");
+                                }}
+                              >
+                                <Check className={cn("h-4 w-4 shrink-0", novoComponenteSku === p.sku ? "opacity-100" : "opacity-0")} />
+                                <span className="font-mono text-xs text-muted-foreground shrink-0">{p.sku}</span>
+                                <span className="truncate">{p.nome}</span>
+                                {p.custo_medio > 0 && (
+                                  <span className="ml-auto text-xs text-muted-foreground shrink-0">R$ {p.custo_medio.toFixed(2)}</span>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                     <Input
                       type="number"
                       className="w-24"
