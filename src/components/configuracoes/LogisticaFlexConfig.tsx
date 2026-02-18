@@ -7,7 +7,6 @@ import { Loader2, Truck, Info } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useLogisticaPlataformaConfig, CANAIS_LOGISTICA, TIPOS_ENVIO_FLEX } from "@/hooks/useLogisticaPlataformaConfig";
 import { useEmpresas } from "@/hooks/useEmpresas";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const LABEL_TIPO: Record<string, string> = {
   flex: "Flex",
@@ -21,24 +20,17 @@ const LABEL_CANAL: Record<string, string> = {
 
 export function LogisticaFlexConfig() {
   const { empresas, isLoading: loadingEmpresas } = useEmpresas();
-  const [empresaId, setEmpresaId] = useState<string>("");
 
-  // Auto-selecionar se só tiver 1 empresa
-  useEffect(() => {
-    if (!loadingEmpresas && empresas.length === 1 && !empresaId) {
-      setEmpresaId(empresas[0].id);
-    }
-  }, [loadingEmpresas, empresas, empresaId]);
+  // Usa a primeira empresa disponível como referência global
+  const empresaId = empresas[0]?.id ?? null;
 
-  const { configs, isLoading, salvarTodos } = useLogisticaPlataformaConfig(empresaId || null);
+  const { configs, isLoading, salvarTodos } = useLogisticaPlataformaConfig(empresaId);
 
-  // Estado local: { "Mercado Livre_flex": "0.00", ... }
   const makeKey = (canal: string, tipo: string) => `${canal}_${tipo}`;
 
   const [valores, setValores] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  // Inicializar com valores do banco
   useEffect(() => {
     const initial: Record<string, string> = {};
     for (const canal of CANAIS_LOGISTICA) {
@@ -86,32 +78,13 @@ export function LogisticaFlexConfig() {
         </Tooltip>
       </div>
 
-      {/* Seletor de empresa */}
-      {empresas.length > 1 && (
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Empresa</Label>
-          <Select value={empresaId} onValueChange={setEmpresaId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Selecione a empresa" />
-            </SelectTrigger>
-            <SelectContent>
-              {empresas.map(e => (
-                <SelectItem key={e.id} value={e.id}>
-                  {e.nome_fantasia || e.razao_social}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
-      {!empresaId ? (
-        <p className="text-sm text-muted-foreground">Selecione uma empresa para configurar.</p>
-      ) : isLoading ? (
+      {loadingEmpresas || isLoading ? (
         <div className="flex items-center gap-2 py-2">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           <span className="text-sm text-muted-foreground">Carregando...</span>
         </div>
+      ) : !empresaId ? (
+        <p className="text-sm text-muted-foreground">Nenhuma empresa cadastrada.</p>
       ) : (
         <>
           {CANAIS_LOGISTICA.map((canal, i) => (
@@ -157,7 +130,7 @@ export function LogisticaFlexConfig() {
 
           <Button
             onClick={handleSalvar}
-            disabled={saving || !empresaId}
+            disabled={saving}
             size="sm"
             className="w-full"
           >
