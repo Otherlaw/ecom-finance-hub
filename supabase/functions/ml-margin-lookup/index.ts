@@ -1,19 +1,22 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
+const ALLOWED_ORIGINS = new Set([
+  "https://www.mercadolivre.com.br",
+  "https://mercadolivre.com.br",
+  "https://ecomfinance.lovable.app",
+  "https://www.ecomfinance.lovable.app",
+]);
+
 function getCorsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("origin") ?? ""; // lowercase para compatibilidade
-  const allowedExact = new Set([
-    "https://www.mercadolivre.com.br",
-    "https://mercadolivre.com.br",
-    "https://ecomfinance.lovable.app",
-    "https://www.ecomfinance.lovable.app",
-  ]);
+  const origin = req.headers.get("origin") ?? "";
   const isChromeExt = origin.startsWith("chrome-extension://");
-  // Se não tiver origin (alguns fetch diretos), usa "*" para não quebrar
   const allowOrigin =
-    origin === "" ? "*" :
-    (allowedExact.has(origin) || isChromeExt) ? origin :
-    "https://www.mercadolivre.com.br";
+    origin === ""
+      ? "*"
+      : ALLOWED_ORIGINS.has(origin) || isChromeExt
+      ? origin
+      : "https://www.mercadolivre.com.br";
+
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -23,21 +26,26 @@ function getCorsHeaders(req: Request): Record<string, string> {
   };
 }
 
+function jsonResponse(body: unknown, status: number, cors: Record<string, string>): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json" },
+  });
+}
+
 interface RequestItem {
   sku?: string | null;
   anuncio_id?: string | null;
   preco_final: number;
   quantidade?: number | null;
-  // Campos reais capturados pelo detalhe
-  comissao?: number | null;       // tarifa percentual em R$ (real)
-  tarifa_fixa?: number | null;    // custo fixo em R$ (real)
-  tarifa_total?: number | null;   // fallback: preco - total_recebido (real)
-  imposto?: number | null;        // imposto do produto em R$ (real)
-  shipping_mode?: string | null;  // 'full' | 'flex' | 'flex_turbo'
-  rebate?: number | null;         // rebate/campanha em R$ (crédito)
+  comissao?: number | null;
+  tarifa_fixa?: number | null;
+  tarifa_total?: number | null;
+  imposto?: number | null;
+  shipping_mode?: string | null;
+  rebate?: number | null;
   ads?: number | null;
   outros_descontos?: number | null;
-  // Legado (mantido para compatibilidade)
   impostos?: number | null;
   frete_vendedor?: number | null;
 }
@@ -81,15 +89,10 @@ Deno.serve(async (req) => {
     return new Response(null, { status: 204, headers: cors });
   }
 
-  const jsonHeaders = { ...cors, "Content-Type": "application/json" };
-
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Token de autenticacao necessario" }),
-        { status: 401, headers: jsonHeaders }
-      );
+      return jsonResponse({ error: "Token de autenticacao necessario" }, 401, cors);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -98,16 +101,9 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    // Verificar usuario
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Usuario nao autenticado" }),
-        { status: 401, headers: jsonHeaders }
-      );
+      return jsonResponse({ error: "Usuario nao autenticado" }, 401, cors);
     }
 
     const body = await req.json();
@@ -115,10 +111,7 @@ Deno.serve(async (req) => {
     const items: RequestItem[] = body.items;
 
     if (!empresa_id || !Array.isArray(items) || items.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "empresa_id e items sao obrigatorios" }),
-        { status: 400, headers: jsonHeaders }
-      );
+      return jsonResponse({ error: "empresa_id e items sao obrigatorios" }, 400, cors);
     }
 
     // Verificar acesso a empresa
@@ -129,10 +122,7 @@ Deno.serve(async (req) => {
       .eq("empresa_id", empresa_id);
 
     if (!acesso || acesso.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "Sem acesso a esta empresa" }),
-        { status: 403, headers: jsonHeaders }
-      );
+      return jsonResponse({ error: "Sem acesso a esta empresa" }, 403, cors);
     }
 
     // Buscar configurações em paralelo: aliquota fiscal + config logística
@@ -162,10 +152,7 @@ Deno.serve(async (req) => {
     }
 
     // Buscar mapeamentos produto_marketplace_map
-    const mappings: Record<
-      string,
-      { produto_id: string; sku_marketplace: string | null }
-    > = {};
+    const mappings: Record<string, { produto_id: string; sku_marketplace: string | null }> = {};
 
     if (anuncioIds.length > 0 || skus.length > 0) {
       let query = supabase
@@ -249,7 +236,6 @@ Deno.serve(async (req) => {
       let custoUnitario: number | null = null;
       let fonteCusto: MarginResult["fonte_custo"] = "nao_encontrado";
 
-      // a) por anuncio_id
       if (item.anuncio_id) {
         const map = mappings[`anuncio:${item.anuncio_id}`];
         if (map && produtoCustos[map.produto_id]) {
@@ -258,7 +244,6 @@ Deno.serve(async (req) => {
         }
       }
 
-      // b) por sku_marketplace
       if (fonteCusto === "nao_encontrado" && item.sku) {
         const map = mappings[`sku:${item.sku}`];
         if (map && produtoCustos[map.produto_id]) {
@@ -267,39 +252,29 @@ Deno.serve(async (req) => {
         }
       }
 
-      // c) fallback sku_costs
       if (fonteCusto === "nao_encontrado" && item.sku && skuCosts[item.sku]) {
         custoUnitario = skuCosts[item.sku];
         fonteCusto = "sku_costs";
       }
 
       // === 2) Comissão / tarifa ===
-      // Prioridade:
-      //   a) comissao + tarifa_fixa reais → usar diretamente
-      //   b) tarifa_total real → comissao = tarifa_total - tarifa_fixa (ou tarifa_total inteiro)
-      //   c) fallback estimado
       let comissao: number;
       let tarifaFixa: number;
       let usandoTarifasReais = false;
 
       if (item.comissao != null && item.comissao > 0) {
-        // Caso a: temos comissão percentual real
         comissao = item.comissao;
         tarifaFixa = item.tarifa_fixa != null ? item.tarifa_fixa : 0;
         usandoTarifasReais = true;
       } else if (item.tarifa_total != null && item.tarifa_total > 0) {
-        // Caso b: temos tarifa_total (preco - total_recebido)
         tarifaFixa = item.tarifa_fixa != null ? item.tarifa_fixa : 0;
-        // comissão percentual = tarifa_total - custo_fixo
         comissao = round2(Math.max(0, item.tarifa_total - tarifaFixa));
-        // Se não temos custo_fixo separado, coloca tudo em comissao
         if (item.tarifa_fixa == null) {
           comissao = item.tarifa_total;
           tarifaFixa = 0;
         }
         usandoTarifasReais = true;
       } else {
-        // Caso c: fallback estimado
         comissao = round2(preco * 0.12);
         tarifaFixa = item.tarifa_fixa != null ? item.tarifa_fixa : estimarTarifaFixaML(preco);
         usandoTarifasReais = false;
@@ -314,11 +289,11 @@ Deno.serve(async (req) => {
         freteVendedor = flexCusto;
       }
 
-      // === 4) Ads (placeholder — sempre 0 por enquanto) ===
+      // === 4) Ads ===
       const ads = item.ads ?? 0;
       const outrosDescontos = item.outros_descontos ?? 0;
 
-      // === 5) Impostos: real (campo imposto) > legado (impostos) > estimado ===
+      // === 5) Impostos: real > legado > estimado ===
       let imposto: number;
       let usandoImpostoReal = false;
       const impostoReal = item.imposto ?? item.impostos ?? null;
@@ -329,7 +304,7 @@ Deno.serve(async (req) => {
         imposto = round2(preco * (aliquota / 100));
       }
 
-      // === 6) Rebate (crédito: entra positivo na margem) ===
+      // === 6) Rebate ===
       const rebate = item.rebate ?? 0;
 
       // === 7) Margem final ===
@@ -346,7 +321,7 @@ Deno.serve(async (req) => {
           - ads
           - outrosDescontos
           - imposto
-          + rebate  // rebate AUMENTA a margem
+          + rebate
         );
         margemPct = preco > 0 ? round2((margem / preco) * 100) : 0;
       }
@@ -373,14 +348,9 @@ Deno.serve(async (req) => {
       };
     });
 
-    return new Response(JSON.stringify({ results }), {
-      headers: jsonHeaders,
-    });
+    return jsonResponse({ results }, 200, cors);
   } catch (error) {
     console.error("Erro no ml-margin-lookup:", error);
-    return new Response(
-      JSON.stringify({ error: "Erro interno do servidor" }),
-      { status: 500, headers: jsonHeaders }
-    );
+    return jsonResponse({ error: "Erro interno do servidor" }, 500, cors);
   }
 });
