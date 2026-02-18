@@ -24,18 +24,6 @@ const logisticTypeMap: Record<string, string> = {
   "not_specified": "coleta",
 };
 
-// Tipos de billing que representam rebate de campanha (crédito ao vendedor)
-const REBATE_TYPES = new Set([
-  'DISCOUNT', 'CAMPAIGN_DISCOUNT', 'PROMO_DISCOUNT', 'SELLER_DISCOUNT',
-  'SELLER_PROMO', 'COUPON', 'REBATE', 'CAMPAIGN_REBATE', 'BONUS_PROMO',
-]);
-
-// Tipos de billing que representam bônus por envio FLEX (crédito ao vendedor)
-const BONUS_ENVIO_TYPES = new Set([
-  'SHIPPING_SUBSIDY', 'SHIPPING_BONUS', 'FLEX_BONUS', 'FLEX_SUBSIDY',
-  'SHIPPING_INCENTIVE', 'LOGISTIC_BONUS', 'SHIPPING_CREDIT',
-]);
-
 // Interface COMPLETA do pedido ML (com todos os campos que precisamos)
 interface MLOrderItem {
   item: {
@@ -118,8 +106,6 @@ interface OrderFees {
   tarifaFixa: number;
   tarifaFinanceira: number;
   freteVendedor: number;
-  rebate: number;
-  bonusEnvio: number;
   origemFallback?: boolean;
   origemListingPrices?: boolean;
 }
@@ -500,60 +486,49 @@ async function fetchBillingDetailsFromConciliation(
         if (!primaryKey) continue;
         
         if (!feesMap.has(primaryKey)) {
-          feesMap.set(primaryKey, { comissao: 0, tarifaFixa: 0, tarifaFinanceira: 0, freteVendedor: 0, rebate: 0, bonusEnvio: 0 });
+          feesMap.set(primaryKey, { comissao: 0, tarifaFixa: 0, tarifaFinanceira: 0, freteVendedor: 0 });
         }
         const fees = feesMap.get(primaryKey)!;
         
         const detailType = (item.detail_type || item.fee_type || '').toUpperCase();
-        const rawAmount = item.total || item.amount || 0;
-        const amount = Math.abs(rawAmount);
+        const amount = Math.abs(item.total || item.amount || 0);
         
-        if (REBATE_TYPES.has(detailType)) {
-          // Rebate/desconto de campanha: é crédito ao vendedor (valor positivo = favor vendedor)
-          fees.rebate += amount;
-          console.log(`[ML Sync] 🎁 Rebate detectado (${detailType}): R$${amount.toFixed(2)} para pedido ${primaryKey}`);
-        } else if (BONUS_ENVIO_TYPES.has(detailType)) {
-          // Bônus por envio FLEX: é crédito ao vendedor
-          fees.bonusEnvio += amount;
-          console.log(`[ML Sync] 📦 Bônus envio detectado (${detailType}): R$${amount.toFixed(2)} para pedido ${primaryKey}`);
-        } else {
-          switch (detailType) {
-            case 'CV':
-            case 'ML_FEE':
-            case 'SALE_FEE':
-            case 'MARKETPLACE_FEE':
-            case 'FVF':
-            case 'APPLICATION_FEE':
-            case 'MERCADOPAGO_FEE':
-            case 'VARIABLE_FEE':
-              fees.comissao += amount;
-              break;
-            case 'FIXED_FEE':
-            case 'TF':
-            case 'LISTING_FEE':
-              fees.tarifaFixa += amount;
-              break;
-            case 'CXE':
-            case 'SHIPPING_FEE':
-            case 'SHIPPING':
-            case 'ENVIO':
-            case 'SHIPPING_COST':
-            case 'LOGISTIC_COST':
-              fees.freteVendedor += amount;
-              break;
-            case 'FINANCING_FEE':
-            case 'INSTALLMENT_FEE':
-            case 'FINANCING':
-            case 'INTEREST':
-            case 'INSTALLMENTS_FEE':
-            case 'MF':
-              fees.tarifaFinanceira += amount;
-              break;
-            default:
-              if (detailType && !tiposDesconhecidos.has(detailType)) {
-                tiposDesconhecidos.add(detailType);
-              }
-          }
+        switch (detailType) {
+          case 'CV':
+          case 'ML_FEE':
+          case 'SALE_FEE':
+          case 'MARKETPLACE_FEE':
+          case 'FVF':
+          case 'APPLICATION_FEE':
+          case 'MERCADOPAGO_FEE':
+          case 'VARIABLE_FEE':
+            fees.comissao += amount;
+            break;
+          case 'FIXED_FEE':
+          case 'TF':
+          case 'LISTING_FEE':
+            fees.tarifaFixa += amount;
+            break;
+          case 'CXE':
+          case 'SHIPPING_FEE':
+          case 'SHIPPING':
+          case 'ENVIO':
+          case 'SHIPPING_COST':
+          case 'LOGISTIC_COST':
+            fees.freteVendedor += amount;
+            break;
+          case 'FINANCING_FEE':
+          case 'INSTALLMENT_FEE':
+          case 'FINANCING':
+          case 'INTEREST':
+          case 'INSTALLMENTS_FEE':
+          case 'MF':
+            fees.tarifaFinanceira += amount;
+            break;
+          default:
+            if (detailType && !tiposDesconhecidos.has(detailType)) {
+              tiposDesconhecidos.add(detailType);
+            }
         }
         
         if (paymentId && paymentId !== orderId) {
@@ -726,8 +701,6 @@ async function extractFeesFromFullOrder(
     tarifaFixa,
     tarifaFinanceira,
     freteVendedor: 0,
-    rebate: 0,
-    bonusEnvio: 0,
     origemFallback,
     origemListingPrices,
   };
@@ -1301,8 +1274,6 @@ Deno.serve(async (req) => {
         let tarifaFixa = 0;
         let tarifaFinanceira = 0;
         let freteVendedorFromBilling = 0;
-        let rebate = 0;
-        let bonusEnvio = 0;
         let usouFallback = false;
         let usouSaleFee = false;
         let usouListingPrices = false;
@@ -1313,15 +1284,6 @@ Deno.serve(async (req) => {
           tarifaFixa = billingFees.tarifaFixa;
           tarifaFinanceira = billingFees.tarifaFinanceira;
           freteVendedorFromBilling = billingFees.freteVendedor;
-          rebate = billingFees.rebate || 0;
-          bonusEnvio = billingFees.bonusEnvio || 0;
-          
-          if (rebate > 0) {
-            console.log(`[ML Sync] 🎁 Pedido ${orderId}: rebate = R$${rebate.toFixed(2)}`);
-          }
-          if (bonusEnvio > 0) {
-            console.log(`[ML Sync] 📦 Pedido ${orderId}: bônus envio = R$${bonusEnvio.toFixed(2)}`);
-          }
         } else {
           // Usar novo extrator que prioriza sale_fee + listing_prices
           const fees = await extractFeesFromFullOrder(order, true);
@@ -1330,7 +1292,6 @@ Deno.serve(async (req) => {
           tarifaFinanceira = fees.tarifaFinanceira;
           usouFallback = fees.origemFallback ?? false;
           usouListingPrices = fees.origemListingPrices ?? false;
-          // rebate e bonusEnvio permanecem 0 sem billing disponível
           
           // Verificar se veio de sale_fee
           let totalSaleFee = 0;
@@ -1351,9 +1312,6 @@ Deno.serve(async (req) => {
         // ========== PROCESSAR SHIPPING ==========
         let tipoEnvio: string | null = null;
         let freteComprador = 0;
-        // Para FLEX: o frete_vendedor = custo do vendedor com logística própria (não o da API).
-        // O bonusEnvio (bônus pago pelo ML) é salvo separado como crédito.
-        // Para pedidos não-FLEX: frete_vendedor vem do billing ou da API de shipments.
         let freteVendedor = freteVendedorFromBilling;
 
         const shippingCosts = shippingCostsMap.get(order.id);
@@ -1362,23 +1320,14 @@ Deno.serve(async (req) => {
           tipoEnvio = logisticTypeMap[rawLogisticType] || rawLogisticType || null;
           freteComprador = shippingCosts.receiver_cost || 0;
           
-          // Para FLEX: não usar o sender_cost da API (o custo real vem da config da empresa).
-          // O campo frete_vendedor fica 0 e será sobrescrito pelo custo configurado na RPC.
-          const isFlex = tipoEnvio === "flex" || tipoEnvio === "flex_turbo";
-          if (!isFlex && freteVendedor === 0 && shippingCosts.sender_cost > 0) {
+          if (freteVendedor === 0 && shippingCosts.sender_cost > 0) {
             freteVendedor = shippingCosts.sender_cost;
-          }
-          // Para FLEX: se tinha bonusEnvio do billing, ótimo. Se não, tentar pegar do receiver_cost
-          // (o ML às vezes retorna o bônus de envio como receiver_cost positivo no shipment).
-          if (isFlex && bonusEnvio === 0 && shippingCosts.receiver_cost > 0) {
-            bonusEnvio = shippingCosts.receiver_cost;
           }
         }
 
         // ========== CALCULAR VALORES ==========
         const taxasLegado = comissao + tarifaFinanceira;
         const tarifasLegado = tarifaFixa;
-        // valor_liquido base: sem rebate/bonusEnvio (a RPC recalcula a MC incluindo eles)
         const valorLiquido = valorBruto - taxasLegado - tarifasLegado - freteVendedor;
 
         const taxasFoiEstimada = usouFallback;
@@ -1418,15 +1367,13 @@ Deno.serve(async (req) => {
           })),
         };
 
-        // Raw fees para auditoria (inclui rebate e bonusEnvio para rastreabilidade)
+        // Raw fees para auditoria
         const rawFees = billingFees ? {
           source: "api_conciliacoes",
           comissao: billingFees.comissao,
           tarifaFixa: billingFees.tarifaFixa,
           tarifaFinanceira: billingFees.tarifaFinanceira,
           freteVendedor: billingFees.freteVendedor,
-          rebate: billingFees.rebate,
-          bonusEnvio: billingFees.bonusEnvio,
         } : {
           source: usouListingPrices ? "listing_prices" : (usouSaleFee ? "sale_fee_items" : "api_orders_fallback"),
           sale_fee_total: order.order_items?.reduce((sum, i) => sum + (i.sale_fee || 0) * i.quantity, 0) || 0,
@@ -1459,8 +1406,6 @@ Deno.serve(async (req) => {
           tipo_envio: tipoEnvio,
           frete_comprador: freteComprador,
           frete_vendedor: fretePendente ? null : freteVendedor,
-          rebate,
-          bonus_envio: bonusEnvio,
           raw_order: rawOrder,
           raw_fees: rawFees,
           raw_shipping_costs: shippingCosts ? {

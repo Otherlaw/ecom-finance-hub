@@ -446,14 +446,16 @@ export function PedidosTableRow({
                   <div className="space-y-1">
                     <p className="text-muted-foreground flex items-center gap-1">
                       Impostos
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="text-xs">Calculado pela alíquota configurada na empresa</p>
-                        </TooltipContent>
-                      </Tooltip>
+                      {pedido.impostos_total === 0 &&
+                    <Tooltip>
+                          <TooltipTrigger>
+                            <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">Impostos são estimados com base no regime tributário</p>
+                          </TooltipContent>
+                        </Tooltip>
+                    }
                     </p>
                     <p className="font-medium text-destructive">
                       {pedido.impostos_total > 0 ?
@@ -462,44 +464,6 @@ export function PedidosTableRow({
                     }
                     </p>
                   </div>
-
-                  {pedido.rebate_total > 0 && (
-                    <div className="space-y-1">
-                      <p className="text-muted-foreground flex items-center gap-1">
-                        Rebate / Campanha
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="text-xs">Desconto/bônus de campanha recebido do ML (crédito)</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </p>
-                      <p className="font-medium text-emerald-600">
-                        +{formatCurrency(pedido.rebate_total)}
-                      </p>
-                    </div>
-                  )}
-
-                  {pedido.bonus_envio_total > 0 && (
-                    <div className="space-y-1">
-                      <p className="text-muted-foreground flex items-center gap-1">
-                        Bônus por Envio
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="text-xs">Valor pago pelo ML pelo envio FLEX (crédito)</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </p>
-                      <p className="font-medium text-emerald-600">
-                        +{formatCurrency(pedido.bonus_envio_total)}
-                      </p>
-                    </div>
-                  )}
                   
                   <div className="space-y-1">
                     <p className="text-muted-foreground">CMV</p>

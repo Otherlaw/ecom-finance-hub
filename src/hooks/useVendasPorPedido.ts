@@ -28,8 +28,6 @@ export interface PedidoAgregado {
   ads_total: number;
   impostos_total: number;
   outros_descontos_total: number;
-  rebate_total: number;        // Rebate/desconto de campanha (crédito)
-  bonus_envio_total: number;   // Bônus por envio FLEX pago pelo ML (crédito)
   valor_liquido_calculado: number;
   // CMV e margem
   qtd_itens: number;
@@ -52,8 +50,6 @@ export interface ResumoPedidosAgregado {
   frete_vendedor_total: number;
   ads_total: number;
   impostos_total: number;
-  rebate_total: number;
-  bonus_envio_total: number;
   valor_liquido_total: number;
   cmv_total: number;
   margem_contribuicao_total: number;
@@ -165,8 +161,6 @@ export function useVendasPorPedido({
         frete_vendedor_total: Number(resultado.frete_vendedor_total) || 0,
         ads_total: Number(resultado.ads_total) || 0,
         impostos_total: Number(resultado.impostos_total) || 0,
-        rebate_total: Number(resultado.rebate_total) || 0,
-        bonus_envio_total: Number(resultado.bonus_envio_total) || 0,
         valor_liquido_total: Number(resultado.valor_liquido_total) || 0,
         cmv_total: Number(resultado.cmv_total) || 0,
         margem_contribuicao_total: Number(resultado.margem_contribuicao_total) || 0,
@@ -268,16 +262,16 @@ export function useVendasPorPedido({
         status: p.status,
         tipo_envio: p.tipo_envio,
         valor_produto: Number(p.valor_produto) || 0,
+        // Valores que podem ser NULL (pendentes de enriquecimento)
         comissao_total: p.comissao_total != null ? Number(p.comissao_total) : null,
         tarifa_fixa_total: p.tarifa_fixa_total != null ? Number(p.tarifa_fixa_total) : null,
         frete_vendedor_total: p.frete_vendedor_total != null ? Number(p.frete_vendedor_total) : null,
         ads_total: Number(p.ads_total) || 0,
         impostos_total: Number(p.impostos_total) || 0,
         outros_descontos_total: Number(p.outros_descontos_total) || 0,
-        rebate_total: Number(p.rebate_total) || 0,
-        bonus_envio_total: Number(p.bonus_envio_total) || 0,
         valor_liquido_calculado: Number(p.valor_liquido_calculado) || 0,
         qtd_itens: Number(p.qtd_itens) || 0,
+        // CMV e margem: NULL quando não há custo cadastrado
         cmv_total: p.cmv_total != null ? Number(p.cmv_total) : null,
         margem_contribuicao: p.margem_contribuicao != null ? Number(p.margem_contribuicao) : null,
         tem_cmv: Boolean(p.tem_cmv),

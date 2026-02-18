@@ -19,7 +19,6 @@ import {
   Trash2,
   Shield,
   ShieldOff,
-  Calculator,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserEmpresas } from "@/hooks/useUserEmpresas";
@@ -48,7 +47,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { EmpresaFormModal } from "@/components/empresas/EmpresaFormModal";
 import { ColaboradoresModal } from "@/components/empresas/ColaboradoresModal";
-import { ConfigFiscalLogisticaModal } from "@/components/empresas/ConfigFiscalLogisticaModal";
 import { useEmpresas } from "@/hooks/useEmpresas";
 import { useIntegracoes } from "@/hooks/useIntegracoes";
 import { useAllNfeCertificates } from "@/hooks/useAllNfeCertificates";
@@ -76,8 +74,6 @@ export default function Empresas() {
   const [empresaToDelete, setEmpresaToDelete] = useState<any | null>(null);
   const [colaboradoresModalOpen, setColaboradoresModalOpen] = useState(false);
   const [selectedEmpresaForColabs, setSelectedEmpresaForColabs] = useState<any | null>(null);
-  const [configFiscalModalOpen, setConfigFiscalModalOpen] = useState(false);
-  const [selectedEmpresaForConfig, setSelectedEmpresaForConfig] = useState<any | null>(null);
 
   // Placeholder CNPJ para empresas incompletas
   const CNPJ_PLACEHOLDER = "00.000.000/0000-00";
@@ -297,15 +293,6 @@ export default function Empresas() {
                             <Users className="h-4 w-4 mr-2" />
                             Colaboradores
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setSelectedEmpresaForConfig(empresa);
-                              setConfigFiscalModalOpen(true);
-                            }}
-                          >
-                            <Calculator className="h-4 w-4 mr-2" />
-                            Config. Fiscal e Logística
-                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem 
                             onClick={() => handleDeleteClick(empresa)}
@@ -460,14 +447,6 @@ export default function Empresas() {
         onOpenChange={setColaboradoresModalOpen}
         empresa={selectedEmpresaForColabs}
       />
-
-      {selectedEmpresaForConfig && (
-        <ConfigFiscalLogisticaModal
-          open={configFiscalModalOpen}
-          onOpenChange={setConfigFiscalModalOpen}
-          empresa={selectedEmpresaForConfig}
-        />
-      )}
     </MainLayout>
   );
 }
