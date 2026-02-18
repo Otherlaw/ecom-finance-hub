@@ -679,9 +679,8 @@ export function ProdutoFormModalV2({
                   step="0.01"
                   min="0"
                   value={custoMedioKit !== null ? custoMedioKit.toFixed(2) : (custoMedio || "")}
-                  onChange={(e) => { if (custoMedioKit === null) setCustoMedio(parseFloat(e.target.value) || 0); }}
-                  readOnly={custoMedioKit !== null}
-                  className={custoMedioKit !== null ? "bg-muted text-muted-foreground cursor-not-allowed" : ""}
+                   onChange={(e) => setCustoMedio(parseFloat(e.target.value) || 0)}
+                   className=""
                 />
               </div>
               <div className="space-y-2">
