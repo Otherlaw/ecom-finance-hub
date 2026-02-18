@@ -9,7 +9,6 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  Settings,
   Bell,
   Mail,
   FileText,
@@ -20,9 +19,11 @@ import {
   User,
   ChevronRight,
   LogIn,
+  Truck,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MembrosEmpresaCard } from "@/components/empresas/MembrosEmpresaCard";
+import { LogisticaFlexConfig } from "@/components/configuracoes/LogisticaFlexConfig";
 
 export default function Configuracoes() {
   const navigate = useNavigate();
@@ -87,6 +88,11 @@ export default function Configuracoes() {
 
         {/* Membros da Empresa */}
         <MembrosEmpresaCard />
+
+        {/* Custos Flex por Plataforma */}
+        <ModuleCard title="Logística Flex" icon={Truck}>
+          <LogisticaFlexConfig />
+        </ModuleCard>
 
         {/* Notificações */}
         <ModuleCard title="Notificações" icon={Bell}>
