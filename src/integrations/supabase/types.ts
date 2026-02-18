@@ -4106,36 +4106,40 @@ export type Database = {
           p_data_fim?: string
           p_data_inicio?: string
           p_empresa_id?: string
-          p_page?: number
-          p_page_size?: number
+          p_limit?: number
+          p_offset?: number
           p_status?: string
           p_tem_custo?: string
           p_tipo_envio?: string
         }
         Returns: {
-          ads_total: number
           anuncio_ids: string[]
           canal: string
           cmv_total: number
-          comissao_total: number
+          comissao: number
           conta_nome: string
-          data_pedido: string
-          data_repasse: string
+          custo_ads: number
+          data_transacao: string
+          descricao_itens: string[]
           empresa_id: string
-          empresa_nome_fantasia: string
           frete_vendedor_total: number
-          impostos_total: number
+          group_key: string
+          has_cmv: boolean
+          imposto_estimado: number
           margem_contribuicao: number
-          outros_descontos_total: number
+          margem_percentual: number
+          outros_descontos: number
+          pack_id: string
           pedido_id: string
-          primeiro_anuncio_id: string
+          produto_ids: string[]
           qtd_itens: number
+          sku_list: string[]
           status: string
-          tarifa_fixa_total: number
-          tem_cmv: boolean
+          tarifa_fixa: number
+          thumbnail_urls: string[]
           tipo_envio: string
-          valor_liquido_calculado: number
-          valor_produto: number
+          valor_bruto: number
+          valor_liquido: number
         }[]
       }
       get_vendas_por_pedido_count: {
