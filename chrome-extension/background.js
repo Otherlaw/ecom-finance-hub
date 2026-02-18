@@ -71,12 +71,18 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
           }),
         })
           .then(function (res) {
-            return res.json();
-          })
-          .then(function (data) {
-            sendResponse(data);
+            if (!res.ok) {
+              return res.text().then(function (txt) {
+                console.warn("[ECOM Finance BG] ml-margin-lookup HTTP " + res.status + ":", txt);
+                sendResponse({ error: "HTTP " + res.status + ": " + txt });
+              });
+            }
+            return res.json().then(function (data) {
+              sendResponse(data);
+            });
           })
           .catch(function (err) {
+            console.error("[ECOM Finance BG] Erro fetch ml-margin-lookup:", err);
             sendResponse({ error: err.message });
           });
       }

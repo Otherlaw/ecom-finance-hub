@@ -269,3 +269,95 @@
   margin-left: 3px;
 }
 
+/* ====== Bloco Inline de Detalhe (substitui tooltip no detalhe de venda) ====== */
+
+.ecom-inline-block {
+  background: #111111;
+  border: 1px solid #222222;
+  border-radius: 12px;
+  margin: 16px 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  max-width: min(420px, 100%);
+  box-sizing: border-box;
+}
+
+.ecom-ib-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.ecom-ib-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #9C64FB;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.ecom-ib-body {
+  padding: 12px 16px;
+}
+
+.ecom-ib-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 12px;
+  color: #94a3b8;
+  gap: 8px;
+}
+
+.ecom-ib-row span:first-child {
+  flex-shrink: 0;
+}
+
+.ecom-ib-row span:last-child,
+.ecom-ib-row > span:not(:first-child) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ecom-ib-divider {
+  height: 1px;
+  background: #2a2a2a;
+  margin: 8px 0;
+}
+
+.ecom-ib-total {
+  font-weight: 700;
+  font-size: 14px;
+  color: #e2e8f0;
+}
+
+.ecom-ib-pct {
+  font-weight: 600;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.ecom-ib-source {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #222222;
+  font-size: 10px;
+  color: #64748b;
+}
+
+/* Tag de modo de envio no bloco inline */
+.ecom-ship-tag {
+  background: rgba(156, 100, 251, 0.15);
+  color: #9C64FB;
+  border: 1px solid rgba(156, 100, 251, 0.3);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+

@@ -19,7 +19,7 @@
   }
 
   function formatMoney(val) {
-    if (val == null || val === undefined) return "-";
+    if (val == null || val === undefined || isNaN(val)) return "-";
     return val.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   }
 
@@ -38,68 +38,72 @@
   }
 
   // ==========================================
-  // CRIAR BADGE
+  // CRIAR BADGE (listas e promos)
   // ==========================================
 
-  function createBadge(margin) {
+  function createBadge(margin, isEstimado) {
     var badge = document.createElement("span");
     badge.setAttribute(BADGE_ATTR, "true");
 
     var semCusto = margin.margem === null || margin.fonte_custo === "nao_encontrado";
 
+    var labelEstimado = isEstimado
+      ? ' <span class="ecom-tag-est">est.</span>'
+      : ' <span class="ecom-tag-real">real</span>';
+
     if (semCusto) {
       badge.className = "ecom-margin-badge ecom-unknown";
-      badge.textContent = "Sem custo cadastrado";
+      badge.innerHTML = "Sem custo (sem mapeamento)" + labelEstimado;
     } else if (margin.margem >= 0) {
       badge.className = "ecom-margin-badge ecom-positive";
-      badge.textContent =
-        "+" + formatMoney(margin.margem) + " (" + margin.margem_pct.toFixed(1) + "%)";
+      badge.innerHTML =
+        "+" + formatMoney(margin.margem) + " (" + margin.margem_pct.toFixed(1) + "%)" + labelEstimado;
     } else {
       badge.className = "ecom-margin-badge ecom-negative";
-      badge.textContent =
-        formatMoney(margin.margem) + " (" + margin.margem_pct.toFixed(1) + "%)";
+      badge.innerHTML =
+        formatMoney(margin.margem) + " (" + margin.margem_pct.toFixed(1) + "%)" + labelEstimado;
     }
 
+    // Tooltip no hover
     var rebateRow = margin.rebate && margin.rebate > 0
-      ? '<div class="ecom-tooltip-row"><span>Bonus/Rebate</span><span class="ecom-pos-text">+' + formatMoney(margin.rebate) + "</span></div>"
+      ? '<div class="ecom-tooltip-row"><span>Bônus/Rebate</span><span class="ecom-pos-text">+' + formatMoney(margin.rebate) + "</span></div>"
       : "";
 
     var fonte = margin.fonte_custo === "produto"
       ? "Produto cadastrado"
       : margin.fonte_custo === "sku_costs"
       ? "Custo manual SKU"
-      : "Nao encontrado";
+      : "Não encontrado";
 
     var tarifaLabel = margin.usando_tarifas_reais
-      ? "Comissao ML <em>(real)</em>"
-      : "Comissao ML <em>(est.)</em>";
+      ? "Comissão ML <em>(real)</em>"
+      : "Comissão ML <em>(est.)</em>";
 
     var impostoLabel = margin.usando_imposto_real
       ? "Imposto <em>(real)</em>"
       : "Imposto <em>(est. " + (margin._aliquota || "?") + "%)</em>";
 
     var custoRow = semCusto
-      ? '<div class="ecom-tooltip-row ecom-warn-row"><span>Custo do produto</span><span>Nao cadastrado no Ecom</span></div>'
-      : '<div class="ecom-tooltip-row"><span>Custo Produto</span><span class="ecom-neg-text">-' + formatMoney(margin.custo_unitario) + "</span></div>";
+      ? '<div class="ecom-tooltip-row ecom-warn-row"><span>Custo produto</span><span>Não cadastrado no Ecom</span></div>'
+      : '<div class="ecom-tooltip-row"><span>Custo produto</span><span class="ecom-neg-text">-' + formatMoney(margin.custo_unitario) + "</span></div>";
 
     var tooltip = document.createElement("div");
     tooltip.className = "ecom-margin-tooltip";
     tooltip.innerHTML =
-      '<div class="ecom-tooltip-title">Margem de Contribuicao</div>' +
-      '<div class="ecom-tooltip-row"><span>Preco Final</span><span>' + formatMoney(margin.preco_final) + "</span></div>" +
+      '<div class="ecom-tooltip-title">Margem — ECOM Finance</div>' +
+      '<div class="ecom-tooltip-row"><span>Preço final</span><span>' + formatMoney(margin.preco_final) + "</span></div>" +
       custoRow +
       '<div class="ecom-tooltip-row"><span>' + tarifaLabel + '</span><span class="ecom-neg-text">-' + formatMoney(margin.comissao) + "</span></div>" +
-      (margin.tarifa_fixa > 0 ? '<div class="ecom-tooltip-row"><span>Custo Fixo</span><span class="ecom-neg-text">-' + formatMoney(margin.tarifa_fixa) + "</span></div>" : "") +
-      (margin.frete_vendedor > 0 ? '<div class="ecom-tooltip-row"><span>Frete Vendedor</span><span class="ecom-neg-text">-' + formatMoney(margin.frete_vendedor) + "</span></div>" : "") +
+      (margin.tarifa_fixa > 0 ? '<div class="ecom-tooltip-row"><span>Custo fixo</span><span class="ecom-neg-text">-' + formatMoney(margin.tarifa_fixa) + "</span></div>" : "") +
+      (margin.frete_vendedor > 0 ? '<div class="ecom-tooltip-row"><span>Frete vendedor</span><span class="ecom-neg-text">-' + formatMoney(margin.frete_vendedor) + "</span></div>" : "") +
       (margin.ads > 0 ? '<div class="ecom-tooltip-row"><span>Ads</span><span class="ecom-neg-text">-' + formatMoney(margin.ads) + "</span></div>" : "") +
-      (margin.outros_descontos > 0 ? '<div class="ecom-tooltip-row"><span>Outros Descontos</span><span class="ecom-neg-text">-' + formatMoney(margin.outros_descontos) + "</span></div>" : "") +
+      (margin.outros_descontos > 0 ? '<div class="ecom-tooltip-row"><span>Outros descontos</span><span class="ecom-neg-text">-' + formatMoney(margin.outros_descontos) + "</span></div>" : "") +
       '<div class="ecom-tooltip-row"><span>' + impostoLabel + '</span><span class="ecom-neg-text">-' + formatMoney(margin.imposto) + "</span></div>" +
       rebateRow +
       '<div class="ecom-tooltip-divider"></div>' +
       '<div class="ecom-tooltip-row ecom-tooltip-total"><span>Margem</span><span class="' +
       (!semCusto && margin.margem >= 0 ? "ecom-pos-text" : "ecom-neg-text") + '">' +
-      formatMoney(semCusto ? null : margin.margem) +
-      (!semCusto && margin.margem_pct !== null ? " (" + margin.margem_pct.toFixed(1) + "%)" : "") +
+      (semCusto ? "Sem custo" : formatMoney(margin.margem) + (margin.margem_pct !== null ? " (" + margin.margem_pct.toFixed(1) + "%)" : "")) +
       "</span></div>" +
       '<div class="ecom-tooltip-source">Custo: ' + fonte + "</div>";
 
@@ -109,12 +113,11 @@
       var tooltipEl = badge.querySelector(".ecom-margin-tooltip");
       if (!tooltipEl) return;
       tooltipEl.style.display = "block";
-      // reposicionar via fixed para não sair da tela
       var badgeRect = badge.getBoundingClientRect();
       tooltipEl.style.position = "fixed";
       tooltipEl.style.top = (badgeRect.bottom + 4) + "px";
       var left = badgeRect.left;
-      var tooltipWidth = 260;
+      var tooltipWidth = 280;
       if (left + tooltipWidth > window.innerWidth - 8) {
         left = window.innerWidth - tooltipWidth - 8;
       }
@@ -132,117 +135,125 @@
   }
 
   // ==========================================
-  // CRIAR PAINEL DE DETALHE
+  // CRIAR BLOCO INLINE DE DETALHE
+  // (sem tooltip flutuante — renderizado direto na página)
   // ==========================================
 
-  function createDetailPanel(margin) {
-    var panel = document.createElement("div");
-    panel.setAttribute(BADGE_ATTR, "true");
-    panel.className = "ecom-detail-panel";
+  function createInlineBlock(margin) {
+    var wrap = document.createElement("div");
+    wrap.setAttribute(BADGE_ATTR, "true");
+    wrap.className = "ecom-inline-block";
 
     var semCusto = margin.margem === null || margin.fonte_custo === "nao_encontrado";
     var margemClass = !semCusto && margin.margem >= 0 ? "ecom-pos-text" : "ecom-neg-text";
 
     var tarifaLabel = margin.usando_tarifas_reais
-      ? "Comissao ML <span class='ecom-tag-real'>real</span>"
-      : "Comissao ML <span class='ecom-tag-est'>est.</span>";
+      ? "Comissão <span class='ecom-tag-real'>real</span>"
+      : "Comissão <span class='ecom-tag-est'>est.</span>";
 
     var impostoLabel = margin.usando_imposto_real
       ? "Imposto <span class='ecom-tag-real'>real</span>"
       : "Imposto <span class='ecom-tag-est'>est.</span>";
 
-    var shippingLabel = margin.shipping_mode
-      ? '<div class="ecom-panel-row ecom-panel-tag"><span>Envio</span><span>' + margin.shipping_mode.toUpperCase() + "</span></div>"
+    var shippingRow = margin.shipping_mode
+      ? makeRow("Envio", '<span class="ecom-ship-tag">' + margin.shipping_mode.toUpperCase() + "</span>")
       : "";
 
     var rebateRow = margin.rebate && margin.rebate > 0
-      ? '<div class="ecom-panel-row"><span>Bonus/Rebate</span><span class="ecom-pos-text">+' + formatMoney(margin.rebate) + "</span></div>"
+      ? makeRow("Bônus/Rebate", '<span class="ecom-pos-text">+' + formatMoney(margin.rebate) + "</span>")
       : "";
 
-    var fonte = margin.fonte_custo === "produto"
-      ? "Produto cadastrado"
-      : margin.fonte_custo === "sku_costs"
-      ? "Custo manual SKU"
-      : "<span class='ecom-warn-text'>Nao encontrado no Ecom Finance</span>";
-
     var custoRow = semCusto
-      ? '<div class="ecom-panel-row ecom-warn-row"><span>Custo do produto</span><span>Nao cadastrado</span></div>'
-      : '<div class="ecom-panel-row"><span>Custo Unitario</span><span class="ecom-neg-text">-' + formatMoney(margin.custo_unitario) + "</span></div>";
+      ? '<div class="ecom-ib-row ecom-warn-row"><span>Custo produto</span><span>Não cadastrado</span></div>'
+      : makeRow("Custo produto", '<span class="ecom-neg-text">-' + formatMoney(margin.custo_unitario) + "</span>");
 
-    panel.innerHTML =
-      '<div class="ecom-panel-header">' +
-      '<span class="ecom-panel-title">Margem de Contribuicao &mdash; ECOM Finance</span>' +
-      "</div>" +
-      '<div class="ecom-panel-body">' +
-      shippingLabel +
-      '<div class="ecom-panel-row"><span>Preco Final</span><span>' + formatMoney(margin.preco_final) + "</span></div>" +
-      '<div class="ecom-panel-row"><span>Quantidade</span><span>' + margin.quantidade + "</span></div>" +
-      custoRow +
-      '<div class="ecom-panel-row"><span>' + tarifaLabel + '</span><span class="ecom-neg-text">-' + formatMoney(margin.comissao) + "</span></div>" +
-      (margin.tarifa_fixa > 0 ? '<div class="ecom-panel-row"><span>Custo Fixo</span><span class="ecom-neg-text">-' + formatMoney(margin.tarifa_fixa) + "</span></div>" : "") +
-      (margin.frete_vendedor > 0 ? '<div class="ecom-panel-row"><span>Frete Vendedor</span><span class="ecom-neg-text">-' + formatMoney(margin.frete_vendedor) + "</span></div>" : "") +
-      (margin.ads > 0 ? '<div class="ecom-panel-row"><span>Ads</span><span class="ecom-neg-text">-' + formatMoney(margin.ads) + "</span></div>" : "") +
-      (margin.outros_descontos > 0 ? '<div class="ecom-panel-row"><span>Outros Descontos</span><span class="ecom-neg-text">-' + formatMoney(margin.outros_descontos) + "</span></div>" : "") +
-      '<div class="ecom-panel-row"><span>' + impostoLabel + '</span><span class="ecom-neg-text">-' + formatMoney(margin.imposto) + "</span></div>" +
-      rebateRow +
-      '<div class="ecom-panel-divider"></div>' +
-      '<div class="ecom-panel-row ecom-panel-total"><span>Margem</span><span class="' + margemClass + '">' +
-      (semCusto ? "Sem custo cadastrado" : formatMoney(margin.margem)) +
-      "</span></div>" +
-      (!semCusto && margin.margem_pct !== null
-        ? '<div class="ecom-panel-row ecom-panel-pct"><span>Margem %</span><span class="' + margemClass + '">' + margin.margem_pct.toFixed(1) + "%</span></div>"
-        : "") +
-      '<div class="ecom-panel-source">Fonte do custo: ' + fonte + "</div>" +
+    var fonte = margin.fonte_custo === "produto"
+      ? "produto cadastrado"
+      : margin.fonte_custo === "sku_costs"
+      ? "custo manual SKU"
+      : '<span class="ecom-warn-text">não encontrado</span>';
+
+    wrap.innerHTML =
+      '<div class="ecom-ib-header">' +
+        '<span class="ecom-ib-title">Margem de Contribuição &mdash; ECOM Finance</span>' +
+      '</div>' +
+      '<div class="ecom-ib-body">' +
+        shippingRow +
+        makeRow("Preço", '<span>' + formatMoney(margin.preco_final) + "</span>") +
+        custoRow +
+        makeRow(tarifaLabel, '<span class="ecom-neg-text">-' + formatMoney(margin.comissao) + "</span>") +
+        (margin.tarifa_fixa > 0
+          ? makeRow("Custo fixo", '<span class="ecom-neg-text">-' + formatMoney(margin.tarifa_fixa) + "</span>")
+          : "") +
+        (margin.frete_vendedor > 0
+          ? makeRow("Frete vendedor", '<span class="ecom-neg-text">-' + formatMoney(margin.frete_vendedor) + "</span>")
+          : "") +
+        (margin.ads > 0
+          ? makeRow("Ads", '<span class="ecom-neg-text">-' + formatMoney(margin.ads) + "</span>")
+          : "") +
+        (margin.outros_descontos > 0
+          ? makeRow("Outros descontos", '<span class="ecom-neg-text">-' + formatMoney(margin.outros_descontos) + "</span>")
+          : "") +
+        makeRow(impostoLabel, '<span class="ecom-neg-text">-' + formatMoney(margin.imposto) + "</span>") +
+        rebateRow +
+        '<div class="ecom-ib-divider"></div>' +
+        '<div class="ecom-ib-row ecom-ib-total">' +
+          '<span>Margem</span>' +
+          '<span class="' + margemClass + '">' +
+            (semCusto ? "Sem custo (sem mapeamento)" : formatMoney(margin.margem)) +
+          '</span>' +
+        '</div>' +
+        (!semCusto && margin.margem_pct !== null
+          ? '<div class="ecom-ib-row ecom-ib-pct">' +
+              '<span>Margem %</span>' +
+              '<span class="' + margemClass + '">' + margin.margem_pct.toFixed(1) + "%</span>" +
+            '</div>'
+          : "") +
+        '<div class="ecom-ib-source">Fonte do custo: ' + fonte + "</div>" +
       "</div>";
 
-    return panel;
+    return wrap;
+  }
+
+  function makeRow(label, valueHtml) {
+    return '<div class="ecom-ib-row"><span>' + label + "</span>" + valueHtml + "</div>";
   }
 
   // ==========================================
   // EXTRACAO DO DOM — DETALHE DE VENDA (REAL)
   // ==========================================
 
-  /**
-   * Extrai SKU de forma ampla: busca no textContent COMPLETO do body,
-   * não só no container de preço.
-   */
   function extractSkuGlobal() {
     var text = document.body.textContent || "";
-
-    // Padrão ML: "SKU: ABC123" ou "SKU ABC123" ou "sku: abc-123"
     var patterns = [
       /\bSKU[:\s]+([A-Za-z0-9][A-Za-z0-9\-_.]{1,39})/i,
       /\bC[oó]digo\s+(do\s+)?(produto|anuncio)[:\s]+([A-Za-z0-9][A-Za-z0-9\-_.]{1,39})/i,
     ];
-
     for (var pi = 0; pi < patterns.length; pi++) {
       var m = text.match(patterns[pi]);
-      if (m) {
-        // última captura do grupo
-        return m[m.length - 1].trim();
-      }
+      if (m) return m[m.length - 1].trim();
     }
     return null;
   }
 
   /**
-   * Tenta extrair tarifas reais do painel de detalhe de venda do ML.
-   * Usa múltiplas estratégias para cobrir variações de layout.
+   * Extrai tarifas reais do DOM da página de detalhe do ML.
+   * Retorna: preco_produto, tarifa_percentual, tarifa_fixa, total_recebido,
+   *          imposto_produto, shipping_mode, rebate
    */
   function extractDetalheTarifas() {
     var result = {
       preco_produto: null,
-      tarifa_percentual: null,   // comissao percentual em R$ (real)
-      tarifa_fixa: null,         // custo fixo em R$
-      tarifa_total: null,        // fallback: preco - total_recebido
+      tarifa_percentual: null,
+      tarifa_fixa: null,
+      tarifa_total: null,
       total_recebido: null,
       imposto_produto: null,
-      shipping_mode: null,       // 'full' | 'flex' | 'flex_turbo' | null
+      shipping_mode: null,
       rebate: null,
     };
 
     try {
-      var bodyHTML = document.body.innerHTML || "";
       var bodyText = document.body.textContent || "";
 
       // ---- Detectar modo de envio ----
@@ -250,14 +261,13 @@
         result.shipping_mode = "flex_turbo";
       } else if (/envio\s+flex\b/i.test(bodyText) || /\bflex\b.*envio/i.test(bodyText)) {
         result.shipping_mode = "flex";
-      } else if (/mercado\s+envios?\s+full/i.test(bodyText) || /\bfull\b/i.test(bodyText)) {
+      } else if (/mercado\s+envios?\s+full/i.test(bodyText) || /full\b.*envio/i.test(bodyText)) {
         result.shipping_mode = "full";
       } else if (/\bflex\b/i.test(bodyText)) {
         result.shipping_mode = "flex";
       }
 
-      // ---- Estratégia 1: varredura por elementos com texto financeiro ----
-      // Seleciona elementos que provavelmente contêm linhas do resumo financeiro
+      // ---- Estratégia 1: varredura por elementos financeiros ----
       var candidateSelectors = [
         "[class*='payment']",
         "[class*='resume']",
@@ -280,28 +290,23 @@
       var allEls = document.querySelectorAll(candidateSelectors.join(","));
 
       allEls.forEach(function (el) {
-        // Ignorar elementos muito grandes (containers pai)
         if (el.textContent.length > 400) return;
         var text = (el.textContent || "").trim();
         if (!text || seen.has(text)) return;
         seen.add(text);
 
         // Preço do produto / Preço final
-        if (
-          /pre[cç]o\s+(do\s+)?produto/i.test(text) &&
-          result.preco_produto === null
-        ) {
+        if (/pre[cç]o\s+(do\s+)?produto/i.test(text) && result.preco_produto === null) {
           var m = text.match(/R\$\s*([\d.,]+)/);
           if (m) result.preco_produto = parsePreco(m[0]);
         }
 
-        // Tarifa percentual / Tarifa de X% / Comissão
+        // Tarifa percentual / Comissão
         if (
           /tarifa\s+de\s+\d+\s*%/i.test(text) ||
           /tarifa\s+de\s+venda/i.test(text) ||
           /comiss[aã]o/i.test(text)
         ) {
-          // Pode ter vários valores: pegar o último (valor em R$, não o %)
           var vals = text.match(/R\$\s*([\d.,]+)/g);
           if (vals && vals.length > 0 && result.tarifa_percentual === null) {
             var v = parsePreco(vals[vals.length - 1]);
@@ -311,73 +316,74 @@
 
         // Custo fixo / Tarifa fixa
         if (/custo\s+fixo/i.test(text) || /tarifa\s+fixa/i.test(text)) {
-          var m = text.match(/R\$\s*([\d.,]+)/);
-          if (m && result.tarifa_fixa === null) {
-            var v = parsePreco(m[0]);
-            if (v > 0) result.tarifa_fixa = v;
+          var m2 = text.match(/R\$\s*([\d.,]+)/);
+          if (m2 && result.tarifa_fixa === null) {
+            var v2 = parsePreco(m2[0]);
+            if (v2 > 0) result.tarifa_fixa = v2;
           }
         }
 
-        // Total recebido / Valor a receber / Você recebe
+        // Total recebido / Você recebe
         if (/total\s+recebido|valor\s+a\s+receber|voc[eê]\s+recebe|^total$/i.test(text)) {
-          var vals = text.match(/R\$\s*([\d.,]+)/g);
-          if (vals && vals.length > 0 && result.total_recebido === null) {
-            result.total_recebido = parsePreco(vals[vals.length - 1]);
+          var vals2 = text.match(/R\$\s*([\d.,]+)/g);
+          if (vals2 && vals2.length > 0 && result.total_recebido === null) {
+            result.total_recebido = parsePreco(vals2[vals2.length - 1]);
           }
         }
 
         // Imposto do produto
         if (/imposto\s+(do\s+)?produto/i.test(text)) {
-          var m = text.match(/R\$\s*([\d.,]+)/);
-          if (m && result.imposto_produto === null) {
-            result.imposto_produto = parsePreco(m[0]);
+          var m3 = text.match(/R\$\s*([\d.,]+)/);
+          if (m3 && result.imposto_produto === null) {
+            result.imposto_produto = parsePreco(m3[0]);
           }
         }
 
-        // Rebate / Bônus / Desconto campanha / Cupom ML / Benefício
-        if (/rebate|b[oô]nus\s+(por\s+envio|campanha|ml)?|desconto\s+de\s+campanha|benef[ií]cio|cupom/i.test(text)) {
-          var m = text.match(/R\$\s*([\d.,]+)/);
-          if (m && result.rebate === null) {
-            result.rebate = parsePreco(m[0]);
+        // Rebate: bônus por envio, redução na tarifa, descontos e bônus, cupom, benefício
+        if (/b[oô]nus\s+(por\s+envio|campanha|ml)?|desconto\s+de\s+campanha|redu[cç][aã]o\s+na\s+tarifa|descontos?\s+e\s+b[oô]nus|benef[ií]cio|cupom|rebate/i.test(text)) {
+          var m4 = text.match(/R\$\s*([\d.,]+)/);
+          if (m4) {
+            var rv = parsePreco(m4[0]);
+            if (rv > 0) result.rebate = (result.rebate || 0) + rv;
           }
         }
       });
 
-      // ---- Estratégia 2: varredura por texto corrido do body inteiro ----
-      // Captura padrões "Chave\nR$ 9,90" que podem estar em nós de texto separados
+      // ---- Estratégia 2: regex no texto corrido do body ----
       if (result.preco_produto === null) {
-        var m = bodyText.match(/pre[cç]o\s+do\s+produto[^R]*R\$\s*([\d.,]+)/i);
+        var m = bodyText.match(/pre[cç]o\s+do\s+produto[^R]{0,30}R\$\s*([\d.,]+)/i);
         if (m) result.preco_produto = parsePreco(m[1]);
       }
 
       if (result.tarifa_percentual === null) {
-        var m = bodyText.match(/tarifa\s+de\s+\d+\s*%[^R]*R\$\s*([\d.,]+)/i);
+        var m = bodyText.match(/tarifa\s+de\s+\d+\s*%[^R]{0,30}R\$\s*([\d.,]+)/i);
         if (m) result.tarifa_percentual = parsePreco(m[1]);
       }
 
       if (result.tarifa_fixa === null) {
-        var m = bodyText.match(/custo\s+fixo[^R]*R\$\s*([\d.,]+)/i);
+        var m = bodyText.match(/custo\s+fixo[^R]{0,30}R\$\s*([\d.,]+)/i);
         if (m) result.tarifa_fixa = parsePreco(m[1]);
       }
 
       if (result.total_recebido === null) {
-        var m = bodyText.match(/voc[eê]\s+recebe[^R]*R\$\s*([\d.,]+)/i);
-        if (!m) m = bodyText.match(/total\s+recebido[^R]*R\$\s*([\d.,]+)/i);
+        var m = bodyText.match(/voc[eê]\s+recebe[^R]{0,30}R\$\s*([\d.,]+)/i);
+        if (!m) m = bodyText.match(/total\s+recebido[^R]{0,30}R\$\s*([\d.,]+)/i);
         if (m) result.total_recebido = parsePreco(m[1]);
       }
 
       if (result.imposto_produto === null) {
-        var m = bodyText.match(/imposto\s+do\s+produto[^R]*R\$\s*([\d.,]+)/i);
+        var m = bodyText.match(/imposto\s+do\s+produto[^R]{0,30}R\$\s*([\d.,]+)/i);
         if (m) result.imposto_produto = parsePreco(m[1]);
       }
 
-      if (result.rebate === null) {
-        var m = bodyText.match(/b[oô]nus\s+por\s+envio[^R]*R\$\s*([\d.,]+)/i);
-        if (!m) m = bodyText.match(/rebate[^R]*R\$\s*([\d.,]+)/i);
+      if (!result.rebate || result.rebate === 0) {
+        // Bônus por envio específico
+        var m = bodyText.match(/b[oô]nus\s+por\s+envio[^R]{0,30}R\$\s*([\d.,]+)/i);
+        if (!m) m = bodyText.match(/redu[cç][aã]o\s+na\s+tarifa[^R]{0,30}R\$\s*([\d.,]+)/i);
         if (m) result.rebate = parsePreco(m[1]);
       }
 
-      // ---- Estratégia 3: fallback de preço pelo maior valor visível ----
+      // ---- Estratégia 3: fallback preço pelo maior valor visível ----
       if (result.preco_produto === null) {
         var priceEls = document.querySelectorAll(
           "[class*='price-tag'], [class*='price__fraction'], [class*='main-price'], h2, h3"
@@ -390,7 +396,7 @@
         if (best > 0) result.preco_produto = best;
       }
 
-      // ---- Estratégia 4: calcular tarifa_total como fallback final ----
+      // ---- Estratégia 4: calcular tarifa_total como fallback ----
       if (
         result.tarifa_total === null &&
         result.preco_produto !== null &&
@@ -427,20 +433,26 @@
       var skuMatch = text.match(/SKU[:\s]+([A-Za-z0-9\-_.]+)/i);
       var sku = skuMatch ? skuMatch[1] : null;
 
-      var priceMatch = text.match(/R\$\s*([\d.,]+)/);
-      var preco = priceMatch ? parsePreco(priceMatch[0]) : 0;
+      // Pegar somente o primeiro preço R$ dentro do card (evita pegar preços errados)
+      var priceEl = card.querySelector("[class*='price'], [class*='valor'], [class*='amount'], [class*='fraction']");
+      var preco = priceEl ? parsePreco(priceEl.textContent) : 0;
+      if (preco === 0) {
+        var priceMatch = text.match(/R\$\s*([\d.,]+)/);
+        preco = priceMatch ? parsePreco(priceMatch[0]) : 0;
+      }
 
       var anuncioId = null;
       var links = card.querySelectorAll("a[href]");
       links.forEach(function (link) {
-        var m = link.href.match(/MLB[-\s]?(\d+)/i);
-        if (m) anuncioId = "MLB" + m[1];
+        if (!anuncioId) {
+          var m = link.href.match(/MLB[-\s]?(\d+)/i);
+          if (m) anuncioId = "MLB" + m[1];
+        }
       });
 
-      // Tentar extrair tarifas reais mesmo na lista (se visíveis)
+      // Tarifas reais só se visíveis no card
       var tarifas = null;
-      var hasTarifaVenda = /tarifa\s+de\s+\d+%|tarifa\s+de\s+venda|custo\s+fixo/i.test(text);
-      if (hasTarifaVenda) {
+      if (/tarifa\s+de\s+\d+%|tarifa\s+de\s+venda|custo\s+fixo/i.test(text)) {
         tarifas = extractDetalheTarifas();
       }
 
@@ -450,6 +462,8 @@
           sku: sku,
           anuncio_id: anuncioId,
           preco_final: preco,
+          // chave de associação para resultado
+          _key: anuncioId || (sku ? sku + "_" + preco : String(preco)),
         };
         if (tarifas) {
           item.tarifa_percentual = tarifas.tarifa_percentual;
@@ -467,12 +481,7 @@
   }
 
   function extractSaleDetail() {
-    var items = [];
-
-    // SKU com busca global no body inteiro
     var sku = extractSkuGlobal();
-
-    // Extrair tarifas reais do DOM
     var tarifas = extractDetalheTarifas();
 
     // Preço: preferir preco_produto extraído; depois fallback
@@ -491,27 +500,27 @@
       if (m) preco = parsePreco(m[0]);
     }
 
-    // anuncio_id: da URL
+    // anuncio_id da URL
     var urlMatch = window.location.href.match(/MLB[-\s]?(\d+)/i);
     var anuncioId = urlMatch ? "MLB" + urlMatch[1] : null;
 
-    if (preco > 0) {
-      items.push({
-        element: null,
-        sku: sku,
-        anuncio_id: anuncioId,
-        preco_final: preco,
-        isDetail: true,
-        tarifa_percentual: tarifas.tarifa_percentual,
-        tarifa_fixa: tarifas.tarifa_fixa,
-        tarifa_total: tarifas.tarifa_total,
-        imposto_produto: tarifas.imposto_produto,
-        shipping_mode: tarifas.shipping_mode,
-        rebate: tarifas.rebate,
-      });
-    }
+    if (preco === 0) return [];
 
-    return items;
+    return [{
+      element: null,
+      sku: sku,
+      anuncio_id: anuncioId,
+      preco_final: preco,
+      isDetail: true,
+      _key: anuncioId || sku || String(preco),
+      tarifa_percentual: tarifas.tarifa_percentual,
+      tarifa_fixa: tarifas.tarifa_fixa,
+      tarifa_total: tarifas.tarifa_total,
+      imposto_produto: tarifas.imposto_produto,
+      shipping_mode: tarifas.shipping_mode,
+      rebate: tarifas.rebate,
+      _tem_tarifas_reais: !!(tarifas.tarifa_percentual || tarifas.tarifa_fixa),
+    }];
   }
 
   function extractPromos() {
@@ -527,42 +536,106 @@
       var skuMatch = text.match(/SKU[:\s]+([A-Za-z0-9\-_.]+)/i);
       var sku = skuMatch ? skuMatch[1] : null;
 
-      var priceMatch = text.match(/R\$\s*([\d.,]+)/);
-      var preco = priceMatch ? parsePreco(priceMatch[0]) : 0;
+      // Pegar preço mais confiável: preferir elemento de preço dedicado
+      var priceEl = row.querySelector("[class*='price'], [class*='valor'], [class*='amount'], [class*='fraction']");
+      var preco = priceEl ? parsePreco(priceEl.textContent) : 0;
+      if (preco === 0) {
+        var priceMatch = text.match(/R\$\s*([\d.,]+)/);
+        preco = priceMatch ? parsePreco(priceMatch[0]) : 0;
+      }
 
       var anuncioId = null;
       var links = row.querySelectorAll("a[href]");
       links.forEach(function (link) {
-        var m = link.href.match(/MLB[-\s]?(\d+)/i);
-        if (m) anuncioId = "MLB" + m[1];
+        if (!anuncioId) {
+          var m = link.href.match(/MLB[-\s]?(\d+)/i);
+          if (m) anuncioId = "MLB" + m[1];
+        }
       });
 
-      // Tarifas reais se visíveis na linha
-      var tarifas = null;
-      if (/tarifa\s+de\s+\d+%|custo\s+fixo/i.test(text)) {
-        tarifas = extractDetalheTarifas();
-      }
-
       if (preco > 0) {
-        var item = {
+        items.push({
           element: row,
           sku: sku,
           anuncio_id: anuncioId,
           preco_final: preco,
-        };
-        if (tarifas) {
-          item.tarifa_percentual = tarifas.tarifa_percentual;
-          item.tarifa_fixa = tarifas.tarifa_fixa;
-          item.tarifa_total = tarifas.tarifa_total;
-          item.imposto_produto = tarifas.imposto_produto;
-          item.shipping_mode = tarifas.shipping_mode;
-          item.rebate = tarifas.rebate;
-        }
-        items.push(item);
+          _key: anuncioId || (sku ? sku + "_" + preco : String(preco)),
+          // Promos: sem tarifas reais → marcar como estimado
+          _tem_tarifas_reais: false,
+        });
       }
     });
 
     return items;
+  }
+
+  // ==========================================
+  // ASSOCIAR RESULTADO POR CHAVE (não por índice)
+  // ==========================================
+
+  /**
+   * Constrói um mapa: _key -> resultado da API
+   * Preferência: anuncio_id; fallback: sku+preco.
+   */
+  function buildResultMap(extracted, results) {
+    var map = {};
+    results.forEach(function (r, idx) {
+      var item = extracted[idx];
+      if (!item) return;
+      var key = item._key || String(idx);
+      map[key] = { margin: r, item: item };
+    });
+    return map;
+  }
+
+  // ==========================================
+  // RENDERIZAR RESULTADO NO DETALHE
+  // (dois pontos: perto do preço + painel lateral)
+  // ==========================================
+
+  function renderDetailResult(margin) {
+    // Remover blocos anteriores
+    document.querySelectorAll("[" + BADGE_ATTR + "='true']").forEach(function (el) {
+      el.remove();
+    });
+
+    var block1 = createInlineBlock(margin);
+    var block2 = createInlineBlock(margin);
+
+    // ---- Ponto A: dentro do card do item (próximo ao preço) ----
+    var insertA =
+      document.querySelector("[class*='price-tag']") ||
+      document.querySelector("[class*='main-price']") ||
+      document.querySelector("[class*='price__fraction']") ||
+      document.querySelector("[class*='item-price']") ||
+      null;
+
+    if (insertA) {
+      var parentA = insertA.closest("[class*='card'], [class*='item'], section, article") || insertA.parentElement;
+      if (parentA) {
+        parentA.insertAdjacentElement("afterend", block1);
+      } else {
+        insertA.insertAdjacentElement("afterend", block1);
+      }
+    }
+
+    // ---- Ponto B: painel lateral (Total / resumo de pagamento) ----
+    var insertB =
+      document.querySelector("[class*='shipping-summary']") ||
+      document.querySelector("[class*='order-summary']") ||
+      document.querySelector("[class*='payment-summary']") ||
+      document.querySelector("[class*='resume']") ||
+      document.querySelector("[class*='sidebar']") ||
+      document.querySelector("aside") ||
+      null;
+
+    if (insertB && insertB !== insertA) {
+      insertB.appendChild(block2);
+    } else if (!insertA) {
+      // Fallback: topo do main
+      var main = document.querySelector("main") || document.body;
+      main.insertBefore(block1, main.firstChild);
+    }
   }
 
   // ==========================================
@@ -579,7 +652,7 @@
 
     chrome.runtime.sendMessage({ type: "GET_AUTH" }, function (auth) {
       if (!auth || !auth.access_token || !auth.empresa_id) {
-        console.log("[ECOM Finance] Nao autenticado ou sem empresa");
+        console.log("[ECOM Finance] Não autenticado ou sem empresa selecionada");
         isProcessing = false;
         return;
       }
@@ -599,7 +672,7 @@
         return;
       }
 
-      // Montar payload com campos reais quando disponíveis
+      // Montar payload — sempre envia campos reais quando disponíveis
       var apiItems = extracted.map(function (i) {
         var item = {
           sku: i.sku || null,
@@ -609,16 +682,17 @@
           ads: 0,
         };
 
-        // Campos reais — disponíveis no detalhe (e eventualmente na lista)
-        if (i.tarifa_percentual != null) item.comissao = i.tarifa_percentual;
-        if (i.tarifa_fixa != null)       item.tarifa_fixa = i.tarifa_fixa;
-        if (i.tarifa_total != null)       item.tarifa_total = i.tarifa_total;
-        if (i.imposto_produto != null)    item.imposto = i.imposto_produto;
-        if (i.shipping_mode != null)      item.shipping_mode = i.shipping_mode;
-        if (i.rebate != null && i.rebate > 0) item.rebate = i.rebate;
+        if (i.tarifa_percentual != null) item.comissao       = i.tarifa_percentual;
+        if (i.tarifa_fixa      != null) item.tarifa_fixa     = i.tarifa_fixa;
+        if (i.tarifa_total     != null) item.tarifa_total    = i.tarifa_total;
+        if (i.imposto_produto  != null) item.imposto         = i.imposto_produto;
+        if (i.shipping_mode    != null) item.shipping_mode   = i.shipping_mode;
+        if (i.rebate != null && i.rebate > 0) item.rebate   = i.rebate;
 
         return item;
       });
+
+      console.log("[ECOM Finance] Enviando", apiItems.length, "item(s) para ml-margin-lookup", apiItems);
 
       var FUNCTION_URL =
         "https://bwfbozwyqujlykgaueez.supabase.co/functions/v1/ml-margin-lookup";
@@ -634,58 +708,60 @@
           items: apiItems,
         }),
       })
-        .then(function (res) { return res.json(); })
+        .then(function (res) {
+          if (!res.ok) {
+            return res.text().then(function (txt) {
+              console.warn("[ECOM Finance] ml-margin-lookup HTTP " + res.status + ":", txt);
+              throw new Error("HTTP " + res.status);
+            });
+          }
+          return res.json();
+        })
         .then(function (data) {
-          if (!data.results) {
+          if (!data.results || !Array.isArray(data.results)) {
+            console.warn("[ECOM Finance] Resposta sem results:", data);
             isProcessing = false;
             return;
           }
 
-          data.results.forEach(function (margin, idx) {
-            var extracted_item = extracted[idx];
-            if (!extracted_item) return;
+          console.log("[ECOM Finance] Resultados recebidos:", data.results);
 
-            if (page === "detalhe") {
-              // Remover painel anterior
-              var existingPanel = document.querySelector(".ecom-detail-panel");
-              if (existingPanel) existingPanel.remove();
+          if (page === "detalhe") {
+            var margin = data.results[0];
+            if (margin) renderDetailResult(margin);
+          } else {
+            // Associação por chave (_key) em vez de por índice
+            var resultMap = buildResultMap(extracted, data.results);
 
-              var panel = createDetailPanel(margin);
+            extracted.forEach(function (extracted_item) {
+              var key = extracted_item._key || "";
+              var entry = resultMap[key];
+              if (!entry) return;
 
-              // Tentar inserir após o painel de preço/resumo
-              var target =
-                document.querySelector("[class*='shipping-summary']") ||
-                document.querySelector("[class*='order-summary']") ||
-                document.querySelector("[class*='payment-summary']") ||
-                document.querySelector("[class*='resume']") ||
-                document.querySelector("main") ||
-                document.body;
-
-              target.insertBefore(panel, target.firstChild);
-
-            } else {
-              // Lista: badge inline
+              var margin = entry.margin;
               var el = extracted_item.element;
               if (!el) return;
               if (el.getAttribute(BADGE_ATTR) === "processed") return;
               el.setAttribute(BADGE_ATTR, "processed");
 
+              // Remover badge anterior
               var existingBadge = el.querySelector("[" + BADGE_ATTR + "='true']");
               if (existingBadge) existingBadge.remove();
 
-              var badge = createBadge(margin);
+              // isEstimado = sem tarifas reais (lista/promos)
+              var isEstimado = !extracted_item._tem_tarifas_reais || !margin.usando_tarifas_reais;
+              var badge = createBadge(margin, isEstimado);
 
-              // Inserir próximo ao preço
               var priceEl = el.querySelector(
-                "[class*='price'], [class*='valor'], [class*='amount']"
+                "[class*='price'], [class*='valor'], [class*='amount'], [class*='fraction']"
               );
               if (priceEl && priceEl.parentElement) {
                 priceEl.parentElement.insertBefore(badge, priceEl.nextSibling);
               } else {
                 el.appendChild(badge);
               }
-            }
-          });
+            });
+          }
 
           isProcessing = false;
         })
