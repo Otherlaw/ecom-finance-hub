@@ -9,39 +9,33 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  Settings,
   Bell,
   Mail,
   FileText,
   Database,
   Shield,
   Palette,
-  Save,
   User,
   ChevronRight,
   LogIn,
+  Truck,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MembrosEmpresaCard } from "@/components/empresas/MembrosEmpresaCard";
+import { LogisticaCustoCard } from "@/components/configuracoes/LogisticaCustoCard";
 
 export default function Configuracoes() {
   const navigate = useNavigate();
-  const { user, profile, isAuthenticated, loading } = useAuth();
+  const { user, profile, isAuthenticated } = useAuth();
 
   const initials = profile?.nome
-    ? profile.nome.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+    ? profile.nome.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
     : user?.email?.slice(0, 2).toUpperCase() || "U";
 
   return (
     <MainLayout
       title="Configurações"
       subtitle="Preferências do sistema"
-      actions={
-        <Button className="gap-2">
-          <Save className="h-4 w-4" />
-          Salvar Alterações
-        </Button>
-      }
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Meu Perfil */}
@@ -60,8 +54,8 @@ export default function Configuracoes() {
                   <p className="text-sm text-muted-foreground">{user?.email}</p>
                 </div>
               </div>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="w-full justify-between"
                 onClick={() => navigate("/perfil")}
               >
@@ -74,10 +68,7 @@ export default function Configuracoes() {
               <p className="text-muted-foreground">
                 Faça login para acessar seu perfil e configurações personalizadas.
               </p>
-              <Button 
-                className="w-full gap-2"
-                onClick={() => navigate("/auth")}
-              >
+              <Button className="w-full gap-2" onClick={() => navigate("/auth")}>
                 <LogIn className="h-4 w-4" />
                 Entrar ou Cadastrar
               </Button>
@@ -87,6 +78,11 @@ export default function Configuracoes() {
 
         {/* Membros da Empresa */}
         <MembrosEmpresaCard />
+
+        {/* Custos de Logística Própria */}
+        <ModuleCard title="Custos de Logística Própria" icon={Truck}>
+          <LogisticaCustoCard />
+        </ModuleCard>
 
         {/* Notificações */}
         <ModuleCard title="Notificações" icon={Bell}>

@@ -1976,6 +1976,41 @@ export type Database = {
           },
         ]
       }
+      logistica_plataforma_config: {
+        Row: {
+          atualizado_em: string
+          canal: string
+          custo: number
+          empresa_id: string
+          id: string
+          tipo_envio: string
+        }
+        Insert: {
+          atualizado_em?: string
+          canal: string
+          custo?: number
+          empresa_id: string
+          id?: string
+          tipo_envio: string
+        }
+        Update: {
+          atualizado_em?: string
+          canal?: string
+          custo?: number
+          empresa_id?: string
+          id?: string
+          tipo_envio?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "logistica_plataforma_config_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       manual_transactions: {
         Row: {
           categoria_id: string | null
