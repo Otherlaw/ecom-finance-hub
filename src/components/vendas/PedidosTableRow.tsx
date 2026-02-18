@@ -326,24 +326,19 @@ export function PedidosTableRow({
             <span className="text-muted-foreground">—</span>
           )}
         </TableCell>
-        <TableCell className="text-right text-xs" onClick={(e) => e.stopPropagation()}>
+        <TableCell className="text-right text-xs">
           {cmvTotal > 0 ? (
             <span className="text-orange-600">{formatCurrency(cmvTotal)}</span>
           ) : semCMV ? (
             <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={handleToggleExpand}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
-                             bg-amber-500/10 text-amber-600 border border-amber-300
-                             hover:bg-amber-500/20 transition text-[10px] font-medium"
-                >
-                  <Link2 className="h-3 w-3" />
-                  Mapear
-                </button>
+              <TooltipTrigger>
+                <span className="inline-flex items-center gap-1 text-amber-500 text-[10px]">
+                  <AlertTriangle className="h-3 w-3" />
+                  Sem custo
+                </span>
               </TooltipTrigger>
               <TooltipContent>
-                <p className="text-xs">Clique para expandir e mapear os produtos</p>
+                <p className="text-xs">Expanda o pedido para mapear os produtos</p>
               </TooltipContent>
             </Tooltip>
           ) : (
