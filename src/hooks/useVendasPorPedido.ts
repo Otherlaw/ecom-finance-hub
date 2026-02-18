@@ -237,8 +237,8 @@ export function useVendasPorPedido({
         p_data_inicio: dataInicio,
         p_data_fim: dataFim,
         ...filtrosSanitizados,
-        p_limit: pageSize,
-        p_offset: page * pageSize,
+        p_page: page,
+        p_page_size: pageSize,
       };
       console.debug("[Vendas][Pedidos] RPC params:", rpcParams);
       
