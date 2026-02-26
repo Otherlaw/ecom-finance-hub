@@ -1,57 +1,45 @@
 
-## Causa Raiz Confirmada: `empresa_id` ambíguo nas CTEs da RPC
+## Corrigir Margem no Top 10 Produtos e Remover Coluna Ads
 
-O erro exato é:
-```
-column reference "empresa_id" is ambiguous — It could refer to either a PL/pgSQL variable or a table column.
-```
+### Problema Atual
+A margem no Top 10 calcula apenas: `Lucro = Faturamento - CMV - Ads`, ignorando os custos reais da venda (comissao, tarifas, frete vendedor, impostos). Alem disso, a coluna "Ads" deve ser removida.
 
-### Por que acontece?
+### O Que Sera Feito
 
-A função `get_vendas_por_pedido` retorna uma tabela com uma coluna chamada `empresa_id`. Dentro do bloco PL/pgSQL, o PostgreSQL interpreta qualquer referência nua a `empresa_id` como ambígua — podendo ser a coluna de retorno da função OU uma coluna da tabela no SELECT.
+**1. Atualizar a RPC `get_top_produtos_vendidos`**
+- Agregar os custos de venda por produto/SKU a partir da tabela `marketplace_transactions`
+- Novos campos retornados: `total_comissao`, `total_tarifas`, `total_frete_vendedor`, `total_impostos`
+- Os custos serao rateados proporcionalmente ao valor de cada item no pedido (quando um pedido tem multiplos itens)
+- Remover o campo `total_ads` (ou manter zerado para compatibilidade)
 
-As CTEs afetadas são:
+**2. Atualizar o calculo de margem no Dashboard (Dashboard.tsx)**
+- Nova formula: `Lucro = Faturamento - CMV - Comissao - Tarifas - Frete Vendedor - Impostos`
+- Margem = Lucro / Faturamento * 100
 
-**CTE `logistica` (linha 86):**
-```sql
-SELECT empresa_id, flex_custo, flex_turbo_custo
-FROM empresa_logistica_config
-```
+**3. Atualizar a tabela visual**
+- Remover a coluna "Ads"
+- Adicionar coluna "Custos Venda" (soma de comissao + tarifas + frete + impostos)
+- Manter colunas: #, Produto, Preco Medio, Qtd Vendida, Faturamento, Custos Venda, Lucro, Margem
 
-**CTE `fiscal` (linha 91):**
-```sql
-SELECT empresa_id, aliquota_imposto_vendas
-FROM empresas_config_fiscal
-```
+### Detalhes Tecnicos
 
-Ambas precisam qualificar a tabela de origem para o PostgreSQL conseguir resolver sem ambiguidade.
+**Migration SQL** — Recriar `get_top_produtos_vendidos`:
+- Fazer JOIN com `marketplace_transactions` para obter `tarifas`, `taxas`, `frete_vendedor` e rateio proporcional por item
+- Calculo de impostos via `empresas_config_fiscal.aliquota_imposto_vendas` (mesmo padrao da RPC de vendas)
+- Retornar novos campos: `total_comissao`, `total_tarifas`, `total_frete_vendedor`, `total_impostos`
 
-### A Correção (cirúrgica)
+**Frontend (Dashboard.tsx)**:
+- Atualizar o `useMemo` de processamento para usar os novos campos
+- Calcular `custoVenda = comissao + tarifas + freteVendedor + impostos`
+- `lucro = totalFaturado - cmv - custoVenda`
+- Remover coluna Ads da tabela, adicionar coluna "Custos Venda"
 
-Apenas qualificar explicitamente `empresa_id` com o alias da tabela em cada CTE:
-
-```sql
--- logistica
-SELECT elc.empresa_id, elc.flex_custo, elc.flex_turbo_custo
-FROM empresa_logistica_config elc
-
--- fiscal
-SELECT ecf.empresa_id, ecf.aliquota_imposto_vendas
-FROM empresas_config_fiscal ecf
-```
-
-Isso é suficiente para resolver o erro. Não há nenhuma outra alteração de lógica — o resto da função (paginação, flex, bônus) continua igual.
-
-### O Que Será Feito
-
-1. Uma única migration SQL que recria a função `get_vendas_por_pedido` com as qualificações de tabela corrigidas nas CTEs `logistica` e `fiscal`.
-
-### Arquivo Alterado
-
-- Migration SQL nova (apenas recria a RPC com a correção de ambiguidade)
+### Arquivos Alterados
+- Nova migration SQL (recriacao da RPC)
+- `src/pages/Dashboard.tsx` (calculo de margem + layout da tabela)
 
 ### Como Testar
-
-1. Abrir Vendas — os pedidos devem aparecer imediatamente
-2. Confirmar que a contagem "3343 pedidos" bate com o que é exibido na tabela
-3. Verificar que pedido `#2000011605388925` aparece como Flex com frete R$0,00
+1. Abrir Dashboard e verificar o Top 10
+2. Confirmar que a margem agora reflete os custos reais (comissao, tarifas, frete, impostos, CMV)
+3. Confirmar que a coluna Ads foi removida e substituida por "Custos Venda"
+4. Comparar margem de um produto com os dados da aba Vendas — devem ser consistentes
