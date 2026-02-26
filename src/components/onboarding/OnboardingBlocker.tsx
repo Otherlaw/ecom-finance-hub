@@ -20,7 +20,7 @@ export function OnboardingBlocker({ children }: { children: React.ReactNode }) {
   const { isComplete, isLoading, currentStep } = useOnboardingValidado();
   const [wizardOpen, setWizardOpen] = useState(false);
 
-  // During loading or if complete, render normally
+  // During loading or if complete, render normally — never block while still loading
   if (isLoading || isComplete) return <>{children}</>;
 
   return (
