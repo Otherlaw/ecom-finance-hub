@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useEmpresaAtiva } from "@/contexts/EmpresaContext";
 import { toast } from "sonner";
@@ -229,8 +230,26 @@ export function useOnboardingValidado() {
     queryClient.invalidateQueries({ queryKey: ["onboarding-validations", empresaId] });
   };
 
+  // Auto-complete: if all validations pass but onboarding not marked complete, update DB
+  const autoCompleteRef = useRef(false);
+  useEffect(() => {
+    if (!validations || !onboarding || onboarding.onboarding_completo || autoCompleteRef.current) return;
+    if (validations.step1.ok && validations.step2.ok && validations.step3.ok) {
+      autoCompleteRef.current = true;
+      updateStep.mutate({
+        step1_completed: true,
+        step2_completed: true,
+        step3_completed: true,
+        onboarding_completo: true,
+        completed_at: new Date().toISOString(),
+        missing_items: [],
+      });
+    }
+  }, [validations, onboarding]);
+
   // Computed
-  const isComplete = onboarding?.onboarding_completo ?? false;
+  const allValid = !!(validations?.step1?.ok && validations?.step2?.ok && validations?.step3?.ok);
+  const isComplete = onboarding?.onboarding_completo || allValid || false;
   const currentStep = onboarding?.current_step ?? 1;
   const isLoading = empresaLoading || loadingOnboarding || loadingValidation;
 
