@@ -257,9 +257,13 @@ export default function Dashboard() {
       const custoUnitario = Number(p.custo_unitario) || 0;
       const qtdTotal = Number(p.qtd_total) || 0;
       const totalFaturado = Number(p.total_faturado) || 0;
-      const totalAds = Number(p.total_ads) || 0;
       const cmv = custoUnitario * qtdTotal;
-      const lucro = totalFaturado - cmv - totalAds;
+      const totalComissao = Number(p.total_comissao) || 0;
+      const totalTarifas = Number(p.total_tarifas) || 0;
+      const totalFreteVendedor = Number(p.total_frete_vendedor) || 0;
+      const totalImpostos = Number(p.total_impostos) || 0;
+      const custosVenda = totalComissao + totalTarifas + totalFreteVendedor + totalImpostos;
+      const lucro = totalFaturado - cmv - custosVenda;
       const margem = totalFaturado > 0 ? (lucro / totalFaturado) * 100 : 0;
       const posicaoAtual = index + 1;
       const posicaoAnterior = rankAnterior.get(p.produto_id) ?? null;
@@ -280,7 +284,7 @@ export default function Dashboard() {
         empresaId: p.produto_empresa_id || null,
         qtdTotal,
         totalFaturado,
-        totalAds,
+        custosVenda,
         porCanal: p.por_canal || {},
         precoMedio: qtdTotal > 0 ? totalFaturado / qtdTotal : 0,
         lucro,
@@ -487,8 +491,8 @@ export default function Dashboard() {
                         <TableHead className="min-w-[260px]">Produto</TableHead>
                         <TableHead className="text-right">Preço Médio</TableHead>
                         <TableHead className="text-center min-w-[180px]">Qtd. Vendida</TableHead>
-                        <TableHead className="text-right">Ads</TableHead>
                         <TableHead className="text-right">Faturamento</TableHead>
+                        <TableHead className="text-right">Custos Venda</TableHead>
                         <TableHead className="text-right">Lucro</TableHead>
                         <TableHead className="text-right">Margem</TableHead>
                       </TableRow>
@@ -577,14 +581,14 @@ export default function Dashboard() {
                             </div>
                           </TableCell>
                           
-                          {/* Ads */}
-                          <TableCell className="text-right">
-                            {produto.totalAds > 0 ? <span className="text-warning">{formatCurrency(produto.totalAds)}</span> : <span className="text-muted-foreground">-</span>}
-                          </TableCell>
-                          
                           {/* Total Faturado */}
                           <TableCell className="text-right font-medium">
                             {formatCurrency(produto.totalFaturado)}
+                          </TableCell>
+                          
+                          {/* Custos Venda */}
+                          <TableCell className="text-right">
+                            {produto.custosVenda > 0 ? <span className="text-destructive">{formatCurrency(produto.custosVenda)}</span> : <span className="text-muted-foreground">-</span>}
                           </TableCell>
                           
                           {/* Lucro */}
