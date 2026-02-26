@@ -4044,7 +4044,11 @@ export type Database = {
           produto_thumbnail_url: string
           qtd_total: number
           total_ads: number
+          total_comissao: number
           total_faturado: number
+          total_frete_vendedor: number
+          total_impostos: number
+          total_tarifas: number
         }[]
       }
       get_user_empresa_ids: { Args: never; Returns: string[] }
