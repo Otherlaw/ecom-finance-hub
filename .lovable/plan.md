@@ -1,45 +1,49 @@
 
-## Corrigir Margem no Top 10 Produtos e Remover Coluna Ads
 
-### Problema Atual
-A margem no Top 10 calcula apenas: `Lucro = Faturamento - CMV - Ads`, ignorando os custos reais da venda (comissao, tarifas, frete vendedor, impostos). Alem disso, a coluna "Ads" deve ser removida.
+## Corrigir Onboarding: Auto-completar quando dados ja estao preenchidos
 
-### O Que Sera Feito
+### Problema
+O bloqueio de onboarding aparece mesmo quando todos os dados ja estao preenchidos (empresa, CNPJ, integracao, certificado, importacoes). Isso acontece porque o campo `onboarding_completo` no banco de dados so e marcado como `true` quando o usuario clica manualmente em "Proximo" em cada uma das 3 etapas. Se o usuario ja configurou tudo por conta propria, o sistema continua bloqueando.
 
-**1. Atualizar a RPC `get_top_produtos_vendidos`**
-- Agregar os custos de venda por produto/SKU a partir da tabela `marketplace_transactions`
-- Novos campos retornados: `total_comissao`, `total_tarifas`, `total_frete_vendedor`, `total_impostos`
-- Os custos serao rateados proporcionalmente ao valor de cada item no pedido (quando um pedido tem multiplos itens)
-- Remover o campo `total_ads` (ou manter zerado para compatibilidade)
+### Solucao
+Duas mudancas complementares:
 
-**2. Atualizar o calculo de margem no Dashboard (Dashboard.tsx)**
-- Nova formula: `Lucro = Faturamento - CMV - Comissao - Tarifas - Frete Vendedor - Impostos`
-- Margem = Lucro / Faturamento * 100
+**1. Auto-completar no hook `useOnboardingValidado`**
+Adicionar um `useEffect` que detecta quando todas as 3 validacoes estao OK (`step1.ok && step2.ok && step3.ok`) e o onboarding ainda nao esta marcado como completo. Nesse caso, atualizar automaticamente o registro no banco para `onboarding_completo = true`, `step1_completed = true`, `step2_completed = true`, `step3_completed = true`.
 
-**3. Atualizar a tabela visual**
-- Remover a coluna "Ads"
-- Adicionar coluna "Custos Venda" (soma de comissao + tarifas + frete + impostos)
-- Manter colunas: #, Produto, Preco Medio, Qtd Vendida, Faturamento, Custos Venda, Lucro, Margem
+**2. Considerar validacoes no `isComplete`**
+Alterar a propriedade `isComplete` retornada pelo hook para tambem ser `true` quando todas as validacoes passam, mesmo antes do update no banco ser processado. Isso elimina o flash do modal bloqueador.
 
 ### Detalhes Tecnicos
 
-**Migration SQL** — Recriar `get_top_produtos_vendidos`:
-- Fazer JOIN com `marketplace_transactions` para obter `tarifas`, `taxas`, `frete_vendedor` e rateio proporcional por item
-- Calculo de impostos via `empresas_config_fiscal.aliquota_imposto_vendas` (mesmo padrao da RPC de vendas)
-- Retornar novos campos: `total_comissao`, `total_tarifas`, `total_frete_vendedor`, `total_impostos`
+**Arquivo: `src/hooks/useOnboardingValidado.ts`**
 
-**Frontend (Dashboard.tsx)**:
-- Atualizar o `useMemo` de processamento para usar os novos campos
-- Calcular `custoVenda = comissao + tarifas + freteVendedor + impostos`
-- `lucro = totalFaturado - cmv - custoVenda`
-- Remover coluna Ads da tabela, adicionar coluna "Custos Venda"
+- Adicionar `useEffect` apos as queries de validacao:
+```typescript
+useEffect(() => {
+  if (!validations || !onboarding || onboarding.onboarding_completo) return;
+  if (validations.step1.ok && validations.step2.ok && validations.step3.ok) {
+    updateStep.mutate({
+      step1_completed: true,
+      step2_completed: true,
+      step3_completed: true,
+      onboarding_completo: true,
+      completed_at: new Date().toISOString(),
+    });
+  }
+}, [validations, onboarding]);
+```
+
+- Alterar o calculo de `isComplete`:
+```typescript
+const allValid = validations?.step1?.ok && validations?.step2?.ok && validations?.step3?.ok;
+const isComplete = onboarding?.onboarding_completo || allValid || false;
+```
 
 ### Arquivos Alterados
-- Nova migration SQL (recriacao da RPC)
-- `src/pages/Dashboard.tsx` (calculo de margem + layout da tabela)
+- `src/hooks/useOnboardingValidado.ts` (unica alteracao)
 
 ### Como Testar
-1. Abrir Dashboard e verificar o Top 10
-2. Confirmar que a margem agora reflete os custos reais (comissao, tarifas, frete, impostos, CMV)
-3. Confirmar que a coluna Ads foi removida e substituida por "Custos Venda"
-4. Comparar margem de um produto com os dados da aba Vendas — devem ser consistentes
+1. Abrir a pagina de Vendas — o modal de "Configuracao Pendente" NAO deve mais aparecer se os dados ja estao preenchidos
+2. O banner de onboarding no topo deve desaparecer ou mostrar 100%
+3. Verificar que para um usuario novo (sem dados), o onboarding continua funcionando normalmente
